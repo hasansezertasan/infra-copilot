@@ -1,0 +1,262 @@
+# Machine-readable manifest for the infra-setup skill.
+#
+# Read this alongside the router in ../SKILL.md. An agent walks these steps
+# top-to-bottom. On every run it FIRST executes each step's `check` to find where
+# setup already is (resume protocol), then resumes at the first red check.
+#
+# Field contract
+#   id        stable slug, referenced by SKILL.md
+#   phase     0..6, matches SKILL.md phases
+#   provider  hcp | cloudflare | github | gcp | repo
+#   actor     AGENT  -> agent executes directly
+#             HUMAN  -> agent STOPS, emits the handoff block (see SKILL.md), waits
+#                       for "done", then runs `check` before continuing
+#   title     one line
+#   why       what this unblocks (goes in the handoff block's "Why:")
+#   run       AGENT steps: the command(s) the agent runs
+#             HUMAN steps: the human_action text (browser instructions)
+#   check     command whose success (exit 0) means the step is DONE. Idempotent.
+#             `null` means "no scriptable check — prove it via the next plan".
+#   produces  the artifact/credential this step yields
+#   docs      canonical section to read for the fine print — a REPO-ROOT-RELATIVE path
+#             (e.g. docs/setup.md#... or .claude/skills/infra-setup/references/...),
+#             not relative to this file
+#
+# RUNNER SETUP — the fields below (org, hcp_api, …) are YAML metadata, NOT shell
+# variables. Before running any `check`/`run`, export the two the commands actually
+# reference as shell vars:
+#     export hcp_api=https://app.terraform.io/api/v2
+#     export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+# The org slug `perishdev` is inlined literally in each command (not $org) — change it
+# there, and in hcp_api if self-hosting, when porting. See the "Porting" table in SKILL.md.
+
+org: perishdev
+domain: perish.dev
+hcp_api: https://app.terraform.io/api/v2
+managed_repos:
+  - perishdev/infra
+  - perishdev/perishdev.github.io
+
+preflight:
+  - tool: terraform
+    min: "1.9"
+    check: "terraform version -json | jq -e '.terraform_version | split(\".\") | ((.[0]|tonumber) > 1) or ((.[0]|tonumber)==1 and (.[1]|tonumber) >= 9)'"
+  - tool: gh
+    check: "gh --version"
+  - tool: jq
+    check: "jq --version"
+  - tool: curl
+    check: "curl --version | head -1"
+
+steps:
+  # ── Phase 0 — HCP bootstrap ─────────────────────────────────────────────
+  - id: hcp-signup
+    phase: 0
+    provider: hcp
+    actor: HUMAN
+    title: Create HCP Terraform org and project
+    why: HCP holds all state and secrets; nothing plans without it.
+    run: |
+      1. Sign up at https://app.terraform.io/ (free tier is enough to start).
+      2. Create an organization named exactly `perishdev`.
+      3. Inside it, create a project named `infra`.
+    # NOTE: this check needs $HCP_TOKEN, which is only minted by the NEXT step
+    # (hcp-login) — an HCP org can't be verified without a token. On a cold run it
+    # reads red until hcp-login completes; that ordering is intentional, not a bug.
+    check: 'test -n "$HCP_TOKEN" && curl -sf "$hcp_api/organizations/perishdev" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
+    produces: HCP org `perishdev`, project `infra`
+    docs: docs/setup.md#1-hcp-terraform--organization
+
+  - id: hcp-login
+    phase: 0
+    provider: hcp
+    actor: HUMAN
+    title: terraform login (mint the pivot HCP token)
+    why: This browser login yields the API token that lets the AGENT drive everything after this.
+    run: |
+      Run locally:  terraform login
+      Approve in the browser tab it opens. The token is written to
+      ~/.terraform.d/credentials.tfrc.json. This is the last interactive auth a human does.
+    check: 'jq -re ".credentials[\"app.terraform.io\"].token" ~/.terraform.d/credentials.tfrc.json'
+    produces: HCP user API token at ~/.terraform.d/credentials.tfrc.json
+    docs: docs/setup.md#6-local-development
+
+  - id: hcp-verify
+    phase: 0
+    provider: hcp
+    actor: AGENT
+    title: Confirm HCP API reachable
+    why: Gate — the rest of this skill is HCP API calls.
+    run: |
+      export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+      curl -sf "$hcp_api/organizations/perishdev" -H "Authorization: Bearer $HCP_TOKEN" | jq -e '.data.id'
+    check: 'curl -sf "$hcp_api/organizations/perishdev" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
+    produces: verified API access
+    docs: docs/state.md#api-access
+
+  # ── Phase 1 — HCP workspaces ────────────────────────────────────────────
+  - id: vcs-connect
+    phase: 1
+    provider: hcp
+    actor: HUMAN
+    title: Connect GitHub to HCP via OAuth
+    why: Workspaces need a VCS provider to run speculative plans on PRs.
+    run: |
+      In HCP -> org Settings -> Version Control / VCS Providers, connect GitHub via OAuth,
+      scoped to this repo only. Note the oauth-token id if the agent will script workspace creation.
+    # Assert a GitHub-family VCS provider specifically, not just "any oauth client" —
+    # otherwise a pre-existing GitLab/Bitbucket connection would false-green this step.
+    check: 'curl -sf "$hcp_api/organizations/perishdev/oauth-clients" -H "Authorization: Bearer $HCP_TOKEN" | jq -e "[.data[] | select(.attributes[\"service-provider\"] | test(\"github\"))] | length > 0"'
+    produces: GitHub<->HCP OAuth connection
+    docs: docs/setup.md#2-hcp-terraform--workspaces
+
+  - id: workspaces-create
+    phase: 1
+    provider: hcp
+    actor: AGENT
+    title: Create cloudflare + github-org workspaces
+    why: One workspace per leaf; carries working dir, path filter, safety toggles.
+    run: |
+      SOURCE OF TRUTH: the `create_ws` helper in references/hcp.md (Phase 1). Run that.
+      The summary below is a reminder, not a second copy to maintain — if it disagrees
+      with hcp.md, hcp.md wins. A POST to
+      $hcp_api/organizations/perishdev/workspaces per workspace with:
+        working-directory:   terraform/cloudflare  (and terraform/github)
+        file-triggers-enabled: true
+        trigger-patterns:    ["terraform/cloudflare/**"]  (and terraform/github/**)
+        execution-mode:      remote
+        auto-apply:          false
+        speculative-enabled: true       # plans on PRs
+        vcs-repo:            identifier perishdev/infra, oauth-token-id from vcs-connect, branch main
+      Then in each workspace's UI -> Version Control, confirm FORK speculative plans are OFF
+      (separate toggle, no clean create-time attribute; defaults off).
+    check: |
+      for ws in cloudflare github-org; do
+        curl -sf "$hcp_api/organizations/perishdev/workspaces/$ws" -H "Authorization: Bearer $HCP_TOKEN" \
+          | jq -e '.data.attributes["auto-apply"]==false' >/dev/null || exit 1
+      done
+    produces: workspaces `cloudflare`, `github-org`
+    docs: docs/state.md#workspaces
+
+  # ── Phase 2 — Cloudflare ────────────────────────────────────────────────
+  - id: cf-token
+    phase: 2
+    provider: cloudflare
+    actor: HUMAN
+    title: Mint Cloudflare token and paste into HCP
+    why: The cloudflare workspace authenticates to Cloudflare with this token.
+    run: |
+      1. https://dash.cloudflare.com/profile/api-tokens -> Create Token -> Custom token.
+      2. Permissions: Zone·DNS·Edit, Zone·Zone Settings·Edit  (add more as resources grow).
+      3. Account Resources: your account. Zone Resources: Specific zone -> perish.dev.
+      4. Copy the token (shown once).
+      5. HCP -> workspace `cloudflare` -> Variables -> add `cloudflare_api_token`
+         as a TERRAFORM variable, mark SENSITIVE, paste the value.
+    check: |
+      WS_ID=$(curl -sf "$hcp_api/organizations/perishdev/workspaces/cloudflare" -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
+      curl -sf "$hcp_api/workspaces/$WS_ID/vars" -H "Authorization: Bearer $HCP_TOKEN" \
+        | jq -e '.data[] | select(.attributes.key=="cloudflare_api_token") | .attributes.sensitive==true'
+    produces: sensitive var `cloudflare_api_token`
+    docs: .claude/skills/infra-setup/references/cloudflare.md
+
+  # ── Phase 3 — GitHub App ────────────────────────────────────────────────
+  - id: gh-app
+    phase: 3
+    provider: github
+    actor: HUMAN
+    title: Create + install GitHub App, paste creds into HCP
+    why: The github-org workspace authenticates as a GitHub App (not a PAT).
+    run: |
+      1. Create the App under perishdev: https://github.com/organizations/perishdev/settings/apps/new
+         Permissions: Repo Administration(RW), Contents(R), Metadata(R), Pull requests(RW);
+         Org Members(R), Administration(RW). Install: only on this account.
+      2. Note the App ID. Generate a private key (.pem).
+      3. Install on perishdev scoped to perishdev/infra + perishdev/perishdev.github.io;
+         note the Installation ID from the install URL.
+      4. HCP -> workspace `github-org` -> Variables, add as TERRAFORM vars:
+         github_owner=perishdev (not sensitive),
+         github_app_id (sensitive), github_app_installation_id (sensitive),
+         github_app_pem = full PEM incl. BEGIN/END lines (sensitive).
+    check: |
+      WS_ID=$(curl -sf "$hcp_api/organizations/perishdev/workspaces/github-org" -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
+      curl -sf "$hcp_api/workspaces/$WS_ID/vars" -H "Authorization: Bearer $HCP_TOKEN" | jq -e '
+        [.data[].attributes.key] as $k
+        | ("github_owner"|IN($k[])) and ("github_app_id"|IN($k[]))
+          and ("github_app_installation_id"|IN($k[])) and ("github_app_pem"|IN($k[]))'
+    produces: sensitive vars github_app_id / _installation_id / _pem, plus github_owner
+    docs: .claude/skills/infra-setup/references/github.md
+
+  # ── Phase 4 — First plan ────────────────────────────────────────────────
+  - id: plan-cloudflare
+    phase: 4
+    provider: cloudflare
+    actor: AGENT
+    title: init + speculative plan (terraform/cloudflare)
+    why: Proves the Cloudflare token end-to-end.
+    run: "cd terraform/cloudflare && terraform init && terraform plan"
+    check: "cd terraform/cloudflare && terraform init -input=false >/dev/null && terraform plan -input=false >/dev/null"
+    produces: green speculative plan for cloudflare
+    docs: docs/hcp-api.md
+
+  - id: plan-github
+    phase: 4
+    provider: github
+    actor: AGENT
+    title: init + speculative plan (terraform/github)
+    why: Proves the GitHub App credentials end-to-end.
+    run: "cd terraform/github && terraform init && terraform plan"
+    check: "cd terraform/github && terraform init -input=false >/dev/null && terraform plan -input=false >/dev/null"
+    produces: green speculative plan for github-org
+    docs: docs/hcp-api.md
+
+  # ── Phase 5 — Migration (only if resources pre-exist) ───────────────────
+  - id: migrate-discovery-token
+    phase: 5
+    provider: cloudflare
+    actor: HUMAN
+    title: Mint short-lived read-only Cloudflare discovery token
+    why: cf-terraforming reads existing resources; use a throwaway READ token, not the HCP edit token.
+    run: |
+      https://dash.cloudflare.com/profile/api-tokens -> Custom token -> READ scopes on each
+      resource type to discover (DNS·Read, etc.), zone perish.dev, TTL a few hours. Copy the value.
+    check: ~   # YAML null — ephemeral credential, no scriptable check (see header contract)
+    produces: throwaway read token (deleted after import)
+    docs: docs/import.md#discovery-token
+
+  - id: migrate-import
+    phase: 5
+    provider: cloudflare
+    actor: AGENT
+    title: Generate HCL + import blocks, verify plan imports (not creates)
+    why: Bring existing zone/records under management without recreating them.
+    run: |
+      Follow docs/import.md: cf-terraforming generate + import (--modern-import-block)
+      into terraform/cloudflare/generated.tf, then terraform plan.
+    # One plan, captured once to a private mktemp file (0600, auto-removed), not a fixed
+    # world-readable /tmp path. Success = at least one import AND zero creates. (If a change
+    # legitimately adds a new resource alongside the import, review by hand — this check
+    # intentionally treats any 'will be created' as not-done.)
+    check: |
+      cd terraform/cloudflare
+      p=$(mktemp)
+      trap 'rm -f "$p"' EXIT
+      terraform plan -input=false -no-color >"$p" 2>&1 \
+        && grep -q 'will be imported' "$p" \
+        && ! grep -q 'will be created' "$p"
+    produces: generated.tf with import blocks; plan shows imports only
+    docs: .claude/skills/infra-setup/references/migration.md
+
+  # ── Phase 6 — GCP (template only; NOT active) ───────────────────────────
+  - id: gcp-decision
+    phase: 6
+    provider: gcp
+    actor: HUMAN
+    title: (Template) Decide to adopt GCP — update design docs first
+    why: GCP is not a managed provider yet; adopting it changes a locked decision.
+    run: |
+      GCP is out of scope today. To adopt it: update CLAUDE.md's locked-decisions table
+      and terraform/README.md, THEN follow .claude/skills/infra-setup/references/gcp.md.
+      Do not provision ahead of the decision.
+    check: "test -d terraform/gcp"   # red until GCP is intentionally adopted
+    produces: (none until adopted)
+    docs: .claude/skills/infra-setup/references/gcp.md
