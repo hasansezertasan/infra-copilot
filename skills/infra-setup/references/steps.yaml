@@ -36,7 +36,7 @@
 #     export hcp_api=https://app.terraform.io/api/v2
 #     export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
 # Never guess or invent these values — if the config file is missing, treat it as a
-# HUMAN step per config.md. See the "Porting" table in SKILL.md.
+# HUMAN step per config.md. See the "Configuring for your org" section in SKILL.md.
 
 org: $ORG  # sourced from config — see config.md
 domain: $DOMAIN  # sourced from config — see config.md

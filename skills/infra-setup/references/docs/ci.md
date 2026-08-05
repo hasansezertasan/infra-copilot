@@ -49,7 +49,7 @@ Plus: linear history, no force-push, no branch deletion, conversation resolution
 2. **Never `echo` secrets**, never pass them as command-line args (visible in `ps`). Use env vars and let the tool read them.
 3. **Sensitive Terraform outputs**: mark `sensitive = true`. HCP redacts these from plan output.
 4. **Fork-PR plans are opt-in.** A maintainer reviews the diff, decides whether it's safe to run against the real Cloudflare/GitHub account, then applies the `safe-to-plan` label.
-5. **Apply requires a human.** No automated apply, ever. (The exception during this repo's bootstrap was deliberate API-driven applies after the speculative plan had been read; see commit history.)
+5. **Apply requires a human.** No automated apply, ever. (A deliberate exception: API-driven applies performed only after the speculative plan has been read.)
 
 ## What to watch for in PR diffs from forks
 

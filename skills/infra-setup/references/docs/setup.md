@@ -109,7 +109,7 @@ If `gh api repos/<owner>/<repo>/pages` shows `https_certificate: null` and `prot
 
 ```sh
 gh api -X PUT repos/$REPO/pages -f 'cname='          # remove
-gh api -X PUT repos/$REPO/pages -f 'cname=$DOMAIN'   # re-add
+gh api -X PUT repos/$REPO/pages -f "cname=$DOMAIN"   # re-add
 ```
 
 Removing and re-adding the custom domain re-emits the event that kicks Let's Encrypt. Cert usually issues within a few minutes after that.

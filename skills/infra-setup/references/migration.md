@@ -39,7 +39,7 @@ runbook — install, discovery token, `generate`, `import --modern-import-block`
 supported-resource matrix, and the script/route gaps — is in
 [`import.md`](docs/import.md). Don't duplicate it; the agent should read and follow it.
 
-What this repo actually imported: the six Email-Routing DNS records on `<apex-domain>`. Pages
+Example: existing Email-Routing DNS records on `<apex-domain>` are import candidates. Pages
 projects and R2 buckets were discovered but **deliberately excluded** (out of scope). That
 scope call is the human-confirmed part of "review generated HCL".
 

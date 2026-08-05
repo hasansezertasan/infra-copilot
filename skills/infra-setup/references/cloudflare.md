@@ -83,8 +83,8 @@ never-see-the-plaintext rule holds). Two clean ways to get the IDs when porting:
     -H "Authorization: Bearer $CF_READ_TOKEN" | jq -r '.result[0].id'
   ```
 
-Write the results into `terraform/cloudflare/main.tf` `locals`. See the Porting table in
-[`SKILL.md`](../SKILL.md#porting-to-another-organization).
+Write the results into `terraform/cloudflare/main.tf` `locals`. See the Configuring-for-your-org section in
+[`SKILL.md`](../SKILL.md#configuring-for-your-org).
 
 ## Rotation
 
