@@ -108,8 +108,8 @@ Usually one of three things:
 If `gh api repos/<owner>/<repo>/pages` shows `https_certificate: null` and `protected_domain_state: null` for more than ~15 min after the DNS resolves, the cert provisioning flow has wedged. Fix:
 
 ```sh
-gh api -X PUT repos/<owner>/<repo>/pages -f 'cname='          # remove
-gh api -X PUT repos/<owner>/<repo>/pages -f 'cname=<domain>'  # re-add
+gh api -X PUT repos/$REPO/pages -f 'cname='          # remove
+gh api -X PUT repos/$REPO/pages -f 'cname=$DOMAIN'   # re-add
 ```
 
 Removing and re-adding the custom domain re-emits the event that kicks Let's Encrypt. Cert usually issues within a few minutes after that.
