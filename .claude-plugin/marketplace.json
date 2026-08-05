@@ -1,0 +1,11 @@
+{
+  "name": "infra-copilot",
+  "owner": { "name": "hasansezertasan" },
+  "plugins": [
+    {
+      "name": "infra-copilot",
+      "source": "./",
+      "description": "Agent-first bootstrap + maintenance for Terraform/HCP/Cloudflare/GitHub SaaS infra repos."
+    }
+  ]
+}

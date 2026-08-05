@@ -1,0 +1,8 @@
+{
+  "name": "infra-copilot",
+  "version": "0.1.0",
+  "description": "Agent-first, human-in-the-loop bootstrap and maintenance for Terraform + HCP + Cloudflare + GitHub SaaS infra repos. Reads a repo-local config; drives setup, import, and first plan end-to-end.",
+  "author": { "name": "hasansezertasan" },
+  "homepage": "https://github.com/hasansezertasan/infra-copilot",
+  "license": "MIT"
+}
