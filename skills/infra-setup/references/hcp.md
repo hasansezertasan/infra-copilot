@@ -1,25 +1,26 @@
 # HCP bootstrap + workspaces (agent-first)
 
 Deep dive for Phases 0–1 of the [`infra-setup`](../SKILL.md) skill. Canonical detail:
-[`docs/setup.md#1`](../../../../docs/setup.md#1-hcp-terraform--organization),
-[`docs/setup.md#2`](../../../../docs/setup.md#2-hcp-terraform--workspaces),
-[`docs/state.md`](../../../../docs/state.md).
+[`docs/setup.md#1`](docs/setup.md#1-hcp-terraform--organization),
+[`docs/setup.md#2`](docs/setup.md#2-hcp-terraform--workspaces),
+[`docs/state.md`](docs/state.md).
 
 ## Phase 0 — bootstrap
 
 The only unavoidable cold-start. Produces the HCP token that lets the agent script everything after.
 
-- **`HUMAN` — hcp-signup.** Sign up at <https://app.terraform.io/>, create org **`perishdev`**,
+- **`HUMAN` — hcp-signup.** Sign up at <https://app.terraform.io/>, create org **`<your-org>`**,
   create project **`infra`**. (Org name must equal the `organization` field in every
-  `terraform/*/versions.tf` — it does: `perishdev`.)
+  `terraform/*/versions.tf` — it does.)
 - **`HUMAN` — hcp-login.** Run `terraform login` locally (opens a browser, asks HCP for a
   user API token). `HUMAN` because it needs an interactive browser — but it's the *last*
   time a human touches the terminal for auth. Token lands in
   `~/.terraform.d/credentials.tfrc.json`.
 - **`AGENT` — hcp-verify.** From here you own the HCP API:
   ```sh
+  # $ORG sourced from config — see references/config.md
   HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
-  curl -sf "https://app.terraform.io/api/v2/organizations/perishdev" \
+  curl -sf "https://app.terraform.io/api/v2/organizations/$ORG" \
     -H "Authorization: Bearer $HCP_TOKEN" | jq -e '.data.id' \
     && echo "✓ HCP org reachable"
   ```
@@ -39,7 +40,7 @@ GitHub↔HCP OAuth connection (browser).
 - **`AGENT` — workspaces-create.** Create both workspaces with the correct working
   directory, path-based run triggering, remote execution, and auto-apply **off**. The
   safety toggles that matter — and *why each bites if wrong* — are in
-  [`docs/setup.md#2`](../../../../docs/setup.md#2-hcp-terraform--workspaces): speculative
+  [`docs/setup.md#2`](docs/setup.md#2-hcp-terraform--workspaces): speculative
   plans **on**, path-scoped triggers, and — set in the UI — **fork** speculative plans
   **off**. Ready-to-run and **genuinely idempotent** — re-running reports an existing
   workspace as `✓ … already exists` (HCP answers a duplicate name with `422`); any other
@@ -47,8 +48,9 @@ GitHub↔HCP OAuth connection (browser).
 
   ```sh
   export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
-  ORG=perishdev
-  REPO=perishdev/infra                       # the repo HCP watches via VCS
+  # $ORG, $REPO sourced from config — see references/config.md
+  : "${ORG:?run Step 0 (read config) first}"
+  : "${REPO:?run Step 0 (read config) first}"   # the repo HCP watches via VCS
 
   # oauth-token-id from the VCS connection created in the vcs-connect step
   OAUTH_TOKEN_ID=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/oauth-clients" \
@@ -93,12 +95,12 @@ GitHub↔HCP OAuth connection (browser).
   > path-scoping toggle. `speculative-enabled: true` is the master switch for plans on PRs.
   > The **fork** speculative-plan toggle is *separate* and has no clean create-time
   > attribute — confirm it's **off** in the workspace's UI → Settings → Version Control
-  > (it defaults off; the label-gated flow in [`docs/ci.md`](../../../../docs/ci.md) replaces it for forks).
+  > (it defaults off; the label-gated flow in [`docs/ci.md`](docs/ci.md) replaces it for forks).
 
   Verify:
   ```sh
   for ws in cloudflare github-org; do
-    curl -sf "https://app.terraform.io/api/v2/organizations/perishdev/workspaces/$ws" \
+    curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$ws" \
       -H "Authorization: Bearer $HCP_TOKEN" \
       | jq -e '.data.attributes["auto-apply"] == false' >/dev/null \
       && echo "✓ $ws exists, auto-apply off"
@@ -106,5 +108,5 @@ GitHub↔HCP OAuth connection (browser).
   ```
 
 > The end state of Phases 0–1 (HCP-as-clickops today) is tracked for future
-> Terraform-ification in [Issue #8](https://github.com/perishdev/infra/issues/8). Until
-> then these steps are API calls, not `.tf` files.
+> Terraform-ification as a tracked improvement in this repo's issue tracker (see the
+> repo's open issues). Until then these steps are API calls, not `.tf` files.

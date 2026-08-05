@@ -2,12 +2,12 @@
 
 Deep dive for [Phase 2](../SKILL.md#phase-2--cloudflare) of the infra-setup skill. What the
 agent does, what the human must do, and how to prove it. Canonical bootstrap detail:
-[`setup.md#3`](../../../../docs/setup.md#3-cloudflare-api-token). Token scopes + rotation:
-[`secrets.md`](../../../../docs/secrets.md#cloudflare-api-token-scopes).
+[`setup.md#3`](docs/setup.md#3-cloudflare-api-token). Token scopes + rotation:
+[`secrets.md`](docs/secrets.md#cloudflare-api-token-scopes).
 
 ## What this repo manages via Cloudflare
 
-The `perish.dev` zone and all its DNS records (Email Routing + GitHub Pages), through the
+The `<apex-domain>` zone and all its DNS records (Email Routing + GitHub Pages), through the
 `cloudflare/cloudflare` v5 provider. State + token live in the HCP `cloudflare` workspace.
 
 ## The actor split
@@ -25,21 +25,21 @@ The `perish.dev` zone and all its DNS records (Email Routing + GitHub Pages), th
 The agent emits a handoff block; the human does exactly this:
 
 1. <https://dash.cloudflare.com/profile/api-tokens> → **Create Token** → **Custom token**.
-2. Permissions for the `perish.dev` zone and its account:
+2. Permissions for the `<apex-domain>` zone and its account:
    - Zone — DNS — **Edit**
    - Zone — Zone Settings — **Edit**
    - *(add a row per new resource type before Terraform manages it — Email Routing Rules,
      Rulesets, etc. Edit the token later, don't regenerate — see
-     [`setup.md`](../../../../docs/setup.md#adding-scopes-to-the-cloudflare-token-later).)*
+     [`setup.md`](docs/setup.md#adding-scopes-to-the-cloudflare-token-later).)*
 3. **Account Resources**: Include — your account. **Zone Resources**: Include —
-   Specific zone — `perish.dev`.
+   Specific zone — `<apex-domain>`.
 4. Copy the token (shown once).
 5. HCP → workspace **`cloudflare`** → Variables → add `cloudflare_api_token` as a
    **Terraform** variable, mark **Sensitive**, paste.
 
 > The token needs **Edit** because the persistent workspace *manages* resources. For
 > one-time *discovery* during migration, a separate **Read** token is used and thrown
-> away — see [`migration.md`](./migration.md) and [`import.md`](../../../../docs/import.md#discovery-token).
+> away — see [`migration.md`](./migration.md) and [`import.md`](docs/import.md#discovery-token).
 
 ## AGENT — verify
 
@@ -48,7 +48,7 @@ the token with a plan:
 
 ```sh
 HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
-WS_ID=$(curl -sf "https://app.terraform.io/api/v2/organizations/perishdev/workspaces/cloudflare" \
+WS_ID=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/cloudflare" \
   -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
 
 curl -sf "https://app.terraform.io/api/v2/workspaces/$WS_ID/vars" \
@@ -62,7 +62,7 @@ cd terraform/cloudflare && terraform init && terraform plan   # green = token wo
 ## AGENT — reading account + zone IDs (porting)
 
 These are **not secrets** (they're `local`s in `terraform/cloudflare/main.tf`:
-`account_id = d8a72309…`, `zone_id = 78ff9bdc…`), so reading them doesn't need the
+`account_id = <cloudflare-account-id>`, `zone_id = <cloudflare-zone-id>`), so reading them doesn't need the
 persistent Edit token — and the agent should **not** touch that token (the
 never-see-the-plaintext rule holds). Two clean ways to get the IDs when porting:
 
@@ -90,4 +90,4 @@ Write the results into `terraform/cloudflare/main.tf` `locals`. See the Porting 
 
 Zero-downtime, agent-assisted: human mints the new token and pastes it; agent runs a no-op
 `plan` to prove it; only then does the human revoke the old one. Steps in
-[`secrets.md`](../../../../docs/secrets.md#cloudflare-api-token).
+[`secrets.md`](docs/secrets.md#cloudflare-api-token).

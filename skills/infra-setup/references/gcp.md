@@ -3,9 +3,9 @@
 > **Status: TEMPLATE. No GCP resources are managed by this repo today.**
 >
 > GCP is **not** a managed provider. There is no `terraform/gcp/` leaf, no `gcp` HCP
-> workspace, and no GCP entry in the [locked-decisions table](../../../../CLAUDE.md). Adopting
-> GCP is a **design decision that must be made first** — per `CLAUDE.md`, update the
-> decisions table and [`terraform/README.md`](../../../../terraform/README.md) **before** any
+> workspace, and no GCP entry in this repo's root `CLAUDE.md` locked-decisions table.
+> Adopting GCP is a **design decision that must be made first** — per that `CLAUDE.md`,
+> update the decisions table and this repo's root `terraform/README.md` **before** any
 > code or provisioning. This file is the forward-looking template for *when* that day
 > comes, written in the same agent-first shape as the live providers.
 
@@ -84,7 +84,7 @@ adopted with Terraform 1.5+ `import` blocks and either handwritten HCL or
 
 ```
 terraform/gcp/
-  versions.tf     # required_providers { google }, cloud { organization=perishdev, workspaces{name="gcp"} }
+  versions.tf     # required_providers { google }, cloud { organization=<your-org>, workspaces{name="gcp"} }
   providers.tf    # google provider, WIF impersonation (no key file)
   main.tf         # project-level locals (project_id, region — non-secret, like cloudflare/main.tf)
   *.tf            # one file per resource concern
