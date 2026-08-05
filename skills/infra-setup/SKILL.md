@@ -1,6 +1,6 @@
 ---
 name: infra-setup
-description: "Agent-first, human-in-the-loop bootstrap for this Terraform + HCP infra repo. Use when setting up perishdev/infra (or a fork of it for another org) from scratch — wiring HCP Terraform state, the Cloudflare token, and the GitHub App, importing existing resources, and running the first plan. The agent drives end-to-end and pauses only for signups, credential minting, and secret pasting. Trigger on: 'set up infra', 'bootstrap this repo', 'run infra-setup', 'onboard a new org', '/infra-setup'."
+description: "Agent-first, human-in-the-loop bootstrap for a Terraform + HCP + Cloudflare + GitHub SaaS infra repo. Reads a repo-local config (.claude/infra-copilot.local.md) then wires HCP state, the Cloudflare token, and the GitHub App, imports existing resources, and runs the first plan. Trigger on: 'set up infra', 'bootstrap this repo', 'run infra-setup', 'onboard a new org', '/infra-setup'."
 ---
 
 # infra-setup
@@ -15,9 +15,10 @@ per-provider detail and to the repo's canonical `docs/` for the fine print.
 > `/infra-setup` or by saying "set up the infra."
 
 > **Orchestrates, does not duplicate.** Authoritative per-step detail lives in
-> [`docs/setup.md`](../../../docs/setup.md) (bootstrap) and [`docs/import.md`](../../../docs/import.md)
-> (Cloudflare migration). This skill adds the *actor split* and *resume protocol* on top.
-> When a step says "see `setup.md#3`", read that section.
+> [`references/docs/setup.md`](references/docs/setup.md) (bootstrap) and
+> [`references/docs/import.md`](references/docs/import.md) (Cloudflare migration). This
+> skill adds the *actor split* and *resume protocol* on top. When a step says "see
+> `setup.md#3`", read that section.
 
 ## The one idea
 
@@ -34,6 +35,14 @@ three action kinds:
 3. **Paste a secret** into HCP (browser-only — the agent must never see the plaintext).
 
 Everything else — verifying, creating workspaces, importing resources, first plan — is yours.
+
+## Step 0 — read the repo config (AGENT, always first)
+
+Before the resume scan, read `.claude/infra-copilot.local.md` from the current repo and
+export the shell vars every check depends on. Full schema + the export block:
+[`references/config.md`](references/config.md). If the file is missing, emit the handoff
+block, show the schema, offer to scaffold from `references/infra-copilot.local.md.example`,
+and wait — never guess org/domain/IDs.
 
 ## Actors
 
@@ -108,11 +117,11 @@ Run in order. Each routes to a `references/` deep-dive and the canonical `docs/`
 
 | # | Phase | Actors | Deep dive |
 |---|---|---|---|
-| 0 | **HCP bootstrap** — sign up, `terraform login`, get the pivot token | `HUMAN` then `AGENT` | [`references/hcp.md`](references/hcp.md), [`docs/setup.md#1`](../../../docs/setup.md#1-hcp-terraform--organization) |
-| 1 | **HCP workspaces** — create `cloudflare` + `github-org`, set VCS + safety toggles | `AGENT` (API) + `HUMAN` VCS OAuth | [`references/hcp.md`](references/hcp.md), [`docs/setup.md#2`](../../../docs/setup.md#2-hcp-terraform--workspaces) |
+| 0 | **HCP bootstrap** — sign up, `terraform login`, get the pivot token | `HUMAN` then `AGENT` | [`references/hcp.md`](references/hcp.md), [`references/docs/setup.md#1`](references/docs/setup.md#1-hcp-terraform--organization) |
+| 1 | **HCP workspaces** — create `cloudflare` + `github-org`, set VCS + safety toggles | `AGENT` (API) + `HUMAN` VCS OAuth | [`references/hcp.md`](references/hcp.md), [`references/docs/setup.md#2`](references/docs/setup.md#2-hcp-terraform--workspaces) |
 | 2 | **Cloudflare** — mint scoped token, paste into HCP, verify | `HUMAN` mint/paste, `AGENT` verify | [`references/cloudflare.md`](references/cloudflare.md) |
 | 3 | **GitHub** — create + install the GitHub App, paste creds into HCP | `HUMAN` create/install/paste, `AGENT` verify | [`references/github.md`](references/github.md) |
-| 4 | **First plan** — `init` + speculative `plan` per leaf, read via API | `AGENT` | [`docs/setup.md#6`](../../../docs/setup.md#6-local-development) |
+| 4 | **First plan** — `init` + speculative `plan` per leaf, read via API | `AGENT` | [`references/docs/setup.md#6`](references/docs/setup.md#6-local-development) |
 | 5 | **Migration** — adopt existing resources with import blocks (no re-create) | `AGENT` run, `HUMAN` discovery token | [`references/migration.md`](references/migration.md) |
 | 6 | **GCP** *(optional, template only)* — not provisioned today | design decision first | [`references/gcp.md`](references/gcp.md) |
 
@@ -141,52 +150,35 @@ manifest-flow shortcut: [`references/github.md`](references/github.md).
 Prove every credential end-to-end. Per leaf: `terraform init` then `terraform plan`
 (speculative, runs in HCP). A VCS-connected workspace **allows `plan` but blocks `apply`**
 from the CLI — intentional. Read plans without the UI via
-[`docs/hcp-api.md`](../../../docs/hcp-api.md). Green on both leaves = credentials proven.
+[`references/docs/hcp-api.md`](references/docs/hcp-api.md). Green on both leaves = credentials proven.
 
 ### Phase 5 — Migration (adopt existing resources)
-If the domain/repos already exist (they do for `perish.dev`), **import** them so Terraform
-manages them without recreating. Canonical runbook: [`docs/import.md`](../../../docs/import.md);
+If the domain/repos already exist, **import** them so Terraform manages them without
+recreating. Canonical runbook: [`references/docs/import.md`](references/docs/import.md);
 cross-provider pattern: [`references/migration.md`](references/migration.md). Success signal:
 `terraform plan` shows every existing resource as **"will import"**, nothing as **"will create"**.
 
 ### Phase 6 — GCP (template, optional)
 **Not provisioned today.** GCP is not a managed provider here. Adopting it is a
-**locked-design-decision change** — update [`CLAUDE.md`](../../../CLAUDE.md) and
-[`terraform/README.md`](../../../terraform/README.md) first, then follow the same actor
-split. Template: [`references/gcp.md`](references/gcp.md).
+**locked-design-decision change** — update the repo's locked design decisions doc and its
+Terraform layout README first, then follow the same actor split. Template:
+[`references/gcp.md`](references/gcp.md).
 
 ## Done signal
 
 Setup is complete when you can report:
 
-- ✓ HCP org `perishdev` + project `infra` reachable via API.
+- ✓ HCP org `$ORG` (<your-org>) + project `infra` reachable via API.
 - ✓ Workspaces `cloudflare` and `github-org` exist, VCS-linked, auto-apply off, fork speculative plans off.
 - ✓ All sensitive vars present (`cloudflare_api_token`; `github_app_id`, `github_app_installation_id`, `github_app_pem`).
 - ✓ `terraform plan` green on both leaves.
 - ✓ Existing resources imported (plan shows imports, no creates) — if migrating.
 
-Then day-to-day work follows [`CONTRIBUTING.md`](../../../CONTRIBUTING.md).
+Then day-to-day work follows your repo's own contributor guide.
 
-## Porting to another organization
+## Configuring for your org
 
-Written concretely for **`perishdev` / `perish.dev`**. To reuse as groundwork for another
-org, change these — and nothing else:
-
-| Token | Meaning | Where it appears |
-|---|---|---|
-| `perishdev` | HCP org **and** GitHub org slug | `terraform/*/versions.tf` (`organization`), every HCP API URL, App install URL, workspace `-org` suffix |
-| `perish.dev` | apex domain | `terraform/cloudflare/main.tf` (`local.domain`), Cloudflare token/zone scoping |
-| `d8a72309…` | Cloudflare **account ID** | `terraform/cloudflare/main.tf` (`local.account_id`) |
-| `78ff9bdc…` | Cloudflare **zone ID** | `terraform/cloudflare/main.tf` (`local.zone_id`), migration commands |
-| `perishdev/infra`, `perishdev/perishdev.github.io` | managed repos | `terraform/github/repos.tf`, App install scope |
-| `repo-id-CffUfWW6H1x6Bauq` | per-installation HCP status-check ID | `terraform/github/branch_protection.tf` — **regenerated by HCP**, not chosen; see [`docs/ci.md`](../../../docs/ci.md) |
-
-Porting checklist:
-
-1. `grep -rn 'perishdev\|perish\.dev\|d8a72309\|78ff9bdc' terraform/ docs/ .claude/` to enumerate every literal.
-2. Replace org/domain/repo literals with the new org's values.
-3. Re-derive the two Cloudflare IDs from the new account (read via the Cloudflare API with a
-   read-only token — see [`references/cloudflare.md`](references/cloudflare.md)).
-4. Leave `repo-id-…` alone — HCP emits it when the new VCS connection is made; copy it into
-   `branch_protection.tf` *after* Phase 1. Never invent it.
-5. Re-run this skill from Phase 0. The resume protocol handles the rest.
+All org-specific values — HCP org, GitHub org, apex domain, Cloudflare account/zone IDs,
+managed repos, and the HCP status-check ID — live in one place:
+`.claude/infra-copilot.local.md` (schema and export block: [`references/config.md`](references/config.md)).
+Fill it in once and re-run this skill from Phase 0 — the resume protocol handles the rest.
