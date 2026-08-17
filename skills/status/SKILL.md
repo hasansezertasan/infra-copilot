@@ -21,10 +21,31 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    (that belongs to `setup`).
 2. **Preflight** — report which of `terraform`/`gh`/`jq`/`curl` are present and whether
    Terraform meets the ≥ 1.9 floor. Report the HCP token pivot: present or not.
-3. **Full resume scan** — walk **every** step in
-   [`../shared/steps.yaml`](../shared/steps.yaml) (all phases, 0–6) and run each `check`.
-   Run checks only; never run a step's `run`. For a `HUMAN` step, run its `check` too —
-   don't emit the handoff block (nothing is being unblocked here).
+3. **Full scan — but only with checks that don't touch the working tree.** Walk **every**
+   step in [`../shared/steps.yaml`](../shared/steps.yaml) (all phases, 0–6). Never run a
+   step's `run`. Classify each `check` before running it — the read-only guarantee depends
+   on this:
+
+   - **Non-mutating checks** (HCP/Cloudflare/GitHub API reads, file existence, tool
+     versions — phases 0–3) — run them directly. These only read.
+   - **Mutating checks — do NOT run them.** The phase-4 checks (`plan-cloudflare`,
+     `plan-github`) and the phase-5 `migrate-import` check run `terraform init`/`plan`,
+     which writes `.terraform/` and can create or update `.terraform.lock.hcl` — that would
+     dirty the checkout, and this command promises to change nothing. Instead, read the
+     **latest run status per workspace via the HCP API** (non-mutating — see
+     [`../shared/docs/hcp-api.md`](../shared/docs/hcp-api.md)): a recent successful plan/apply
+     means green; report `?` (plan-gated, not run) if there's no run to read.
+   - **Null checks** (`check: ~`, e.g. `migrate-discovery-token`) — nothing scriptable to
+     run. Report them as `·` (human-gated / ephemeral), never attempt to execute the null.
+   - For `HUMAN` steps, apply the same classification to their `check`; never emit the
+     handoff block — nothing is being unblocked here.
+
+   **Completion vs. not-started (phase 5).** The `migrate-import` check only goes green while
+   a plan still shows `will be imported`; once imports are **applied**, the plan is a no-op
+   and that check reads red even though the work is done. So don't equate red-phase-5 with
+   "import needed." Infer *done* from state instead: `terraform/cloudflare/generated.tf`
+   exists (committed) and the workspace's latest HCP run is clean. Only call phase 5
+   actionable when resources demonstrably exist at the provider but aren't in state.
 
 ## Report format
 
@@ -42,7 +63,8 @@ Verdict: bootstrap incomplete — first red is `workspaces-create` (phase 1).
          Fix with: infra-copilot:setup
 ```
 
-Legend: `✓` check passed · `✗` check failed · `–` not evaluated / not reached.
+Legend: `✓` passed · `✗` failed · `–` not evaluated / not reached · `?` plan-gated
+(read from HCP API, not run locally) · `·` human-gated / ephemeral (null check, not executed).
 
 ## Verdict → which skill
 

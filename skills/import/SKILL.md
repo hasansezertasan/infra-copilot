@@ -23,15 +23,35 @@ preflight — lives in [`../shared/protocol.md`](../shared/protocol.md); the man
 ## Precondition
 
 `infra-copilot:setup` phases 0–4 are green — HCP is reachable, both workspaces exist,
-credentials are proven. If not, run `setup` first; import needs a working `cloudflare`
-workspace and a green speculative plan to diff against.
+credentials are proven. If not, run `setup` first; import needs the target provider's
+workspace working (the `cloudflare` leaf for a zone/DNS import, `github-org` for repos) and
+a green speculative plan to diff the imports against.
 
-## Scope (phase 5)
+## Branch on the provider first
+
+Which provider owns the resources decides the path. Only Cloudflare has a **turnkey**
+scripted flow today; every other provider uses the **same import-block pattern by hand**.
+Don't run the Cloudflare steps for a GitHub request — you'd mint an irrelevant token and
+write `terraform/cloudflare/generated.tf` for repos that live in the GitHub leaf.
+
+- **Cloudflare** (zone, DNS records) — turnkey. The phase-5 steps below drive
+  `cf-terraforming` end to end.
+- **GitHub repos, or any other provider** — no scripted step yet. Follow the universal
+  pattern in [`../shared/migration.md`](../shared/migration.md): write `import` blocks
+  (`import { to = <resource> id = "<existing-id>" }`) in the matching leaf
+  (`terraform/github/` for repos), then `terraform plan`. Same success signal — imports,
+  not creates. No cf-terraforming and no Cloudflare discovery token are involved; use a
+  read-only listing (e.g. `gh repo list`) to enumerate ids.
+
+## Cloudflare turnkey steps (phase 5)
 
 | Step | Actor | What |
 |---|---|---|
 | `migrate-discovery-token` | `HUMAN` | Mint a short-lived **read-only** Cloudflare token (DNS·Read, etc.), scoped to the zone, TTL a few hours. Never the HCP edit token. |
 | `migrate-import` | `AGENT` | `cf-terraforming generate` + import blocks (`--modern-import-block`) into `terraform/cloudflare/generated.tf`, then `terraform plan`. |
+
+The manifest's phase-5 steps are Cloudflare-specific — for other providers, there's no
+`check` to resume against; verify by hand with the same imports-not-creates plan diff.
 
 ## How to run
 

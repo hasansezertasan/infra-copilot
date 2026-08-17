@@ -1,4 +1,4 @@
-# Machine-readable manifest for the infra-setup skill.
+# Machine-readable manifest shared by the infra-copilot skills (setup/import/add/status).
 #
 # Read this alongside protocol.md and whichever action skill (setup/import/add/status)
 # routes into it. An agent walks these steps
