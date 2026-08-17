@@ -1,6 +1,7 @@
 # Machine-readable manifest for the infra-setup skill.
 #
-# Read this alongside the router in ../SKILL.md. An agent walks these steps
+# Read this alongside protocol.md and whichever action skill (setup/import/add/status)
+# routes into it. An agent walks these steps
 # top-to-bottom. On every run it FIRST executes each step's `check` to find where
 # setup already is (resume protocol), then resumes at the first red check.
 #
@@ -18,9 +19,8 @@
 #   check     command whose success (exit 0) means the step is DONE. Idempotent.
 #             `null` means "no scriptable check — prove it via the next plan".
 #   produces  the artifact/credential this step yields
-#   docs      canonical section to read for the fine print — a path relative to the
-#             SKILL root (e.g. references/docs/setup.md#... or references/cloudflare.md),
-#             pointing into references/
+#   docs      canonical section to read for the fine print — a path relative to
+#             skills/shared/ (this file's dir), e.g. docs/setup.md#... or cloudflare.md
 #
 # RUNNER SETUP — the fields below (org, hcp_api, …) are YAML metadata, NOT shell
 # variables. Before running any `check`/`run`, the agent MUST source the repo-local
@@ -71,7 +71,7 @@ steps:
     # reads red until hcp-login completes; that ordering is intentional, not a bug.
     check: 'test -n "$HCP_TOKEN" && curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
     produces: HCP org `$ORG`, project `infra`
-    docs: references/docs/setup.md#1-hcp-terraform--organization
+    docs: docs/setup.md#1-hcp-terraform--organization
 
   - id: hcp-login
     phase: 0
@@ -85,7 +85,7 @@ steps:
       ~/.terraform.d/credentials.tfrc.json. This is the last interactive auth a human does.
     check: 'jq -re ".credentials[\"app.terraform.io\"].token" ~/.terraform.d/credentials.tfrc.json'
     produces: HCP user API token at ~/.terraform.d/credentials.tfrc.json
-    docs: references/docs/setup.md#6-local-development
+    docs: docs/setup.md#6-local-development
 
   - id: hcp-verify
     phase: 0
@@ -98,7 +98,7 @@ steps:
       curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e '.data.id'
     check: 'curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
     produces: verified API access
-    docs: references/docs/state.md#api-access
+    docs: docs/state.md#api-access
 
   # ── Phase 1 — HCP workspaces ────────────────────────────────────────────
   - id: vcs-connect
@@ -114,7 +114,7 @@ steps:
     # otherwise a pre-existing GitLab/Bitbucket connection would false-green this step.
     check: 'curl -sf "$hcp_api/organizations/$ORG/oauth-clients" -H "Authorization: Bearer $HCP_TOKEN" | jq -e "[.data[] | select(.attributes[\"service-provider\"] | test(\"github\"))] | length > 0"'
     produces: GitHub<->HCP OAuth connection
-    docs: references/docs/setup.md#2-hcp-terraform--workspaces
+    docs: docs/setup.md#2-hcp-terraform--workspaces
 
   - id: workspaces-create
     phase: 1
@@ -123,7 +123,7 @@ steps:
     title: Create cloudflare + github-org workspaces
     why: One workspace per leaf; carries working dir, path filter, safety toggles.
     run: |
-      SOURCE OF TRUTH: the `create_ws` helper in references/hcp.md (Phase 1). Run that.
+      SOURCE OF TRUTH: the `create_ws` helper in hcp.md (Phase 1). Run that.
       The summary below is a reminder, not a second copy to maintain — if it disagrees
       with hcp.md, hcp.md wins. A POST to
       $hcp_api/organizations/$ORG/workspaces per workspace with:
@@ -142,7 +142,7 @@ steps:
           | jq -e '.data.attributes["auto-apply"]==false' >/dev/null || exit 1
       done
     produces: workspaces `cloudflare`, `github-org`
-    docs: references/docs/state.md#workspaces
+    docs: docs/state.md#workspaces
 
   # ── Phase 2 — Cloudflare ────────────────────────────────────────────────
   - id: cf-token
@@ -163,7 +163,7 @@ steps:
       curl -sf "$hcp_api/workspaces/$WS_ID/vars" -H "Authorization: Bearer $HCP_TOKEN" \
         | jq -e '.data[] | select(.attributes.key=="cloudflare_api_token") | .attributes.sensitive==true'
     produces: sensitive var `cloudflare_api_token`
-    docs: references/cloudflare.md
+    docs: cloudflare.md
 
   # ── Phase 3 — GitHub App ────────────────────────────────────────────────
   - id: gh-app
@@ -190,7 +190,7 @@ steps:
         | ("github_owner"|IN($k[])) and ("github_app_id"|IN($k[]))
           and ("github_app_installation_id"|IN($k[])) and ("github_app_pem"|IN($k[]))'
     produces: sensitive vars github_app_id / _installation_id / _pem, plus github_owner
-    docs: references/github.md
+    docs: github.md
 
   # ── Phase 4 — First plan ────────────────────────────────────────────────
   - id: plan-cloudflare
@@ -202,7 +202,7 @@ steps:
     run: "cd terraform/cloudflare && terraform init && terraform plan"
     check: "cd terraform/cloudflare && terraform init -input=false >/dev/null && terraform plan -input=false >/dev/null"
     produces: green speculative plan for cloudflare
-    docs: references/docs/hcp-api.md
+    docs: docs/hcp-api.md
 
   - id: plan-github
     phase: 4
@@ -213,7 +213,7 @@ steps:
     run: "cd terraform/github && terraform init && terraform plan"
     check: "cd terraform/github && terraform init -input=false >/dev/null && terraform plan -input=false >/dev/null"
     produces: green speculative plan for github-org
-    docs: references/docs/hcp-api.md
+    docs: docs/hcp-api.md
 
   # ── Phase 5 — Migration (only if resources pre-exist) ───────────────────
   - id: migrate-discovery-token
@@ -227,7 +227,7 @@ steps:
       resource type to discover (DNS·Read, etc.), zone <apex-domain>, TTL a few hours. Copy the value.
     check: ~   # YAML null — ephemeral credential, no scriptable check (see header contract)
     produces: throwaway read token (deleted after import)
-    docs: references/docs/import.md#discovery-token
+    docs: docs/import.md#discovery-token
 
   - id: migrate-import
     phase: 5
@@ -236,7 +236,7 @@ steps:
     title: Generate HCL + import blocks, verify plan imports (not creates)
     why: Bring existing zone/records under management without recreating them.
     run: |
-      Follow references/docs/import.md: cf-terraforming generate + import (--modern-import-block)
+      Follow docs/import.md: cf-terraforming generate + import (--modern-import-block)
       into terraform/cloudflare/generated.tf, then terraform plan.
     # One plan, captured once to a private mktemp file (0600, auto-removed), not a fixed
     # world-readable /tmp path. Success = at least one import AND zero creates. (If a change
@@ -250,7 +250,7 @@ steps:
         && grep -q 'will be imported' "$p" \
         && ! grep -q 'will be created' "$p"
     produces: generated.tf with import blocks; plan shows imports only
-    docs: references/migration.md
+    docs: migration.md
 
   # ── Phase 6 — GCP (template only; NOT active) ───────────────────────────
   - id: gcp-decision
@@ -261,8 +261,8 @@ steps:
     why: GCP is not a managed provider yet; adopting it changes a locked decision.
     run: |
       GCP is out of scope today. To adopt it: update CLAUDE.md's locked-decisions table
-      and terraform/README.md, THEN follow references/gcp.md.
+      and terraform/README.md, THEN follow gcp.md.
       Do not provision ahead of the decision.
     check: "test -d terraform/gcp"   # red until GCP is intentionally adopted
     produces: (none until adopted)
-    docs: references/gcp.md
+    docs: gcp.md

@@ -30,7 +30,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
 1. Read `.claude/infra-copilot.local.md` from the current repo (CWD).
 2. If it is **missing**, treat this as a `HUMAN` step: emit the handoff block, print this
    schema, offer to scaffold a blank file from
-   `references/infra-copilot.local.md.example`, and wait. Never guess values.
+   [`infra-copilot.local.md.example`](infra-copilot.local.md.example), and wait. Never guess values.
 3. If present, export the shell vars the checks reference:
 
    ```sh

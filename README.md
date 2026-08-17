@@ -47,34 +47,42 @@ etc.) live exclusively in HCP Terraform workspace variables — the agent never 
 plaintext; a human pastes them directly into HCP.
 
 Full schema, the shell-export contract, and the startup behavior when the file is
-missing: [`skills/infra-setup/references/config.md`](skills/infra-setup/references/config.md).
-A fillable template ships at
-[`skills/infra-setup/references/infra-copilot.local.md.example`](skills/infra-setup/references/infra-copilot.local.md.example).
+missing: [`skills/shared/config.md`](skills/shared/config.md). A fillable template ships at
+[`skills/shared/infra-copilot.local.md.example`](skills/shared/infra-copilot.local.md.example).
+
+## Skills
+
+The work is split by function. Each skill is a thin router over one shared manifest
+([`skills/shared/steps.yaml`](skills/shared/steps.yaml)) and one shared protocol
+([`skills/shared/protocol.md`](skills/shared/protocol.md) — the actor model, handoff block,
+resume scan, and preflight), so they never drift apart.
+
+| Skill | Command | Does |
+|---|---|---|
+| [`setup`](skills/setup/SKILL.md) | `/infra-setup` | **Greenfield bootstrap** (phases 0–4): HCP org/login, workspaces, Cloudflare token, GitHub App, first plan. |
+| [`import`](skills/import/SKILL.md) | `/infra-import` | **Adopt existing** provider resources into Terraform without recreating them (cf-terraforming import blocks). |
+| [`add`](skills/add/SKILL.md) | `/infra-add` | **Grow** the repo: a managed repo, a new resource, or a brand-new provider (e.g. GCP). |
+| [`status`](skills/status/SKILL.md) | `/infra-status` | **Read-only** health check — scans every step and reports where infra stands. Changes nothing. |
 
 ## Usage
 
-In the consuming repo, run:
+In the consuming repo, run `/infra-setup` (or say "set up infra"). The skill reads your
+config, runs a resume scan against the manifest to discover where setup already stands, and
+drives every step tagged `AGENT` itself — verifying, provisioning, planning. When it hits a
+step tagged `HUMAN` (a signup, a credential mint, a secret paste) it stops, prints a handoff
+block with precise instructions, and waits for you to reply `done` before continuing.
 
-```
-/infra-setup
-```
-
-or just say "set up infra." The skill reads your config, runs a resume scan against
-[`references/steps.yaml`](skills/infra-setup/references/steps.yaml) to discover where
-setup already stands, and drives every step tagged `AGENT` itself — verifying,
-provisioning, importing, planning. When it hits a step tagged `HUMAN` (a signup, a
-credential mint, a secret paste) it stops, prints a handoff block with precise
-instructions, and waits for you to reply `done` before continuing.
-
-It's idempotent: re-run it any time. An all-green resume scan means "already set up,
-nothing to do."
+It's idempotent: re-run any skill any time. An all-green resume scan means "already done,
+nothing to do." Not sure where you are? Run `/infra-status` first — it tells you which skill
+to reach for.
 
 ## Adding a skill
 
-The plugin is meant to grow. To add a new capability, drop a new directory under
-`skills/` with its own `SKILL.md` (and `references/` as needed) — it auto-publishes
-through the same marketplace entry, no manifest changes required. This is the extension
-point for future skills (e.g. drift detection, cost review, additional providers).
+The plugin is meant to grow. To add a new capability, drop a new directory under `skills/`
+with its own `SKILL.md` — route it over the shared protocol and manifest under
+`skills/shared/` rather than re-copying that machinery. It auto-publishes through the same
+marketplace entry, no manifest changes required. Extension points: drift detection, cost
+review, additional providers.
 
 ## License
 

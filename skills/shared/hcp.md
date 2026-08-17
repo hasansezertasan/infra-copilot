@@ -1,6 +1,6 @@
 # HCP bootstrap + workspaces (agent-first)
 
-Deep dive for Phases 0–1 of the [`infra-setup`](../SKILL.md) skill. Canonical detail:
+Deep dive for Phases 0–1 of the [`setup`](../setup/SKILL.md) skill. Canonical detail:
 [`docs/setup.md#1`](docs/setup.md#1-hcp-terraform--organization),
 [`docs/setup.md#2`](docs/setup.md#2-hcp-terraform--workspaces),
 [`docs/state.md`](docs/state.md).
@@ -18,7 +18,7 @@ The only unavoidable cold-start. Produces the HCP token that lets the agent scri
   `~/.terraform.d/credentials.tfrc.json`.
 - **`AGENT` — hcp-verify.** From here you own the HCP API:
   ```sh
-  # $ORG sourced from config — see references/config.md
+  # $ORG sourced from config — see config.md
   HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
   curl -sf "https://app.terraform.io/api/v2/organizations/$ORG" \
     -H "Authorization: Bearer $HCP_TOKEN" | jq -e '.data.id' \
@@ -48,7 +48,7 @@ GitHub↔HCP OAuth connection (browser).
 
   ```sh
   export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
-  # $ORG, $REPO sourced from config — see references/config.md
+  # $ORG, $REPO sourced from config — see config.md
   : "${ORG:?run Step 0 (read config) first}"
   : "${REPO:?run Step 0 (read config) first}"   # the repo HCP watches via VCS
 
