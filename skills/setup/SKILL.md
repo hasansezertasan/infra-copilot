@@ -26,10 +26,17 @@ the canonical docs under [`../shared/`](../shared/).
 | 1 | **HCP workspaces** — create `cloudflare` + `github-org`, VCS + safety toggles | `AGENT` (API) + `HUMAN` VCS OAuth | [`../shared/hcp.md`](../shared/hcp.md), [`../shared/docs/setup.md#2`](../shared/docs/setup.md#2-hcp-terraform--workspaces) |
 | 2 | **Cloudflare** — mint scoped token, paste into HCP, verify | `HUMAN` mint/paste, `AGENT` verify | [`../shared/cloudflare.md`](../shared/cloudflare.md) |
 | 3 | **GitHub** — create + install the GitHub App, paste creds into HCP | `HUMAN` create/install/paste, `AGENT` verify | [`../shared/github.md`](../shared/github.md) |
-| 4 | **First plan** — `init` + speculative `plan` per leaf, read via API | `AGENT` | [`../shared/docs/hcp-api.md`](../shared/docs/hcp-api.md) |
+| 4 | **First plan** — `init` + speculative `plan` per leaf, read via API | `AGENT` | [`../shared/docs/hcp-api.md`](../shared/docs/hcp-api.md), [`../shared/docs/setup.md#6`](../shared/docs/setup.md#6-local-development) |
 
 Adopting resources that already exist (a live domain, existing repos)? That's
 **infra-copilot:import** (Phase 5), run after this reaches green plans.
+
+> **⚠️ Pre-existing resources — stop before applying.** Unlike the old monolith, `setup`
+> ends at green *speculative* plans (phase 4) and does **not** auto-import. If the phase-4
+> plan shows resources as `will be created` that you know already exist live — a domain
+> already serving traffic, repos already on GitHub — do **not** apply: an apply would
+> recreate or clobber them. Run **infra-copilot:import** first to adopt them (the plan
+> should then read *imports, not creates*), and only then apply.
 
 ## How to run
 
