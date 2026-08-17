@@ -47,15 +47,20 @@ etc.) live exclusively in HCP Terraform workspace variables — the agent never 
 plaintext; a human pastes them directly into HCP.
 
 Full schema, the shell-export contract, and the startup behavior when the file is
-missing: [`skills/shared/config.md`](skills/shared/config.md). A fillable template ships at
-[`skills/shared/infra-copilot.local.md.example`](skills/shared/infra-copilot.local.md.example).
+missing: [`shared/config.md`](shared/config.md). A fillable template ships at
+[`shared/infra-copilot.local.md.example`](shared/infra-copilot.local.md.example).
 
 ## Skills
 
 The work is split by function. Each skill is a thin router over one shared manifest
-([`skills/shared/steps.yaml`](skills/shared/steps.yaml)) and one shared protocol
-([`skills/shared/protocol.md`](skills/shared/protocol.md) — the actor model, handoff block,
+([`shared/steps.yaml`](shared/steps.yaml)) and one shared protocol
+([`shared/protocol.md`](shared/protocol.md) — the actor model, handoff block,
 resume scan, and preflight), so they never drift apart.
+
+> `shared/` lives at the **plugin root**, not under `skills/`, on purpose: Claude Code
+> discovers skills by scanning `skills/*/` for `SKILL.md`, so cross-skill resources belong
+> outside that tree (the documented pattern for shared resources). Don't move it back under
+> `skills/`.
 
 | Skill | Command | Does |
 |---|---|---|
@@ -80,7 +85,7 @@ to reach for.
 
 The plugin is meant to grow. To add a new capability, drop a new directory under `skills/`
 with its own `SKILL.md` — route it over the shared protocol and manifest under
-`skills/shared/` rather than re-copying that machinery. It auto-publishes through the same
+`shared/` rather than re-copying that machinery. It auto-publishes through the same
 marketplace entry, no manifest changes required. Extension points: drift detection, cost
 review, additional providers.
 

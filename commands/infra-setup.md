@@ -13,14 +13,14 @@ holds the logic.
 Load `../skills/setup/SKILL.md` and drive it end-to-end:
 
 1. **Read config first.** Load `.claude/infra-copilot.local.md` and export the org vars
-   (shared protocol Step 0 / [`config.md`](../skills/shared/config.md)) before the scan.
-2. **Resume first.** Walk phases 0–4 of [`steps.yaml`](../skills/shared/steps.yaml) and run
+   (shared protocol Step 0 / [`config.md`](../shared/config.md)) before the scan.
+2. **Resume first.** Walk phases 0–4 of [`steps.yaml`](../shared/steps.yaml) and run
    each step's `check` to find where setup stands. Report `✓` for green; resume at the
    first red. Never assume state from a previous session.
 3. **Respect the actor split.** Execute `AGENT` steps yourself. On a `HUMAN` step, stop and
    emit the handoff block, wait for `done`, then re-run the `check` — never fake a signup,
-   a dashboard click, or a secret paste. Contract: [`protocol.md`](../skills/shared/protocol.md).
-4. **Route to the deep-dives** under `../skills/shared/` for the fine print. Don't duplicate them.
+   a dashboard click, or a secret paste. Contract: [`protocol.md`](../shared/protocol.md).
+4. **Route to the deep-dives** under `../shared/` for the fine print. Don't duplicate them.
 5. **Stop at the done signal** in the skill. If existing resources need adopting, continue
    with `/infra-import`.
 

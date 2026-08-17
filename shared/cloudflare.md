@@ -1,6 +1,6 @@
 # Provider: Cloudflare (agent-first)
 
-Deep dive for [Phase 2](../setup/SKILL.md) of the infra-copilot:setup skill. What the
+Deep dive for [Phase 2](../skills/setup/SKILL.md) of the infra-copilot:setup skill. What the
 agent does, what the human must do, and how to prove it. Canonical bootstrap detail:
 [`setup.md#3`](docs/setup.md#3-cloudflare-api-token). Token scopes + rotation:
 [`secrets.md`](docs/secrets.md#cloudflare-api-token-scopes).

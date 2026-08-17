@@ -1,6 +1,6 @@
 # Migration: adopting existing resources (agent-first)
 
-Deep dive for [Phase 5](../import/SKILL.md), the `infra-copilot:import` skill. How to bring
+Deep dive for [Phase 5](../skills/import/SKILL.md), the `infra-copilot:import` skill. How to bring
 resources that **already exist** under Terraform management
 without recreating them — across providers. The Cloudflare specifics are canonical in
 [`import.md`](docs/import.md); this file is the cross-provider pattern and the actor split.

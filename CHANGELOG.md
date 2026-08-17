@@ -8,5 +8,5 @@
   - `import` (`/infra-import`) — adopt existing provider resources without recreating, phase 5.
   - `add` (`/infra-add`) — grow a bootstrapped repo: new repo/resource/provider, phase 6.
   - `status` (`/infra-status`) — read-only scan of the whole manifest → verdict + next skill.
-- `skills/shared/` holds the single source of truth: `steps.yaml` (phase-tagged manifest),
+- `shared/` (plugin root) holds the single source of truth: `steps.yaml` (phase-tagged manifest),
   `protocol.md` (actor model, handoff, resume, preflight), `config.md`, provider deep-dives, `docs/`.

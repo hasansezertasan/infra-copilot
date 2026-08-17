@@ -1,6 +1,6 @@
 # HCP bootstrap + workspaces (agent-first)
 
-Deep dive for Phases 0–1 of the [`setup`](../setup/SKILL.md) skill. Canonical detail:
+Deep dive for Phases 0–1 of the [`setup`](../skills/setup/SKILL.md) skill. Canonical detail:
 [`docs/setup.md#1`](docs/setup.md#1-hcp-terraform--organization),
 [`docs/setup.md#2`](docs/setup.md#2-hcp-terraform--workspaces),
 [`docs/state.md`](docs/state.md).

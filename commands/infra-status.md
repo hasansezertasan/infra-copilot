@@ -11,10 +11,10 @@ nothing.
 
 Load `../skills/status/SKILL.md` and drive it:
 
-1. **Read config** — [`config.md`](../skills/shared/config.md). Missing/incomplete config
+1. **Read config** — [`config.md`](../shared/config.md). Missing/incomplete config
    is itself a finding; report it and stop (don't scaffold — that's `/infra-setup`).
 2. **Preflight** — report tool presence + the HCP token pivot.
-3. **Full resume scan** over all phases of [`steps.yaml`](../skills/shared/steps.yaml). Run
+3. **Full resume scan** over all phases of [`steps.yaml`](../shared/steps.yaml). Run
    `check`s only — never a step's `run`, never a handoff block.
 4. **Report** the phase-by-phase table and a verdict mapping the first red step to the
    skill that fixes it (setup / import / add). Phases 5–6 red is expected for most repos —

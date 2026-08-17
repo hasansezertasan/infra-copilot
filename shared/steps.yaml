@@ -20,7 +20,7 @@
 #             `null` means "no scriptable check — prove it via the next plan".
 #   produces  the artifact/credential this step yields
 #   docs      canonical section to read for the fine print — a path relative to
-#             skills/shared/ (this file's dir), e.g. docs/setup.md#... or cloudflare.md
+#             shared/ (this file's dir), e.g. docs/setup.md#... or cloudflare.md
 #
 # RUNNER SETUP — the fields below (org, hcp_api, …) are YAML metadata, NOT shell
 # variables. Before running any `check`/`run`, the agent MUST source the repo-local

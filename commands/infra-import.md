@@ -12,13 +12,13 @@ plans.
 
 Load `../skills/import/SKILL.md` and drive it:
 
-1. **Read config first** — [`config.md`](../skills/shared/config.md).
-2. **Resume scan** over phase 5 of [`steps.yaml`](../skills/shared/steps.yaml). The
+1. **Read config first** — [`config.md`](../shared/config.md).
+2. **Resume scan** over phase 5 of [`steps.yaml`](../shared/steps.yaml). The
    discovery token is a throwaway **read-only** credential (`HUMAN`, deleted after) —
    never the HCP edit token.
-3. **Follow the runbook** [`import.md`](../skills/shared/docs/import.md): `cf-terraforming`
+3. **Follow the runbook** [`import.md`](../shared/docs/import.md): `cf-terraforming`
    generate + import blocks, then `terraform plan`.
 4. **Success = plan shows imports, not creates.** A `will be created` means a live resource
    wasn't recognized — stop and investigate.
 
-Contract for the actor split: [`protocol.md`](../skills/shared/protocol.md).
+Contract for the actor split: [`protocol.md`](../shared/protocol.md).

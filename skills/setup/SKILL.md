@@ -8,9 +8,9 @@ description: "Agent-first, human-in-the-loop GREENFIELD bootstrap of a Terraform
 Greenfield bootstrap. You (the agent) execute it end-to-end, pausing only for the steps a
 human irreducibly must do. This file is a **router**: the reusable machinery — actor
 model, handoff block, resume scan, preflight — lives in
-[`../shared/protocol.md`](../shared/protocol.md); the per-step manifest in
-[`../shared/steps.yaml`](../shared/steps.yaml) (**phases 0–4**); per-provider detail and
-the canonical docs under [`../shared/`](../shared/).
+[`../../shared/protocol.md`](../../shared/protocol.md); the per-step manifest in
+[`../../shared/steps.yaml`](../../shared/steps.yaml) (**phases 0–4**); per-provider detail and
+the canonical docs under [`../../shared/`](../../shared/).
 
 > **This is a Skill, not a script.** There is no `setup` executable. Drive it by reading
 > this file, the protocol, and the manifest, then running each step. A human invokes it
@@ -22,11 +22,11 @@ the canonical docs under [`../shared/`](../shared/).
 
 | # | Phase | Actors | Deep dive |
 |---|---|---|---|
-| 0 | **HCP bootstrap** — sign up, `terraform login`, get the pivot token | `HUMAN` then `AGENT` | [`../shared/hcp.md`](../shared/hcp.md), [`../shared/docs/setup.md#1`](../shared/docs/setup.md#1-hcp-terraform--organization) |
-| 1 | **HCP workspaces** — create `cloudflare` + `github-org`, VCS + safety toggles | `AGENT` (API) + `HUMAN` VCS OAuth | [`../shared/hcp.md`](../shared/hcp.md), [`../shared/docs/setup.md#2`](../shared/docs/setup.md#2-hcp-terraform--workspaces) |
-| 2 | **Cloudflare** — mint scoped token, paste into HCP, verify | `HUMAN` mint/paste, `AGENT` verify | [`../shared/cloudflare.md`](../shared/cloudflare.md) |
-| 3 | **GitHub** — create + install the GitHub App, paste creds into HCP | `HUMAN` create/install/paste, `AGENT` verify | [`../shared/github.md`](../shared/github.md) |
-| 4 | **First plan** — `init` + speculative `plan` per leaf, read via API | `AGENT` | [`../shared/docs/hcp-api.md`](../shared/docs/hcp-api.md), [`../shared/docs/setup.md#6`](../shared/docs/setup.md#6-local-development) |
+| 0 | **HCP bootstrap** — sign up, `terraform login`, get the pivot token | `HUMAN` then `AGENT` | [`../../shared/hcp.md`](../../shared/hcp.md), [`../../shared/docs/setup.md#1`](../../shared/docs/setup.md#1-hcp-terraform--organization) |
+| 1 | **HCP workspaces** — create `cloudflare` + `github-org`, VCS + safety toggles | `AGENT` (API) + `HUMAN` VCS OAuth | [`../../shared/hcp.md`](../../shared/hcp.md), [`../../shared/docs/setup.md#2`](../../shared/docs/setup.md#2-hcp-terraform--workspaces) |
+| 2 | **Cloudflare** — mint scoped token, paste into HCP, verify | `HUMAN` mint/paste, `AGENT` verify | [`../../shared/cloudflare.md`](../../shared/cloudflare.md) |
+| 3 | **GitHub** — create + install the GitHub App, paste creds into HCP | `HUMAN` create/install/paste, `AGENT` verify | [`../../shared/github.md`](../../shared/github.md) |
+| 4 | **First plan** — `init` + speculative `plan` per leaf, read via API | `AGENT` | [`../../shared/docs/hcp-api.md`](../../shared/docs/hcp-api.md), [`../../shared/docs/setup.md#6`](../../shared/docs/setup.md#6-local-development) |
 
 Adopting resources that already exist (a live domain, existing repos)? That's
 **infra-copilot:import** (Phase 5), run after this reaches green plans.
@@ -42,35 +42,35 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 1. **Read config first** (shared protocol, Step 0). Load `.claude/infra-copilot.local.md`
    and export the org vars. Missing file → handoff, offer to scaffold, wait.
-   See [`../shared/config.md`](../shared/config.md).
+   See [`../../shared/config.md`](../../shared/config.md).
 2. **Preflight**, then **resume scan** over phases 0–4 of
-   [`../shared/steps.yaml`](../shared/steps.yaml): run each `check`, print `✓` for green,
+   [`../../shared/steps.yaml`](../../shared/steps.yaml): run each `check`, print `✓` for green,
    resume at the first red step. Full contract:
-   [`../shared/protocol.md`](../shared/protocol.md).
+   [`../../shared/protocol.md`](../../shared/protocol.md).
 3. **Respect the actor split.** Run `AGENT` steps yourself. On a `HUMAN` step, stop, emit
    the handoff block, wait for `done`, re-run the `check` — never fake a signup, a
    dashboard click, or a secret paste.
-4. **Route to the deep-dives** under `../shared/` for the fine print; don't duplicate them.
+4. **Route to the deep-dives** under `../../shared/` for the fine print; don't duplicate them.
 
 ### Phase notes
 
 - **Phase 0 — HCP bootstrap.** The only unavoidable cold-start; produces the token that
   lets you script everything after. `HUMAN` signs up + runs `terraform login`; then you
-  own the HCP API. Commands + verify: [`../shared/hcp.md`](../shared/hcp.md#phase-0--bootstrap).
+  own the HCP API. Commands + verify: [`../../shared/hcp.md`](../../shared/hcp.md#phase-0--bootstrap).
 - **Phase 1 — HCP workspaces.** Two workspaces (`cloudflare`, `github-org`), one per leaf.
   A human does the one-time GitHub↔HCP OAuth (browser); you create both via the API with
   the right working dir, path-scoped triggers, remote execution, and auto-apply **off**.
-  `create_ws` helper + safety rationale: [`../shared/hcp.md`](../shared/hcp.md#phase-1--workspaces).
+  `create_ws` helper + safety rationale: [`../../shared/hcp.md`](../../shared/hcp.md#phase-1--workspaces).
 - **Phase 2 — Cloudflare.** You can't mint a scoped token from nothing and must never see
   the plaintext — minting/pasting are `HUMAN`, verifying is `AGENT`.
-  [`../shared/cloudflare.md`](../shared/cloudflare.md).
+  [`../../shared/cloudflare.md`](../../shared/cloudflare.md).
 - **Phase 3 — GitHub.** The `github-org` workspace authenticates as a **GitHub App**, not
   a PAT. Creation + install are browser flows; three creds get pasted into HCP.
-  [`../shared/github.md`](../shared/github.md).
+  [`../../shared/github.md`](../../shared/github.md).
 - **Phase 4 — First plan.** Prove every credential end-to-end. Per leaf: `terraform init`
   then speculative `terraform plan` (runs in HCP). A VCS-connected workspace **allows
   `plan` but blocks `apply`** from the CLI — intentional. Read plans without the UI via
-  [`../shared/docs/hcp-api.md`](../shared/docs/hcp-api.md). Green on both leaves =
+  [`../../shared/docs/hcp-api.md`](../../shared/docs/hcp-api.md). Green on both leaves =
   credentials proven.
 
 ## Done signal
@@ -90,5 +90,5 @@ repo's own contributor guide.
 
 All org-specific values — HCP org, GitHub org, apex domain, Cloudflare account/zone IDs,
 managed repos, HCP status-check ID — live in `.claude/infra-copilot.local.md` (schema +
-export block: [`../shared/config.md`](../shared/config.md)). Fill it in once and re-run —
+export block: [`../../shared/config.md`](../../shared/config.md)). Fill it in once and re-run —
 the resume protocol handles the rest.

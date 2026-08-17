@@ -10,19 +10,19 @@ the action skills use, but stops there: it reports state and **never provisions,
 or applies anything.** Use it to answer "where are we?" before picking a next action.
 
 This file is a **router**: the machinery — actor model, resume scan, preflight — is in
-[`../shared/protocol.md`](../shared/protocol.md); the manifest it scans is
-[`../shared/steps.yaml`](../shared/steps.yaml).
+[`../../shared/protocol.md`](../../shared/protocol.md); the manifest it scans is
+[`../../shared/steps.yaml`](../../shared/steps.yaml).
 
 ## What it does
 
 1. **Read config** (shared protocol, Step 0). Load `.claude/infra-copilot.local.md`,
-   export the org vars ([`../shared/config.md`](../shared/config.md)). Missing/incomplete
+   export the org vars ([`../../shared/config.md`](../../shared/config.md)). Missing/incomplete
    config is itself a finding — report it and stop; do **not** offer to scaffold or edit
    (that belongs to `setup`).
 2. **Preflight** — report which of `terraform`/`gh`/`jq`/`curl` are present and whether
    Terraform meets the ≥ 1.9 floor. Report the HCP token pivot: present or not.
 3. **Full scan — but only with checks that don't touch the working tree.** Walk **every**
-   step in [`../shared/steps.yaml`](../shared/steps.yaml) (all phases, 0–6). Never run a
+   step in [`../../shared/steps.yaml`](../../shared/steps.yaml) (all phases, 0–6). Never run a
    step's `run`. Classify each `check` before running it — the read-only guarantee depends
    on this:
 
@@ -33,7 +33,7 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      which writes `.terraform/` and can create or update `.terraform.lock.hcl` — that would
      dirty the checkout, and this command promises to change nothing. Instead, read the
      **latest run status per workspace via the HCP API** (non-mutating — see
-     [`../shared/docs/hcp-api.md`](../shared/docs/hcp-api.md)): a recent successful plan/apply
+     [`../../shared/docs/hcp-api.md`](../../shared/docs/hcp-api.md)): a recent successful plan/apply
      means green; report `?` (plan-gated, not run) if there's no run to read.
    - **Null checks** (`check: ~`, e.g. `migrate-discovery-token`) — nothing scriptable to
      run. Report them as `·` (human-gated / ephemeral), never attempt to execute the null.

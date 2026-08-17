@@ -11,12 +11,12 @@ an existing provider, or adopt a brand-new provider (e.g. GCP). Run after `/infr
 
 Load `../skills/add/SKILL.md` and drive it:
 
-1. **Read config first** — [`config.md`](../skills/shared/config.md).
+1. **Read config first** — [`config.md`](../shared/config.md).
 2. **Pick the flavor** (managed repo · new resource · new provider) per the skill. New
    providers are a **locked-design-decision change** — decide on the record first.
 3. **Respect the actor split** — App-scope changes, token mint/paste, and the provider
    decision are `HUMAN`; wiring and plans are yours.
-   Contract: [`protocol.md`](../skills/shared/protocol.md).
+   Contract: [`protocol.md`](../shared/protocol.md).
 4. **Done = green plan** with the new thing as **will be created**, nothing unexpectedly
    destroyed. If the thing already exists at the provider, hand to `/infra-import` instead.
 

@@ -10,10 +10,10 @@ existing repos) so Terraform manages them **without recreating** them. This is t
 migration path you run once `infra-copilot:setup` has proven credentials and green plans.
 
 This file is a **router**: the reusable machinery — actor model, handoff, resume,
-preflight — lives in [`../shared/protocol.md`](../shared/protocol.md); the manifest in
-[`../shared/steps.yaml`](../shared/steps.yaml) (**phase 5**); the canonical runbook in
-[`../shared/docs/import.md`](../shared/docs/import.md) and the cross-provider pattern in
-[`../shared/migration.md`](../shared/migration.md).
+preflight — lives in [`../../shared/protocol.md`](../../shared/protocol.md); the manifest in
+[`../../shared/steps.yaml`](../../shared/steps.yaml) (**phase 5**); the canonical runbook in
+[`../../shared/docs/import.md`](../../shared/docs/import.md) and the cross-provider pattern in
+[`../../shared/migration.md`](../../shared/migration.md).
 
 > **Why a separate skill?** Import is destructive if done wrong (a stray `create` recreates
 > live DNS). It has its own credential (a throwaway **read-only** discovery token, never the
@@ -37,7 +37,7 @@ write `terraform/cloudflare/generated.tf` for repos that live in the GitHub leaf
 - **Cloudflare** (zone, DNS records) — turnkey. The phase-5 steps below drive
   `cf-terraforming` end to end.
 - **GitHub repos, or any other provider** — no scripted step yet. Follow the universal
-  pattern in [`../shared/migration.md`](../shared/migration.md): write `import` blocks
+  pattern in [`../../shared/migration.md`](../../shared/migration.md): write `import` blocks
   (`import { to = <resource> id = "<existing-id>" }`) in the matching leaf
   (`terraform/github/` for repos), then `terraform plan`. Same success signal — imports,
   not creates. No cf-terraforming and no Cloudflare discovery token are involved; use a
@@ -56,17 +56,17 @@ The manifest's phase-5 steps are Cloudflare-specific — for other providers, th
 ## How to run
 
 1. **Read config first** (shared protocol, Step 0) and export the org vars —
-   [`../shared/config.md`](../shared/config.md).
-2. **Resume scan** over phase 5 of [`../shared/steps.yaml`](../shared/steps.yaml). The
+   [`../../shared/config.md`](../../shared/config.md).
+2. **Resume scan** over phase 5 of [`../../shared/steps.yaml`](../../shared/steps.yaml). The
    discovery token is ephemeral (`check: ~`, no scriptable check) — treat it as a `HUMAN`
    step every run and delete it afterward.
-3. **Follow the runbook** [`../shared/docs/import.md`](../shared/docs/import.md) for the
+3. **Follow the runbook** [`../../shared/docs/import.md`](../../shared/docs/import.md) for the
    `cf-terraforming` invocation and the import-block workflow; the cross-provider pattern
    (applying the same generate→import→verify loop to other providers) is in
-   [`../shared/migration.md`](../shared/migration.md).
+   [`../../shared/migration.md`](../../shared/migration.md).
 4. **Respect the actor split** — the human mints/deletes the throwaway token; you generate
    HCL, write import blocks, and read the plan. See
-   [`../shared/protocol.md`](../shared/protocol.md).
+   [`../../shared/protocol.md`](../../shared/protocol.md).
 
 ## Success signal
 
