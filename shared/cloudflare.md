@@ -1,6 +1,6 @@
 # Provider: Cloudflare (agent-first)
 
-Deep dive for [Phase 2](../SKILL.md#phase-2--cloudflare) of the infra-setup skill. What the
+Deep dive for [Phase 2](../skills/setup/SKILL.md) of the infra-copilot:setup skill. What the
 agent does, what the human must do, and how to prove it. Canonical bootstrap detail:
 [`setup.md#3`](docs/setup.md#3-cloudflare-api-token). Token scopes + rotation:
 [`secrets.md`](docs/secrets.md#cloudflare-api-token-scopes).
@@ -84,7 +84,7 @@ never-see-the-plaintext rule holds). Two clean ways to get the IDs when porting:
   ```
 
 Write the results into `terraform/cloudflare/main.tf` `locals`. See the Configuring-for-your-org section in
-[`SKILL.md`](../SKILL.md#configuring-for-your-org).
+[`config.md`](config.md).
 
 ## Rotation
 

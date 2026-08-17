@@ -1,6 +1,6 @@
 # Provider: GitHub (agent-first)
 
-Deep dive for [Phase 3](../SKILL.md#phase-3--github) of the infra-setup skill. Canonical
+Deep dive for [Phase 3](../skills/setup/SKILL.md) of the infra-copilot:setup skill. Canonical
 bootstrap detail: [`setup.md#4`](docs/setup.md#4-github-app). Auth rationale + rotation:
 [`secrets.md`](docs/secrets.md#github-app-setup).
 
