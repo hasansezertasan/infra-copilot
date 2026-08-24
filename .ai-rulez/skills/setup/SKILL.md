@@ -40,8 +40,9 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 ## How to run
 
-1. **Read config first** (shared protocol, Step 0). Load `.infra-copilot/config.md`
-   and export the org vars. Missing file → handoff, offer to scaffold, wait.
+1. **Read config first** (shared protocol, Step 0). Load `.infra-copilot/config.md`, or
+   use `.claude/infra-copilot.local.md` as the migration fallback, and export the org
+   vars. If both are missing → handoff, offer to scaffold, wait.
    See [`../infra-copilot/references/config.md`](../infra-copilot/references/config.md).
 2. **Preflight**, then **resume scan** over phases 0–4 of
    [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml): run each `check`, print `✓` for green,

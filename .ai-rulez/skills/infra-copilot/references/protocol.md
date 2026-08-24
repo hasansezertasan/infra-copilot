@@ -24,11 +24,16 @@ Everything else — verifying, creating workspaces, importing, planning — is t
 
 ## Step 0 — read the repo config (AGENT, always first)
 
-Before any resume scan, read `.infra-copilot/config.md` from the current repo and
-export the shell vars every check depends on. Full schema + export block:
-[`config.md`](config.md). If the file is missing, emit the handoff block, show the schema,
-offer to scaffold from [`config.md.example`](config.md.example),
-and wait — never guess org/domain/IDs.
+Before any resume scan, read `.infra-copilot/config.md` from the current repo. If it is
+missing but `.claude/infra-copilot.local.md` exists, use that legacy file for this run and
+offer to copy it unchanged to the agent-neutral path. If both files are missing, emit the
+handoff block, show the schema, offer to scaffold from
+[`config.md.example`](config.md.example), and wait — never guess org/domain/IDs. Once a
+config is loaded, export the shell vars every check depends on. Full schema, migration
+rules, and export block: [`config.md`](config.md). On a cold run, `hcp-login` creates the
+credential file after this initial export; as soon as that step's check turns green,
+repeat the `HCP_TOKEN` export from `config.md` before checking `hcp-signup` or any later
+HCP step.
 
 ## Actors
 

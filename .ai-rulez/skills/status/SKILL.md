@@ -15,10 +15,11 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
 
 ## What it does
 
-1. **Read config** (shared protocol, Step 0). Load `.infra-copilot/config.md`,
-   export the org vars ([`../infra-copilot/references/config.md`](../infra-copilot/references/config.md)). Missing/incomplete
-   config is itself a finding — report it and stop; do **not** offer to scaffold or edit
-   (that belongs to `setup`).
+1. **Read config** (shared protocol, Step 0). Load `.infra-copilot/config.md`, falling
+   back to `.claude/infra-copilot.local.md` for migration, and export the org vars
+   ([`../infra-copilot/references/config.md`](../infra-copilot/references/config.md)). If both are missing, or the loaded
+   config is incomplete, report it and stop; do **not** offer to scaffold or edit (that
+   belongs to `setup`).
 2. **Preflight** — report which of `terraform`/`gh`/`jq`/`curl` are present and whether
    Terraform meets the ≥ 1.9 floor. Report the HCP token pivot: present or not.
 3. **Full scan — but only with checks that don't touch the working tree.** Walk **every**
@@ -55,7 +56,7 @@ Print a phase-by-phase table, then a one-line verdict. Use this shape:
 infra-copilot status — <repo> (org: $ORG)
 
 Preflight   terraform 1.x ✓   gh ✓   jq ✓   curl ✓   HCP token ✓
-Phase 0  HCP bootstrap    ✓ hcp-signup  ✓ hcp-login  ✓ hcp-verify
+Phase 0  HCP bootstrap    ✓ hcp-login  ✓ hcp-signup  ✓ hcp-verify
 Phase 1  workspaces       ✓ vcs-connect  ✗ workspaces-create   ← first red
 Phase 2  cloudflare       – cf-token            (not reached)
 …

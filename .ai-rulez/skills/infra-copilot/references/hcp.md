@@ -10,13 +10,14 @@ Deep dive for Phases 0–1 of the [`setup`](../../setup/SKILL.md) skill. Canonic
 
 The only unavoidable cold-start. Produces the HCP token that lets the agent script everything after.
 
-- **`HUMAN` — hcp-signup.** Sign up at <https://app.terraform.io/>, create org **`<your-org>`**,
-  create project **`infra`**. (Org name must equal the `organization` field in every
-  `terraform/*/versions.tf` — it does.)
-- **`HUMAN` — hcp-login.** Run `terraform login` locally (opens a browser, asks HCP for a
-  user API token). `HUMAN` because it needs an interactive browser — but it's the *last*
-  time a human touches the terminal for auth. Token lands in
-  `~/.terraform.d/credentials.tfrc.json`.
+- **`HUMAN` — hcp-login.** Sign up at <https://app.terraform.io/> if needed, then run
+  `terraform login` locally (opens a browser and asks HCP for a user API token). `HUMAN`
+  because it needs an interactive browser — but it's the *last* time a human touches the
+  terminal for auth. Token lands in `~/.terraform.d/credentials.tfrc.json`; after the
+  check passes, the agent re-exports `HCP_TOKEN` before continuing.
+- **`HUMAN` — hcp-signup.** With the token now available for verification, create org
+  **`<your-org>`** and project **`infra`**. (Org name must equal the `organization` field
+  in every `terraform/*/versions.tf` — it does.)
 - **`AGENT` — hcp-verify.** From here you own the HCP API:
   ```sh
   # $ORG sourced from config — see config.md

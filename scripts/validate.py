@@ -29,9 +29,10 @@ def load_json(path: str) -> dict[str, object]:
         return json.load(source)
 
 
-def validate_links() -> list[str]:
+def validate_links(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
-    for markdown in sorted(ROOT.rglob("*.md")):
+    repository_root = root.resolve()
+    for markdown in sorted(repository_root.rglob("*.md")):
         if IGNORED_DIRECTORIES.intersection(markdown.parts):
             continue
         text = markdown.read_text(encoding="utf-8")
@@ -44,9 +45,17 @@ def validate_links() -> list[str]:
             if not path_text:
                 continue
             resolved = (markdown.parent / path_text).resolve()
+            try:
+                resolved.relative_to(repository_root)
+            except ValueError:
+                errors.append(
+                    f"{markdown.relative_to(repository_root)}: link "
+                    f"{raw_target!r} resolves outside the repository"
+                )
+                continue
             if not resolved.exists():
                 errors.append(
-                    f"{markdown.relative_to(ROOT)}: broken link {raw_target!r}"
+                    f"{markdown.relative_to(repository_root)}: broken link {raw_target!r}"
                 )
     return errors
 

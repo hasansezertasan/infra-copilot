@@ -56,6 +56,22 @@ preflight:
 
 steps:
   # ── Phase 0 — HCP bootstrap ─────────────────────────────────────────────
+  - id: hcp-login
+    phase: 0
+    provider: hcp
+    actor: HUMAN
+    title: Sign up and terraform login (mint the pivot HCP token)
+    why: This browser login yields the API token needed to verify the organization and drive every later API step.
+    run: |
+      1. If needed, sign up at https://app.terraform.io/ (free tier is enough to start).
+      2. Run locally: terraform login
+      3. Approve in the browser tab it opens. The token is written to
+         ~/.terraform.d/credentials.tfrc.json. This is the last interactive auth a human does.
+      4. Reply `done`; the agent re-exports HCP_TOKEN before checking the next step.
+    check: 'jq -re ".credentials[\"app.terraform.io\"].token" ~/.terraform.d/credentials.tfrc.json'
+    produces: HCP account and user API token at ~/.terraform.d/credentials.tfrc.json
+    docs: docs/setup.md#1-hcp-terraform--organization
+
   - id: hcp-signup
     phase: 0
     provider: hcp
@@ -63,29 +79,12 @@ steps:
     title: Create HCP Terraform org and project
     why: HCP holds all state and secrets; nothing plans without it.
     run: |
-      1. Sign up at https://app.terraform.io/ (free tier is enough to start).
+      1. Open https://app.terraform.io/ after completing hcp-login.
       2. Create an organization named exactly `<your ORG slug>` (see config.md).
       3. Inside it, create a project named `infra`.
-    # NOTE: this check needs $HCP_TOKEN, which is only minted by the NEXT step
-    # (hcp-login) — an HCP org can't be verified without a token. On a cold run it
-    # reads red until hcp-login completes; that ordering is intentional, not a bug.
     check: 'test -n "$HCP_TOKEN" && curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
     produces: HCP org `$ORG`, project `infra`
     docs: docs/setup.md#1-hcp-terraform--organization
-
-  - id: hcp-login
-    phase: 0
-    provider: hcp
-    actor: HUMAN
-    title: terraform login (mint the pivot HCP token)
-    why: This browser login yields the API token that lets the AGENT drive everything after this.
-    run: |
-      Run locally:  terraform login
-      Approve in the browser tab it opens. The token is written to
-      ~/.terraform.d/credentials.tfrc.json. This is the last interactive auth a human does.
-    check: 'jq -re ".credentials[\"app.terraform.io\"].token" ~/.terraform.d/credentials.tfrc.json'
-    produces: HCP user API token at ~/.terraform.d/credentials.tfrc.json
-    docs: docs/setup.md#6-local-development
 
   - id: hcp-verify
     phase: 0

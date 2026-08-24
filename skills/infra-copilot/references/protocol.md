@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:4fbc88be59ae3fb372778efaf246ebb3fce73f5cf6a0eec616554dca2ee722ff
-Source-Hash: blake3:1b533cf86f762838b26b0b4c62d59637810f6262faf0d5838dbfee0014a205a4
+Content-Hash: blake3:864047533cdd0b87a0d1952125d611985d688f227190574101ac7b76a6983b27
+Source-Hash: blake3:05d7f09cd76066549971585bf00212d19d4a9f144003f0fc95f8fa947396d1d6
 Schema-Version: v1
 -->
 
@@ -31,11 +31,16 @@ Everything else — verifying, creating workspaces, importing, planning — is t
 
 ## Step 0 — read the repo config (AGENT, always first)
 
-Before any resume scan, read `.infra-copilot/config.md` from the current repo and
-export the shell vars every check depends on. Full schema + export block:
-[`config.md`](config.md). If the file is missing, emit the handoff block, show the schema,
-offer to scaffold from [`config.md.example`](config.md.example),
-and wait — never guess org/domain/IDs.
+Before any resume scan, read `.infra-copilot/config.md` from the current repo. If it is
+missing but `.claude/infra-copilot.local.md` exists, use that legacy file for this run and
+offer to copy it unchanged to the agent-neutral path. If both files are missing, emit the
+handoff block, show the schema, offer to scaffold from
+[`config.md.example`](config.md.example), and wait — never guess org/domain/IDs. Once a
+config is loaded, export the shell vars every check depends on. Full schema, migration
+rules, and export block: [`config.md`](config.md). On a cold run, `hcp-login` creates the
+credential file after this initial export; as soon as that step's check turns green,
+repeat the `HCP_TOKEN` export from `config.md` before checking `hcp-signup` or any later
+HCP step.
 
 ## Actors
 

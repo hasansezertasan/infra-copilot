@@ -5,8 +5,8 @@ description: "Agent-first, human-in-the-loop GREENFIELD bootstrap of a Terraform
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:b1d0ab14ec0bf5491eca8bd212f88eb0616a5a308a22167026846d1d78d032b2
-Source-Hash: blake3:1b533cf86f762838b26b0b4c62d59637810f6262faf0d5838dbfee0014a205a4
+Content-Hash: blake3:97730f6a817b450988420713b169d431f5de86270467f612cc2e23b6270349bc
+Source-Hash: blake3:05d7f09cd76066549971585bf00212d19d4a9f144003f0fc95f8fa947396d1d6
 Schema-Version: v1
 -->
 
@@ -47,8 +47,9 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 ## How to run
 
-1. **Read config first** (shared protocol, Step 0). Load `.infra-copilot/config.md`
-   and export the org vars. Missing file → handoff, offer to scaffold, wait.
+1. **Read config first** (shared protocol, Step 0). Load `.infra-copilot/config.md`, or
+   use `.claude/infra-copilot.local.md` as the migration fallback, and export the org
+   vars. If both are missing → handoff, offer to scaffold, wait.
    See [`../infra-copilot/references/config.md`](../infra-copilot/references/config.md).
 2. **Preflight**, then **resume scan** over phases 0–4 of
    [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml): run each `check`, print `✓` for green,

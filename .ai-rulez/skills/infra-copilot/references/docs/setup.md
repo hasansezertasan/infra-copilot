@@ -7,9 +7,11 @@ Run in order. Each step explains what it produces and where the value goes.
 
 ## 1. HCP Terraform — organization
 
-1. Sign up at <https://app.terraform.io/> (free tier is sufficient to start).
-2. Create an organization matching your `hcp_org` value (see [`../config.md`](../config.md)) — it must match the `organization` field in every `terraform/*/versions.tf`.
-3. Inside the org, create a project named **`infra`**.
+1. Sign up at <https://app.terraform.io/> if needed (free tier is sufficient to start).
+2. Run `terraform login` and approve the browser flow so the agent can verify every
+   subsequent HCP step through the API.
+3. Create an organization matching your `hcp_org` value (see [`../config.md`](../config.md)) — it must match the `organization` field in every `terraform/*/versions.tf`.
+4. Inside the org, create a project named **`infra`**.
 
 ## 2. HCP Terraform — workspaces
 
@@ -87,7 +89,9 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
 ## 6. Local development
 
 1. Install Terraform ≥ 1.9.
-2. `terraform login` — opens a browser, asks HCP for a user API token. Token lands in `~/.terraform.d/credentials.tfrc.json`. The same token is what authenticates HCP API calls if you want to script anything (see [`state.md`](./state.md#api-access)).
+2. If the Phase 0 token is absent or expired, re-run `terraform login`. It opens a browser
+   and writes the user API token to `~/.terraform.d/credentials.tfrc.json`. The same token
+   authenticates HCP API calls (see [`state.md`](./state.md#api-access)).
 3. From any leaf directory: `terraform init` (authenticates to HCP automatically), then `terraform plan`. A VCS-connected workspace allows `plan` from CLI but blocks `apply` — that gate is intentional.
 
 ## 7. Importing existing Cloudflare resources

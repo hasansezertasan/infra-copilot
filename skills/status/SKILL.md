@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:c2849dbac0177d7fb9bc9958d24146d493abe3b2dae1908e6542697e26ab1eb6
-Source-Hash: blake3:1b533cf86f762838b26b0b4c62d59637810f6262faf0d5838dbfee0014a205a4
+Content-Hash: blake3:151ab17c2f378d2b528ff791b5043a369ae3d666ae4f81bdcb276f8cfb320687
+Source-Hash: blake3:05d7f09cd76066549971585bf00212d19d4a9f144003f0fc95f8fa947396d1d6
 Schema-Version: v1
 -->
 
@@ -22,10 +22,11 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
 
 ## What it does
 
-1. **Read config** (shared protocol, Step 0). Load `.infra-copilot/config.md`,
-   export the org vars ([`../infra-copilot/references/config.md`](../infra-copilot/references/config.md)). Missing/incomplete
-   config is itself a finding — report it and stop; do **not** offer to scaffold or edit
-   (that belongs to `setup`).
+1. **Read config** (shared protocol, Step 0). Load `.infra-copilot/config.md`, falling
+   back to `.claude/infra-copilot.local.md` for migration, and export the org vars
+   ([`../infra-copilot/references/config.md`](../infra-copilot/references/config.md)). If both are missing, or the loaded
+   config is incomplete, report it and stop; do **not** offer to scaffold or edit (that
+   belongs to `setup`).
 2. **Preflight** — report which of `terraform`/`gh`/`jq`/`curl` are present and whether
    Terraform meets the ≥ 1.9 floor. Report the HCP token pivot: present or not.
 3. **Full scan — but only with checks that don't touch the working tree.** Walk **every**
@@ -62,7 +63,7 @@ Print a phase-by-phase table, then a one-line verdict. Use this shape:
 infra-copilot status — <repo> (org: $ORG)
 
 Preflight   terraform 1.x ✓   gh ✓   jq ✓   curl ✓   HCP token ✓
-Phase 0  HCP bootstrap    ✓ hcp-signup  ✓ hcp-login  ✓ hcp-verify
+Phase 0  HCP bootstrap    ✓ hcp-login  ✓ hcp-signup  ✓ hcp-verify
 Phase 1  workspaces       ✓ vcs-connect  ✗ workspaces-create   ← first red
 Phase 2  cloudflare       – cf-token            (not reached)
 …

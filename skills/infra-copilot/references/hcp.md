@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:56dbbaf2ad51d5c77cd0f1c9a6ca325913bab2b1d4efdbce9f039410e999d338
-Source-Hash: blake3:1b533cf86f762838b26b0b4c62d59637810f6262faf0d5838dbfee0014a205a4
+Content-Hash: blake3:ad8003371a0133d9c5cd2cfe19e6fb219a7f7862f3b1d6571c5618f478ffaa7c
+Source-Hash: blake3:05d7f09cd76066549971585bf00212d19d4a9f144003f0fc95f8fa947396d1d6
 Schema-Version: v1
 -->
 
@@ -17,13 +17,14 @@ Deep dive for Phases 0–1 of the [`setup`](../../setup/SKILL.md) skill. Canonic
 
 The only unavoidable cold-start. Produces the HCP token that lets the agent script everything after.
 
-- **`HUMAN` — hcp-signup.** Sign up at <https://app.terraform.io/>, create org **`<your-org>`**,
-  create project **`infra`**. (Org name must equal the `organization` field in every
-  `terraform/*/versions.tf` — it does.)
-- **`HUMAN` — hcp-login.** Run `terraform login` locally (opens a browser, asks HCP for a
-  user API token). `HUMAN` because it needs an interactive browser — but it's the *last*
-  time a human touches the terminal for auth. Token lands in
-  `~/.terraform.d/credentials.tfrc.json`.
+- **`HUMAN` — hcp-login.** Sign up at <https://app.terraform.io/> if needed, then run
+  `terraform login` locally (opens a browser and asks HCP for a user API token). `HUMAN`
+  because it needs an interactive browser — but it's the *last* time a human touches the
+  terminal for auth. Token lands in `~/.terraform.d/credentials.tfrc.json`; after the
+  check passes, the agent re-exports `HCP_TOKEN` before continuing.
+- **`HUMAN` — hcp-signup.** With the token now available for verification, create org
+  **`<your-org>`** and project **`infra`**. (Org name must equal the `organization` field
+  in every `terraform/*/versions.tf` — it does.)
 - **`AGENT` — hcp-verify.** From here you own the HCP API:
   ```sh
   # $ORG sourced from config — see config.md
