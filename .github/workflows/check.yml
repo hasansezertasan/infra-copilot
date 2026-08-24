@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       INFRA_COPILOT_AI_RULEZ_VERSION: 4.11.2
+      INFRA_COPILOT_SKILLS_VERSION: 1.5.23
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,7 +30,7 @@ jobs:
         run: python3 scripts/validate.py
       - name: Smoke-test OpenCode installation
         run: |
-          npx --yes skills add . --agent opencode --skill '*' -y --copy
+          npx --yes skills@${INFRA_COPILOT_SKILLS_VERSION} add . --agent opencode --skill '*' -y --copy
           test "$(find .agents/skills -name SKILL.md | wc -l)" -eq 5
           test -f .agents/skills/infra-copilot/references/protocol.md
           test -f .agents/skills/infra-copilot/references/decisions.md.example

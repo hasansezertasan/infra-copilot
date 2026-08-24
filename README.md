@@ -103,7 +103,7 @@ only in command frontmatter as adapter permissions; workflow bodies remain host-
 npx --yes ai-rulez@4.11.2 validate
 npx --yes ai-rulez@4.11.2 generate --plugin
 npx --yes ai-rulez@4.11.2 verify --plugin
-npx --yes skills add . --agent opencode --list
+npx --yes skills@1.5.23 add . --agent opencode --list
 python3 scripts/validate.py
 ```
 
