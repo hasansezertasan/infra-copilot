@@ -1,0 +1,15 @@
+---
+hcp_org: your-org
+github_org: your-org
+apex_domain: example.dev
+cloudflare_account_id: 0000000000000000000000000000000
+cloudflare_zone_id: 0000000000000000000000000000000
+managed_repos:
+  - your-org/infra
+hcp_status_check_id: ""
+---
+
+# infra-copilot config
+
+Public identifiers for this repo. Copy to `.infra-copilot/config.md`, fill in
+your org's values, and commit. Sensitive data lives in HCP workspace variables.

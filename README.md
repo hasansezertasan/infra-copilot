@@ -1,6 +1,6 @@
 # infra-copilot
 
-Agent-first, human-in-the-loop Claude Code plugin that bootstraps and maintains a
+Agent-agnostic, human-in-the-loop toolkit that bootstraps and maintains a
 **Terraform + HCP Terraform + Cloudflare + GitHub** SaaS infrastructure repo.
 
 The one idea behind it: **the human is the browser and the keyholder — everything
@@ -12,10 +12,15 @@ provider's API, pausing only for the irreducibly human steps.
 
 ## Install
 
-```
-/plugin marketplace add hasansezertasan/infra-copilot
-/plugin install infra-copilot
-```
+| Host | Install | Update | Invoke |
+|---|---|---|---|
+| Claude Code | `/plugin marketplace add hasansezertasan/infra-copilot`, then `/plugin install infra-copilot` | `/plugin update infra-copilot`, then restart | `/infra-setup`, `/infra-import`, `/infra-add`, `/infra-status` |
+| Codex CLI | `codex plugin marketplace add hasansezertasan/infra-copilot`, then enable it from `/plugins` and start a new session | `codex plugin marketplace upgrade infra-copilot`, refresh the install from `/plugins`, then restart | Ask to use infra-copilot for setup, import, add, or status; plugin-defined slash commands are not exposed |
+| Antigravity | `agy plugin install https://github.com/hasansezertasan/infra-copilot` | Reinstall the plugin, then restart | `/infra-setup`, `/infra-import`, `/infra-add`, `/infra-status`, or natural language |
+| OpenCode | `npx skills add hasansezertasan/infra-copilot` in the consuming repo, then restart | Re-run the install command, then restart | Ask OpenCode to use `infra-copilot`, `setup`, `import`, `add`, or `status`; skills load on demand through the native `skill` tool |
+
+After an update, refresh the host marketplace/plugin and restart the session so changed
+skills are rediscovered.
 
 ## Configure
 
@@ -24,7 +29,7 @@ account IDs. The **consuming repo** (the infra repo you're bootstrapping) must c
 committed, non-secret config file:
 
 ```
-.claude/infra-copilot.local.md
+.infra-copilot/config.md
 ```
 
 It's Markdown with a YAML frontmatter block holding only public identifiers:
@@ -47,23 +52,24 @@ etc.) live exclusively in HCP Terraform workspace variables — the agent never 
 plaintext; a human pastes them directly into HCP.
 
 Full schema, the shell-export contract, and the startup behavior when the file is
-missing: [`shared/config.md`](shared/config.md). A fillable template ships at
-[`shared/infra-copilot.local.md.example`](shared/infra-copilot.local.md.example).
+missing: [`config.md`](skills/infra-copilot/references/config.md). A fillable template ships at
+[`config.md.example`](skills/infra-copilot/references/config.md.example).
+
+Existing `.claude/infra-copilot.local.md` files remain readable as a migration fallback.
+Move their contents unchanged to `.infra-copilot/config.md`; do not maintain both. Provider
+and authentication decisions belong in `.infra-copilot/decisions.md`, with legacy
+`CLAUDE.md` decision tables supported during migration.
 
 ## Skills
 
-The work is split by function. Each skill is a thin router over one shared manifest
-([`shared/steps.yaml`](shared/steps.yaml)) and one shared protocol
-([`shared/protocol.md`](shared/protocol.md) — the actor model, handoff block,
-resume scan, and preflight), so they never drift apart.
-
-> `shared/` lives at the **plugin root**, not under `skills/`, on purpose: Claude Code
-> discovers skills by scanning `skills/*/` for `SKILL.md`, so cross-skill resources belong
-> outside that tree (the documented pattern for shared resources). Don't move it back under
-> `skills/`.
+The work is split by function. Each skill is a thin router over the `infra-copilot` hub
+skill and its self-contained [`references/`](skills/infra-copilot/references/) directory.
+That directory owns the manifest, protocol, provider guidance, and runbooks once; generated
+host packages copy the whole hub skill so relative links remain valid everywhere.
 
 | Skill | Command | Does |
 |---|---|---|
+| [`infra-copilot`](skills/infra-copilot/SKILL.md) | natural language | Routes a general request to the smallest matching workflow. |
 | [`setup`](skills/setup/SKILL.md) | `/infra-setup` | **Greenfield bootstrap** (phases 0–4): HCP org/login, workspaces, Cloudflare token, GitHub App, first plan. |
 | [`import`](skills/import/SKILL.md) | `/infra-import` | **Adopt existing** provider resources into Terraform without recreating them (cf-terraforming import blocks). |
 | [`add`](skills/add/SKILL.md) | `/infra-add` | **Grow** the repo: a managed repo, a new resource, or a brand-new provider (e.g. GCP). |
@@ -71,7 +77,8 @@ resume scan, and preflight), so they never drift apart.
 
 ## Usage
 
-In the consuming repo, run `/infra-setup` (or say "set up infra"). The skill reads your
+In the consuming repo, use the host invocation above (or say "use infra-copilot to set up
+infra"). The skill reads your
 config, runs a resume scan against the manifest to discover where setup already stands, and
 drives every step tagged `AGENT` itself — verifying, provisioning, planning. When it hits a
 step tagged `HUMAN` (a signup, a credential mint, a secret paste) it stops, prints a handoff
@@ -81,13 +88,32 @@ It's idempotent: re-run any skill any time. An all-green resume scan means "alre
 nothing to do." Not sure where you are? Run `/infra-status` first — it tells you which skill
 to reach for.
 
+## Maintaining host packages
+
+Canonical behavior lives only in `.ai-rulez/skills/` and `.ai-rulez/commands/`. Claude
+Code, Codex, and Antigravity consume the committed root adapters generated from those
+sources. `ai-rulez` generates the Claude and Codex manifests plus the OpenCode skill
+surface. The native Codex marketplace and Antigravity manifest remain small hand-authored
+adapters because `ai-rulez` does not currently generate those install surfaces.
+
+```bash
+npx --yes ai-rulez@4.11.2 validate
+npx --yes ai-rulez@4.11.2 generate
+npx --yes ai-rulez@4.11.2 generate --plugin
+npx --yes ai-rulez@4.11.2 verify --plugin
+python3 scripts/validate.py
+```
+
+Generated files are committed so users can install without having `ai-rulez`. CI runs the
+same validation and fails if generated payloads drift or local Markdown links break.
+
 ## Adding a skill
 
-The plugin is meant to grow. To add a new capability, drop a new directory under `skills/`
-with its own `SKILL.md` — route it over the shared protocol and manifest under
-`shared/` rather than re-copying that machinery. It auto-publishes through the same
-marketplace entry, no manifest changes required. Extension points: drift detection, cost
-review, additional providers.
+The plugin is meant to grow. To add a new capability, drop a new directory under
+`.ai-rulez/skills/` with its own `SKILL.md` — route it over the protocol and manifest under
+`.ai-rulez/skills/infra-copilot/references/` rather than re-copying that machinery.
+Regenerate the host packages before opening a pull request. Extension points: drift
+detection, cost review, additional providers.
 
 ## License
 

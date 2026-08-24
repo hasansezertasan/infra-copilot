@@ -1,0 +1,26 @@
+{
+  "version": "1",
+  "files": [
+    ".opencode/skills/add/SKILL.md",
+    ".opencode/skills/import/SKILL.md",
+    ".opencode/skills/infra-copilot/SKILL.md",
+    ".opencode/skills/infra-copilot/references/cloudflare.md",
+    ".opencode/skills/infra-copilot/references/config.md",
+    ".opencode/skills/infra-copilot/references/config.md.example",
+    ".opencode/skills/infra-copilot/references/docs/ci.md",
+    ".opencode/skills/infra-copilot/references/docs/hcp-api.md",
+    ".opencode/skills/infra-copilot/references/docs/import.md",
+    ".opencode/skills/infra-copilot/references/docs/secrets.md",
+    ".opencode/skills/infra-copilot/references/docs/setup.md",
+    ".opencode/skills/infra-copilot/references/docs/state.md",
+    ".opencode/skills/infra-copilot/references/gcp.md",
+    ".opencode/skills/infra-copilot/references/github.md",
+    ".opencode/skills/infra-copilot/references/hcp.md",
+    ".opencode/skills/infra-copilot/references/migration.md",
+    ".opencode/skills/infra-copilot/references/protocol.md",
+    ".opencode/skills/infra-copilot/references/steps.yaml",
+    ".opencode/skills/setup/SKILL.md",
+    ".opencode/skills/status/SKILL.md",
+    "AGENTS.md"
+  ]
+}

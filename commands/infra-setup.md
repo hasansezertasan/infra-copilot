@@ -1,7 +1,13 @@
 ---
 description: "Shortcut that loads the infra-copilot setup skill — agent-first, human-in-the-loop greenfield bootstrap of a Terraform + HCP + Cloudflare + GitHub SaaS infra repo."
-allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 ---
+
+<!--
+AI-RULEZ :: GENERATED FILE — DO NOT EDIT
+Content-Hash: blake3:1af7c965545b4be3b61d81caf66d9f25ed381375ece2605af31522dcc30ecd57
+Source-Hash: blake3:c5685395138066d55267f7fc18e082e5ba4632a7e2e8ed3145b4749f4becfdb1
+Schema-Version: v1
+-->
 
 # /infra-setup
 
@@ -12,15 +18,15 @@ holds the logic.
 
 Load `../skills/setup/SKILL.md` and drive it end-to-end:
 
-1. **Read config first.** Load `.claude/infra-copilot.local.md` and export the org vars
-   (shared protocol Step 0 / [`config.md`](../shared/config.md)) before the scan.
-2. **Resume first.** Walk phases 0–4 of [`steps.yaml`](../shared/steps.yaml) and run
+1. **Read config first.** Load `.infra-copilot/config.md` and export the org vars
+   (shared protocol Step 0 / [`config.md`](../skills/infra-copilot/references/config.md)) before the scan.
+2. **Resume first.** Walk phases 0–4 of [`steps.yaml`](../skills/infra-copilot/references/steps.yaml) and run
    each step's `check` to find where setup stands. Report `✓` for green; resume at the
    first red. Never assume state from a previous session.
 3. **Respect the actor split.** Execute `AGENT` steps yourself. On a `HUMAN` step, stop and
    emit the handoff block, wait for `done`, then re-run the `check` — never fake a signup,
-   a dashboard click, or a secret paste. Contract: [`protocol.md`](../shared/protocol.md).
-4. **Route to the deep-dives** under `../shared/` for the fine print. Don't duplicate them.
+   a dashboard click, or a secret paste. Contract: [`protocol.md`](../skills/infra-copilot/references/protocol.md).
+4. **Route to the deep-dives** under `../skills/infra-copilot/references/` for the fine print. Don't duplicate them.
 5. **Stop at the done signal** in the skill. If existing resources need adopting, continue
    with `/infra-import`.
 

@@ -1,0 +1,36 @@
+{
+  "name": "infra-copilot",
+  "interface": {
+    "displayName": "infra-copilot",
+    "shortDescription": "Agent-first Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure workflows"
+  },
+  "metadata": {
+    "description": "The infra-copilot plugin marketplace"
+  },
+  "owner": {
+    "name": "hasansezertasan",
+    "url": "https://github.com/hasansezertasan"
+  },
+  "plugins": [
+    {
+      "name": "infra-copilot",
+      "version": "0.1.0",
+      "description": "Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure.",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development",
+      "author": {
+        "name": "hasansezertasan"
+      },
+      "homepage": "https://github.com/hasansezertasan/infra-copilot",
+      "license": "MIT",
+      "keywords": ["terraform", "infrastructure", "cloudflare", "github"]
+    }
+  ]
+}

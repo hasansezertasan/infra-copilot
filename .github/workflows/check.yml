@@ -1,0 +1,33 @@
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      INFRA_COPILOT_AI_RULEZ_VERSION: 4.11.2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate ai-rulez configuration
+        run: npx --yes ai-rulez@${INFRA_COPILOT_AI_RULEZ_VERSION} validate
+      - name: Verify committed OpenCode skill surface
+        run: |
+          npx --yes ai-rulez@${INFRA_COPILOT_AI_RULEZ_VERSION} generate
+          git diff --exit-code -- AGENTS.md .opencode .ai-rulez/.generated-manifest.json
+      - name: Verify committed plugin payloads
+        run: npx --yes ai-rulez@${INFRA_COPILOT_AI_RULEZ_VERSION} verify --plugin
+      - name: Validate links and host adapters
+        run: python3 scripts/validate.py

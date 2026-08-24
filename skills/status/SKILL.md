@@ -3,6 +3,13 @@ name: status
 description: "READ-ONLY health check for an infra-copilot repo: run every step's check across the whole manifest (HCP org, workspaces, Cloudflare token, GitHub App, plans, imports) and report exactly where things stand — what's green, what's the first red step, and which skill fixes it. Changes NOTHING. Use this WHENEVER the user asks where infra stands or whether it's done, rather than asking to change it. Trigger on: 'is our infra actually set up or did it stall', 'did the bootstrap finish', 'where did setup get to', 'which step is red', 'infra doctor', 'health check don't change anything', 'check infra state', 'audit the infra config'. Prefer this (read-only) over setup/import/add when the user only wants to know status; then it tells them which skill to run next."
 ---
 
+<!--
+AI-RULEZ :: GENERATED FILE — DO NOT EDIT
+Content-Hash: blake3:c2849dbac0177d7fb9bc9958d24146d493abe3b2dae1908e6542697e26ab1eb6
+Source-Hash: blake3:c5685395138066d55267f7fc18e082e5ba4632a7e2e8ed3145b4749f4becfdb1
+Schema-Version: v1
+-->
+
 # infra-copilot: status
 
 A **read-only** pass over the whole `infra-copilot` manifest. It runs the same resume scan
@@ -10,19 +17,19 @@ the action skills use, but stops there: it reports state and **never provisions,
 or applies anything.** Use it to answer "where are we?" before picking a next action.
 
 This file is a **router**: the machinery — actor model, resume scan, preflight — is in
-[`../../shared/protocol.md`](../../shared/protocol.md); the manifest it scans is
-[`../../shared/steps.yaml`](../../shared/steps.yaml).
+[`../infra-copilot/references/protocol.md`](../infra-copilot/references/protocol.md); the manifest it scans is
+[`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml).
 
 ## What it does
 
-1. **Read config** (shared protocol, Step 0). Load `.claude/infra-copilot.local.md`,
-   export the org vars ([`../../shared/config.md`](../../shared/config.md)). Missing/incomplete
+1. **Read config** (shared protocol, Step 0). Load `.infra-copilot/config.md`,
+   export the org vars ([`../infra-copilot/references/config.md`](../infra-copilot/references/config.md)). Missing/incomplete
    config is itself a finding — report it and stop; do **not** offer to scaffold or edit
    (that belongs to `setup`).
 2. **Preflight** — report which of `terraform`/`gh`/`jq`/`curl` are present and whether
    Terraform meets the ≥ 1.9 floor. Report the HCP token pivot: present or not.
 3. **Full scan — but only with checks that don't touch the working tree.** Walk **every**
-   step in [`../../shared/steps.yaml`](../../shared/steps.yaml) (all phases, 0–6). Never run a
+   step in [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml) (all phases, 0–6). Never run a
    step's `run`. Classify each `check` before running it — the read-only guarantee depends
    on this:
 
@@ -33,7 +40,7 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      which writes `.terraform/` and can create or update `.terraform.lock.hcl` — that would
      dirty the checkout, and this command promises to change nothing. Instead, read the
      **latest run status per workspace via the HCP API** (non-mutating — see
-     [`../../shared/docs/hcp-api.md`](../../shared/docs/hcp-api.md)): a recent successful plan/apply
+     [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)): a recent successful plan/apply
      means green; report `?` (plan-gated, not run) if there's no run to read.
    - **Null checks** (`check: ~`, e.g. `migrate-discovery-token`) — nothing scriptable to
      run. Report them as `·` (human-gated / ephemeral), never attempt to execute the null.
