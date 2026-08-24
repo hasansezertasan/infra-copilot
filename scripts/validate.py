@@ -60,6 +60,7 @@ def validate_links(root: Path = ROOT) -> list[str]:
     for markdown in sorted(repository_root.rglob("*.md")):
         if IGNORED_DIRECTORIES.intersection(markdown.parts):
             continue
+        relative_markdown = markdown.relative_to(repository_root).as_posix()
         text = markdown.read_text(encoding="utf-8")
         for raw_target in MARKDOWN_LINK.findall(text):
             target = raw_target.strip().strip("<>")
@@ -74,13 +75,13 @@ def validate_links(root: Path = ROOT) -> list[str]:
                 resolved.relative_to(repository_root)
             except ValueError:
                 errors.append(
-                    f"{markdown.relative_to(repository_root)}: link "
+                    f"{relative_markdown}: link "
                     f"{raw_target!r} resolves outside the repository"
                 )
                 continue
             if not resolved.exists():
                 errors.append(
-                    f"{markdown.relative_to(repository_root)}: broken link {raw_target!r}"
+                    f"{relative_markdown}: broken link {raw_target!r}"
                 )
     return errors
 
