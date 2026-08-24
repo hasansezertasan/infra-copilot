@@ -15,7 +15,7 @@ provider's API, pausing only for the irreducibly human steps.
 | Host | Install | Update | Invoke |
 |---|---|---|---|
 | Claude Code | `/plugin marketplace add hasansezertasan/infra-copilot`, then `/plugin install infra-copilot` | `/plugin update infra-copilot`, then restart | `/infra-setup`, `/infra-import`, `/infra-add`, `/infra-status` |
-| Codex CLI | `codex plugin marketplace add hasansezertasan/infra-copilot`, then enable it from `/plugins` and start a new session | `codex plugin marketplace upgrade infra-copilot`, refresh the install from `/plugins`, then restart | Ask to use infra-copilot for setup, import, add, or status; plugin-defined slash commands are not exposed |
+| Codex CLI | `codex plugin marketplace add hasansezertasan/infra-copilot`, then enable it from `/plugins` and start a new session | `codex plugin marketplace upgrade infra-copilot`, then `codex plugin add infra-copilot@infra-copilot` and restart | Ask to use infra-copilot for setup, import, add, or status; plugin-defined slash commands are not exposed |
 | Antigravity | `agy plugin install https://github.com/hasansezertasan/infra-copilot` | Reinstall the plugin, then restart | `/infra-setup`, `/infra-import`, `/infra-add`, `/infra-status`, or natural language |
 | OpenCode | `npx skills add hasansezertasan/infra-copilot --agent opencode --skill '*' -y` in the consuming repo, then restart | `npx skills update -p`, then restart | Ask OpenCode to use `infra-copilot`, `setup`, `import`, `add`, or `status`; skills load on demand through the native `skill` tool |
 
