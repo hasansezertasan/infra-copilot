@@ -95,7 +95,8 @@ enforces the version floor (Terraform ≥ 1.9) programmatically — run those to
 Then detect the credential the whole flow pivots on:
 
 ```sh
-jq -re '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json \
+jq -e '.credentials["app.terraform.io"].token | strings | length > 0' \
+  ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1 \
   && echo "HCP token present — agent can drive the API" \
   || echo "No HCP token yet — the first HUMAN step will mint one"
 ```

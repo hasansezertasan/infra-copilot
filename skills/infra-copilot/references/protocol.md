@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:864047533cdd0b87a0d1952125d611985d688f227190574101ac7b76a6983b27
-Source-Hash: blake3:6761da984b2d73368f2a287cd996d5e86f4661752ff352266ccc32b613f3b0bf
+Content-Hash: blake3:faee30b40b772362244a6e3d327fe8a8c69bd52d27137d812e24ef0c2dc8a716
+Source-Hash: blake3:d3abe5be6cb04f08b47c678f49ab17acd140ddd96fe66800afd01f14d7d7087c
 Schema-Version: v1
 -->
 
@@ -102,7 +102,8 @@ enforces the version floor (Terraform ≥ 1.9) programmatically — run those to
 Then detect the credential the whole flow pivots on:
 
 ```sh
-jq -re '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json \
+jq -e '.credentials["app.terraform.io"].token | strings | length > 0' \
+  ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1 \
   && echo "HCP token present — agent can drive the API" \
   || echo "No HCP token yet — the first HUMAN step will mint one"
 ```

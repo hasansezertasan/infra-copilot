@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:151ab17c2f378d2b528ff791b5043a369ae3d666ae4f81bdcb276f8cfb320687
-Source-Hash: blake3:6761da984b2d73368f2a287cd996d5e86f4661752ff352266ccc32b613f3b0bf
+Content-Hash: blake3:0a82c5e9d17d52962ce539374165cdf1536716429370c063736299c91354ec9f
+Source-Hash: blake3:d3abe5be6cb04f08b47c678f49ab17acd140ddd96fe66800afd01f14d7d7087c
 Schema-Version: v1
 -->
 
@@ -40,9 +40,11 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      `plan-github`) and the phase-5 `migrate-import` check run `terraform init`/`plan`,
      which writes `.terraform/` and can create or update `.terraform.lock.hcl` — that would
      dirty the checkout, and this command promises to change nothing. Instead, read the
-     **latest run status per workspace via the HCP API** (non-mutating — see
-     [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)): a recent successful plan/apply
-     means green; report `?` (plan-gated, not run) if there's no run to read.
+     **run status per workspace via the HCP API** (non-mutating — see
+     [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)). Resolve the current revision
+     with `git rev-parse HEAD`, then use the guide's specific-commit lookup. Green requires
+     a successful plan/apply correlated with that exact revision. An older run, an
+     ambiguous run message, or no matching run is `?` (current revision not verified).
    - **Null checks** (`check: ~`, e.g. `migrate-discovery-token`) — nothing scriptable to
      run. Report them as `·` (human-gated / ephemeral), never attempt to execute the null.
    - For `HUMAN` steps, apply the same classification to their `check`; never emit the

@@ -33,9 +33,11 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      `plan-github`) and the phase-5 `migrate-import` check run `terraform init`/`plan`,
      which writes `.terraform/` and can create or update `.terraform.lock.hcl` — that would
      dirty the checkout, and this command promises to change nothing. Instead, read the
-     **latest run status per workspace via the HCP API** (non-mutating — see
-     [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)): a recent successful plan/apply
-     means green; report `?` (plan-gated, not run) if there's no run to read.
+     **run status per workspace via the HCP API** (non-mutating — see
+     [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)). Resolve the current revision
+     with `git rev-parse HEAD`, then use the guide's specific-commit lookup. Green requires
+     a successful plan/apply correlated with that exact revision. An older run, an
+     ambiguous run message, or no matching run is `?` (current revision not verified).
    - **Null checks** (`check: ~`, e.g. `migrate-discovery-token`) — nothing scriptable to
      run. Report them as `·` (human-gated / ephemeral), never attempt to execute the null.
    - For `HUMAN` steps, apply the same classification to their `check`; never emit the

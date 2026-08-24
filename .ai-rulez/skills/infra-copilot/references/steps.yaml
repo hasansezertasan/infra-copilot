@@ -66,9 +66,10 @@ steps:
       1. If needed, sign up at https://app.terraform.io/ (free tier is enough to start).
       2. Run locally: terraform login
       3. Approve in the browser tab it opens. The token is written to
-         ~/.terraform.d/credentials.tfrc.json. This is the last interactive auth a human does.
+         ~/.terraform.d/credentials.tfrc.json. This is the last interactive HCP CLI
+         authentication; later providers still require their own human authorization or credential entry.
       4. Reply `done`; the agent re-exports HCP_TOKEN before checking the next step.
-    check: 'jq -re ".credentials[\"app.terraform.io\"].token" ~/.terraform.d/credentials.tfrc.json'
+    check: 'jq -e ".credentials[\"app.terraform.io\"].token | strings | length > 0" ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1'
     produces: HCP account and user API token at ~/.terraform.d/credentials.tfrc.json
     docs: docs/setup.md#1-hcp-terraform--organization
 

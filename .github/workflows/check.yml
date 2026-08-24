@@ -29,16 +29,16 @@ jobs:
         with:
           python-version: "3.12"
       - name: Validate ai-rulez configuration
-        run: npx --yes ai-rulez@${INFRA_COPILOT_AI_RULEZ_VERSION} validate
+        run: npx --yes "ai-rulez@${INFRA_COPILOT_AI_RULEZ_VERSION}" validate
       - name: Verify committed plugin payloads
-        run: npx --yes ai-rulez@${INFRA_COPILOT_AI_RULEZ_VERSION} verify --plugin
+        run: npx --yes "ai-rulez@${INFRA_COPILOT_AI_RULEZ_VERSION}" verify --plugin
       - name: Validate links and host adapters
         run: python3 scripts/validate.py
       - name: Test repository validators
         run: python3 -m unittest discover -s tests
       - name: Smoke-test OpenCode installation
         run: |
-          npx --yes skills@${INFRA_COPILOT_SKILLS_VERSION} add . --agent opencode --skill '*' -y --copy
+          npx --yes "skills@${INFRA_COPILOT_SKILLS_VERSION}" add . --agent opencode --skill '*' -y --copy
           test "$(find .agents/skills -name SKILL.md | wc -l)" -eq 5
           test -f .agents/skills/infra-copilot/references/protocol.md
           test -f .agents/skills/infra-copilot/references/decisions.md.example
