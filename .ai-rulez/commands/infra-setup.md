@@ -1,5 +1,6 @@
 ---
 description: "Shortcut that loads the infra-copilot setup skill — agent-first, human-in-the-loop greenfield bootstrap of a Terraform + HCP + Cloudflare + GitHub SaaS infra repo."
+allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 ---
 
 # /infra-setup

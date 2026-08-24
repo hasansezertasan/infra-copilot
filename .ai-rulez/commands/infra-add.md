@@ -1,5 +1,6 @@
 ---
 description: "Shortcut that loads the infra-copilot add skill — grow a bootstrapped repo: add a managed repo, a new resource, or a brand-new provider, ending on a green plan."
+allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 ---
 
 # /infra-add

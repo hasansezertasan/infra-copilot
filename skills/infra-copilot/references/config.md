@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:ea99518db40ac76864fe11ac8284be257b994492cd6f671241ec096226f87b6c
-Source-Hash: blake3:c5685395138066d55267f7fc18e082e5ba4632a7e2e8ed3145b4749f4becfdb1
+Content-Hash: blake3:2290ae12f4e1bc22d89fe27f7f9c980f00c9e92f7638a3d559ad7d3c36122f4f
+Source-Hash: blake3:1b533cf86f762838b26b0b4c62d59637810f6262faf0d5838dbfee0014a205a4
 Schema-Version: v1
 -->
 
@@ -62,6 +62,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
 ## Design decisions
 
 Provider and authentication decisions belong in `.infra-copilot/decisions.md` in the
-consuming repository. If only a legacy `CLAUDE.md` locked-decisions table exists, honor it
-and offer to migrate the relevant entries. This keeps canonical workflows independent of
-the active coding agent.
+consuming repository. Copy [`decisions.md.example`](decisions.md.example) there and record
+each durable choice, its status, and its rationale. If only a legacy `CLAUDE.md`
+locked-decisions table exists, honor it and offer to migrate the relevant entries. This
+keeps canonical workflows independent of the active coding agent.

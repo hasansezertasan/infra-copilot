@@ -16,6 +16,12 @@ MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SKILL_FRONTMATTER = re.compile(
     r"\A---\s*\n(?P<body>.*?)\n---\s*\n", re.DOTALL
 )
+COMMAND_TOOLS = {
+    "infra-add.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
+    "infra-import.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
+    "infra-setup.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
+    "infra-status.md": "Read, Bash, Glob, Grep",
+}
 
 
 def load_json(path: str) -> dict[str, object]:
@@ -83,6 +89,24 @@ def validate_skills() -> list[str]:
     return errors
 
 
+def validate_command_tools() -> list[str]:
+    errors: list[str] = []
+    for filename, expected in COMMAND_TOOLS.items():
+        command = ROOT / ".ai-rulez/commands" / filename
+        match = SKILL_FRONTMATTER.match(command.read_text(encoding="utf-8"))
+        actual_match = (
+            re.search(r"^allowed-tools:\s*(.+)$", match.group("body"), re.MULTILINE)
+            if match
+            else None
+        )
+        actual = actual_match.group(1).strip() if actual_match else None
+        if actual != expected:
+            errors.append(
+                f"{command.relative_to(ROOT)}: allowed-tools {actual!r} != {expected!r}"
+            )
+    return errors
+
+
 def toml_string(path: str, table: str, key: str) -> str:
     text = (ROOT / path).read_text(encoding="utf-8")
     section = re.search(
@@ -130,9 +154,10 @@ def validate_layout() -> list[str]:
         ".agents/plugins/marketplace.json",
         ".codex-plugin/plugin.json",
         "plugin.json",
-        ".opencode/skills/infra-copilot/SKILL.md",
+        ".ai-rulez/skills/infra-copilot/references/decisions.md.example",
         ".ai-rulez/skills/infra-copilot/references/protocol.md",
         ".ai-rulez/skills/infra-copilot/references/steps.yaml",
+        "skills/infra-copilot/references/decisions.md.example",
         "skills/infra-copilot/references/protocol.md",
         "skills/infra-copilot/references/steps.yaml",
     )
@@ -147,6 +172,7 @@ def main() -> int:
     errors = [
         *validate_layout(),
         *validate_skills(),
+        *validate_command_tools(),
         *validate_links(),
         *validate_versions(),
     ]

@@ -55,6 +55,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
 ## Design decisions
 
 Provider and authentication decisions belong in `.infra-copilot/decisions.md` in the
-consuming repository. If only a legacy `CLAUDE.md` locked-decisions table exists, honor it
-and offer to migrate the relevant entries. This keeps canonical workflows independent of
-the active coding agent.
+consuming repository. Copy [`decisions.md.example`](decisions.md.example) there and record
+each durable choice, its status, and its rationale. If only a legacy `CLAUDE.md`
+locked-decisions table exists, honor it and offer to migrate the relevant entries. This
+keeps canonical workflows independent of the active coding agent.

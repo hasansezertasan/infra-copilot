@@ -15,4 +15,5 @@
   skills. Generated artifacts are managed with `ai-rulez`; CI verifies generated-file
   drift and local links.
 - Moved consuming-repo configuration to `.infra-copilot/config.md` and design decisions to
-  `.infra-copilot/decisions.md`, with legacy Claude paths supported during migration.
+  `.infra-copilot/decisions.md`, with templates and legacy Claude paths supported during
+  migration.

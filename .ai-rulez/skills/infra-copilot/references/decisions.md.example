@@ -1,0 +1,18 @@
+# infra-copilot decisions
+
+Durable provider, authentication, state, and safety choices for this consuming repository.
+Copy this file to `.infra-copilot/decisions.md`, replace the example row, and commit it.
+
+| Decision | Choice | Status | Rationale |
+|---|---|---|---|
+| Terraform backend | HCP Terraform | locked | Managed remote state and locking |
+
+Statuses:
+
+- `proposed` — under discussion; workflows must not assume it.
+- `locked` — authoritative until explicitly superseded.
+- `superseded` — retained for history; link or name the replacement decision.
+
+Do not put secrets, tokens, private keys, or credentials in this file. If migrating from a
+legacy `CLAUDE.md` locked-decisions table, preserve the choices and rationale, then remove
+the duplicated legacy table.

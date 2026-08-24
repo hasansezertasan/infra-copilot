@@ -17,7 +17,7 @@ provider's API, pausing only for the irreducibly human steps.
 | Claude Code | `/plugin marketplace add hasansezertasan/infra-copilot`, then `/plugin install infra-copilot` | `/plugin update infra-copilot`, then restart | `/infra-setup`, `/infra-import`, `/infra-add`, `/infra-status` |
 | Codex CLI | `codex plugin marketplace add hasansezertasan/infra-copilot`, then enable it from `/plugins` and start a new session | `codex plugin marketplace upgrade infra-copilot`, refresh the install from `/plugins`, then restart | Ask to use infra-copilot for setup, import, add, or status; plugin-defined slash commands are not exposed |
 | Antigravity | `agy plugin install https://github.com/hasansezertasan/infra-copilot` | Reinstall the plugin, then restart | `/infra-setup`, `/infra-import`, `/infra-add`, `/infra-status`, or natural language |
-| OpenCode | `npx skills add hasansezertasan/infra-copilot` in the consuming repo, then restart | Re-run the install command, then restart | Ask OpenCode to use `infra-copilot`, `setup`, `import`, `add`, or `status`; skills load on demand through the native `skill` tool |
+| OpenCode | `npx skills add hasansezertasan/infra-copilot --agent opencode --skill '*' -y` in the consuming repo, then restart | `npx skills update -p`, then restart | Ask OpenCode to use `infra-copilot`, `setup`, `import`, `add`, or `status`; skills load on demand through the native `skill` tool |
 
 After an update, refresh the host marketplace/plugin and restart the session so changed
 skills are rediscovered.
@@ -57,8 +57,9 @@ missing: [`config.md`](skills/infra-copilot/references/config.md). A fillable te
 
 Existing `.claude/infra-copilot.local.md` files remain readable as a migration fallback.
 Move their contents unchanged to `.infra-copilot/config.md`; do not maintain both. Provider
-and authentication decisions belong in `.infra-copilot/decisions.md`, with legacy
-`CLAUDE.md` decision tables supported during migration.
+and authentication decisions belong in `.infra-copilot/decisions.md`; copy the shipped
+[`decisions.md.example`](skills/infra-copilot/references/decisions.md.example) and migrate
+any legacy `CLAUDE.md` decision table into it.
 
 ## Skills
 
@@ -92,15 +93,17 @@ to reach for.
 
 Canonical behavior lives only in `.ai-rulez/skills/` and `.ai-rulez/commands/`. Claude
 Code, Codex, and Antigravity consume the committed root adapters generated from those
-sources. `ai-rulez` generates the Claude and Codex manifests plus the OpenCode skill
-surface. The native Codex marketplace and Antigravity manifest remain small hand-authored
-adapters because `ai-rulez` does not currently generate those install surfaces.
+sources. OpenCode installs the same root skills through the portable `skills` installer;
+it does not need a second generated `.opencode/` copy. The native Codex marketplace and
+Antigravity manifest remain small hand-authored adapters because `ai-rulez` does not
+currently generate those install surfaces. Claude-compatible `allowed-tools` values live
+only in command frontmatter as adapter permissions; workflow bodies remain host-neutral.
 
 ```bash
 npx --yes ai-rulez@4.11.2 validate
-npx --yes ai-rulez@4.11.2 generate
 npx --yes ai-rulez@4.11.2 generate --plugin
 npx --yes ai-rulez@4.11.2 verify --plugin
+npx --yes skills add . --agent opencode --list
 python3 scripts/validate.py
 ```
 
