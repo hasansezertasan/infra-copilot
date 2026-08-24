@@ -12,7 +12,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     env:
-      INFRA_COPILOT_AI_RULEZ_VERSION: 4.11.2
+      INFRA_COPILOT_AI_RULEZ_VERSION: 4.11.3
       INFRA_COPILOT_SKILLS_VERSION: 1.5.23
     steps:
       - uses: actions/checkout@v4

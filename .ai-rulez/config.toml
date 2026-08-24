@@ -3,6 +3,9 @@ name = "infra-copilot"
 description = "Agent-first, human-in-the-loop infrastructure bootstrap and maintenance workflows."
 gitignore = false
 
+[header]
+timestamp = false
+
 [plugin]
 name = "infra-copilot"
 version = "0.1.0"

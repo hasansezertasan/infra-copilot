@@ -100,9 +100,9 @@ currently generate those install surfaces. Claude-compatible `allowed-tools` val
 only in command frontmatter as adapter permissions; workflow bodies remain host-neutral.
 
 ```bash
-npx --yes ai-rulez@4.11.2 validate
-npx --yes ai-rulez@4.11.2 generate --plugin
-npx --yes ai-rulez@4.11.2 verify --plugin
+npx --yes ai-rulez@4.11.3 validate
+npx --yes ai-rulez@4.11.3 generate --plugin
+npx --yes ai-rulez@4.11.3 verify --plugin
 npx --yes skills@1.5.23 add . --agent opencode --list
 python3 scripts/validate.py
 ```
