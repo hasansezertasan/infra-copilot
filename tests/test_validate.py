@@ -4,7 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.validate import validate_config_fallbacks, validate_links
+from scripts.validate import (
+    validate_config_fallbacks,
+    validate_json_manifests,
+    validate_links,
+    validate_manifest_paths,
+    validate_tool_pins,
+)
 
 
 class ValidateLinksTests(unittest.TestCase):
@@ -43,6 +49,17 @@ class ValidateLinksTests(unittest.TestCase):
 class ValidateConfigFallbacksTests(unittest.TestCase):
     def test_canonical_entrypoints_document_legacy_fallback(self) -> None:
         self.assertEqual(validate_config_fallbacks(), [])
+
+
+class ValidateReleaseSurfacesTests(unittest.TestCase):
+    def test_json_manifests_parse(self) -> None:
+        self.assertEqual(validate_json_manifests(), [])
+
+    def test_manifest_paths_stay_inside_repository(self) -> None:
+        self.assertEqual(validate_manifest_paths(), [])
+
+    def test_workflow_and_documentation_tool_pins_match(self) -> None:
+        self.assertEqual(validate_tool_pins(), [])
 
 
 if __name__ == "__main__":

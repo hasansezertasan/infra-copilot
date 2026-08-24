@@ -31,6 +31,22 @@ CONFIG_FALLBACK_DOCUMENTS = (
     ".ai-rulez/skills/status/SKILL.md",
     ".ai-rulez/skills/infra-copilot/references/protocol.md",
 )
+JSON_MANIFESTS = (
+    ".agents/plugins/marketplace.json",
+    ".claude-plugin/marketplace.json",
+    ".claude-plugin/plugin.json",
+    ".codex-plugin/plugin.json",
+    "plugin.json",
+)
+TOOL_PIN_SPECS = {
+    "ai-rulez": "INFRA_COPILOT_AI_RULEZ_VERSION",
+    "skills": "INFRA_COPILOT_SKILLS_VERSION",
+}
+TOOL_PIN_WORKFLOWS = (
+    ".github/workflows/check.yml",
+    ".github/workflows/release.yml",
+)
+VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?"
 
 
 def load_json(path: str) -> dict[str, object]:
@@ -138,6 +154,82 @@ def validate_config_fallbacks(root: Path = ROOT) -> list[str]:
     return errors
 
 
+def validate_json_manifests(root: Path = ROOT) -> list[str]:
+    errors: list[str] = []
+    for relative in JSON_MANIFESTS:
+        try:
+            with (root / relative).open(encoding="utf-8") as source:
+                json.load(source)
+        except (OSError, json.JSONDecodeError) as error:
+            errors.append(f"{relative}: invalid JSON manifest: {error}")
+    return errors
+
+
+def validate_manifest_paths(root: Path = ROOT) -> list[str]:
+    errors: list[str] = []
+    claude_marketplace = json.loads(
+        (root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
+    )
+    codex_plugin = json.loads(
+        (root / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
+    )
+    codex_marketplace = json.loads(
+        (root / ".agents/plugins/marketplace.json").read_text(encoding="utf-8")
+    )
+    configured_paths = (
+        (
+            ".claude-plugin/marketplace.json",
+            str(claude_marketplace["plugins"][0]["source"]),
+        ),
+        (".codex-plugin/plugin.json", str(codex_plugin["skills"])),
+        (
+            ".agents/plugins/marketplace.json",
+            str(codex_marketplace["plugins"][0]["source"]["path"]),
+        ),
+    )
+    repository_root = root.resolve()
+    for manifest, configured_path in configured_paths:
+        destination = (repository_root / configured_path).resolve()
+        try:
+            destination.relative_to(repository_root)
+        except ValueError:
+            errors.append(
+                f"{manifest}: path {configured_path!r} resolves outside the repository"
+            )
+            continue
+        if not destination.exists():
+            errors.append(f"{manifest}: path {configured_path!r} does not exist")
+    return errors
+
+
+def validate_tool_pins(root: Path = ROOT) -> list[str]:
+    errors: list[str] = []
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    for package, variable in TOOL_PIN_SPECS.items():
+        observed: dict[str, str] = {}
+        for relative in TOOL_PIN_WORKFLOWS:
+            workflow = (root / relative).read_text(encoding="utf-8")
+            match = re.search(
+                rf"^\s*{re.escape(variable)}:\s*(?P<version>{VERSION_PATTERN})\s*$",
+                workflow,
+                re.MULTILINE,
+            )
+            if match is None:
+                errors.append(f"{relative}: missing {variable}")
+            else:
+                observed[relative] = match.group("version")
+        documented = set(
+            re.findall(rf"{re.escape(package)}@(?P<version>{VERSION_PATTERN})", readme)
+        )
+        versions = set(observed.values()) | documented
+        if not documented:
+            errors.append(f"README.md: missing pinned {package} command")
+        if len(versions) > 1:
+            details = ", ".join(sorted(versions))
+            errors.append(f"{package}: inconsistent pinned versions: {details}")
+    return errors
+
+
 def toml_string(path: str, table: str, key: str) -> str:
     text = (ROOT / path).read_text(encoding="utf-8")
     section = re.search(
@@ -162,6 +254,9 @@ def validate_versions() -> list[str]:
     expected = toml_string(".ai-rulez/config.toml", "plugin", "version")
 
     actual = {
+        ".claude-plugin/marketplace.json": str(
+            load_json(".claude-plugin/marketplace.json")["plugins"][0]["version"]  # type: ignore[index]
+        ),
         ".claude-plugin/plugin.json": str(
             load_json(".claude-plugin/plugin.json")["version"]
         ),
@@ -181,6 +276,10 @@ def validate_versions() -> list[str]:
 
 def validate_layout() -> list[str]:
     required = (
+        ".github/renovate.json",
+        ".github/workflows/check.yml",
+        ".github/workflows/release.yml",
+        ".claude-plugin/marketplace.json",
         ".claude-plugin/plugin.json",
         ".agents/plugins/marketplace.json",
         ".codex-plugin/plugin.json",
@@ -205,7 +304,10 @@ def main() -> int:
         *validate_skills(),
         *validate_command_tools(),
         *validate_config_fallbacks(),
+        *validate_json_manifests(),
+        *validate_manifest_paths(),
         *validate_links(),
+        *validate_tool_pins(),
         *validate_versions(),
     ]
     if errors:

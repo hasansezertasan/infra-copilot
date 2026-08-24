@@ -14,7 +14,7 @@
   "plugins": [
     {
       "name": "infra-copilot",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "description": "Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure.",
       "source": {
         "source": "local",

@@ -1,8 +1,7 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.2.0 (unreleased)
 
-- Initial extraction from an existing infra repo into a generic, org-agnostic plugin.
 - Skills split by function into four routers over a shared core:
   - `setup` (`/infra-setup`) — greenfield bootstrap, phases 0-4.
   - `import` (`/infra-import`) — adopt existing provider resources without recreating, phase 5.
@@ -17,3 +16,8 @@
 - Moved consuming-repo configuration to `.infra-copilot/config.md` and design decisions to
   `.infra-copilot/decisions.md`, with templates and legacy Claude paths supported during
   migration.
+
+## 0.1.0 (2026-08-05)
+
+- Initial extraction of the `infra-setup` skill from an existing infra repo into a generic,
+  org-agnostic Claude Code plugin.

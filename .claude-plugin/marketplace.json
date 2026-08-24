@@ -8,7 +8,7 @@
     {
       "name": "infra-copilot",
       "description": "Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "source": "./",
       "license": "MIT",
       "homepage": "https://github.com/hasansezertasan/infra-copilot",

@@ -110,6 +110,26 @@ python3 scripts/validate.py
 Generated files are committed so users can install without having `ai-rulez`. CI runs the
 same validation and fails if generated payloads drift or local Markdown links break.
 
+## Releasing
+
+The canonical version lives in `.ai-rulez/config.toml`; generated host manifests must
+never be versioned independently.
+
+1. Update `[plugin].version` and move the matching `CHANGELOG.md` section out of
+   "unreleased".
+2. Regenerate and run the maintenance checks above, then merge the release commit to
+   `main`.
+3. Create an annotated tag with the exact canonical version and push it:
+
+   ```bash
+   git tag -a vX.Y.Z -m "infra-copilot vX.Y.Z"
+   git push origin vX.Y.Z
+   ```
+
+The release workflow validates the tagged tree, rejects a tag/version mismatch, and
+creates the GitHub Release with generated notes. The tagged repository tree is the
+installable artifact; there is no separate npm or Python package to publish.
+
 ## Adding a skill
 
 The plugin is meant to grow. To add a new capability, drop a new directory under
