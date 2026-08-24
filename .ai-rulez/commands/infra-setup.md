@@ -12,8 +12,10 @@ holds the logic.
 
 Load `../skills/setup/SKILL.md` and drive it end-to-end:
 
-1. **Read config first.** Load `.infra-copilot/config.md` and export the org vars
-   (shared protocol Step 0 / [`config.md`](../skills/infra-copilot/references/config.md)) before the scan.
+1. **Read config first.** Load `.infra-copilot/config.md`, or use
+   `.claude/infra-copilot.local.md` as the migration fallback, and export the org vars
+   (shared protocol Step 0 / [`config.md`](../skills/infra-copilot/references/config.md)) before the scan. If both
+   are missing, offer to scaffold the agent-neutral path and wait.
 2. **Resume first.** Walk phases 0–4 of [`steps.yaml`](../skills/infra-copilot/references/steps.yaml) and run
    each step's `check` to find where setup stands. Report `✓` for green; resume at the
    first red. Never assume state from a previous session.

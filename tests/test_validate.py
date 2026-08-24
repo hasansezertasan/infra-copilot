@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.validate import validate_links
+from scripts.validate import validate_config_fallbacks, validate_links
 
 
 class ValidateLinksTests(unittest.TestCase):
@@ -38,6 +38,11 @@ class ValidateLinksTests(unittest.TestCase):
             )
 
             self.assertEqual(validate_links(repository), [])
+
+
+class ValidateConfigFallbacksTests(unittest.TestCase):
+    def test_canonical_entrypoints_document_legacy_fallback(self) -> None:
+        self.assertEqual(validate_config_fallbacks(), [])
 
 
 if __name__ == "__main__":

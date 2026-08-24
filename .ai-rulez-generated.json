@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:05d7f09cd76066549971585bf00212d19d4a9f144003f0fc95f8fa947396d1d6",
+  "source_hash": "blake3:38d498e77253d4aa0693e1b6c7313b92b56b41a24bc12e22c8966090afccd93f",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:52db19379ce1f3c3e06bd584457fd7943874c4e50f34e3508d15e19e02864145"
@@ -18,10 +18,10 @@
       "content_hash": "blake3:fbfdc8d919179931a3bd93593a3c49c6df51dcafe207d6376dbbc88e7b938339"
     },
     "commands/infra-setup.md": {
-      "content_hash": "blake3:b747a0f8bd52dce94c7aeb2ffdf33b1b121ca5cb207cfc35e8c887016f21888a"
+      "content_hash": "blake3:4cac816ee44f608e34f08e16fe13ed1db32528bb389a46990dc31191929206ca"
     },
     "commands/infra-status.md": {
-      "content_hash": "blake3:9f05c3f5385e6d84626f19302586883ce6043d731a6430d0f9883d0a65fafcde"
+      "content_hash": "blake3:5fb8e6240f21ed4b6f705f5e04d7339bb6884df42299f0ebc89fa7e5dd33bc0b"
     },
     "skills/add/SKILL.md": {
       "content_hash": "blake3:1b13ec27d9bea952df792bfbf96198420b2fcc86930ddd38b606a4b27b24aacd"

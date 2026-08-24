@@ -22,6 +22,15 @@ COMMAND_TOOLS = {
     "infra-setup.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
     "infra-status.md": "Read, Bash, Glob, Grep",
 }
+CONFIG_PATH = ".infra-copilot/config.md"
+LEGACY_CONFIG_PATH = ".claude/infra-copilot.local.md"
+CONFIG_FALLBACK_DOCUMENTS = (
+    ".ai-rulez/commands/infra-setup.md",
+    ".ai-rulez/commands/infra-status.md",
+    ".ai-rulez/skills/setup/SKILL.md",
+    ".ai-rulez/skills/status/SKILL.md",
+    ".ai-rulez/skills/infra-copilot/references/protocol.md",
+)
 
 
 def load_json(path: str) -> dict[str, object]:
@@ -116,6 +125,19 @@ def validate_command_tools() -> list[str]:
     return errors
 
 
+def validate_config_fallbacks(root: Path = ROOT) -> list[str]:
+    errors: list[str] = []
+    for relative in CONFIG_FALLBACK_DOCUMENTS:
+        document = root / relative
+        text = document.read_text(encoding="utf-8")
+        for config_path in (CONFIG_PATH, LEGACY_CONFIG_PATH):
+            if config_path not in text:
+                errors.append(
+                    f"{relative}: missing config-path guidance for {config_path!r}"
+                )
+    return errors
+
+
 def toml_string(path: str, table: str, key: str) -> str:
     text = (ROOT / path).read_text(encoding="utf-8")
     section = re.search(
@@ -182,6 +204,7 @@ def main() -> int:
         *validate_layout(),
         *validate_skills(),
         *validate_command_tools(),
+        *validate_config_fallbacks(),
         *validate_links(),
         *validate_versions(),
     ]

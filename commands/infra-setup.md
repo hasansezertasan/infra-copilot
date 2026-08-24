@@ -5,8 +5,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:b747a0f8bd52dce94c7aeb2ffdf33b1b121ca5cb207cfc35e8c887016f21888a
-Source-Hash: blake3:05d7f09cd76066549971585bf00212d19d4a9f144003f0fc95f8fa947396d1d6
+Content-Hash: blake3:4cac816ee44f608e34f08e16fe13ed1db32528bb389a46990dc31191929206ca
+Source-Hash: blake3:38d498e77253d4aa0693e1b6c7313b92b56b41a24bc12e22c8966090afccd93f
 Schema-Version: v1
 -->
 
@@ -19,8 +19,10 @@ holds the logic.
 
 Load `../skills/setup/SKILL.md` and drive it end-to-end:
 
-1. **Read config first.** Load `.infra-copilot/config.md` and export the org vars
-   (shared protocol Step 0 / [`config.md`](../skills/infra-copilot/references/config.md)) before the scan.
+1. **Read config first.** Load `.infra-copilot/config.md`, or use
+   `.claude/infra-copilot.local.md` as the migration fallback, and export the org vars
+   (shared protocol Step 0 / [`config.md`](../skills/infra-copilot/references/config.md)) before the scan. If both
+   are missing, offer to scaffold the agent-neutral path and wait.
 2. **Resume first.** Walk phases 0–4 of [`steps.yaml`](../skills/infra-copilot/references/steps.yaml) and run
    each step's `check` to find where setup stands. Report `✓` for green; resume at the
    first red. Never assume state from a previous session.

@@ -11,8 +11,10 @@ nothing.
 
 Load `../skills/status/SKILL.md` and drive it:
 
-1. **Read config** — [`config.md`](../skills/infra-copilot/references/config.md). Missing/incomplete config
-   is itself a finding; report it and stop (don't scaffold — that's `/infra-setup`).
+1. **Read config** — prefer `.infra-copilot/config.md`, falling back to
+   `.claude/infra-copilot.local.md` for migration; see
+   [`config.md`](../skills/infra-copilot/references/config.md). If both are missing, or the loaded config is
+   incomplete, report it and stop (don't scaffold — that's `/infra-setup`).
 2. **Preflight** — report tool presence + the HCP token pivot.
 3. **Full resume scan** over all phases of [`steps.yaml`](../skills/infra-copilot/references/steps.yaml). Run
    `check`s only — never a step's `run`, never a handoff block.
