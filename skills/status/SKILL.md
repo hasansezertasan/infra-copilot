@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:0a82c5e9d17d52962ce539374165cdf1536716429370c063736299c91354ec9f
-Source-Hash: blake3:d3abe5be6cb04f08b47c678f49ab17acd140ddd96fe66800afd01f14d7d7087c
+Content-Hash: blake3:7b0d9851fe71173c96a971a2b9c95da2fd4ee861845d20570672064d1827af10
+Source-Hash: blake3:2714bf86c53a0fb8f98cdbc494b8bd8c26f01d22a54f5ca6555bba199017fa87
 Schema-Version: v1
 -->
 
@@ -42,9 +42,11 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      dirty the checkout, and this command promises to change nothing. Instead, read the
      **run status per workspace via the HCP API** (non-mutating — see
      [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)). Resolve the current revision
-     with `git rev-parse HEAD`, then use the guide's specific-commit lookup. Green requires
-     a successful plan/apply correlated with that exact revision. An older run, an
-     ambiguous run message, or no matching run is `?` (current revision not verified).
+     with `git rev-parse HEAD`, then use the guide's specific-commit lookup, which
+     correlates on the run's configuration-version ingress `commit-sha` — never on the run
+     message. Green requires a run matching that exact revision whose status is
+     `planned_and_finished` or `applied`. A matched-but-failing run, a run for any other
+     revision, or no match at all is `?` (current revision not verified).
    - **Null checks** (`check: ~`, e.g. `migrate-discovery-token`) — nothing scriptable to
      run. Report them as `·` (human-gated / ephemeral), never attempt to execute the null.
    - For `HUMAN` steps, apply the same classification to their `check`; never emit the

@@ -133,20 +133,46 @@ curl -s "https://app.terraform.io/api/v2/workspaces/$WS_ID/vars" \
 
 Sensitive variable values are never returned by the API — only `"sensitive": true` and no `value` field. This is how it should be.
 
-## Find the speculative plan run for a specific commit
+## Find the run for a specific commit
+
+Correlate on the run's configuration version, never on the run message. A message is free
+text: `Merge ...` subjects match every merge commit, and a truncated SHA can appear in a
+run that tested something else. The commit actually tested lives on the configuration
+version's ingress attributes, so include them and match `commit-sha` exactly.
 
 ```sh
-COMMIT_SHA=...
-curl -s "https://app.terraform.io/api/v2/workspaces/$WS_ID/runs?page%5Bsize%5D=20&filter%5Bstatus%5D=planned_and_finished,planning,planned" \
+COMMIT_SHA=$(git rev-parse HEAD)
+curl -s "https://app.terraform.io/api/v2/workspaces/$WS_ID/runs?page%5Bsize%5D=20&include=configuration_version.ingress_attributes" \
   -H "$H_AUTH" \
   | jq --arg sha "$COMMIT_SHA" '
-      [.data[]
-        | select(.attributes."plan-only" == true)
-        | select(.attributes.message | startswith("Merge") or contains($sha[:8]))
-        | {id, message: (.attributes.message[:80])}]'
+      [(.included // [])[]
+        | select(.type == "ingress-attributes")
+        | select(.attributes."commit-sha" == $sha)
+        | .id] as $ingress
+      | [(.included // [])[]
+          | select(.type == "configuration-versions")
+          | select((.relationships."ingress-attributes".data.id // "") as $id | $ingress | index($id))
+          | .id] as $configs
+      | [.data[]
+          | select((.relationships."configuration-version".data.id // "") as $id | $configs | index($id))
+          | {
+              id,
+              status: .attributes.status,
+              speculative: .attributes."plan-only",
+              green: (.attributes.status | . == "planned_and_finished" or . == "applied")
+            }]'
 ```
 
-(The PR's merge commit message contains the PR title, so the easiest match is by message substring.)
+Do not add a `filter[status]` to that request. An `errored` run on the current commit has
+to stay visible; filtering it out hides the failure and leaves an older run looking
+authoritative. Read the result as:
+
+- one or more entries with `"green": true` — this exact commit planned or applied cleanly.
+- entries present, none green — this commit was tested and is failing or still running
+  (`planning`, `planned`, `errored`, `canceled`).
+- empty — this commit has never been tested in that workspace. CLI-driven runs carry no
+  ingress attributes and so never correlate; report `?` instead of falling back to an
+  older run.
 
 ## Trigger a manual plan from the API
 
