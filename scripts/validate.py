@@ -33,9 +33,12 @@ CONFIG_FALLBACK_DOCUMENTS = (
 )
 PHASE_FIVE_RULE_DOCUMENT = ".ai-rulez/skills/status/SKILL.md"
 PHASE_FIVE_RULE_MARKERS = (
-    # A clean run alone must never be read as "imports are done".
+    # A clean run alone must never be read as "imports are done" ...
     "imports: 0",
     "incomplete",
+    # ... but an applied run must count as done: applying does not rewrite the
+    # stored plan, so its import actions remain listed forever.
+    "status `applied`",
 )
 JSON_MANIFESTS = (
     ".agents/plugins/marketplace.json",

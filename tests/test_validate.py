@@ -75,6 +75,8 @@ class ValidatePhaseFiveRuleTests(unittest.TestCase):
                     "missing 'imports: 0'",
                     ".ai-rulez/skills/status/SKILL.md: phase-5 completion rule "
                     "missing 'incomplete'",
+                    ".ai-rulez/skills/status/SKILL.md: phase-5 completion rule "
+                    "missing 'status `applied`'",
                 ],
             )
 

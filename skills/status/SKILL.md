@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:26ac46b46683321f8dde4d6852569339046a3e4ad7c6798a4c6813d6aa0a6c32
-Source-Hash: blake3:4c4be53a504ab0eb505449e369f2d08953fc82292a1de10981172419bd136621
+Content-Hash: blake3:21ee42b8621b16b95eb386782ecccc2c0f4bf360507bfb79be925f6c371bff8c
+Source-Hash: blake3:380eb15903797213a09748f8a1a3c248966034d31635cff7a368707b229ac557
 Schema-Version: v1
 -->
 
@@ -42,13 +42,31 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      dirty the checkout, and this command promises to change nothing. Instead, read the
      **run status per workspace via the HCP API** (non-mutating — see
      [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)). Resolve the current revision
-     with `git rev-parse HEAD`, then use the guide's specific-commit lookup, which
-     correlates on the run's configuration-version ingress `commit-sha` — never on the run
-     message — and names every operation so the PR's *speculative* plan is visible at all.
-     Judge only the lookup's `latest`, the newest run for that revision: green is its
-     `"green": true`. A newest run that is failing or still in flight, a run for any other
-     revision, or no match at all is `?` (current revision not verified). Never let an
-     older green run for the same commit override a newer failing one.
+     first by asking whether the checkout corresponds to a commit at all. `git rev-parse
+     HEAD` names the last *commit*, not what is on disk, so uncommitted changes under a
+     leaf's directory mean the files you are auditing were never sent to HCP. Test each
+     leaf on its own — `git --no-optional-locks status --porcelain -- terraform/cloudflare`,
+     and the same for `terraform/github` — and if the output is non-empty, that leaf's plan
+     check is `?` (working tree differs from the last tested revision). Stop there for that
+     leaf; a green run for HEAD says nothing about edited files. `--no-optional-locks` keeps
+     this read from touching git's index, preserving the change-nothing promise.
+
+     For a clean leaf, resolve the revision with `git rev-parse HEAD` and use the guide's
+     specific-commit lookup, which correlates on the run's configuration-version ingress
+     `commit-sha` — never on the run message — and names every operation so the PR's
+     *speculative* plan is visible at all. Judge only the lookup's `latest`, the newest run
+     for that revision, and keep failure distinct from ignorance:
+
+     - `"green": true` → `✓`.
+     - `latest` in a terminal failure (`errored`, `canceled`, `discarded`,
+       `force_canceled`) → `✗`. That is definitive evidence the revision does not plan, so
+       the step is **red** and eligible to be the first red step that routes the user to a
+       fixing skill. Never soften it to `?`.
+     - `latest` still in flight (`planning`, `planned`, `applying`, `plan_queued`, …) → `?`
+       (not finished yet).
+     - no match at all → `?` (current revision not verified).
+
+     Never let an older green run for the same commit override a newer failing one.
    - **Null checks** (`check: ~`, e.g. `migrate-discovery-token`) — nothing scriptable to
      run. Report them as `·` (human-gated / ephemeral), never attempt to execute the null.
    - For `HUMAN` steps, apply the same classification to their `check`; never emit the
@@ -62,14 +80,19 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    means the imports are pending, not finished. A successful plan is evidence the config is
    valid, never evidence that it was applied.
 
-   Infer *done* only from committed state plus a demonstrably empty import set:
-   `terraform/cloudflare/generated.tf` exists (committed) **and** the plan summary for the
-   latest run on the current revision reports `imports: 0` — read it with the plan-summary
-   helper in
+   Infer *done* from committed state plus the latest run for the current revision:
+   `terraform/cloudflare/generated.tf` exists (committed), **and** that run either carries
+   status `applied` — it executed its plan, imports included — or its plan summary reports
+   `imports: 0`. Read the summary with the plan-summary helper in
    [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md).
-   If that summary still counts imports, or you cannot read it, phase 5 is **incomplete**;
-   report it that way rather than inferring completion from a green run. Only call phase 5
-   actionable when resources demonstrably exist at the provider but aren't in state.
+
+   Both halves of that disjunction matter. Applying a run does **not** rewrite its stored
+   plan, so an applied import run still lists the imports it just performed; demanding
+   `imports: 0` there would report a finished migration as unfinished indefinitely, because
+   the normal merge workflow never produces a second no-op run for the same commit. Phase 5
+   is **incomplete** only when the latest run has *not* applied and its plan still counts
+   imports, or when you cannot read that evidence at all. Only call phase 5 actionable when
+   resources demonstrably exist at the provider but aren't in state.
 
 ## Report format
 
