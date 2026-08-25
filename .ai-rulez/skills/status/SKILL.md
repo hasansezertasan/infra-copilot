@@ -50,8 +50,18 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    **Completion vs. not-started (phase 5).** The `migrate-import` check only goes green while
    a plan still shows `will be imported`; once imports are **applied**, the plan is a no-op
    and that check reads red even though the work is done. So don't equate red-phase-5 with
-   "import needed." Infer *done* from state instead: `terraform/cloudflare/generated.tf`
-   exists (committed) and the workspace's latest HCP run is clean. Only call phase 5
+   "import needed." Do not read the inverse into a clean run either: a speculative
+   `planned_and_finished` run is "clean" *and* can still carry `will be imported`, which
+   means the imports are pending, not finished. A successful plan is evidence the config is
+   valid, never evidence that it was applied.
+
+   Infer *done* only from committed state plus a demonstrably empty import set:
+   `terraform/cloudflare/generated.tf` exists (committed) **and** the plan summary for the
+   latest run on the current revision reports `imports: 0` — read it with the plan-summary
+   helper in
+   [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md).
+   If that summary still counts imports, or you cannot read it, phase 5 is **incomplete**;
+   report it that way rather than inferring completion from a green run. Only call phase 5
    actionable when resources demonstrably exist at the provider but aren't in state.
 
 ## Report format

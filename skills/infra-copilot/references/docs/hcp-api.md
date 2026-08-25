@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:57097ed0d378ecd83dbada00f12c1581c593e195a775bfe7a5f4436be316184d
-Source-Hash: blake3:37b19e0dd2de1cb9ff0b92da59e570fa812ccc8cc31ba8799488d20ad0e65715
+Content-Hash: blake3:0d664e1fae72eaffbfd2cc007c22d8c387d8c63306a51382e0a1a3761a45260b
+Source-Hash: blake3:a889ffbbb168fe37a0151eebf2328a2267e99419a2c2b6e370fb5232c47c011f
 Schema-Version: v1
 -->
 
@@ -45,7 +45,8 @@ echo "$WS_ID"
 ## List recent runs on a workspace
 
 ```sh
-curl -s "https://app.terraform.io/api/v2/workspaces/$WS_ID/runs?page%5Bsize%5D=10" \
+curl -s "https://app.terraform.io/api/v2/workspaces/$WS_ID/runs?page%5Bsize%5D=10\
+&filter%5Boperation%5D=plan_only,plan_and_apply,save_plan,refresh_only,destroy,empty_apply,action_only" \
   -H "$H_AUTH" \
   | jq '[.data[] | {
       id,
@@ -55,11 +56,12 @@ curl -s "https://app.terraform.io/api/v2/workspaces/$WS_ID/runs?page%5Bsize%5D=1
     }]'
 ```
 
-Note: **speculative runs are filtered out of the default list.** The exclusion is by
-*operation*, not status — HCP drops `plan_only` runs unless you name the operations you
-want, so add `&filter%5Boperation%5D=plan_only,plan_and_apply,save_plan,refresh_only,destroy,empty_apply,action_only`.
-Filtering by status instead happens to surface speculative runs too, but any status list
-you write also silently drops every run whose status you forgot — `errored` above all.
+That `filter[operation]` is not optional padding. **HCP excludes speculative runs from the
+default list**, and the exclusion is by *operation*, not status — `plan_only` runs are
+dropped unless you name the operations you want. Omit the filter and a PR's plan is
+invisible. Do not reach for `filter[status]` instead: it happens to surface speculative
+runs, but any status list you write also silently drops every run whose status you forgot
+— `errored` above all.
 
 ## Read a plan summary (creates / updates / destroys / imports)
 
@@ -153,20 +155,33 @@ version's ingress attributes, so include them and match `commit-sha` exactly.
 
 ```sh
 COMMIT_SHA=$(git rev-parse HEAD)
-curl -s "https://app.terraform.io/api/v2/workspaces/$WS_ID/runs?page%5Bsize%5D=20\
+
+# One page of runs is not enough on a busy workspace: the commit you care about can sit
+# past the first page, and "not on page 1" is not "never tested". Walk the pages.
+runs_page() {
+  curl -s "https://app.terraform.io/api/v2/workspaces/$WS_ID/runs?page%5Bsize%5D=100&page%5Bnumber%5D=$1\
 &filter%5Boperation%5D=plan_only,plan_and_apply,save_plan,refresh_only,destroy,empty_apply,action_only\
 &include=configuration_version.ingress_attributes" \
-  -H "$H_AUTH" \
-  | jq --arg sha "$COMMIT_SHA" '
-      [(.included // [])[]
+    -H "$H_AUTH"
+}
+
+page=1
+while [ "$page" -le 5 ]; do
+  body=$(runs_page "$page")
+  printf '%s\n' "$body"
+  next=$(printf '%s' "$body" | jq -r '.meta.pagination."next-page" // empty')
+  [ -n "$next" ] || break
+  page=$next
+done | jq -s --arg sha "$COMMIT_SHA" '
+      [.[] | (.included // [])[]
         | select(.type == "ingress-attributes")
         | select(.attributes."commit-sha" == $sha)
         | .id] as $ingress
-      | [(.included // [])[]
+      | [.[] | (.included // [])[]
           | select(.type == "configuration-versions")
           | select((.relationships."ingress-attributes".data.id // "") as $id | $ingress | index($id))
           | .id] as $configs
-      | [.data[]
+      | [.[] | .data[]
           | select((.relationships."configuration-version".data.id // "") as $id | $configs | index($id))
           | {
               id,
@@ -183,11 +198,14 @@ curl -s "https://app.terraform.io/api/v2/workspaces/$WS_ID/runs?page%5Bsize%5D=2
         }'
 ```
 
-Two things that request deliberately does and does not do. It names every operation,
+Three things that request deliberately does and does not do. It names every operation,
 because phase 4 is verified by a *speculative* PR plan and HCP hides `plan_only` runs from
 the default listing. It adds no `filter[status]`, because an `errored` run on the current
 commit has to stay visible — filter it out and the failure disappears behind an older
-success.
+success. And it follows `meta.pagination.next-page` rather than trusting one page, because
+a revision that is merely further down the list is not an untested revision. The five-page
+cap (500 runs) bounds the walk; if you hit it without a match, that is still `?`, never
+green.
 
 Judge `latest`, never `matched`. The same commit can be planned more than once (a variable
 changed, a failed run retried), and only the newest attempt describes the workspace as it

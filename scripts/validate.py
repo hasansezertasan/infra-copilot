@@ -31,6 +31,12 @@ CONFIG_FALLBACK_DOCUMENTS = (
     ".ai-rulez/skills/status/SKILL.md",
     ".ai-rulez/skills/infra-copilot/references/protocol.md",
 )
+PHASE_FIVE_RULE_DOCUMENT = ".ai-rulez/skills/status/SKILL.md"
+PHASE_FIVE_RULE_MARKERS = (
+    # A clean run alone must never be read as "imports are done".
+    "imports: 0",
+    "incomplete",
+)
 JSON_MANIFESTS = (
     ".agents/plugins/marketplace.json",
     ".claude-plugin/marketplace.json",
@@ -155,6 +161,21 @@ def validate_config_fallbacks(root: Path = ROOT) -> list[str]:
     return errors
 
 
+def validate_phase_five_rule(root: Path = ROOT) -> list[str]:
+    """Phase 5 completion must require an empty import set, not just a green run.
+
+    A speculative run can finish cleanly while its plan still reports
+    ``will be imported``, so status has to check the import count before calling
+    the migration done.
+    """
+    text = (root / PHASE_FIVE_RULE_DOCUMENT).read_text(encoding="utf-8")
+    return [
+        f"{PHASE_FIVE_RULE_DOCUMENT}: phase-5 completion rule missing {marker!r}"
+        for marker in PHASE_FIVE_RULE_MARKERS
+        if marker not in text
+    ]
+
+
 def validate_json_manifests(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     for relative in JSON_MANIFESTS:
@@ -164,6 +185,19 @@ def validate_json_manifests(root: Path = ROOT) -> list[str]:
         except (OSError, json.JSONDecodeError) as error:
             errors.append(f"{relative}: invalid JSON manifest: {error}")
     return errors
+
+
+def collect_manifest_errors(root: Path = ROOT) -> list[str]:
+    """Manifests must parse before path validation is allowed to read them.
+
+    ``validate_manifest_paths`` indexes into the decoded manifests, so running it
+    over malformed JSON raises instead of returning findings, and main() would exit
+    on a traceback without printing the errors already collected.
+    """
+    parse_errors = validate_json_manifests(root)
+    if parse_errors:
+        return parse_errors
+    return validate_manifest_paths(root)
 
 
 def validate_manifest_paths(root: Path = ROOT) -> list[str]:
@@ -305,8 +339,8 @@ def main() -> int:
         *validate_skills(),
         *validate_command_tools(),
         *validate_config_fallbacks(),
-        *validate_json_manifests(),
-        *validate_manifest_paths(),
+        *validate_phase_five_rule(),
+        *collect_manifest_errors(),
         *validate_links(),
         *validate_tool_pins(),
         *validate_versions(),
