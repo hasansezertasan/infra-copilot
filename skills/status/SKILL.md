@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7b0d9851fe71173c96a971a2b9c95da2fd4ee861845d20570672064d1827af10
-Source-Hash: blake3:2714bf86c53a0fb8f98cdbc494b8bd8c26f01d22a54f5ca6555bba199017fa87
+Content-Hash: blake3:3baedef9233907d4c010864e92f40ebd5ee6028dae881a91dd634d868b3553b4
+Source-Hash: blake3:37b19e0dd2de1cb9ff0b92da59e570fa812ccc8cc31ba8799488d20ad0e65715
 Schema-Version: v1
 -->
 
@@ -44,9 +44,11 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)). Resolve the current revision
      with `git rev-parse HEAD`, then use the guide's specific-commit lookup, which
      correlates on the run's configuration-version ingress `commit-sha` — never on the run
-     message. Green requires a run matching that exact revision whose status is
-     `planned_and_finished` or `applied`. A matched-but-failing run, a run for any other
-     revision, or no match at all is `?` (current revision not verified).
+     message — and names every operation so the PR's *speculative* plan is visible at all.
+     Judge only the lookup's `latest`, the newest run for that revision: green is its
+     `"green": true`. A newest run that is failing or still in flight, a run for any other
+     revision, or no match at all is `?` (current revision not verified). Never let an
+     older green run for the same commit override a newer failing one.
    - **Null checks** (`check: ~`, e.g. `migrate-discovery-token`) — nothing scriptable to
      run. Report them as `·` (human-gated / ephemeral), never attempt to execute the null.
    - For `HUMAN` steps, apply the same classification to their `check`; never emit the

@@ -37,9 +37,11 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)). Resolve the current revision
      with `git rev-parse HEAD`, then use the guide's specific-commit lookup, which
      correlates on the run's configuration-version ingress `commit-sha` — never on the run
-     message. Green requires a run matching that exact revision whose status is
-     `planned_and_finished` or `applied`. A matched-but-failing run, a run for any other
-     revision, or no match at all is `?` (current revision not verified).
+     message — and names every operation so the PR's *speculative* plan is visible at all.
+     Judge only the lookup's `latest`, the newest run for that revision: green is its
+     `"green": true`. A newest run that is failing or still in flight, a run for any other
+     revision, or no match at all is `?` (current revision not verified). Never let an
+     older green run for the same commit override a newer failing one.
    - **Null checks** (`check: ~`, e.g. `migrate-discovery-token`) — nothing scriptable to
      run. Report them as `·` (human-gated / ephemeral), never attempt to execute the null.
    - For `HUMAN` steps, apply the same classification to their `check`; never emit the

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:0b6d96898cb6647e209df24b682f8fad64cb9572c7155487d444d27e1a9af869
-Source-Hash: blake3:2714bf86c53a0fb8f98cdbc494b8bd8c26f01d22a54f5ca6555bba199017fa87
+Content-Hash: blake3:57097ed0d378ecd83dbada00f12c1581c593e195a775bfe7a5f4436be316184d
+Source-Hash: blake3:37b19e0dd2de1cb9ff0b92da59e570fa812ccc8cc31ba8799488d20ad0e65715
 Schema-Version: v1
 -->
 
@@ -55,7 +55,11 @@ curl -s "https://app.terraform.io/api/v2/workspaces/$WS_ID/runs?page%5Bsize%5D=1
     }]'
 ```
 
-Note: **speculative runs are filtered out of the default list.** To see them, add `&filter[status]=planned_and_finished,planning,planned`. That's how you find a PR's speculative plan run.
+Note: **speculative runs are filtered out of the default list.** The exclusion is by
+*operation*, not status — HCP drops `plan_only` runs unless you name the operations you
+want, so add `&filter%5Boperation%5D=plan_only,plan_and_apply,save_plan,refresh_only,destroy,empty_apply,action_only`.
+Filtering by status instead happens to surface speculative runs too, but any status list
+you write also silently drops every run whose status you forgot — `errored` above all.
 
 ## Read a plan summary (creates / updates / destroys / imports)
 
@@ -149,7 +153,9 @@ version's ingress attributes, so include them and match `commit-sha` exactly.
 
 ```sh
 COMMIT_SHA=$(git rev-parse HEAD)
-curl -s "https://app.terraform.io/api/v2/workspaces/$WS_ID/runs?page%5Bsize%5D=20&include=configuration_version.ingress_attributes" \
+curl -s "https://app.terraform.io/api/v2/workspaces/$WS_ID/runs?page%5Bsize%5D=20\
+&filter%5Boperation%5D=plan_only,plan_and_apply,save_plan,refresh_only,destroy,empty_apply,action_only\
+&include=configuration_version.ingress_attributes" \
   -H "$H_AUTH" \
   | jq --arg sha "$COMMIT_SHA" '
       [(.included // [])[]
@@ -166,20 +172,34 @@ curl -s "https://app.terraform.io/api/v2/workspaces/$WS_ID/runs?page%5Bsize%5D=2
               id,
               status: .attributes.status,
               speculative: .attributes."plan-only",
-              green: (.attributes.status | . == "planned_and_finished" or . == "applied")
-            }]'
+              created_at: .attributes."created-at"
+            }]
+      | sort_by(.created_at)
+      | reverse
+      | {
+          latest: .[0],
+          green: ((.[0].status // "") | . == "planned_and_finished" or . == "applied"),
+          matched: .
+        }'
 ```
 
-Do not add a `filter[status]` to that request. An `errored` run on the current commit has
-to stay visible; filtering it out hides the failure and leaves an older run looking
-authoritative. Read the result as:
+Two things that request deliberately does and does not do. It names every operation,
+because phase 4 is verified by a *speculative* PR plan and HCP hides `plan_only` runs from
+the default listing. It adds no `filter[status]`, because an `errored` run on the current
+commit has to stay visible — filter it out and the failure disappears behind an older
+success.
 
-- one or more entries with `"green": true` — this exact commit planned or applied cleanly.
-- entries present, none green — this commit was tested and is failing or still running
-  (`planning`, `planned`, `errored`, `canceled`).
-- empty — this commit has never been tested in that workspace. CLI-driven runs carry no
-  ingress attributes and so never correlate; report `?` instead of falling back to an
-  older run.
+Judge `latest`, never `matched`. The same commit can be planned more than once (a variable
+changed, a failed run retried), and only the newest attempt describes the workspace as it
+stands now; `matched` is ordered newest-first for context only. Read the result as:
+
+- `"green": true` — the newest run for this exact commit planned or applied cleanly.
+- `latest` present, `"green": false` — this commit was tested and is failing or still
+  running (`planning`, `planned`, `errored`, `canceled`). An older green run in `matched`
+  does **not** rescue it.
+- `latest: null` — this commit has never been tested in that workspace. CLI-driven runs
+  carry no ingress attributes and so never correlate; report `?` instead of falling back
+  to an older run.
 
 ## Trigger a manual plan from the API
 
