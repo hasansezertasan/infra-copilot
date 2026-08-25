@@ -1,0 +1,3 @@
+# .gitignore
+*.agents/skills/
+skills-lock.json
