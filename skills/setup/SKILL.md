@@ -6,7 +6,7 @@ description: "Agent-first, human-in-the-loop GREENFIELD bootstrap of a Terraform
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:97730f6a817b450988420713b169d431f5de86270467f612cc2e23b6270349bc
-Source-Hash: blake3:a889ffbbb168fe37a0151eebf2328a2267e99419a2c2b6e370fb5232c47c011f
+Source-Hash: blake3:4c4be53a504ab0eb505449e369f2d08953fc82292a1de10981172419bd136621
 Schema-Version: v1
 -->
 

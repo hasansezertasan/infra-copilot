@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:ad8003371a0133d9c5cd2cfe19e6fb219a7f7862f3b1d6571c5618f478ffaa7c
-Source-Hash: blake3:a889ffbbb168fe37a0151eebf2328a2267e99419a2c2b6e370fb5232c47c011f
+Content-Hash: blake3:6c6f4c3a3d021195444e548a7a2d692677ed56f3a33323aeed3c0b46dd9877fb
+Source-Hash: blake3:4c4be53a504ab0eb505449e369f2d08953fc82292a1de10981172419bd136621
 Schema-Version: v1
 -->
 
@@ -108,11 +108,21 @@ GitHub↔HCP OAuth connection (browser).
 
   Verify:
   ```sh
-  for ws in cloudflare github-org; do
+  for pair in "cloudflare:terraform/cloudflare" "github-org:terraform/github"; do
+    ws=${pair%%:*}; dir=${pair#*:}
     curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$ws" \
       -H "Authorization: Bearer $HCP_TOKEN" \
-      | jq -e '.data.attributes["auto-apply"] == false' >/dev/null \
-      && echo "✓ $ws exists, auto-apply off"
+      | jq -e --arg dir "$dir" --arg repo "$REPO" '
+          .data.attributes as $a
+          | ($a["working-directory"] == $dir)
+            and ($a["execution-mode"] == "remote")
+            and ($a["auto-apply"] == false)
+            and ($a["speculative-enabled"] == true)
+            and ($a["file-triggers-enabled"] == true)
+            and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
+            and (($a["vcs-repo"].identifier // "") == $repo)
+            and (($a["vcs-repo"].branch // "") == "main")' >/dev/null \
+      && echo "✓ $ws configured as declared"
   done
   ```
 

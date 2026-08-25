@@ -83,7 +83,16 @@ steps:
       1. Open https://app.terraform.io/ after completing hcp-login.
       2. Create an organization named exactly `<your ORG slug>` (see config.md).
       3. Inside it, create a project named `infra`.
-    check: 'test -n "$HCP_TOKEN" && curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
+    # Assert the project too, not just the org: this step produces both, and an org
+    # without `infra` fails later workspace work with a far less obvious error.
+    # filter[names] is case-insensitive, so re-assert the exact name in jq.
+    check: |
+      test -n "$HCP_TOKEN" || exit 1
+      curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" \
+        | jq -e '.data.id' >/dev/null || exit 1
+      curl -sf "$hcp_api/organizations/$ORG/projects?filter%5Bnames%5D=infra" \
+        -H "Authorization: Bearer $HCP_TOKEN" \
+        | jq -e '[.data[] | select(.attributes.name == "infra")] | any' >/dev/null
     produces: HCP org `$ORG`, project `infra`
     docs: docs/setup.md#1-hcp-terraform--organization
 
@@ -136,10 +145,23 @@ steps:
         vcs-repo:            identifier $REPO, oauth-token-id from vcs-connect, branch main
       Then in each workspace's UI -> Version Control, confirm FORK speculative plans are OFF
       (separate toggle, no clean create-time attribute; defaults off).
+    # Assert every attribute the `run` block above declares. Checking only `auto-apply`
+    # greens a workspace that plans the wrong directory, ignores path filters, runs
+    # locally, skips PR plans, or points at the wrong repo or branch.
     check: |
-      for ws in cloudflare github-org; do
+      for pair in "cloudflare:terraform/cloudflare" "github-org:terraform/github"; do
+        ws=${pair%%:*}; dir=${pair#*:}
         curl -sf "$hcp_api/organizations/$ORG/workspaces/$ws" -H "Authorization: Bearer $HCP_TOKEN" \
-          | jq -e '.data.attributes["auto-apply"]==false' >/dev/null || exit 1
+          | jq -e --arg dir "$dir" --arg repo "$REPO" '
+              .data.attributes as $a
+              | ($a["working-directory"] == $dir)
+                and ($a["execution-mode"] == "remote")
+                and ($a["auto-apply"] == false)
+                and ($a["speculative-enabled"] == true)
+                and ($a["file-triggers-enabled"] == true)
+                and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
+                and (($a["vcs-repo"].identifier // "") == $repo)
+                and (($a["vcs-repo"].branch // "") == "main")' >/dev/null || exit 1
       done
     produces: workspaces `cloudflare`, `github-org`
     docs: docs/state.md#workspaces
@@ -161,7 +183,9 @@ steps:
     check: |
       WS_ID=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/cloudflare" -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
       curl -sf "$hcp_api/workspaces/$WS_ID/vars" -H "Authorization: Bearer $HCP_TOKEN" \
-        | jq -e '.data[] | select(.attributes.key=="cloudflare_api_token") | .attributes.sensitive==true'
+        | jq -e '[.data[]
+            | select(.attributes.key == "cloudflare_api_token")
+            | .attributes.category == "terraform" and .attributes.sensitive == true] | any' >/dev/null
     produces: sensitive var `cloudflare_api_token`
     docs: cloudflare.md
 
@@ -186,9 +210,11 @@ steps:
     check: |
       WS_ID=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/github-org" -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
       curl -sf "$hcp_api/workspaces/$WS_ID/vars" -H "Authorization: Bearer $HCP_TOKEN" | jq -e '
-        [.data[].attributes.key] as $k
-        | ("github_owner"|IN($k[])) and ("github_app_id"|IN($k[]))
-          and ("github_app_installation_id"|IN($k[])) and ("github_app_pem"|IN($k[]))'
+        [.data[] | select(.attributes.category == "terraform") | .attributes] as $tf
+        | ($tf | map(.key)) as $keys
+        | ($tf | map(select(.sensitive == true) | .key)) as $sensitive
+        | ((["github_app_id", "github_app_installation_id", "github_app_pem"] - $sensitive) | length) == 0
+          and ((["github_owner"] - $keys) | length) == 0' >/dev/null
     produces: sensitive vars github_app_id / _installation_id / _pem, plus github_owner
     docs: github.md
 

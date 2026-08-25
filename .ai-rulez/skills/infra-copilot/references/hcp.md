@@ -101,11 +101,21 @@ GitHub↔HCP OAuth connection (browser).
 
   Verify:
   ```sh
-  for ws in cloudflare github-org; do
+  for pair in "cloudflare:terraform/cloudflare" "github-org:terraform/github"; do
+    ws=${pair%%:*}; dir=${pair#*:}
     curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$ws" \
       -H "Authorization: Bearer $HCP_TOKEN" \
-      | jq -e '.data.attributes["auto-apply"] == false' >/dev/null \
-      && echo "✓ $ws exists, auto-apply off"
+      | jq -e --arg dir "$dir" --arg repo "$REPO" '
+          .data.attributes as $a
+          | ($a["working-directory"] == $dir)
+            and ($a["execution-mode"] == "remote")
+            and ($a["auto-apply"] == false)
+            and ($a["speculative-enabled"] == true)
+            and ($a["file-triggers-enabled"] == true)
+            and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
+            and (($a["vcs-repo"].identifier // "") == $repo)
+            and (($a["vcs-repo"].branch // "") == "main")' >/dev/null \
+      && echo "✓ $ws configured as declared"
   done
   ```
 
