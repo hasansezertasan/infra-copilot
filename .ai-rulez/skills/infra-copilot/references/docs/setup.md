@@ -34,6 +34,8 @@ In Settings → General:
 
 - **Execution mode**: Remote.
 - **Auto-apply**: disabled (manual confirmation required).
+- **Terraform Version**: the exact `tools.terraform` value in the committed `mise.toml`.
+  The setup workflow sets and verifies this through the API; do not leave it on latest.
 
 ## 3. Cloudflare API token
 
@@ -88,34 +90,41 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
 
 ## 6. Local development
 
-1. **Pin the toolchain, then install it.** Tool versions belong in the repo, not on a
-   laptop. `mise` is the default mechanism:
+1. **Pin the toolchain, review it, lock it, then install it.** Tool versions belong in
+   the repo, not in user/global configuration. The setup workflow reads this exact file:
 
    ```toml
    # mise.toml
    [tools]
-   terraform = "1.15.9"   # example — pin whatever you standardize on, then see step 2
-
-   [settings]
-   lockfile = true        # writes mise.lock: resolved versions + checksums, so CI matches local
+   terraform = "1.15.9"   # examples — use exact versions, never "latest" or a prefix
+   gh = "2.81.0"
+   jq = "1.8.1"
    ```
 
    ```sh
-   mise trust && mise install
+   sed -n '1,200p' mise.toml  # inspect the exact repository config before trusting it
+   mise trust mise.toml
+   mise lock                 # creates/updates mise.lock for common platforms
+   MISE_LOCKED=1 mise install
    ```
 
-   `lockfile = true` is the part that matters for CI: `mise.lock` pins URLs and checksums
-   for *every* platform, including the Linux ones CI runs on, so a Mac laptop and a Linux
-   runner resolve the same artifact. Any manager works if it yields version parity — the
-   contract is a committed pin, not mise. Record the choice in
-   [`../decisions.md.example`](../decisions.md.example).
+   Review matters because trusting a repository config enables its templates, plugins,
+   and other executable behavior. `mise lock` is the supported lockfile command;
+   `MISE_LOCKED=1` makes installation fail instead of resolving missing URLs outside the
+   committed lock. Commit both files. The default workflow requires these two files so it
+   can enforce one unambiguous pin source. Record the choice in
+   [`../decisions.md.example`](../decisions.md.example). A repo standardizing on Nix,
+   asdf, Devbox, or a container must replace the manifest's `pin` and `check` entries with
+   checks that read that manager's committed file; active-environment commands are not a
+   substitute for inspecting the repository pin.
 
    Do this **before** step 3: `terraform login` needs `terraform` on `PATH`.
 
-2. **Pin the same Terraform version on every HCP workspace** — Settings → General →
-   Terraform Version. A workspace left on "latest" diverges from the local pin the next
-   time HashiCorp ships a release, and the first symptom is a plan that renders differently
-   from the one you reviewed. Bump local and remote together, in the same PR.
+2. **Verify the same Terraform version on every HCP workspace.** The Phase 1 API flow
+   reads `tools.terraform` from the repository's `mise.toml`, sets `terraform-version`
+   during workspace creation, reconciles existing workspaces, and checks the value on
+   every resume scan. A workspace left on latest diverges on HashiCorp's next release.
+   Bump `mise.toml`, `mise.lock`, and both remote workspaces as one change.
 
    Not every tool has an equally good pin. Worth knowing before you write `mise.toml`:
 

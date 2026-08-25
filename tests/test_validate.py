@@ -12,6 +12,7 @@ from scripts.validate import (
     validate_links,
     validate_manifest_paths,
     validate_phase_five_rule,
+    validate_toolchain_contract,
     validate_tool_pins,
 )
 
@@ -113,6 +114,36 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             ),
             errors,
         )
+
+
+class ValidateToolchainContractTests(unittest.TestCase):
+    def test_committed_pins_flow_to_hcp(self) -> None:
+        self.assertEqual(validate_toolchain_contract(), [])
+
+    def test_rejects_active_mise_state_and_unlocked_install(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            steps = repository / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            hcp = repository / ".ai-rulez/skills/infra-copilot/references/hcp.md"
+            setup = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/docs/setup.md"
+            )
+            setup.parent.mkdir(parents=True)
+            steps.write_text("pin=$(mise current terraform)", encoding="utf-8")
+            hcp.write_text("terraform-version", encoding="utf-8")
+            setup.write_text("mise trust mise.toml", encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(any("active mise state" in error for error in errors), errors)
+        self.assertTrue(
+            any("mise.lock is not required" in error for error in errors), errors
+        )
+        self.assertTrue(
+            any("review must precede trust" in error for error in errors), errors
+        )
+        self.assertTrue(any("MISE_LOCKED=1" in error for error in errors), errors)
 
 
 if __name__ == "__main__":

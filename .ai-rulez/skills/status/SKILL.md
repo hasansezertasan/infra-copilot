@@ -21,11 +21,12 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    config is incomplete, report it and stop; do **not** offer to scaffold or edit (that
    belongs to `setup`).
 2. **Preflight** — report which of `terraform`/`gh`/`jq`/`curl` are present, and for each
-   one whether it is **pinned and matching**, **pinned and drifted**, or **unpinned**. A
+   one whether it is **pinned and matching**, **pinned and drifted**, or **missing its
+   required pin**. A
    drifted pin is a real finding: the plan a reviewer reads may not be the plan that gets
-   applied. An unpinned tool is a decision not yet made, not a failure — say so, and point
-   at [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example). Report the HCP token pivot:
-   present or not.
+   applied. A missing `mise.toml` key or `mise.lock` is a failed toolchain contract — say
+   so, and point at [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example).
+   Report the HCP token pivot: present or not.
 3. **Full scan — but only with checks that don't touch the working tree.** Walk **every**
    step in [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml) (all phases, 0–6). Never run a
    step's `run`. Classify each `check` before running it — the read-only guarantee depends
@@ -98,7 +99,7 @@ Print a phase-by-phase table, then a one-line verdict. Use this shape:
 ```
 infra-copilot status — <repo> (org: $ORG)
 
-Preflight   terraform 1.15.9 ✓ pinned   gh 2.81.0 ⚠ unpinned   jq ✓   curl ✓   HCP token ✓
+Preflight   terraform 1.15.9 ✓ pinned   gh 2.81.0 ✗ pin missing   jq ✓   curl ✓   HCP token ✓
 Phase 0  HCP bootstrap    ✓ hcp-login  ✓ hcp-signup  ✓ hcp-verify
 Phase 1  workspaces       ✓ vcs-connect  ✗ workspaces-create   ← first red
 Phase 2  cloudflare       – cf-token            (not reached)

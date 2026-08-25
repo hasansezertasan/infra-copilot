@@ -6,7 +6,7 @@ Copy this file to `.infra-copilot/decisions.md`, replace the example row, and co
 | Decision | Choice | Status | Rationale |
 |---|---|---|---|
 | Terraform backend | HCP Terraform | locked | Managed remote state and locking |
-| Toolchain | Pinned per-project with `mise` | locked | Same versions locally and in CI; nothing installed system-wide |
+| Toolchain | Exact pins in `mise.toml` + committed `mise.lock` | locked | Same versions locally, in CI, and for Terraform in HCP; installs use locked metadata |
 
 Statuses:
 

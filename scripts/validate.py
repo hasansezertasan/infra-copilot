@@ -40,6 +40,9 @@ PHASE_FIVE_RULE_MARKERS = (
     # stored plan, so its import actions remain listed forever.
     "status `applied`",
 )
+TOOLCHAIN_STEPS_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+TOOLCHAIN_HCP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/hcp.md"
+TOOLCHAIN_SETUP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/setup.md"
 JSON_MANIFESTS = (
     ".agents/plugins/marketplace.json",
     ".claude-plugin/marketplace.json",
@@ -177,6 +180,49 @@ def validate_phase_five_rule(root: Path = ROOT) -> list[str]:
         for marker in PHASE_FIVE_RULE_MARKERS
         if marker not in text
     ]
+
+
+def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
+    """Pins must come from the committed file and reach every HCP workspace."""
+    errors: list[str] = []
+    steps = (root / TOOLCHAIN_STEPS_DOCUMENT).read_text(encoding="utf-8")
+    hcp = (root / TOOLCHAIN_HCP_DOCUMENT).read_text(encoding="utf-8")
+    setup = (root / TOOLCHAIN_SETUP_DOCUMENT).read_text(encoding="utf-8")
+
+    if "pin=$(mise current" in steps:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: reads active mise state instead of the "
+            "committed pin"
+        )
+    for tool in ("terraform", "gh", "jq"):
+        marker = f"mise config get --file ./mise.toml --raw tools.{tool}"
+        if marker not in steps:
+            errors.append(
+                f"{TOOLCHAIN_STEPS_DOCUMENT}: missing committed {tool} pin lookup"
+            )
+    if "test -f mise.lock" not in steps:
+        errors.append(f"{TOOLCHAIN_STEPS_DOCUMENT}: mise.lock is not required")
+
+    if hcp.count('"terraform-version"') < 3 or "set_tf_version" not in hcp:
+        errors.append(
+            f"{TOOLCHAIN_HCP_DOCUMENT}: Terraform pin must be created, reconciled, "
+            "and verified"
+        )
+
+    review = setup.find("sed -n '1,200p' mise.toml")
+    trust = setup.find("mise trust mise.toml")
+    if review < 0 or trust < 0 or review > trust:
+        errors.append(
+            f"{TOOLCHAIN_SETUP_DOCUMENT}: mise.toml review must precede trust"
+        )
+    for marker in ("mise lock", "MISE_LOCKED=1 mise install"):
+        if marker not in setup:
+            errors.append(f"{TOOLCHAIN_SETUP_DOCUMENT}: missing {marker!r}")
+    if "lockfile = true" in setup:
+        errors.append(
+            f"{TOOLCHAIN_SETUP_DOCUMENT}: unsupported lockfile setting is documented"
+        )
+    return errors
 
 
 def validate_json_manifests(root: Path = ROOT) -> list[str]:
@@ -343,6 +389,7 @@ def main() -> int:
         *validate_command_tools(),
         *validate_config_fallbacks(),
         *validate_phase_five_rule(),
+        *validate_toolchain_contract(),
         *collect_manifest_errors(),
         *validate_links(),
         *validate_tool_pins(),

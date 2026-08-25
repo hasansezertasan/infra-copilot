@@ -5,8 +5,8 @@ description: "Agent-first, human-in-the-loop GREENFIELD bootstrap of a Terraform
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:97730f6a817b450988420713b169d431f5de86270467f612cc2e23b6270349bc
-Source-Hash: blake3:610330dd4563b654254941e6f2a7b8e5ab26863113f033de88d2dbbfb6a9063e
+Content-Hash: blake3:3829d1cec31729a3aa07989af993e33080bf633c6115d66acc931ca6772d285f
+Source-Hash: blake3:82270fcd354335dcf4a9f860a7b106f87ff7b707ad351472abded6a1bbd75335
 Schema-Version: v1
 -->
 
@@ -87,6 +87,7 @@ Setup is complete when you can report:
 
 - ✓ HCP org `$ORG` + project `infra` reachable via API.
 - ✓ Workspaces `cloudflare` and `github-org` exist, VCS-linked, auto-apply off, fork speculative plans off.
+- ✓ Both workspaces use the exact Terraform version committed in `mise.toml`.
 - ✓ All sensitive vars present (`cloudflare_api_token`; `github_app_id`, `github_app_installation_id`, `github_app_pem`).
 - ✓ `terraform plan` green on both leaves.
 

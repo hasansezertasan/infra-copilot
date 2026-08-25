@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:95ef654407405dec296437cd57be8a6faae85fa03c852e108d92f8c8b4570b9e
-Source-Hash: blake3:610330dd4563b654254941e6f2a7b8e5ab26863113f033de88d2dbbfb6a9063e
+Content-Hash: blake3:fb71471ce4d3f6d713006da6937bbefab0921ffcc550f6f6b30cc3386c54d577
+Source-Hash: blake3:82270fcd354335dcf4a9f860a7b106f87ff7b707ad351472abded6a1bbd75335
 Schema-Version: v1
 -->
 
@@ -94,30 +94,31 @@ terraform version      # provisioning + import blocks
 gh --version           # GitHub CLI — repo ops, Pages, App install checks
 jq --version           # JSON wrangling for HCP/Cloudflare/GitHub APIs
 curl --version         # HCP + Cloudflare REST
+mise --version         # reads committed pins and enforces the lockfile
 ```
 
 **Pinned, not merely present.** A tool that runs is not the same as the tool the repo
 agreed on. Two contributors can both clear a `>= 1.9` floor on Terraform 1.9 and 1.15 and
 get plans that render differently. So the `preflight` block in [`steps.yaml`](steps.yaml)
-asserts *parity with the repo's pin* where one exists, and falls back to a floor only where
-it does not. `mise` is the default mechanism (`mise.toml` + `mise.lock`); any manager that
-yields version parity satisfies the contract, so the checks never test for mise itself.
+asserts *parity with the repo's committed pin*. The default manifest requires
+`mise.toml` + `mise.lock` and reads each exact key with `mise config get --file`; it never
+uses the active mise environment as evidence of what the repository committed.
 See [`docs/setup.md`](docs/setup.md#6-local-development) and
 [`decisions.md.example`](decisions.md.example).
 
-Report three states, not two — "present" hides the interesting case:
+Report the committed pin and whether the running binary matches it:
 
 | State | Meaning | Report as |
 |---|---|---|
 | pinned, matches | repo pin and running binary agree | `terraform 1.15.9 ✓ (pinned)` |
 | pinned, differs | drift — the reviewed plan may not be the applied one | `terraform 1.13.0 ✗ (pinned 1.15.9)` |
-| not pinned | no decision recorded yet; floor applies | `terraform 1.15.9 ⚠ (unpinned)` |
+| pin missing | repository contract is incomplete | `terraform 1.15.9 ✗ (pin missing)` |
 
-Two traps make this easy to get wrong, and both produce a false green:
-`mise current <tool>` exits **0 even when nothing is pinned** (it only warns), and a mise
-shim with no version set makes the tool unrunnable. A naive `if mise current X; then
-compare` therefore takes the pinned branch, compares empty to empty, and passes. Read the
-version first, require it non-empty, *then* branch.
+`mise current <tool>` is deliberately forbidden here. It reports the active version,
+which can come from user/global configuration and can be empty even when it exits zero.
+Read `./mise.toml` explicitly, require a non-empty exact value, and compare the binary to
+that value. If a consuming repo chooses another manager, its manifest checks must read
+that manager's committed pin directly.
 
 Then detect the credential the whole flow pivots on:
 

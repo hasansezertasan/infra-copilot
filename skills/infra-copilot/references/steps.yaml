@@ -33,6 +33,7 @@
 #     export CF_ZONE_ID=<cloudflare_zone_id>
 #     export REPO=<managed_repos[0]>
 #     export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
+#     export TERRAFORM_VERSION=$(mise config get --file ./mise.toml --raw tools.terraform)
 #     export hcp_api=https://app.terraform.io/api/v2
 #     export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
 # Never guess or invent these values — if the config file is missing, treat it as a
@@ -45,50 +46,34 @@ hcp_api: https://app.terraform.io/api/v2
 
 # TOOLCHAIN CONTRACT — pinned, not merely present.
 #
-# The requirement: the consuming repo pins its tool versions in-repo, commits the
-# pin, and matches what HCP runs. `mise` is the default mechanism (`mise.toml`
-# plus `[settings] lockfile = true`, so `mise.lock` records URLs and checksums for
-# every platform including the Linux ones CI runs on) — but the contract is version
-# parity, not mise. Any manager that yields parity satisfies it, so the checks below
-# never assert that mise is installed.
+# The requirement: the consuming repo pins its tool versions in `mise.toml`, commits
+# that file and `mise.lock`, and matches what HCP runs. The checks read the named
+# repository file explicitly; `mise current` is intentionally not used because it
+# reports active user/global configuration as well as repository configuration.
 #
-#   pin    file in the CONSUMING repo that records the pin. When it exists and names
-#          the tool, `check` asserts the running binary matches it.
-#   min    hard floor, enforced only when the repo has not pinned the tool yet.
-#   check  exit 0 == matches the pin if pinned, else clears the floor.
-#
-# An unpinned repo is not an error, it is a decision not yet made — `/infra-status`
-# reports it as unpinned so it gets made deliberately. See
-# docs/setup.md#6-local-development and decisions.md.example.
+#   pin    exact key in the committed file that records the pin.
+#   check  exit 0 == the running binary exactly matches that committed pin.
 preflight:
-  # Three states, not two. `mise current <tool>` exits 0 even when nothing is
-  # pinned (it only warns), and a mise shim with no version set makes the tool
-  # itself unrunnable — so a naive `if mise current X; then compare` compares
-  # empty to empty and passes vacuously. Read the version first, require it to be
-  # non-empty, and only then decide whether to compare against a pin or a floor.
+  - tool: mise
+    check: "mise --version >/dev/null && test -f mise.toml && test -f mise.lock"
   - tool: terraform
-    pin: mise.toml
-    min: "1.9"
+    pin: mise.toml#tools.terraform
     check: >-
       ver=$(terraform version -json 2>/dev/null | jq -r '.terraform_version // empty');
-      [ -n "$ver" ] || exit 1;
-      pin=$(mise current terraform 2>/dev/null | tr -d '[:space:]');
-      if [ -n "$pin" ]; then [ "$ver" = "$pin" ];
-      else printf '%s' "$ver" | awk -F. '{exit !($1>1 || ($1==1 && $2>=9))}'; fi
+      pin=$(mise config get --file ./mise.toml --raw tools.terraform 2>/dev/null | tr -d '[:space:]');
+      [ -n "$ver" ] && [ -n "$pin" ] && [ "$ver" = "$pin" ]
   - tool: gh
-    pin: mise.toml
+    pin: mise.toml#tools.gh
     check: >-
       ver=$(gh --version 2>/dev/null | head -1 | awk '{print $3}');
-      [ -n "$ver" ] || exit 1;
-      pin=$(mise current gh 2>/dev/null | tr -d '[:space:]');
-      if [ -n "$pin" ]; then [ "$ver" = "$pin" ]; fi
+      pin=$(mise config get --file ./mise.toml --raw tools.gh 2>/dev/null | tr -d '[:space:]');
+      [ -n "$ver" ] && [ -n "$pin" ] && [ "$ver" = "$pin" ]
   - tool: jq
-    pin: mise.toml
+    pin: mise.toml#tools.jq
     check: >-
       ver=$(jq --version 2>/dev/null | sed 's/^jq-//');
-      [ -n "$ver" ] || exit 1;
-      pin=$(mise current jq 2>/dev/null | tr -d '[:space:]');
-      if [ -n "$pin" ]; then [ "$ver" = "$pin" ]; fi
+      pin=$(mise config get --file ./mise.toml --raw tools.jq 2>/dev/null | tr -d '[:space:]');
+      [ -n "$ver" ] && [ -n "$pin" ] && [ "$ver" = "$pin" ]
   - tool: curl
     check: "curl --version >/dev/null"   # system-provided; pinning it buys nothing
 
@@ -178,6 +163,7 @@ steps:
         file-triggers-enabled: true
         trigger-patterns:    ["terraform/cloudflare/**"]  (and terraform/github/**)
         execution-mode:      remote
+        terraform-version:   $TERRAFORM_VERSION  # exact committed mise.toml pin
         auto-apply:          false
         speculative-enabled: true       # plans on PRs
         vcs-repo:            identifier $REPO, oauth-token-id from vcs-connect, branch main
@@ -190,10 +176,11 @@ steps:
       for pair in "cloudflare:terraform/cloudflare" "github-org:terraform/github"; do
         ws=${pair%%:*}; dir=${pair#*:}
         curl -sf "$hcp_api/organizations/$ORG/workspaces/$ws" -H "Authorization: Bearer $HCP_TOKEN" \
-          | jq -e --arg dir "$dir" --arg repo "$REPO" '
+          | jq -e --arg dir "$dir" --arg repo "$REPO" --arg tf_version "$TERRAFORM_VERSION" '
               .data.attributes as $a
               | ($a["working-directory"] == $dir)
                 and ($a["execution-mode"] == "remote")
+                and ($a["terraform-version"] == $tf_version)
                 and ($a["auto-apply"] == false)
                 and ($a["speculative-enabled"] == true)
                 and ($a["file-triggers-enabled"] == true)
