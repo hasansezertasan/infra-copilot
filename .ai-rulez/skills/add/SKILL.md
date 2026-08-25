@@ -3,13 +3,6 @@ name: add
 description: "Grow an already-bootstrapped infra repo by provisioning something NEW that does not exist yet: a new managed GitHub repo, a new resource on an existing provider (a Cloudflare DNS record, page rule, GitHub repo setting), or a brand-NEW provider (e.g. start managing GCP). Handles the config + Terraform + workspace wiring and ends on a green plan (the new thing shows as 'will be created'). Use this WHENEVER the user wants Terraform to create/manage a new thing in an existing infra repo. Trigger on: 'add a repo to Terraform management', 'manage another repo/domain/record', 'add a new CNAME/DNS record via Terraform', 'provision a new Cloudflare page rule', 'start managing GCP too', 'add a new provider', 'extend the infra repo'. Use AFTER infra-copilot:setup. Not for first-time bootstrap (infra-copilot:setup) or adopting resources that ALREADY exist at the provider (infra-copilot:import)."
 ---
 
-<!--
-AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1b13ec27d9bea952df792bfbf96198420b2fcc86930ddd38b606a4b27b24aacd
-Source-Hash: blake3:380eb15903797213a09748f8a1a3c248966034d31635cff7a368707b229ac557
-Schema-Version: v1
--->
-
 # infra-copilot: add
 
 Grow a repo that `infra-copilot:setup` already bootstrapped. Three flavors of "add," in

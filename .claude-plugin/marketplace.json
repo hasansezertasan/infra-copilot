@@ -1,11 +1,26 @@
 {
   "name": "infra-copilot",
-  "owner": { "name": "hasansezertasan" },
+  "description": "Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure.",
+  "owner": {
+    "name": "hasansezertasan"
+  },
   "plugins": [
     {
       "name": "infra-copilot",
+      "description": "Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure.",
+      "version": "0.2.0",
       "source": "./",
-      "description": "Agent-first bootstrap + maintenance for Terraform/HCP/Cloudflare/GitHub SaaS infra repos."
+      "license": "MIT",
+      "homepage": "https://github.com/hasansezertasan/infra-copilot",
+      "keywords": [
+        "terraform",
+        "infrastructure",
+        "cloudflare",
+        "github"
+      ],
+      "author": {
+        "name": "hasansezertasan"
+      }
     }
   ]
 }

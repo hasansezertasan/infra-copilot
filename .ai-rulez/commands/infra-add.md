@@ -3,13 +3,6 @@ description: "Shortcut that loads the infra-copilot add skill — grow a bootstr
 allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 ---
 
-<!--
-AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:36118fb05d84c27feee587a29494ec7d46173e31ae612164b6b6b947d05d7deb
-Source-Hash: blake3:380eb15903797213a09748f8a1a3c248966034d31635cff7a368707b229ac557
-Schema-Version: v1
--->
-
 # /infra-add
 
 Explicit entry point for the [`add`](../skills/add/SKILL.md) skill — extend an

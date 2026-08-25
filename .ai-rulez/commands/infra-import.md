@@ -3,13 +3,6 @@ description: "Shortcut that loads the infra-copilot import skill — adopt exist
 allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 ---
 
-<!--
-AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:fbfdc8d919179931a3bd93593a3c49c6df51dcafe207d6376dbbc88e7b938339
-Source-Hash: blake3:380eb15903797213a09748f8a1a3c248966034d31635cff7a368707b229ac557
-Schema-Version: v1
--->
-
 # /infra-import
 
 Explicit entry point for the [`import`](../skills/import/SKILL.md) skill — adopt resources

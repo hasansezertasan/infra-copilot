@@ -3,13 +3,6 @@ description: "Shortcut that loads the infra-copilot status skill — read-only h
 allowed-tools: Read, Bash, Glob, Grep
 ---
 
-<!--
-AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:5fb8e6240f21ed4b6f705f5e04d7339bb6884df42299f0ebc89fa7e5dd33bc0b
-Source-Hash: blake3:380eb15903797213a09748f8a1a3c248966034d31635cff7a368707b229ac557
-Schema-Version: v1
--->
-
 # /infra-status
 
 Explicit entry point for the [`status`](../skills/status/SKILL.md) skill — a **read-only**

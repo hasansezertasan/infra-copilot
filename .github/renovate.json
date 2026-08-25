@@ -1,0 +1,47 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["github>hasansezertasan/renovate-config"],
+  "timezone": "Europe/Istanbul",
+  "schedule": ["before 4am on monday"],
+  "automerge": false,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update the pinned ai-rulez CLI version in CI and maintenance docs",
+      "managerFilePatterns": [
+        "/^README\\.md$/",
+        "/^\\.github/workflows/(?:check|release)\\.yml$/"
+      ],
+      "matchStrings": [
+        "INFRA_COPILOT_AI_RULEZ_VERSION:\\s*(?<currentValue>[^\\s#]+)",
+        "ai-rulez@(?<currentValue>[0-9]+(?:\\.[0-9]+){2}(?:-[0-9A-Za-z.-]+)?)"
+      ],
+      "depNameTemplate": "ai-rulez",
+      "datasourceTemplate": "npm",
+      "versioningTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Update the pinned skills CLI version in CI and maintenance docs",
+      "managerFilePatterns": [
+        "/^README\\.md$/",
+        "/^\\.github/workflows/(?:check|release)\\.yml$/"
+      ],
+      "matchStrings": [
+        "INFRA_COPILOT_SKILLS_VERSION:\\s*(?<currentValue>[^\\s#]+)",
+        "skills@(?<currentValue>[0-9]+(?:\\.[0-9]+){2}(?:-[0-9A-Za-z.-]+)?)"
+      ],
+      "depNameTemplate": "skills",
+      "datasourceTemplate": "npm",
+      "versioningTemplate": "npm"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Group repository-maintenance tooling into one weekly PR",
+      "matchManagers": ["github-actions", "custom.regex"],
+      "groupName": "repository tooling",
+      "automerge": false
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      INFRA_COPILOT_AI_RULEZ_VERSION: 4.11.3
+      INFRA_COPILOT_SKILLS_VERSION: 1.5.23
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Validate ai-rulez configuration
+        run: npx --yes "ai-rulez@${INFRA_COPILOT_AI_RULEZ_VERSION}" validate
+      - name: Verify committed plugin payloads
+        run: npx --yes "ai-rulez@${INFRA_COPILOT_AI_RULEZ_VERSION}" verify --plugin
+      - name: Validate links and host adapters
+        run: python3 scripts/validate.py
+      - name: Test repository validators
+        run: python3 -m unittest discover -s tests
+      - name: Smoke-test OpenCode installation
+        run: |
+          npx --yes "skills@${INFRA_COPILOT_SKILLS_VERSION}" add . --agent opencode --skill '*' -y --copy
+          test "$(find .agents/skills -name SKILL.md | wc -l)" -eq 5
+          test -f .agents/skills/infra-copilot/references/protocol.md
+          test -f .agents/skills/infra-copilot/references/decisions.md.example
+
+  release:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Verify tag matches canonical version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import tomllib
+
+          with open(".ai-rulez/config.toml", "rb") as config_file:
+              version = tomllib.load(config_file)["plugin"]["version"]
+          expected = f"v{version}"
+          actual = os.environ["TAG_NAME"]
+          if actual != expected:
+              raise SystemExit(f"release tag {actual!r} must equal {expected!r}")
+          PY
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          args=(
+            "$TAG_NAME"
+            --verify-tag
+            --generate-notes
+            --title "infra-copilot $TAG_NAME"
+          )
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${args[@]}"

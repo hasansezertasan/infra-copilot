@@ -1,0 +1,29 @@
+version = "4.0"
+name = "infra-copilot"
+description = "Agent-first, human-in-the-loop infrastructure bootstrap and maintenance workflows."
+gitignore = false
+
+[header]
+timestamp = false
+
+[plugin]
+name = "infra-copilot"
+version = "0.2.0"
+description = "Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure."
+homepage = "https://github.com/hasansezertasan/infra-copilot"
+repository = "https://github.com/hasansezertasan/infra-copilot"
+license = "MIT"
+keywords = ["terraform", "infrastructure", "cloudflare", "github"]
+runtimes = ["claude", "codex"]
+
+[plugin.author]
+name = "hasansezertasan"
+
+[plugin.interface]
+display_name = "infra-copilot"
+short_description = "Bootstrap and maintain a Terraform SaaS infrastructure repository."
+long_description = "Agent-first, human-in-the-loop workflows for Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure."
+developer_name = "hasansezertasan"
+category = "Development"
+capabilities = ["Read", "Write"]
+default_prompt = ["Use infra-copilot to report the current infrastructure setup status."]
