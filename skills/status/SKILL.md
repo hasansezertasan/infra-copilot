@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:21ee42b8621b16b95eb386782ecccc2c0f4bf360507bfb79be925f6c371bff8c
-Source-Hash: blake3:380eb15903797213a09748f8a1a3c248966034d31635cff7a368707b229ac557
+Content-Hash: blake3:fe21338e2f3ccf0b6393bd4cab074d4518818ddb2711c483c68552e5d3a81901
+Source-Hash: blake3:610330dd4563b654254941e6f2a7b8e5ab26863113f033de88d2dbbfb6a9063e
 Schema-Version: v1
 -->
 
@@ -27,8 +27,12 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    ([`../infra-copilot/references/config.md`](../infra-copilot/references/config.md)). If both are missing, or the loaded
    config is incomplete, report it and stop; do **not** offer to scaffold or edit (that
    belongs to `setup`).
-2. **Preflight** — report which of `terraform`/`gh`/`jq`/`curl` are present and whether
-   Terraform meets the ≥ 1.9 floor. Report the HCP token pivot: present or not.
+2. **Preflight** — report which of `terraform`/`gh`/`jq`/`curl` are present, and for each
+   one whether it is **pinned and matching**, **pinned and drifted**, or **unpinned**. A
+   drifted pin is a real finding: the plan a reviewer reads may not be the plan that gets
+   applied. An unpinned tool is a decision not yet made, not a failure — say so, and point
+   at [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example). Report the HCP token pivot:
+   present or not.
 3. **Full scan — but only with checks that don't touch the working tree.** Walk **every**
    step in [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml) (all phases, 0–6). Never run a
    step's `run`. Classify each `check` before running it — the read-only guarantee depends
@@ -101,7 +105,7 @@ Print a phase-by-phase table, then a one-line verdict. Use this shape:
 ```
 infra-copilot status — <repo> (org: $ORG)
 
-Preflight   terraform 1.x ✓   gh ✓   jq ✓   curl ✓   HCP token ✓
+Preflight   terraform 1.15.9 ✓ pinned   gh 2.81.0 ⚠ unpinned   jq ✓   curl ✓   HCP token ✓
 Phase 0  HCP bootstrap    ✓ hcp-login  ✓ hcp-signup  ✓ hcp-verify
 Phase 1  workspaces       ✓ vcs-connect  ✗ workspaces-create   ← first red
 Phase 2  cloudflare       – cf-token            (not reached)

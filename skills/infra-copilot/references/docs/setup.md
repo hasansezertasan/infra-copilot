@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:3b3f45328501637cdfff8665b24d990a8483f94e76656ae1dcfd2946bfbfd083
-Source-Hash: blake3:380eb15903797213a09748f8a1a3c248966034d31635cff7a368707b229ac557
+Content-Hash: blake3:99fefa0eb0193a183c4cbf107dd80a1948a436d2e0d7579a5f220de80db3e4ee
+Source-Hash: blake3:610330dd4563b654254941e6f2a7b8e5ab26863113f033de88d2dbbfb6a9063e
 Schema-Version: v1
 -->
 
@@ -95,11 +95,47 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
 
 ## 6. Local development
 
-1. Install Terraform ≥ 1.9.
-2. If the Phase 0 token is absent or expired, re-run `terraform login`. It opens a browser
+1. **Pin the toolchain, then install it.** Tool versions belong in the repo, not on a
+   laptop. `mise` is the default mechanism:
+
+   ```toml
+   # mise.toml
+   [tools]
+   terraform = "1.15.9"   # example — pin whatever you standardize on, then see step 2
+
+   [settings]
+   lockfile = true        # writes mise.lock: resolved versions + checksums, so CI matches local
+   ```
+
+   ```sh
+   mise trust && mise install
+   ```
+
+   `lockfile = true` is the part that matters for CI: `mise.lock` pins URLs and checksums
+   for *every* platform, including the Linux ones CI runs on, so a Mac laptop and a Linux
+   runner resolve the same artifact. Any manager works if it yields version parity — the
+   contract is a committed pin, not mise. Record the choice in
+   [`../decisions.md.example`](../decisions.md.example).
+
+   Do this **before** step 3: `terraform login` needs `terraform` on `PATH`.
+
+2. **Pin the same Terraform version on every HCP workspace** — Settings → General →
+   Terraform Version. A workspace left on "latest" diverges from the local pin the next
+   time HashiCorp ships a release, and the first symptom is a plan that renders differently
+   from the one you reviewed. Bump local and remote together, in the same PR.
+
+   Not every tool has an equally good pin. Worth knowing before you write `mise.toml`:
+
+   | Tool | mise backend | Caveat |
+   |---|---|---|
+   | `terraform` | `aqua:hashicorp/terraform` | First-class, checksummed |
+   | `gcloud` | `vfox:mise-plugins/vfox-gcloud` | Locks URLs, no checksums. Version parity, not artifact identity |
+   | `cf-terraforming` | `ubi:cloudflare/cf-terraforming` | Absent from the registry; name the backend explicitly |
+
+3. If the Phase 0 token is absent or expired, re-run `terraform login`. It opens a browser
    and writes the user API token to `~/.terraform.d/credentials.tfrc.json`. The same token
    authenticates HCP API calls (see [`state.md`](./state.md#api-access)).
-3. From any leaf directory: `terraform init` (authenticates to HCP automatically), then `terraform plan`. A VCS-connected workspace allows `plan` from CLI but blocks `apply` — that gate is intentional.
+4. From any leaf directory: `terraform init` (authenticates to HCP automatically), then `terraform plan`. A VCS-connected workspace allows `plan` from CLI but blocks `apply` — that gate is intentional.
 
 ## 7. Importing existing Cloudflare resources
 

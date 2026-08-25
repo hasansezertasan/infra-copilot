@@ -52,6 +52,13 @@ the rotation burden that implies.
 > OIDC issuer/audience at adoption time. Treat this as the shape, not the procedure; fill
 > it in (and replace this warning) when GCP is actually adopted.
 
+`gcloud` is a pinned tool like any other — add it to `mise.toml` before this phase.
+Its mise backend (`vfox:mise-plugins/vfox-gcloud`) locks download URLs but not checksums,
+so you get version parity rather than artifact identity; that is enough for the contract in
+[`docs/setup.md`](docs/setup.md#6-local-development), and worth knowing rather than
+discovering. On macOS its post-install step tries to `sudo`-install a system Python and
+fails; that is harmless, since the SDK ships its own.
+
 ```sh
 gcloud config set project <PROJECT_ID>
 gcloud services enable cloudresourcemanager.googleapis.com iam.googleapis.com <needed-apis>

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e969b0c408d99d53a7371fb1d08a62df3dadb2cd6752109aeb079d03e7b88af4
-Source-Hash: blake3:380eb15903797213a09748f8a1a3c248966034d31635cff7a368707b229ac557
+Content-Hash: blake3:987bff16d4982b268a82e4c795fa6d4ff02b480c6c78dd614952240fb690b048
+Source-Hash: blake3:610330dd4563b654254941e6f2a7b8e5ab26863113f033de88d2dbbfb6a9063e
 Schema-Version: v1
 -->
 
@@ -58,6 +58,13 @@ the rotation burden that implies.
 > provider, attribute mapping, and trust condition must be completed against HCP's actual
 > OIDC issuer/audience at adoption time. Treat this as the shape, not the procedure; fill
 > it in (and replace this warning) when GCP is actually adopted.
+
+`gcloud` is a pinned tool like any other — add it to `mise.toml` before this phase.
+Its mise backend (`vfox:mise-plugins/vfox-gcloud`) locks download URLs but not checksums,
+so you get version parity rather than artifact identity; that is enough for the contract in
+[`docs/setup.md`](docs/setup.md#6-local-development), and worth knowing rather than
+discovering. On macOS its post-install step tries to `sudo`-install a system Python and
+fails; that is harmless, since the SDK ships its own.
 
 ```sh
 gcloud config set project <PROJECT_ID>

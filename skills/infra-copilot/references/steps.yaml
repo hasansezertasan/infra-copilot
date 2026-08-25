@@ -43,16 +43,54 @@ domain: $DOMAIN  # sourced from config — see config.md
 hcp_api: https://app.terraform.io/api/v2
 # managed_repos come from .infra-copilot/config.md (see config.md) — not hardcoded here.
 
+# TOOLCHAIN CONTRACT — pinned, not merely present.
+#
+# The requirement: the consuming repo pins its tool versions in-repo, commits the
+# pin, and matches what HCP runs. `mise` is the default mechanism (`mise.toml`
+# plus `[settings] lockfile = true`, so `mise.lock` records URLs and checksums for
+# every platform including the Linux ones CI runs on) — but the contract is version
+# parity, not mise. Any manager that yields parity satisfies it, so the checks below
+# never assert that mise is installed.
+#
+#   pin    file in the CONSUMING repo that records the pin. When it exists and names
+#          the tool, `check` asserts the running binary matches it.
+#   min    hard floor, enforced only when the repo has not pinned the tool yet.
+#   check  exit 0 == matches the pin if pinned, else clears the floor.
+#
+# An unpinned repo is not an error, it is a decision not yet made — `/infra-status`
+# reports it as unpinned so it gets made deliberately. See
+# docs/setup.md#6-local-development and decisions.md.example.
 preflight:
+  # Three states, not two. `mise current <tool>` exits 0 even when nothing is
+  # pinned (it only warns), and a mise shim with no version set makes the tool
+  # itself unrunnable — so a naive `if mise current X; then compare` compares
+  # empty to empty and passes vacuously. Read the version first, require it to be
+  # non-empty, and only then decide whether to compare against a pin or a floor.
   - tool: terraform
+    pin: mise.toml
     min: "1.9"
-    check: "terraform version -json | jq -e '.terraform_version | split(\".\") | ((.[0]|tonumber) > 1) or ((.[0]|tonumber)==1 and (.[1]|tonumber) >= 9)'"
+    check: >-
+      ver=$(terraform version -json 2>/dev/null | jq -r '.terraform_version // empty');
+      [ -n "$ver" ] || exit 1;
+      pin=$(mise current terraform 2>/dev/null | tr -d '[:space:]');
+      if [ -n "$pin" ]; then [ "$ver" = "$pin" ];
+      else printf '%s' "$ver" | awk -F. '{exit !($1>1 || ($1==1 && $2>=9))}'; fi
   - tool: gh
-    check: "gh --version"
+    pin: mise.toml
+    check: >-
+      ver=$(gh --version 2>/dev/null | head -1 | awk '{print $3}');
+      [ -n "$ver" ] || exit 1;
+      pin=$(mise current gh 2>/dev/null | tr -d '[:space:]');
+      if [ -n "$pin" ]; then [ "$ver" = "$pin" ]; fi
   - tool: jq
-    check: "jq --version"
+    pin: mise.toml
+    check: >-
+      ver=$(jq --version 2>/dev/null | sed 's/^jq-//');
+      [ -n "$ver" ] || exit 1;
+      pin=$(mise current jq 2>/dev/null | tr -d '[:space:]');
+      if [ -n "$pin" ]; then [ "$ver" = "$pin" ]; fi
   - tool: curl
-    check: "curl --version | head -1"
+    check: "curl --version >/dev/null"   # system-provided; pinning it buys nothing
 
 steps:
   # ── Phase 0 — HCP bootstrap ─────────────────────────────────────────────

@@ -30,11 +30,18 @@ Before you run cf-terraforming, generate a separate, short-lived Cloudflare toke
 ## Install
 
 ```sh
-brew tap cloudflare/cloudflare
-brew install cloudflare/cloudflare/cf-terraforming
-# or:
-go install github.com/cloudflare/cf-terraforming/cmd/cf-terraforming@latest
+# Pin it. The support matrix below is version-specific, so an unpinned install
+# documents one tool and runs another. cf-terraforming is not in mise's registry,
+# so name the backend explicitly:
+mise use ubi:cloudflare/cf-terraforming@0.27.0
+
+# or via the Go toolchain — an explicit tag, never @latest:
+go install github.com/cloudflare/cf-terraforming/cmd/cf-terraforming@v0.27.0
 ```
+
+> `0.27.0` is the version the matrix below was written against. Newer releases exist;
+> bump the pin and re-check the matrix in the same change, so the documented coverage and
+> the installed binary never disagree.
 
 ## What it supports
 

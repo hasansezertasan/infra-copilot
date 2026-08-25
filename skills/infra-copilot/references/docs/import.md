@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:99aa84a30339be78bbcb9d4c7a15aa82ff8d0976d9d45958bd15d88065bade84
-Source-Hash: blake3:380eb15903797213a09748f8a1a3c248966034d31635cff7a368707b229ac557
+Content-Hash: blake3:81267613efeea52bd3d3b4814b5e9288c5f9b9bf5d40a883961fa57a3cacd411
+Source-Hash: blake3:610330dd4563b654254941e6f2a7b8e5ab26863113f033de88d2dbbfb6a9063e
 Schema-Version: v1
 -->
 
@@ -37,11 +37,18 @@ Before you run cf-terraforming, generate a separate, short-lived Cloudflare toke
 ## Install
 
 ```sh
-brew tap cloudflare/cloudflare
-brew install cloudflare/cloudflare/cf-terraforming
-# or:
-go install github.com/cloudflare/cf-terraforming/cmd/cf-terraforming@latest
+# Pin it. The support matrix below is version-specific, so an unpinned install
+# documents one tool and runs another. cf-terraforming is not in mise's registry,
+# so name the backend explicitly:
+mise use ubi:cloudflare/cf-terraforming@0.27.0
+
+# or via the Go toolchain — an explicit tag, never @latest:
+go install github.com/cloudflare/cf-terraforming/cmd/cf-terraforming@v0.27.0
 ```
+
+> `0.27.0` is the version the matrix below was written against. Newer releases exist;
+> bump the pin and re-check the matrix in the same change, so the documented coverage and
+> the installed binary never disagree.
 
 ## What it supports
 
