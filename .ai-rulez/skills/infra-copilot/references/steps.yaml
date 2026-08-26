@@ -35,6 +35,8 @@
 #     export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
 #     export hcp_api=https://app.terraform.io/api/v2
 #     export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+# Preflight exports TERRAFORM_VERSION from the validated repository pin before any
+# Phase 1 workspace check or run uses it.
 # Never guess or invent these values — if the config file is missing, treat it as a
 # HUMAN step per config.md. See the "Configuring for your org" section in SKILL.md.
 
@@ -43,16 +45,75 @@ domain: $DOMAIN  # sourced from config — see config.md
 hcp_api: https://app.terraform.io/api/v2
 # managed_repos come from .infra-copilot/config.md (see config.md) — not hardcoded here.
 
+# TOOLCHAIN CONTRACT — pinned, not merely present.
+#
+# The requirement: the consuming repo pins its tool versions in `mise.toml`, commits
+# that file and `mise.lock`, and matches what HCP runs. The checks read the named
+# repository file explicitly; `mise current` is intentionally not used because it
+# reports active user/global configuration as well as repository configuration.
+#
+#   pin    exact key in the committed file that records the pin.
+#   check  exit 0 == the running binary exactly matches that committed pin.
+#
+# The lock check enumerates the `[tools]` keys of the committed file and dry-runs a
+# locked install over exactly those. Naming a fixed list would leave conditionally
+# added tools (gcloud, cf-terraforming) unvalidated, and running `mise install`
+# with no tool arguments would pull in user/global config — the same leak that
+# rules out `mise current`.
+#
+# It also asserts every configured *value* is an exact version. The per-tool checks
+# below only cover terraform/gh/jq/gcloud, so without this an import-added pin such
+# as cf-terraforming could sit at `latest` or a range, pass a refreshed lock, and
+# still report a healthy exact-pin contract. Any value this cannot read as an exact
+# version fails closed — a table-form entry has to be rewritten as a plain pin.
 preflight:
+  - tool: mise
+    check: >-
+      mise --version >/dev/null &&
+      git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- mise.toml mise.lock &&
+      tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
+      [ -n "$tools" ] &&
+      pinned=$(printf '%s\n' "$tools" |
+      sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
+      [ -n "$pinned" ] &&
+      ! printf '%s\n' "$tools" |
+      sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
+      grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      MISE_LOCKED=1 mise install --dry-run $pinned >/dev/null 2>&1
   - tool: terraform
-    min: "1.9"
-    check: "terraform version -json | jq -e '.terraform_version | split(\".\") | ((.[0]|tonumber) > 1) or ((.[0]|tonumber)==1 and (.[1]|tonumber) >= 9)'"
+    pin: mise.toml#tools.terraform
+    check: >-
+      ver=$(terraform version -json 2>/dev/null | jq -r '.terraform_version // empty');
+      pin=$(mise config get --file ./mise.toml tools.terraform 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
   - tool: gh
-    check: "gh --version"
+    pin: mise.toml#tools.gh
+    check: >-
+      ver=$(gh --version 2>/dev/null | head -1 | awk '{print $3}');
+      pin=$(mise config get --file ./mise.toml tools.gh 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
   - tool: jq
-    check: "jq --version"
+    pin: mise.toml#tools.jq
+    check: >-
+      ver=$(jq --version 2>/dev/null | sed 's/^jq-//');
+      pin=$(mise config get --file ./mise.toml tools.jq 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
+  - tool: gcloud
+    when: "test -d terraform/gcp"
+    pin: mise.toml#tools.gcloud
+    check: >-
+      if [ ! -d terraform/gcp ]; then exit 0; fi;
+      ver=$(gcloud version --format=json 2>/dev/null |
+      jq -r '."Google Cloud SDK" // empty' | tr -d '[:space:]');
+      pin=$(mise config get --file ./mise.toml tools.gcloud 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
   - tool: curl
-    check: "curl --version | head -1"
+    check: "curl --version >/dev/null"   # system-provided; pinning it buys nothing
 
 steps:
   # ── Phase 0 — HCP bootstrap ─────────────────────────────────────────────
@@ -140,6 +201,7 @@ steps:
         file-triggers-enabled: true
         trigger-patterns:    ["terraform/cloudflare/**"]  (and terraform/github/**)
         execution-mode:      remote
+        terraform-version:   $TERRAFORM_VERSION  # exact committed mise.toml pin
         auto-apply:          false
         speculative-enabled: true       # plans on PRs
         vcs-repo:            identifier $REPO, oauth-token-id from vcs-connect, branch main
@@ -152,10 +214,11 @@ steps:
       for pair in "cloudflare:terraform/cloudflare" "github-org:terraform/github"; do
         ws=${pair%%:*}; dir=${pair#*:}
         curl -sf "$hcp_api/organizations/$ORG/workspaces/$ws" -H "Authorization: Bearer $HCP_TOKEN" \
-          | jq -e --arg dir "$dir" --arg repo "$REPO" '
+          | jq -e --arg dir "$dir" --arg repo "$REPO" --arg tf_version "$TERRAFORM_VERSION" '
               .data.attributes as $a
               | ($a["working-directory"] == $dir)
                 and ($a["execution-mode"] == "remote")
+                and ($a["terraform-version"] == $tf_version)
                 and ($a["auto-apply"] == false)
                 and ($a["speculative-enabled"] == true)
                 and ($a["file-triggers-enabled"] == true)

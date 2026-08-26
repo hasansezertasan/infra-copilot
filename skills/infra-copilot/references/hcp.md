@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6c6f4c3a3d021195444e548a7a2d692677ed56f3a33323aeed3c0b46dd9877fb
-Source-Hash: blake3:380eb15903797213a09748f8a1a3c248966034d31635cff7a368707b229ac557
+Content-Hash: blake3:f5151cbbe4458037a7642f26c56c01800ca0987c74bc7154ef9b5292e2e40771
+Source-Hash: blake3:2eec352e33b8b739fd517a9546d6d71f91aed9b5883d2e4dab043c0ee2317a36
 Schema-Version: v1
 -->
 
@@ -48,7 +48,8 @@ GitHub↔HCP OAuth connection (browser).
   OAuth, scoped to this repo only. (Browser-only OAuth handshake.)
 - **`AGENT` — workspaces-create.** Create both workspaces with the correct working
   directory, path-based run triggering, remote execution, and auto-apply **off**. The
-  safety toggles that matter — and *why each bites if wrong* — are in
+  Terraform version is read from the committed `mise.toml` and applied to both workspaces.
+  The safety toggles that matter — and *why each bites if wrong* — are in
   [`docs/setup.md#2`](docs/setup.md#2-hcp-terraform--workspaces): speculative
   plans **on**, path-scoped triggers, and — set in the UI — **fork** speculative plans
   **off**. Ready-to-run and **genuinely idempotent** — re-running reports an existing
@@ -60,6 +61,11 @@ GitHub↔HCP OAuth connection (browser).
   # $ORG, $REPO sourced from config — see config.md
   : "${ORG:?run Step 0 (read config) first}"
   : "${REPO:?run Step 0 (read config) first}"   # the repo HCP watches via VCS
+  load_tf_version () {
+    TERRAFORM_VERSION=$(mise config get --file ./mise.toml tools.terraform 2>/dev/null)
+    printf '%s' "$TERRAFORM_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' \
+      || { echo "mise.toml must contain an exact tools.terraform version" >&2; return 1; }
+  }
 
   # oauth-token-id from the VCS connection created in the vcs-connect step
   OAUTH_TOKEN_ID=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/oauth-clients" \
@@ -70,9 +76,11 @@ GitHub↔HCP OAuth connection (browser).
   # so we can tell "created" (201) from "already exists" (422 name-taken) from a real error.
   create_ws () {  # $1 = workspace name   $2 = working directory
     local resp code body
-    resp=$(jq -n --arg name "$1" --arg dir "$2" --arg repo "$REPO" --arg tok "$OAUTH_TOKEN_ID" '
+    resp=$(jq -n --arg name "$1" --arg dir "$2" --arg repo "$REPO" --arg tok "$OAUTH_TOKEN_ID" \
+      --arg tf_version "$TERRAFORM_VERSION" '
       {data:{type:"workspaces",attributes:{
         name:$name, "working-directory":$dir, "execution-mode":"remote",
+        "terraform-version":$tf_version,
         "auto-apply":false, "speculative-enabled":true, "file-triggers-enabled":true,
         "trigger-patterns":[$dir+"/**"], "queue-all-runs":false, "global-remote-state":false,
         "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}' \
@@ -89,14 +97,31 @@ GitHub↔HCP OAuth connection (browser).
     esac
   }
 
+  # POST cannot update an existing workspace. Reconcile the committed Terraform pin
+  # after either a create or an "already exists" response so resume runs fix drift.
+  set_tf_version () { # $1 = workspace name
+    local ws_id payload
+    ws_id=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$1" \
+      -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id // empty') || return 1
+    [ -n "$ws_id" ] || { echo "✗ $1: workspace id not found" >&2; return 1; }
+    payload=$(jq -n --arg id "$ws_id" --arg tf_version "$TERRAFORM_VERSION" \
+      '{data:{id:$id,type:"workspaces",attributes:{"terraform-version":$tf_version}}}')
+    curl -sf -X PATCH "https://app.terraform.io/api/v2/workspaces/$ws_id" \
+      -H "Authorization: Bearer $HCP_TOKEN" \
+      -H "Content-Type: application/vnd.api+json" -d "$payload" >/dev/null \
+      && echo "✓ $1 Terraform $TERRAFORM_VERSION"
+  }
+
   # Gate with if/else, NOT `return`/`exit`: this block is run as a script by the agent,
   # where a top-level `return` errors AND falls through (creating a broken workspace),
   # and `exit` would kill an interactive shell if pasted. if/else is correct in every context.
-  if [ -z "$OAUTH_TOKEN_ID" ]; then
+  if ! load_tf_version; then
+    echo "Not creating or updating workspaces without a committed Terraform pin." >&2
+  elif [ -z "$OAUTH_TOKEN_ID" ]; then
     echo "No VCS oauth-token found — finish the vcs-connect step first; not creating workspaces." >&2
   else
-    create_ws cloudflare terraform/cloudflare
-    create_ws github-org  terraform/github
+    create_ws cloudflare terraform/cloudflare && set_tf_version cloudflare
+    create_ws github-org  terraform/github && set_tf_version github-org
   fi
   ```
 
@@ -112,10 +137,11 @@ GitHub↔HCP OAuth connection (browser).
     ws=${pair%%:*}; dir=${pair#*:}
     curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$ws" \
       -H "Authorization: Bearer $HCP_TOKEN" \
-      | jq -e --arg dir "$dir" --arg repo "$REPO" '
+      | jq -e --arg dir "$dir" --arg repo "$REPO" --arg tf_version "$TERRAFORM_VERSION" '
           .data.attributes as $a
           | ($a["working-directory"] == $dir)
             and ($a["execution-mode"] == "remote")
+            and ($a["terraform-version"] == $tf_version)
             and ($a["auto-apply"] == false)
             and ($a["speculative-enabled"] == true)
             and ($a["file-triggers-enabled"] == true)

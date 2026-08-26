@@ -83,14 +83,53 @@ Never assume state from memory or a prior session — always re-check. See
 Confirm the toolbox. All of these are the agent's to install if missing — none need a human.
 
 ```sh
-terraform version      # ≥ 1.9   — provisioning + import blocks
+terraform version      # provisioning + import blocks
 gh --version           # GitHub CLI — repo ops, Pages, App install checks
 jq --version           # JSON wrangling for HCP/Cloudflare/GitHub APIs
 curl --version         # HCP + Cloudflare REST
+mise --version         # reads committed pins and enforces the lockfile
 ```
 
-These are the human-readable checks; the `preflight` block in [`steps.yaml`](steps.yaml)
-enforces the version floor (Terraform ≥ 1.9) programmatically — run those to gate.
+**Installed is not activated.** `mise install` downloads the pinned tools without
+putting them on `PATH`. Every check below invokes a bare binary, so activate the
+environment first (`eval "$(mise activate bash)"`, or the hook for the running shell) or
+run each command through `mise exec --`. Skipping this compares a system binary against
+the repository pin and reports drift that does not exist.
+
+**Pinned, not merely present.** A tool that runs is not the same as the tool the repo
+agreed on. Two contributors can both clear a `>= 1.9` floor on Terraform 1.9 and 1.15 and
+get plans that render differently. So the `preflight` block in [`steps.yaml`](steps.yaml)
+asserts *parity with the repo's committed pin*. The default manifest requires
+`mise.toml` + `mise.lock` and reads each exact key with `mise config get --file`; it never
+uses the active mise environment as evidence of what the repository committed.
+See [`docs/setup.md`](docs/setup.md#6-local-development) and
+[`decisions.md.example`](decisions.md.example).
+
+Report the committed pin and whether the running binary matches it:
+
+| State | Meaning | Report as |
+|---|---|---|
+| pinned, matches | repo pin and running binary agree | `terraform 1.15.9 ✓ (pinned)` |
+| pinned, differs | drift — the reviewed plan may not be the applied one | `terraform 1.13.0 ✗ (pinned 1.15.9)` |
+| pin missing | repository contract is incomplete | `terraform 1.15.9 ✗ (pin missing)` |
+
+`mise current <tool>` is deliberately forbidden here. It reports the active version,
+which can come from user/global configuration and can be empty even when it exits zero.
+Read `./mise.toml` explicitly, require a non-empty exact value, and compare the binary to
+that value. If a consuming repo chooses another manager, its manifest checks must read
+that manager's committed pin directly.
+
+For `setup`, bootstrap missing `mise.toml` and `mise.lock` from the constrained example in
+[`docs/setup.md`](docs/setup.md#6-local-development), then run the checks. Only after the
+Terraform check passes, export the value needed by Phase 1:
+
+```sh
+export TERRAFORM_VERSION=$(mise config get --file ./mise.toml tools.terraform)
+```
+
+Do not perform this export during config loading: a fresh repository has not established
+the toolchain contract yet. `status` remains read-only and reports missing pin files
+instead of creating them.
 
 Then detect the credential the whole flow pivots on:
 

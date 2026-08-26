@@ -40,6 +40,16 @@ PHASE_FIVE_RULE_MARKERS = (
     # stored plan, so its import actions remain listed forever.
     "status `applied`",
 )
+TOOLCHAIN_STEPS_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+TOOLCHAIN_HCP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/hcp.md"
+TOOLCHAIN_SETUP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/setup.md"
+TOOLCHAIN_IMPORT_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/import.md"
+TOOLCHAIN_CONFIG_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/config.md"
+TOOLCHAIN_STATUS_DOCUMENT = ".ai-rulez/skills/status/SKILL.md"
+TOOLCHAIN_CI_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/ci.md"
+TOOLCHAIN_DECISIONS_DOCUMENT = (
+    ".ai-rulez/skills/infra-copilot/references/decisions.md.example"
+)
 JSON_MANIFESTS = (
     ".agents/plugins/marketplace.json",
     ".claude-plugin/marketplace.json",
@@ -177,6 +187,164 @@ def validate_phase_five_rule(root: Path = ROOT) -> list[str]:
         for marker in PHASE_FIVE_RULE_MARKERS
         if marker not in text
     ]
+
+
+def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
+    """Pins must come from the committed file and reach every HCP workspace."""
+    errors: list[str] = []
+    steps = (root / TOOLCHAIN_STEPS_DOCUMENT).read_text(encoding="utf-8")
+    hcp = (root / TOOLCHAIN_HCP_DOCUMENT).read_text(encoding="utf-8")
+    setup = (root / TOOLCHAIN_SETUP_DOCUMENT).read_text(encoding="utf-8")
+    import_guide = (root / TOOLCHAIN_IMPORT_DOCUMENT).read_text(encoding="utf-8")
+    config = (root / TOOLCHAIN_CONFIG_DOCUMENT).read_text(encoding="utf-8")
+    status = (root / TOOLCHAIN_STATUS_DOCUMENT).read_text(encoding="utf-8")
+    ci = (root / TOOLCHAIN_CI_DOCUMENT).read_text(encoding="utf-8")
+    decisions = (root / TOOLCHAIN_DECISIONS_DOCUMENT).read_text(encoding="utf-8")
+
+    if "pin=$(mise current" in steps:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: reads active mise state instead of the "
+            "committed pin"
+        )
+    for tool in ("terraform", "gh", "jq", "gcloud"):
+        marker = f"mise config get --file ./mise.toml tools.{tool}"
+        if marker not in steps:
+            errors.append(
+                f"{TOOLCHAIN_STEPS_DOCUMENT}: missing committed {tool} pin lookup"
+            )
+    for marker in (
+        "git ls-files --error-unmatch mise.toml mise.lock",
+        "git diff --quiet HEAD -- mise.toml mise.lock",
+        "MISE_LOCKED=1 mise install --dry-run $pinned",
+    ):
+        if marker not in steps:
+            errors.append(f"{TOOLCHAIN_STEPS_DOCUMENT}: missing {marker!r}")
+    if "mise config get --file ./mise.toml tools 2>/dev/null" not in steps:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: lock validation must enumerate the "
+            "committed tool list instead of a fixed set"
+        )
+    # `core` is the core component's release date, not the SDK version, and
+    # `value(core.version)` projects a field that does not exist — it returns empty, so
+    # the check stayed red even when the installed SDK matched the pin.
+    if "value(core.version)" in steps:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: gcloud check reads a nonexistent "
+            "core.version field"
+        )
+    if '\'."Google Cloud SDK" // empty\'' not in steps:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: gcloud check must read the Google Cloud SDK "
+            "version field"
+        )
+    if steps.count("grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+") < 4:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: exact version checks are incomplete"
+        )
+
+    if hcp.count('"terraform-version"') < 3 or "set_tf_version" not in hcp:
+        errors.append(
+            f"{TOOLCHAIN_HCP_DOCUMENT}: Terraform pin must be created, reconciled, "
+            "and verified"
+        )
+
+    review = setup.find("cat -- mise.toml")
+    trust = setup.find("mise trust mise.toml")
+    if review < 0 or trust < 0 or review > trust:
+        errors.append(
+            f"{TOOLCHAIN_SETUP_DOCUMENT}: mise.toml review must precede trust"
+        )
+    for marker in ("mise lock", "MISE_LOCKED=1 mise install"):
+        if marker not in setup:
+            errors.append(f"{TOOLCHAIN_SETUP_DOCUMENT}: missing {marker!r}")
+    # Installing does not put the pinned tools on PATH, so the guide has to activate
+    # them (or route through `mise exec`) before anything invokes a bare binary.
+    install = setup.find("MISE_LOCKED=1 mise install")
+    activate = setup.find("mise activate")
+    if activate < 0 or "mise exec" not in setup or install > activate:
+        errors.append(
+            f"{TOOLCHAIN_SETUP_DOCUMENT}: installed toolchain must be activated "
+            "before its binaries are invoked"
+        )
+    # A bare `mise install` resolves the merged config, so a tool in the developer's
+    # user-level config that this repo never locked fails an otherwise valid setup.
+    if re.search(r"MISE_LOCKED=1 mise install\s*$", setup, re.MULTILINE):
+        errors.append(
+            f"{TOOLCHAIN_SETUP_DOCUMENT}: locked install must name the repository's "
+            "pinned tools instead of the merged config"
+        )
+    if "lockfile = true" in setup:
+        errors.append(
+            f"{TOOLCHAIN_SETUP_DOCUMENT}: unsupported lockfile setting is documented"
+        )
+    touch = setup.find("touch mise.lock")
+    lock = setup.find("mise lock")
+    if touch < 0 or lock < 0 or touch > lock:
+        errors.append(
+            f"{TOOLCHAIN_SETUP_DOCUMENT}: mise.lock must be initialized before locking"
+        )
+    for marker in (
+        '"github:cloudflare/cf-terraforming" = "0.27.0"',
+        "mise lock",
+        'MISE_LOCKED=1 mise install "github:cloudflare/cf-terraforming"',
+        "git add mise.toml mise.lock",
+    ):
+        if marker not in import_guide:
+            errors.append(f"{TOOLCHAIN_IMPORT_DOCUMENT}: missing {marker!r}")
+    # `mise use` installs as it writes the pin, which resolves the binary before the
+    # lock covering it exists. The pin must be written, then locked, then installed.
+    if re.search(r"^\s*mise use\b", import_guide, re.MULTILINE):
+        errors.append(
+            f"{TOOLCHAIN_IMPORT_DOCUMENT}: installs the pin before locking it"
+        )
+    import_lock = import_guide.find("mise lock")
+    import_install = import_guide.find(
+        'MISE_LOCKED=1 mise install "github:cloudflare/cf-terraforming"'
+    )
+    if import_lock < 0 or import_install < 0 or import_lock > import_install:
+        errors.append(
+            f"{TOOLCHAIN_IMPORT_DOCUMENT}: cf-terraforming must be locked before "
+            "it is installed"
+        )
+    # cf-terraforming is pinned after setup activated the environment, so the new
+    # binary is not on PATH and a system build would shadow it.
+    if re.search(r"^\s*cf-terraforming ", import_guide, re.MULTILINE):
+        errors.append(
+            f"{TOOLCHAIN_IMPORT_DOCUMENT}: cf-terraforming must run through the "
+            "pinned environment"
+        )
+    if '"$(which terraform)"' in import_guide:
+        errors.append(
+            f"{TOOLCHAIN_IMPORT_DOCUMENT}: terraform path must resolve through mise, "
+            "not the outer shell"
+        )
+    # The lock check must reject floating selectors for every enumerated tool, not
+    # just the four with dedicated per-tool checks below it.
+    if "grep -Evq '^[0-9]+\\.[0-9]+\\.[0-9]+" not in steps:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: every configured pin must be an exact "
+            "version"
+        )
+    # The toolchain decision claims parity with CI, so CI has to install from the
+    # committed lock rather than choose its own Terraform.
+    if "jdx/mise-action" not in ci:
+        errors.append(
+            f"{TOOLCHAIN_CI_DOCUMENT}: CI must install the repository-pinned toolchain"
+        )
+    if "in CI" in decisions and "docs/ci.md" not in decisions:
+        errors.append(
+            f"{TOOLCHAIN_DECISIONS_DOCUMENT}: the CI parity claim must point at the "
+            "workflow that backs it"
+        )
+    if "export TERRAFORM_VERSION=$(mise config get" in config:
+        errors.append(
+            f"{TOOLCHAIN_CONFIG_DOCUMENT}: Terraform pin export runs before preflight"
+        )
+    if "Report `curl`\n   separately as present or missing" not in status:
+        errors.append(
+            f"{TOOLCHAIN_STATUS_DOCUMENT}: curl must be reported without pin state"
+        )
+    return errors
 
 
 def validate_json_manifests(root: Path = ROOT) -> list[str]:
@@ -343,6 +511,7 @@ def main() -> int:
         *validate_command_tools(),
         *validate_config_fallbacks(),
         *validate_phase_five_rule(),
+        *validate_toolchain_contract(),
         *collect_manifest_errors(),
         *validate_links(),
         *validate_tool_pins(),

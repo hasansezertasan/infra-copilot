@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:3b3f45328501637cdfff8665b24d990a8483f94e76656ae1dcfd2946bfbfd083
-Source-Hash: blake3:380eb15903797213a09748f8a1a3c248966034d31635cff7a368707b229ac557
+Content-Hash: blake3:ac8d8dc81756ccf70d41123ad472971a0e12e1e7830a4ae6086aaa32f370487b
+Source-Hash: blake3:2eec352e33b8b739fd517a9546d6d71f91aed9b5883d2e4dab043c0ee2317a36
 Schema-Version: v1
 -->
 
@@ -41,6 +41,8 @@ In Settings → General:
 
 - **Execution mode**: Remote.
 - **Auto-apply**: disabled (manual confirmation required).
+- **Terraform Version**: the exact `tools.terraform` value in the committed `mise.toml`.
+  The setup workflow sets and verifies this through the API; do not leave it on latest.
 
 ## 3. Cloudflare API token
 
@@ -95,11 +97,85 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
 
 ## 6. Local development
 
-1. Install Terraform ≥ 1.9.
-2. If the Phase 0 token is absent or expired, re-run `terraform login`. It opens a browser
+1. **Pin the toolchain, review it, lock it, then install it.** Tool versions belong in
+   the repo, not in user/global configuration. The setup workflow reads this exact file:
+
+   ```toml
+   # mise.toml
+   [tools]
+   terraform = "1.15.9"   # examples — use exact versions, never "latest" or a prefix
+   gh = "2.81.0"
+   jq = "1.8.1"
+   ```
+
+   ```sh
+   cat -- mise.toml            # inspect the entire repository config before trusting it
+   mise trust mise.toml
+   touch mise.lock             # older mise releases only update an existing lockfile
+   mise lock                   # populate/update it for common platforms
+   # Install exactly what this repository pins. The bare `mise install` would also
+   # pull in tools from your user-level config, and fail the locked install if any
+   # of those are absent from *this* repo's lockfile.
+   pinned=$(mise config get --file ./mise.toml tools |
+     sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p')
+   MISE_LOCKED=1 mise install $pinned
+   eval "$(mise activate bash)"   # or zsh/fish — install alone does not touch PATH
+   ```
+
+   Installing is not activating. `mise install --help` states plainly that
+   "Installing alone will not activate the tools so they won't be in PATH", so a shell
+   without the mise hook downloads the pinned toolchain and then keeps resolving
+   `terraform` to whatever the system had — or to nothing. The pin is only enforced for
+   commands that actually run the pinned binary, and every later command here plus every
+   `check` in [`../steps.yaml`](../steps.yaml) invokes a bare binary. Confirm it took:
+
+   ```sh
+   command -v terraform && terraform version   # must resolve inside the mise install dir
+   ```
+
+   If you would rather not activate the shell, prefix each command instead —
+   `mise exec -- terraform login`, `mise exec -- terraform version` — and run the
+   preflight checks the same way.
+
+   Review matters because trusting a repository config enables its templates, plugins,
+   and other executable behavior. Review the whole file, regardless of its length.
+   Initializing the empty lockfile makes `mise lock` write it even on releases that only
+   print a proposed lock when no file exists. `mise lock` is the supported update command;
+   `MISE_LOCKED=1` makes installation fail instead of resolving missing URLs outside the
+   committed lock. Commit both files. The default workflow requires these two files so it
+   can enforce one unambiguous pin source. Record the choice in
+   [`../decisions.md.example`](../decisions.md.example). A repo standardizing on Nix,
+   asdf, Devbox, or a container must replace the manifest's `pin` and `check` entries with
+   checks that read that manager's committed file; active-environment commands are not a
+   substitute for inspecting the repository pin.
+
+   Do all of this — including the activation — **before** step 3: `terraform login`
+   needs the pinned `terraform` on `PATH`, and installing without activating does not
+   put it there.
+
+2. **Verify the same Terraform version on every HCP workspace.** The Phase 1 API flow
+   reads `tools.terraform` from the repository's `mise.toml`, sets `terraform-version`
+   during workspace creation, reconciles existing workspaces, and checks the value on
+   every resume scan. A workspace left on latest diverges on HashiCorp's next release.
+   Bump `mise.toml`, `mise.lock`, and both remote workspaces as one change.
+
+   Not every tool has an equally good pin. Worth knowing before you write `mise.toml`:
+
+   | Tool | `mise.toml` key | mise backend | Caveat |
+   |---|---|---|---|
+   | `terraform` | `terraform` | `aqua:hashicorp/terraform` | First-class, checksummed |
+   | `gcloud` | `gcloud` | `vfox:mise-plugins/vfox-gcloud` | Locks URLs, no checksums. Version parity, not artifact identity |
+   | `cf-terraforming` | `"github:cloudflare/cf-terraforming"` | `github:cloudflare/cf-terraforming` | Absent from the registry, so the backend *is* the key |
+
+   The backend column is informational. Write the key from the middle column: registry
+   aliases such as `gcloud` resolve to their backend on their own, and the manifest's
+   `pin` lookups read those short keys. Only a tool missing from the registry —
+   `cf-terraforming` — needs its backend spelled out as the key.
+
+3. If the Phase 0 token is absent or expired, re-run `terraform login`. It opens a browser
    and writes the user API token to `~/.terraform.d/credentials.tfrc.json`. The same token
    authenticates HCP API calls (see [`state.md`](./state.md#api-access)).
-3. From any leaf directory: `terraform init` (authenticates to HCP automatically), then `terraform plan`. A VCS-connected workspace allows `plan` from CLI but blocks `apply` — that gate is intentional.
+4. From any leaf directory: `terraform init` (authenticates to HCP automatically), then `terraform plan`. A VCS-connected workspace allows `plan` from CLI but blocks `apply` — that gate is intentional.
 
 ## 7. Importing existing Cloudflare resources
 

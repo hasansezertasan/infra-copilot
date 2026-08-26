@@ -80,6 +80,7 @@ Setup is complete when you can report:
 
 - ✓ HCP org `$ORG` + project `infra` reachable via API.
 - ✓ Workspaces `cloudflare` and `github-org` exist, VCS-linked, auto-apply off, fork speculative plans off.
+- ✓ Both workspaces use the exact Terraform version committed in `mise.toml`.
 - ✓ All sensitive vars present (`cloudflare_api_token`; `github_app_id`, `github_app_installation_id`, `github_app_pem`).
 - ✓ `terraform plan` green on both leaves.
 

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e969b0c408d99d53a7371fb1d08a62df3dadb2cd6752109aeb079d03e7b88af4
-Source-Hash: blake3:380eb15903797213a09748f8a1a3c248966034d31635cff7a368707b229ac557
+Content-Hash: blake3:d5c594846c967f348b1b15d2472412b15b92d521f266d8741806851d49daf2ba
+Source-Hash: blake3:2eec352e33b8b739fd517a9546d6d71f91aed9b5883d2e4dab043c0ee2317a36
 Schema-Version: v1
 -->
 
@@ -58,6 +58,25 @@ the rotation burden that implies.
 > provider, attribute mapping, and trust condition must be completed against HCP's actual
 > OIDC issuer/audience at adoption time. Treat this as the shape, not the procedure; fill
 > it in (and replace this warning) when GCP is actually adopted.
+
+`gcloud` is a pinned tool like any other — add it to `mise.toml` before this phase.
+Its mise backend (`vfox:mise-plugins/vfox-gcloud`) locks download URLs but not checksums,
+so you get version parity rather than artifact identity; that is enough for the contract in
+[`docs/setup.md`](docs/setup.md#6-local-development), and worth knowing rather than
+discovering. On macOS its post-install step tries to `sudo`-install a system Python and
+fails; that is harmless, since the SDK ships its own.
+
+Pin it under the plain `gcloud` key — `gcloud = "551.0.0"` — not the backend string.
+mise's registry aliases `gcloud` to that vfox backend, so the short name resolves to it;
+the backend is named above so you know what you are getting, not as the key to write.
+This is the opposite of `cf-terraforming`, which is absent from the registry and therefore
+does need its backend spelled out in the key. Preflight reads `tools.gcloud`, so a
+backend-qualified key would leave that lookup empty.
+
+Once `terraform/gcp` exists, manifest preflight requires an exact `tools.gcloud` pin and
+compares it against the installed SDK version — the `Google Cloud SDK` field of
+`gcloud version`, not the `core` component, which is a release date rather than a version.
+Status reports missing or drifted pins.
 
 ```sh
 gcloud config set project <PROJECT_ID>
