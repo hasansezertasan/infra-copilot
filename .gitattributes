@@ -14,9 +14,14 @@
 # them from language stats, so a review shows the .ai-rulez/ source change
 # rather than the same edit repeated across every host package.
 # Edit .ai-rulez/ — never these.
+# These four patterns cover exactly the 28 paths in .ai-rulez-generated.json
+# (21 + 4 + 2 + 1). The manifest itself is generated too, but cannot list itself.
 skills/**                linguist-generated=true
 commands/**              linguist-generated=true
 .claude-plugin/**        linguist-generated=true
 .codex-plugin/**         linguist-generated=true
-.agents/**               linguist-generated=true
 .ai-rulez-generated.json linguist-generated=true
+
+# NOT marked: .agents/plugins/marketplace.json and plugin.json are hand-authored
+# adapters (ai-rulez does not generate the Codex marketplace or the Antigravity
+# manifest), so their diffs must stay visible.
