@@ -99,13 +99,21 @@ Antigravity manifest remain small hand-authored adapters because `ai-rulez` does
 currently generate those install surfaces. Claude-compatible `allowed-tools` values live
 only in command frontmatter as adapter permissions; workflow bodies remain host-neutral.
 
+Run everything through `make` — it is what CI runs, so a green `make check` locally is a
+green pipeline:
+
 ```bash
-npx --yes ai-rulez@4.11.3 validate
-npx --yes ai-rulez@4.11.3 generate --plugin
-npx --yes ai-rulez@4.11.3 verify --plugin
-npx --yes skills@1.5.23 add . --agent opencode --list
-python3 scripts/validate.py
+make            # list targets
+make generate   # regenerate the host packages after editing .ai-rulez/
+make check      # everything CI runs: validate + test + OpenCode smoke test
 ```
+
+Individual targets (`make validate`, `make test`, `make smoke-opencode`) exist for
+narrowing down a failure.
+
+`Makefile` is the single definition of the tool versions this repository invokes —
+currently `ai-rulez@4.11.3` and `skills@1.5.23`. `scripts/validate.py` asserts this README
+documents the same versions and that no workflow reintroduces its own copy.
 
 Generated files are committed so users can install without having `ai-rulez`. CI runs the
 same validation and fails if generated payloads drift or local Markdown links break.
@@ -117,8 +125,7 @@ never be versioned independently.
 
 1. Update `[plugin].version` and move the matching `CHANGELOG.md` section out of
    "unreleased".
-2. Regenerate and run the maintenance checks above, then merge the release commit to
-   `main`.
+2. Run `make generate` and `make check`, then merge the release commit to `main`.
 3. Create an annotated tag with the exact canonical version and push it:
 
    ```bash
