@@ -304,7 +304,7 @@ case "$1" in
   --version) exit 0 ;;
   config) sed -n '/^\\[tools\\]/,$p' ./mise.toml | sed '1d' ;;
   install)
-    shift 3
+    shift 2
     for requested in "$@"; do
       found=1
       for locked in $LOCKED; do
@@ -329,6 +329,13 @@ esac
                 encoding="utf-8",
             )
             (repository / "mise.lock").write_text("# @generated\n", encoding="utf-8")
+            # A contributor's global config (commit.gpgsign, core.hooksPath, a
+            # gpg.format) would otherwise fail these commits and error the test for
+            # a reason unrelated to the contract under test.
+            git = os.environ | {
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_SYSTEM": os.devnull,
+            }
             for command in (
                 ["git", "init", "-q"],
                 ["git", "add", "mise.toml", "mise.lock"],
@@ -338,12 +345,14 @@ esac
                     "user.email=test@example.com",
                     "-c",
                     "user.name=test",
+                    "-c",
+                    "commit.gpgsign=false",
                     "commit",
                     "-qm",
                     "pins",
                 ],
             ):
-                subprocess.run(command, cwd=repository, check=True)
+                subprocess.run(command, cwd=repository, env=git, check=True)
 
             def run(locked: str) -> int:
                 return subprocess.run(
@@ -362,11 +371,14 @@ esac
             # The old fixed list would have passed this: gcloud is configured but
             # has no lock data, so a fresh clone's locked install would fail.
             self.assertNotEqual(run("terraform gh jq"), 0)
+            # Withhold the *first* key's lock data too, so a check that drops a tool
+            # from either end of the enumerated list is caught.
+            self.assertNotEqual(run("gh jq gcloud"), 0)
             self.assertEqual(run("terraform gh jq gcloud"), 0)
 
             # An unpinned repository must not pass on file presence alone.
             (repository / "mise.toml").write_text("[tools]\n", encoding="utf-8")
-            subprocess.run(["git", "add", "-A"], cwd=repository, check=True)
+            subprocess.run(["git", "add", "-A"], cwd=repository, env=git, check=True)
             subprocess.run(
                 [
                     "git",
@@ -374,11 +386,14 @@ esac
                     "user.email=test@example.com",
                     "-c",
                     "user.name=test",
+                    "-c",
+                    "commit.gpgsign=false",
                     "commit",
                     "-qm",
                     "empty",
                 ],
                 cwd=repository,
+                env=git,
                 check=True,
             )
             self.assertNotEqual(run("terraform gh jq gcloud"), 0)
