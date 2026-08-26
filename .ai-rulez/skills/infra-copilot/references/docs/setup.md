@@ -102,14 +102,17 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
    ```
 
    ```sh
-   sed -n '1,200p' mise.toml  # inspect the exact repository config before trusting it
+   cat -- mise.toml            # inspect the entire repository config before trusting it
    mise trust mise.toml
-   mise lock                 # creates/updates mise.lock for common platforms
+   touch mise.lock             # older mise releases only update an existing lockfile
+   mise lock                   # populate/update it for common platforms
    MISE_LOCKED=1 mise install
    ```
 
    Review matters because trusting a repository config enables its templates, plugins,
-   and other executable behavior. `mise lock` is the supported lockfile command;
+   and other executable behavior. Review the whole file, regardless of its length.
+   Initializing the empty lockfile makes `mise lock` write it even on releases that only
+   print a proposed lock when no file exists. `mise lock` is the supported update command;
    `MISE_LOCKED=1` makes installation fail instead of resolving missing URLs outside the
    committed lock. Commit both files. The default workflow requires these two files so it
    can enforce one unambiguous pin source. Record the choice in

@@ -33,7 +33,10 @@ Before you run cf-terraforming, generate a separate, short-lived Cloudflare toke
 # Pin it. The support matrix below is version-specific, so an unpinned install
 # documents one tool and runs another. cf-terraforming is not in mise's registry,
 # so name the backend explicitly:
-mise use ubi:cloudflare/cf-terraforming@0.27.0
+mise use --path mise.toml ubi:cloudflare/cf-terraforming@0.27.0
+touch mise.lock
+mise lock
+git add mise.toml mise.lock  # commit the tool pin and refreshed lock together
 
 # or via the Go toolchain — an explicit tag, never @latest:
 go install github.com/cloudflare/cf-terraforming/cmd/cf-terraforming@v0.27.0

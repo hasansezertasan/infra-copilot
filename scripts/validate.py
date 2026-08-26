@@ -43,6 +43,9 @@ PHASE_FIVE_RULE_MARKERS = (
 TOOLCHAIN_STEPS_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/steps.yaml"
 TOOLCHAIN_HCP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/hcp.md"
 TOOLCHAIN_SETUP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/setup.md"
+TOOLCHAIN_IMPORT_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/import.md"
+TOOLCHAIN_CONFIG_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/config.md"
+TOOLCHAIN_STATUS_DOCUMENT = ".ai-rulez/skills/status/SKILL.md"
 JSON_MANIFESTS = (
     ".agents/plugins/marketplace.json",
     ".claude-plugin/marketplace.json",
@@ -188,6 +191,9 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     steps = (root / TOOLCHAIN_STEPS_DOCUMENT).read_text(encoding="utf-8")
     hcp = (root / TOOLCHAIN_HCP_DOCUMENT).read_text(encoding="utf-8")
     setup = (root / TOOLCHAIN_SETUP_DOCUMENT).read_text(encoding="utf-8")
+    import_guide = (root / TOOLCHAIN_IMPORT_DOCUMENT).read_text(encoding="utf-8")
+    config = (root / TOOLCHAIN_CONFIG_DOCUMENT).read_text(encoding="utf-8")
+    status = (root / TOOLCHAIN_STATUS_DOCUMENT).read_text(encoding="utf-8")
 
     if "pin=$(mise current" in steps:
         errors.append(
@@ -209,7 +215,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             "and verified"
         )
 
-    review = setup.find("sed -n '1,200p' mise.toml")
+    review = setup.find("cat -- mise.toml")
     trust = setup.find("mise trust mise.toml")
     if review < 0 or trust < 0 or review > trust:
         errors.append(
@@ -221,6 +227,27 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     if "lockfile = true" in setup:
         errors.append(
             f"{TOOLCHAIN_SETUP_DOCUMENT}: unsupported lockfile setting is documented"
+        )
+    touch = setup.find("touch mise.lock")
+    lock = setup.find("mise lock")
+    if touch < 0 or lock < 0 or touch > lock:
+        errors.append(
+            f"{TOOLCHAIN_SETUP_DOCUMENT}: mise.lock must be initialized before locking"
+        )
+    for marker in (
+        "mise use --path mise.toml",
+        "mise lock",
+        "git add mise.toml mise.lock",
+    ):
+        if marker not in import_guide:
+            errors.append(f"{TOOLCHAIN_IMPORT_DOCUMENT}: missing {marker!r}")
+    if "export TERRAFORM_VERSION=$(mise config get" in config:
+        errors.append(
+            f"{TOOLCHAIN_CONFIG_DOCUMENT}: Terraform pin export runs before preflight"
+        )
+    if "Report `curl`\n   separately as present or missing" not in status:
+        errors.append(
+            f"{TOOLCHAIN_STATUS_DOCUMENT}: curl must be reported without pin state"
         )
     return errors
 

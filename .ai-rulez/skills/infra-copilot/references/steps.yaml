@@ -33,9 +33,10 @@
 #     export CF_ZONE_ID=<cloudflare_zone_id>
 #     export REPO=<managed_repos[0]>
 #     export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
-#     export TERRAFORM_VERSION=$(mise config get --file ./mise.toml --raw tools.terraform)
 #     export hcp_api=https://app.terraform.io/api/v2
 #     export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+# Preflight exports TERRAFORM_VERSION from the validated repository pin before any
+# Phase 1 workspace check or run uses it.
 # Never guess or invent these values — if the config file is missing, treat it as a
 # HUMAN step per config.md. See the "Configuring for your org" section in SKILL.md.
 

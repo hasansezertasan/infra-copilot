@@ -129,10 +129,25 @@ class ValidateToolchainContractTests(unittest.TestCase):
                 repository
                 / ".ai-rulez/skills/infra-copilot/references/docs/setup.md"
             )
+            import_guide = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/docs/import.md"
+            )
+            config = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/config.md"
+            )
+            status = repository / ".ai-rulez/skills/status/SKILL.md"
             setup.parent.mkdir(parents=True)
+            status.parent.mkdir(parents=True)
             steps.write_text("pin=$(mise current terraform)", encoding="utf-8")
             hcp.write_text("terraform-version", encoding="utf-8")
             setup.write_text("mise trust mise.toml", encoding="utf-8")
+            import_guide.write_text("", encoding="utf-8")
+            config.write_text(
+                "export TERRAFORM_VERSION=$(mise config get)", encoding="utf-8"
+            )
+            status.write_text("", encoding="utf-8")
 
             errors = validate_toolchain_contract(repository)
 
@@ -144,6 +159,8 @@ class ValidateToolchainContractTests(unittest.TestCase):
             any("review must precede trust" in error for error in errors), errors
         )
         self.assertTrue(any("MISE_LOCKED=1" in error for error in errors), errors)
+        self.assertTrue(any("before preflight" in error for error in errors), errors)
+        self.assertTrue(any("without pin state" in error for error in errors), errors)
 
 
 if __name__ == "__main__":

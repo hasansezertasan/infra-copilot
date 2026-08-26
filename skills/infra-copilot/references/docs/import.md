@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:81267613efeea52bd3d3b4814b5e9288c5f9b9bf5d40a883961fa57a3cacd411
-Source-Hash: blake3:82270fcd354335dcf4a9f860a7b106f87ff7b707ad351472abded6a1bbd75335
+Content-Hash: blake3:8145e0455d4377c0d0ee370d59c34f2998608b4cf0072e5fcff476482bf340f9
+Source-Hash: blake3:41f0f3a30a734d9aa9911d04385932b294910100fe0070e361b18b00036e9dc1
 Schema-Version: v1
 -->
 
@@ -40,7 +40,10 @@ Before you run cf-terraforming, generate a separate, short-lived Cloudflare toke
 # Pin it. The support matrix below is version-specific, so an unpinned install
 # documents one tool and runs another. cf-terraforming is not in mise's registry,
 # so name the backend explicitly:
-mise use ubi:cloudflare/cf-terraforming@0.27.0
+mise use --path mise.toml ubi:cloudflare/cf-terraforming@0.27.0
+touch mise.lock
+mise lock
+git add mise.toml mise.lock  # commit the tool pin and refreshed lock together
 
 # or via the Go toolchain — an explicit tag, never @latest:
 go install github.com/cloudflare/cf-terraforming/cmd/cf-terraforming@v0.27.0

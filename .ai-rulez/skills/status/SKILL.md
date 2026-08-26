@@ -20,9 +20,9 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    ([`../infra-copilot/references/config.md`](../infra-copilot/references/config.md)). If both are missing, or the loaded
    config is incomplete, report it and stop; do **not** offer to scaffold or edit (that
    belongs to `setup`).
-2. **Preflight** — report which of `terraform`/`gh`/`jq`/`curl` are present, and for each
-   one whether it is **pinned and matching**, **pinned and drifted**, or **missing its
-   required pin**. A
+2. **Preflight** — for `terraform`/`gh`/`jq`, report whether each is **pinned and
+   matching**, **pinned and drifted**, or **missing its required pin**. Report `curl`
+   separately as present or missing; it is intentionally system-provided and has no pin. A
    drifted pin is a real finding: the plan a reviewer reads may not be the plan that gets
    applied. A missing `mise.toml` key or `mise.lock` is a failed toolchain contract — say
    so, and point at [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example).

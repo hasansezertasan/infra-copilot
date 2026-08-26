@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:eac4cd5d30de6bbb8091fc9bea69174e7360f7494c5a6d28b90037eab5f88e39
-Source-Hash: blake3:82270fcd354335dcf4a9f860a7b106f87ff7b707ad351472abded6a1bbd75335
+Content-Hash: blake3:e875b6d66f337c57ce9645b1c37216b97263522555c04d393bab18e1cccc674e
+Source-Hash: blake3:41f0f3a30a734d9aa9911d04385932b294910100fe0070e361b18b00036e9dc1
 Schema-Version: v1
 -->
 
@@ -27,9 +27,9 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    ([`../infra-copilot/references/config.md`](../infra-copilot/references/config.md)). If both are missing, or the loaded
    config is incomplete, report it and stop; do **not** offer to scaffold or edit (that
    belongs to `setup`).
-2. **Preflight** — report which of `terraform`/`gh`/`jq`/`curl` are present, and for each
-   one whether it is **pinned and matching**, **pinned and drifted**, or **missing its
-   required pin**. A
+2. **Preflight** — for `terraform`/`gh`/`jq`, report whether each is **pinned and
+   matching**, **pinned and drifted**, or **missing its required pin**. Report `curl`
+   separately as present or missing; it is intentionally system-provided and has no pin. A
    drifted pin is a real finding: the plan a reviewer reads may not be the plan that gets
    applied. A missing `mise.toml` key or `mise.lock` is a failed toolchain contract — say
    so, and point at [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example).

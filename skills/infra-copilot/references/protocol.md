@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:fb71471ce4d3f6d713006da6937bbefab0921ffcc550f6f6b30cc3386c54d577
-Source-Hash: blake3:82270fcd354335dcf4a9f860a7b106f87ff7b707ad351472abded6a1bbd75335
+Content-Hash: blake3:56ce7982a8df956d37f9554155811b50204c6fb6cdf4a94ac6c26f647c44bd7e
+Source-Hash: blake3:41f0f3a30a734d9aa9911d04385932b294910100fe0070e361b18b00036e9dc1
 Schema-Version: v1
 -->
 
@@ -119,6 +119,18 @@ which can come from user/global configuration and can be empty even when it exit
 Read `./mise.toml` explicitly, require a non-empty exact value, and compare the binary to
 that value. If a consuming repo chooses another manager, its manifest checks must read
 that manager's committed pin directly.
+
+For `setup`, bootstrap missing `mise.toml` and `mise.lock` from the constrained example in
+[`docs/setup.md`](docs/setup.md#6-local-development), then run the checks. Only after the
+Terraform check passes, export the value needed by Phase 1:
+
+```sh
+export TERRAFORM_VERSION=$(mise config get --file ./mise.toml --raw tools.terraform)
+```
+
+Do not perform this export during config loading: a fresh repository has not established
+the toolchain contract yet. `status` remains read-only and reports missing pin files
+instead of creating them.
 
 Then detect the credential the whole flow pivots on:
 

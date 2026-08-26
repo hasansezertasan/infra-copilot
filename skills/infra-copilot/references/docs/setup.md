@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:20151ddf40313aec0c2ded76f05e8413f2d288f61dfdaf782ca333593862167d
-Source-Hash: blake3:82270fcd354335dcf4a9f860a7b106f87ff7b707ad351472abded6a1bbd75335
+Content-Hash: blake3:8c7817423aa003848036a7d1a130d8c4a074633ce63e8c2820abe54e149be0da
+Source-Hash: blake3:41f0f3a30a734d9aa9911d04385932b294910100fe0070e361b18b00036e9dc1
 Schema-Version: v1
 -->
 
@@ -109,14 +109,17 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
    ```
 
    ```sh
-   sed -n '1,200p' mise.toml  # inspect the exact repository config before trusting it
+   cat -- mise.toml            # inspect the entire repository config before trusting it
    mise trust mise.toml
-   mise lock                 # creates/updates mise.lock for common platforms
+   touch mise.lock             # older mise releases only update an existing lockfile
+   mise lock                   # populate/update it for common platforms
    MISE_LOCKED=1 mise install
    ```
 
    Review matters because trusting a repository config enables its templates, plugins,
-   and other executable behavior. `mise lock` is the supported lockfile command;
+   and other executable behavior. Review the whole file, regardless of its length.
+   Initializing the empty lockfile makes `mise lock` write it even on releases that only
+   print a proposed lock when no file exists. `mise lock` is the supported update command;
    `MISE_LOCKED=1` makes installation fail instead of resolving missing URLs outside the
    committed lock. Commit both files. The default workflow requires these two files so it
    can enforce one unambiguous pin source. Record the choice in
