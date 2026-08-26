@@ -46,6 +46,10 @@ TOOLCHAIN_SETUP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/setup
 TOOLCHAIN_IMPORT_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/import.md"
 TOOLCHAIN_CONFIG_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/config.md"
 TOOLCHAIN_STATUS_DOCUMENT = ".ai-rulez/skills/status/SKILL.md"
+TOOLCHAIN_CI_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/ci.md"
+TOOLCHAIN_DECISIONS_DOCUMENT = (
+    ".ai-rulez/skills/infra-copilot/references/decisions.md.example"
+)
 JSON_MANIFESTS = (
     ".agents/plugins/marketplace.json",
     ".claude-plugin/marketplace.json",
@@ -194,6 +198,8 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     import_guide = (root / TOOLCHAIN_IMPORT_DOCUMENT).read_text(encoding="utf-8")
     config = (root / TOOLCHAIN_CONFIG_DOCUMENT).read_text(encoding="utf-8")
     status = (root / TOOLCHAIN_STATUS_DOCUMENT).read_text(encoding="utf-8")
+    ci = (root / TOOLCHAIN_CI_DOCUMENT).read_text(encoding="utf-8")
+    decisions = (root / TOOLCHAIN_DECISIONS_DOCUMENT).read_text(encoding="utf-8")
 
     if "pin=$(mise current" in steps:
         errors.append(
@@ -311,6 +317,24 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         errors.append(
             f"{TOOLCHAIN_IMPORT_DOCUMENT}: terraform path must resolve through mise, "
             "not the outer shell"
+        )
+    # The lock check must reject floating selectors for every enumerated tool, not
+    # just the four with dedicated per-tool checks below it.
+    if "grep -Evq '^[0-9]+\\.[0-9]+\\.[0-9]+" not in steps:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: every configured pin must be an exact "
+            "version"
+        )
+    # The toolchain decision claims parity with CI, so CI has to install from the
+    # committed lock rather than choose its own Terraform.
+    if "jdx/mise-action" not in ci:
+        errors.append(
+            f"{TOOLCHAIN_CI_DOCUMENT}: CI must install the repository-pinned toolchain"
+        )
+    if "in CI" in decisions and "docs/ci.md" not in decisions:
+        errors.append(
+            f"{TOOLCHAIN_DECISIONS_DOCUMENT}: the CI parity claim must point at the "
+            "workflow that backs it"
         )
     if "export TERRAFORM_VERSION=$(mise config get" in config:
         errors.append(

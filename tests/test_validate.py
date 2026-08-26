@@ -127,8 +127,9 @@ class ValidateToolchainContractTests(unittest.TestCase):
     def test_rejects_active_mise_state_and_unlocked_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            steps = repository / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
-            hcp = repository / ".ai-rulez/skills/infra-copilot/references/hcp.md"
+            references = repository / ".ai-rulez/skills/infra-copilot/references"
+            steps = references / "steps.yaml"
+            hcp = references / "hcp.md"
             setup = (
                 repository
                 / ".ai-rulez/skills/infra-copilot/references/docs/setup.md"
@@ -152,6 +153,8 @@ class ValidateToolchainContractTests(unittest.TestCase):
                 "export TERRAFORM_VERSION=$(mise config get)", encoding="utf-8"
             )
             status.write_text("", encoding="utf-8")
+            (references / "docs/ci.md").write_text("", encoding="utf-8")
+            (references / "decisions.md.example").write_text("", encoding="utf-8")
 
             errors = validate_toolchain_contract(repository)
 
@@ -199,6 +202,14 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             config.write_text("", encoding="utf-8")
             status.write_text("", encoding="utf-8")
+            # CI picks its own Terraform, and the decision claims parity anyway.
+            (references / "docs/ci.md").write_text(
+                "- uses: hashicorp/setup-terraform@v3\n", encoding="utf-8"
+            )
+            (references / "decisions.md.example").write_text(
+                "| Toolchain | pins | locked | Same versions locally, in CI |\n",
+                encoding="utf-8",
+            )
 
             errors = validate_toolchain_contract(repository)
 
@@ -220,6 +231,15 @@ class ValidateToolchainContractTests(unittest.TestCase):
         )
         self.assertTrue(
             any("not the outer shell" in error for error in errors), errors
+        )
+        self.assertTrue(
+            any("must be an exact version" in error for error in errors), errors
+        )
+        self.assertTrue(
+            any("repository-pinned toolchain" in error for error in errors), errors
+        )
+        self.assertTrue(
+            any("workflow that backs it" in error for error in errors), errors
         )
 
     # The manifest's `check` snippets are POSIX shell by contract, and this test
@@ -386,6 +406,40 @@ esac
             # from either end of the enumerated list is caught.
             self.assertNotEqual(run("gh jq gcloud"), 0)
             self.assertEqual(run("terraform gh jq gcloud"), 0)
+
+            # A floating selector must fail even when the lock is refreshed and
+            # every tool therefore resolves: the contract is exact pins, and only
+            # terraform/gh/jq/gcloud have dedicated per-tool checks.
+            for selector in ("latest", "0.27", ">=0.27"):
+                (repository / "mise.toml").write_text(
+                    '[tools]\nterraform = "1.15.9"\ngh = "2.81.0"\njq = "1.8.1"\n'
+                    'gcloud = "551.0.0"\n'
+                    f'"github:cloudflare/cf-terraforming" = "{selector}"\n',
+                    encoding="utf-8",
+                )
+                subprocess.run(["git", "add", "-A"], cwd=repository, env=git, check=True)
+                subprocess.run(
+                    [
+                        "git",
+                        "-c",
+                        "user.email=test@example.com",
+                        "-c",
+                        "user.name=test",
+                        "-c",
+                        "commit.gpgsign=false",
+                        "commit",
+                        "-qm",
+                        selector,
+                    ],
+                    cwd=repository,
+                    env=git,
+                    check=True,
+                )
+                self.assertNotEqual(
+                    run("terraform gh jq gcloud github:cloudflare/cf-terraforming"),
+                    0,
+                    selector,
+                )
 
             # An unpinned repository must not pass on file presence alone.
             (repository / "mise.toml").write_text("[tools]\n", encoding="utf-8")

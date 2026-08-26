@@ -60,15 +60,26 @@ hcp_api: https://app.terraform.io/api/v2
 # added tools (gcloud, cf-terraforming) unvalidated, and running `mise install`
 # with no tool arguments would pull in user/global config — the same leak that
 # rules out `mise current`.
+#
+# It also asserts every configured *value* is an exact version. The per-tool checks
+# below only cover terraform/gh/jq/gcloud, so without this an import-added pin such
+# as cf-terraforming could sit at `latest` or a range, pass a refreshed lock, and
+# still report a healthy exact-pin contract. Any value this cannot read as an exact
+# version fails closed — a table-form entry has to be rewritten as a plain pin.
 preflight:
   - tool: mise
     check: >-
       mise --version >/dev/null &&
       git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
       git diff --quiet HEAD -- mise.toml mise.lock &&
-      pinned=$(mise config get --file ./mise.toml tools 2>/dev/null |
+      tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
+      [ -n "$tools" ] &&
+      pinned=$(printf '%s\n' "$tools" |
       sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
       [ -n "$pinned" ] &&
+      ! printf '%s\n' "$tools" |
+      sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
+      grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
       MISE_LOCKED=1 mise install --dry-run $pinned >/dev/null 2>&1
   - tool: terraform
     pin: mise.toml#tools.terraform

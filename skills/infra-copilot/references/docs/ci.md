@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:4bb8588d6c7f32ced27ec9f8b74170027974b7184e2f359414d2dc9773688d4f
-Source-Hash: blake3:bec1f2b69ca5a7448a2c6f00c25d34c1ad6aa0422c3ed6456a0c0d998abead83
+Content-Hash: blake3:e68acf98f386794bbd07405f8badd8f9aadfb81b27f40e16579d101c33b16063
+Source-Hash: blake3:2eec352e33b8b739fd517a9546d6d71f91aed9b5883d2e4dab043c0ee2317a36
 Schema-Version: v1
 -->
 
@@ -28,7 +28,34 @@ This repo is **public**. Anyone can fork it and open a PR. The CI workflow assum
 | `terraform validate (terraform/github)` | GitHub Actions | yes | none (`init -backend=false`) |
 | HCP speculative plan per workspace | HCP Terraform via VCS integration | **only when maintainer labels `safe-to-plan`** | yes — full workspace variables |
 
-The first three are defined in this repo's `.github/workflows/ci.yml` (not part of this folded doc set). The HCP plan is triggered by HCP's own VCS integration when it detects a push to a watched branch — not by a GitHub Actions job. There is no `TF_API_TOKEN` in use today.
+The first three are defined in this repo's `.github/workflows/ci.yml` (not part of this folded doc set).
+
+## Toolchain in CI
+
+Those three jobs must run the **same** Terraform the repository pins, or the parity the
+toolchain decision claims is only true locally. `mise.toml` and `mise.lock` are committed
+precisely so CI can reproduce the pin, so install from them before any `terraform` step:
+
+```yaml
+- uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+```
+
+The action installs mise, runs `mise install`, and — per its own `install_args`
+documentation — **adds `--locked` automatically when a repo lockfile is present**, so CI
+resolves from `mise.lock` rather than picking its own version. It also puts the mise shims
+directory on `PATH` (`add_shims_to_path`, on by default), so the later `terraform fmt` and
+`terraform validate` steps get the pinned binary without further wiring.
+
+Do **not** substitute `hashicorp/setup-terraform` with its own `terraform_version`: that is
+a second, independently chosen version, which is exactly the drift the pin exists to stop.
+Bumping Terraform then means editing `mise.toml`, `mise.lock`, and both HCP workspaces —
+and CI follows automatically instead of being a fourth place to remember.
+
+Unlike local setup, the bare `mise install` this action runs is safe here: the leak that
+form has locally is user-level config bleeding into the request, and a fresh runner has
+none. If your workflow reuses a self-hosted runner with a user-level mise config, pass
+`install_args` naming this repo's tools instead.
+ The HCP plan is triggered by HCP's own VCS integration when it detects a push to a watched branch — not by a GitHub Actions job. There is no `TF_API_TOKEN` in use today.
 
 ## What runs on merge to `main`
 
