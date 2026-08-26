@@ -33,26 +33,33 @@ validate:  ## Validate the ai-rulez config, the committed payloads, links, and a
 	$(PYTHON) scripts/validate.py
 
 .PHONY: test
+# PYTHONDONTWRITEBYTECODE keeps __pycache__ out of the checkout; the repo has no
+# .gitignore yet, so a local `make test` would otherwise leave the tree dirty.
 test:  ## Run the repository validator tests
-	$(PYTHON) -m unittest discover -s tests
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest discover -s tests
 
-# Installs this repo into itself to prove the OpenCode payload is complete, then
-# removes the two artifacts that produces. Self-cleaning matters because this
-# target now runs on developer machines and not only on a throwaway CI runner:
-# `.agents/skills/` and `skills-lock.json` are untracked build output, while
-# `.agents/plugins/marketplace.json` is tracked and must survive.
+# Proves the OpenCode payload is complete by installing the repository into a
+# throwaway copy of itself. It runs in a temp directory on purpose: `skills add
+# --copy` writes `.agents/skills/` and `skills-lock.json`, and a maintainer may
+# already have their own local install of either. Deleting those would destroy
+# state this target does not own, so it never writes to the real tree at all.
+#
+# The copy is of the working tree, so uncommitted skill edits are covered.
 .PHONY: smoke-opencode
-smoke-opencode:  ## Install into this repo and assert the OpenCode skill payload
-	@trap 'rm -rf .agents/skills skills-lock.json' EXIT; \
-	$(SKILLS) add . --agent opencode --skill '*' -y --copy; \
-	expected=$$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]'); \
-	actual=$$(find .agents/skills -name SKILL.md | wc -l | tr -d '[:space:]'); \
+smoke-opencode:  ## Install into a throwaway copy and assert the OpenCode skill payload
+	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
+	cp -R . "$$tmp/repo" && \
+	rm -rf "$$tmp/repo/.agents/skills" "$$tmp/repo/skills-lock.json" && \
+	cd "$$tmp/repo" && \
+	$(SKILLS) add . --agent opencode --skill '*' -y --copy && \
+	expected=$$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]') && \
+	actual=$$(find .agents/skills -name SKILL.md | wc -l | tr -d '[:space:]') && \
 	if [ "$$actual" != "$$expected" ]; then \
 	  echo "smoke-opencode: installed $$actual SKILL.md, expected $$expected (one per skills/*/)" >&2; \
 	  exit 1; \
-	fi; \
-	test -f .agents/skills/infra-copilot/references/protocol.md; \
-	test -f .agents/skills/infra-copilot/references/decisions.md.example; \
+	fi && \
+	test -f .agents/skills/infra-copilot/references/protocol.md && \
+	test -f .agents/skills/infra-copilot/references/decisions.md.example && \
 	echo "smoke-opencode: $$actual skills installed, references present"
 
 .PHONY: check

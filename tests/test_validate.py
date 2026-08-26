@@ -139,7 +139,29 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             self.assertEqual(
                 validate_tool_pins(repository),
                 [
-                    f"{TOOL_PIN_WORKFLOWS[0]}: pins ai-rulez directly; "
+                    f"{TOOL_PIN_WORKFLOWS[0]}: invokes ai-rulez@… directly; "
+                    "call `make` so Makefile stays the only definition"
+                ],
+            )
+
+    def test_workflow_may_not_reintroduce_an_indirect_pin(self) -> None:
+        """The replaced form kept the version in `env:`, not next to the `@`.
+
+        A guard that only matched a literal semver after `@` would miss the
+        exact pattern this change removes.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository, readme_version="4.11.3")
+            (repository / TOOL_PIN_WORKFLOWS[0]).write_text(
+                "env:\n  PIN: 4.9.0\nrun: npx --yes ai-rulez@${PIN} validate\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                validate_tool_pins(repository),
+                [
+                    f"{TOOL_PIN_WORKFLOWS[0]}: invokes ai-rulez@… directly; "
                     "call `make` so Makefile stays the only definition"
                 ],
             )

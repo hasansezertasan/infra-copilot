@@ -443,9 +443,13 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
             )
         for relative in TOOL_PIN_WORKFLOWS:
             workflow = (root / relative).read_text(encoding="utf-8")
-            if re.search(rf"{re.escape(package)}@{VERSION_PATTERN}", workflow):
+            # Any `<package>@…` reference, not just a literal version. The form
+            # this replaced was indirect — `ai-rulez@${INFRA_COPILOT_..._VERSION}`
+            # with the value in `env:` — so matching only a literal semver would
+            # miss exactly the pattern being removed.
+            if re.search(rf"(?<![\w-]){re.escape(package)}@", workflow):
                 errors.append(
-                    f"{relative}: pins {package} directly; "
+                    f"{relative}: invokes {package}@… directly; "
                     f"call `make` so {MAKEFILE_PATH} stays the only definition"
                 )
     return errors
