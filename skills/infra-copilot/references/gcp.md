@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:eefe9c937c05f94b8b71f884d36d5f9cb79026546a3bdbf0f15913125a564655
-Source-Hash: blake3:fd16c02ecd9307a2a618c64f71f0ad4ee2a7ebcd5a2546f6b225e7804d55eedb
+Content-Hash: blake3:d5c594846c967f348b1b15d2472412b15b92d521f266d8741806851d49daf2ba
+Source-Hash: blake3:70c5f8145b6af5cb44078ea47e613f225222a9414824d60f3f2776930113b211
 Schema-Version: v1
 -->
 
@@ -66,8 +66,17 @@ so you get version parity rather than artifact identity; that is enough for the 
 discovering. On macOS its post-install step tries to `sudo`-install a system Python and
 fails; that is harmless, since the SDK ships its own.
 
+Pin it under the plain `gcloud` key — `gcloud = "551.0.0"` — not the backend string.
+mise's registry aliases `gcloud` to that vfox backend, so the short name resolves to it;
+the backend is named above so you know what you are getting, not as the key to write.
+This is the opposite of `cf-terraforming`, which is absent from the registry and therefore
+does need its backend spelled out in the key. Preflight reads `tools.gcloud`, so a
+backend-qualified key would leave that lookup empty.
+
 Once `terraform/gcp` exists, manifest preflight requires an exact `tools.gcloud` pin and
-checks it against the running `gcloud` version; status reports missing or drifted pins.
+compares it against the installed SDK version — the `Google Cloud SDK` field of
+`gcloud version`, not the `core` component, which is a release date rather than a version.
+Status reports missing or drifted pins.
 
 ```sh
 gcloud config set project <PROJECT_ID>

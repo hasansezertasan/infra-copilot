@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -381,6 +382,77 @@ esac
                 check=True,
             )
             self.assertNotEqual(run("terraform gh jq gcloud"), 0)
+
+
+    # Needs a real jq, since the point of the assertion is which JSON field the
+    # check asks for. POSIX-only for the same reason as the checks above.
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_gcloud_check_reads_the_sdk_version_field(self) -> None:
+        """`core` is a release date; the pin matches the Google Cloud SDK field."""
+        jq = shutil.which("jq")
+        if jq is None:
+            self.skipTest("jq is required to exercise the gcloud check")
+        steps = (
+            Path(__file__).parents[1]
+            / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"  - tool: gcloud\n(?:(?!  - tool:).*\n)*?    check: >-\n"
+            r"(?P<body>(?:      [^\n]*\n)+)",
+            steps,
+        )
+        self.assertIsNotNone(match)
+        check = " ".join(line[6:] for line in match.group("body").splitlines())
+
+        # Verbatim shape of `gcloud version --format=json` from SDK 551.0.0: the
+        # component named `core` carries a release date, not the SDK version.
+        fixture_gcloud = """#!/bin/sh
+cat <<'JSON'
+{
+  "Google Cloud SDK": "551.0.0",
+  "bq": "2.1.26",
+  "core": "2026.01.02",
+  "gcloud-crc32c": "1.0.0",
+  "gsutil": "5.35"
+}
+JSON
+"""
+        fixture_mise = """#!/bin/sh
+[ "$1" = config ] && printf '%s\\n' "$PIN"
+exit 0
+"""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            binaries = repository / "bin"
+            binaries.mkdir()
+            for name, body in (("gcloud", fixture_gcloud), ("mise", fixture_mise)):
+                executable = binaries / name
+                executable.write_text(body, encoding="utf-8")
+                executable.chmod(0o755)
+            (binaries / "jq").symlink_to(jq)
+
+            def run(pin: str) -> int:
+                return subprocess.run(
+                    ["/bin/sh", "-c", check],
+                    cwd=repository,
+                    env=os.environ
+                    | {"PATH": f"{binaries}:/usr/bin:/bin", "PIN": pin},
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                ).returncode
+
+            # Without terraform/gcp the pin is not yet required.
+            self.assertEqual(run("551.0.0"), 0)
+
+            (repository / "terraform/gcp").mkdir(parents=True)
+            # The regression: matching pin and installed SDK must agree. Reading
+            # `core.version` yielded an empty string and kept this red.
+            self.assertEqual(run("551.0.0"), 0)
+            # Drift, the release date mistaken for a version, and non-exact
+            # selectors all have to fail.
+            for pin in ("550.0.0", "2026.01.02", "latest", ">=551", "551"):
+                self.assertNotEqual(run(pin), 0, pin)
 
 
 if __name__ == "__main__":

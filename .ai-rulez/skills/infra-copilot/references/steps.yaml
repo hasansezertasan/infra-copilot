@@ -96,7 +96,8 @@ preflight:
     pin: mise.toml#tools.gcloud
     check: >-
       if [ ! -d terraform/gcp ]; then exit 0; fi;
-      ver=$(gcloud version --format='value(core.version)' 2>/dev/null | tr -d '[:space:]');
+      ver=$(gcloud version --format=json 2>/dev/null |
+      jq -r '."Google Cloud SDK" // empty' | tr -d '[:space:]');
       pin=$(mise config get --file ./mise.toml tools.gcloud 2>/dev/null | tr -d '[:space:]');
       printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
       [ -n "$ver" ] && [ "$ver" = "$pin" ]

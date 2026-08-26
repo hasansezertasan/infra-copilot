@@ -218,6 +218,19 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             f"{TOOLCHAIN_STEPS_DOCUMENT}: lock validation must enumerate the "
             "committed tool list instead of a fixed set"
         )
+    # `core` is the core component's release date, not the SDK version, and
+    # `value(core.version)` projects a field that does not exist — it returns empty, so
+    # the check stayed red even when the installed SDK matched the pin.
+    if "value(core.version)" in steps:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: gcloud check reads a nonexistent "
+            "core.version field"
+        )
+    if '\'."Google Cloud SDK" // empty\'' not in steps:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: gcloud check must read the Google Cloud SDK "
+            "version field"
+        )
     if steps.count("grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+") < 4:
         errors.append(
             f"{TOOLCHAIN_STEPS_DOCUMENT}: exact version checks are incomplete"

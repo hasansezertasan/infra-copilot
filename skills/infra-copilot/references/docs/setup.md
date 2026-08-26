@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7578ae78b3dc3cef9a75f0a61afb325a5c36ab86ba09bc8b1bbebe7e34ea13fa
-Source-Hash: blake3:fd16c02ecd9307a2a618c64f71f0ad4ee2a7ebcd5a2546f6b225e7804d55eedb
+Content-Hash: blake3:6ff1fe4a0cc1a2a6fe6147c6ac589ed55d9f006ce97ddccab2757cc538bf3dca
+Source-Hash: blake3:70c5f8145b6af5cb44078ea47e613f225222a9414824d60f3f2776930113b211
 Schema-Version: v1
 -->
 
@@ -156,11 +156,16 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
 
    Not every tool has an equally good pin. Worth knowing before you write `mise.toml`:
 
-   | Tool | mise backend | Caveat |
-   |---|---|---|
-   | `terraform` | `aqua:hashicorp/terraform` | First-class, checksummed |
-   | `gcloud` | `vfox:mise-plugins/vfox-gcloud` | Locks URLs, no checksums. Version parity, not artifact identity |
-   | `cf-terraforming` | `github:cloudflare/cf-terraforming` | Absent from the registry; name the supported GitHub backend explicitly |
+   | Tool | `mise.toml` key | mise backend | Caveat |
+   |---|---|---|---|
+   | `terraform` | `terraform` | `aqua:hashicorp/terraform` | First-class, checksummed |
+   | `gcloud` | `gcloud` | `vfox:mise-plugins/vfox-gcloud` | Locks URLs, no checksums. Version parity, not artifact identity |
+   | `cf-terraforming` | `"github:cloudflare/cf-terraforming"` | `github:cloudflare/cf-terraforming` | Absent from the registry, so the backend *is* the key |
+
+   The backend column is informational. Write the key from the middle column: registry
+   aliases such as `gcloud` resolve to their backend on their own, and the manifest's
+   `pin` lookups read those short keys. Only a tool missing from the registry —
+   `cf-terraforming` — needs its backend spelled out as the key.
 
 3. If the Phase 0 token is absent or expired, re-run `terraform login`. It opens a browser
    and writes the user API token to `~/.terraform.d/credentials.tfrc.json`. The same token
