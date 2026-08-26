@@ -135,7 +135,7 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
    |---|---|---|
    | `terraform` | `aqua:hashicorp/terraform` | First-class, checksummed |
    | `gcloud` | `vfox:mise-plugins/vfox-gcloud` | Locks URLs, no checksums. Version parity, not artifact identity |
-   | `cf-terraforming` | `ubi:cloudflare/cf-terraforming` | Absent from the registry; name the backend explicitly |
+   | `cf-terraforming` | `github:cloudflare/cf-terraforming` | Absent from the registry; name the supported GitHub backend explicitly |
 
 3. If the Phase 0 token is absent or expired, re-run `terraform login`. It opens a browser
    and writes the user API token to `~/.terraform.d/credentials.tfrc.json`. The same token

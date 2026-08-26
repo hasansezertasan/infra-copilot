@@ -56,25 +56,41 @@ hcp_api: https://app.terraform.io/api/v2
 #   check  exit 0 == the running binary exactly matches that committed pin.
 preflight:
   - tool: mise
-    check: "mise --version >/dev/null && test -f mise.toml && test -f mise.lock"
+    check: >-
+      mise --version >/dev/null &&
+      git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- mise.toml mise.lock &&
+      MISE_LOCKED=1 mise install --dry-run terraform gh jq >/dev/null
   - tool: terraform
     pin: mise.toml#tools.terraform
     check: >-
       ver=$(terraform version -json 2>/dev/null | jq -r '.terraform_version // empty');
-      pin=$(mise config get --file ./mise.toml --raw tools.terraform 2>/dev/null | tr -d '[:space:]');
-      [ -n "$ver" ] && [ -n "$pin" ] && [ "$ver" = "$pin" ]
+      pin=$(mise config get --file ./mise.toml tools.terraform 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
   - tool: gh
     pin: mise.toml#tools.gh
     check: >-
       ver=$(gh --version 2>/dev/null | head -1 | awk '{print $3}');
-      pin=$(mise config get --file ./mise.toml --raw tools.gh 2>/dev/null | tr -d '[:space:]');
-      [ -n "$ver" ] && [ -n "$pin" ] && [ "$ver" = "$pin" ]
+      pin=$(mise config get --file ./mise.toml tools.gh 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
   - tool: jq
     pin: mise.toml#tools.jq
     check: >-
       ver=$(jq --version 2>/dev/null | sed 's/^jq-//');
-      pin=$(mise config get --file ./mise.toml --raw tools.jq 2>/dev/null | tr -d '[:space:]');
-      [ -n "$ver" ] && [ -n "$pin" ] && [ "$ver" = "$pin" ]
+      pin=$(mise config get --file ./mise.toml tools.jq 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
+  - tool: gcloud
+    when: "test -d terraform/gcp"
+    pin: mise.toml#tools.gcloud
+    check: >-
+      if [ ! -d terraform/gcp ]; then exit 0; fi;
+      ver=$(gcloud version --format='value(core.version)' 2>/dev/null | tr -d '[:space:]');
+      pin=$(mise config get --file ./mise.toml tools.gcloud 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
   - tool: curl
     check: "curl --version >/dev/null"   # system-provided; pinning it buys nothing
 

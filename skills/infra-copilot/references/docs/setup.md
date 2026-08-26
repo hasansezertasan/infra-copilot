@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:8c7817423aa003848036a7d1a130d8c4a074633ce63e8c2820abe54e149be0da
-Source-Hash: blake3:41f0f3a30a734d9aa9911d04385932b294910100fe0070e361b18b00036e9dc1
+Content-Hash: blake3:96e3816482a339cf52c78fcce0835fd3fa9bd91e1acd18133759cdbb94f6f423
+Source-Hash: blake3:99eb6c3c30eb9e24dc38f114b269fd3f6c7f2e60be1e0d42f7cc850f3b5f68fc
 Schema-Version: v1
 -->
 
@@ -142,7 +142,7 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
    |---|---|---|
    | `terraform` | `aqua:hashicorp/terraform` | First-class, checksummed |
    | `gcloud` | `vfox:mise-plugins/vfox-gcloud` | Locks URLs, no checksums. Version parity, not artifact identity |
-   | `cf-terraforming` | `ubi:cloudflare/cf-terraforming` | Absent from the registry; name the backend explicitly |
+   | `cf-terraforming` | `github:cloudflare/cf-terraforming` | Absent from the registry; name the supported GitHub backend explicitly |
 
 3. If the Phase 0 token is absent or expired, re-run `terraform login`. It opens a browser
    and writes the user API token to `~/.terraform.d/credentials.tfrc.json`. The same token

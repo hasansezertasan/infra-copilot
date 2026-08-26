@@ -118,7 +118,7 @@ For `setup`, bootstrap missing `mise.toml` and `mise.lock` from the constrained 
 Terraform check passes, export the value needed by Phase 1:
 
 ```sh
-export TERRAFORM_VERSION=$(mise config get --file ./mise.toml --raw tools.terraform)
+export TERRAFORM_VERSION=$(mise config get --file ./mise.toml tools.terraform)
 ```
 
 Do not perform this export during config loading: a fresh repository has not established

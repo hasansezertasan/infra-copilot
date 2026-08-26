@@ -55,7 +55,7 @@ GitHub↔HCP OAuth connection (browser).
   : "${ORG:?run Step 0 (read config) first}"
   : "${REPO:?run Step 0 (read config) first}"   # the repo HCP watches via VCS
   load_tf_version () {
-    TERRAFORM_VERSION=$(mise config get --file ./mise.toml --raw tools.terraform 2>/dev/null)
+    TERRAFORM_VERSION=$(mise config get --file ./mise.toml tools.terraform 2>/dev/null)
     printf '%s' "$TERRAFORM_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' \
       || { echo "mise.toml must contain an exact tools.terraform version" >&2; return 1; }
   }

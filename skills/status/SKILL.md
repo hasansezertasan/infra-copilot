@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e875b6d66f337c57ce9645b1c37216b97263522555c04d393bab18e1cccc674e
-Source-Hash: blake3:41f0f3a30a734d9aa9911d04385932b294910100fe0070e361b18b00036e9dc1
+Content-Hash: blake3:926e79f673b467fee03b735fec72cc9c86d2685e19bcdcc585fe795e3c752b23
+Source-Hash: blake3:99eb6c3c30eb9e24dc38f114b269fd3f6c7f2e60be1e0d42f7cc850f3b5f68fc
 Schema-Version: v1
 -->
 
@@ -34,6 +34,8 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    applied. A missing `mise.toml` key or `mise.lock` is a failed toolchain contract — say
    so, and point at [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example).
    Report the HCP token pivot: present or not.
+   If `terraform/gcp` exists, also report `gcloud` as pinned/matching, drifted, or missing;
+   omit it while the optional GCP phase has not been adopted.
 3. **Full scan — but only with checks that don't touch the working tree.** Walk **every**
    step in [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml) (all phases, 0–6). Never run a
    step's `run`. Classify each `check` before running it — the read-only guarantee depends

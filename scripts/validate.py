@@ -200,14 +200,23 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             f"{TOOLCHAIN_STEPS_DOCUMENT}: reads active mise state instead of the "
             "committed pin"
         )
-    for tool in ("terraform", "gh", "jq"):
-        marker = f"mise config get --file ./mise.toml --raw tools.{tool}"
+    for tool in ("terraform", "gh", "jq", "gcloud"):
+        marker = f"mise config get --file ./mise.toml tools.{tool}"
         if marker not in steps:
             errors.append(
                 f"{TOOLCHAIN_STEPS_DOCUMENT}: missing committed {tool} pin lookup"
             )
-    if "test -f mise.lock" not in steps:
-        errors.append(f"{TOOLCHAIN_STEPS_DOCUMENT}: mise.lock is not required")
+    for marker in (
+        "git ls-files --error-unmatch mise.toml mise.lock",
+        "git diff --quiet HEAD -- mise.toml mise.lock",
+        "MISE_LOCKED=1 mise install --dry-run terraform gh jq",
+    ):
+        if marker not in steps:
+            errors.append(f"{TOOLCHAIN_STEPS_DOCUMENT}: missing {marker!r}")
+    if steps.count("grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+") < 4:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: exact version checks are incomplete"
+        )
 
     if hcp.count('"terraform-version"') < 3 or "set_tf_version" not in hcp:
         errors.append(
@@ -235,7 +244,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             f"{TOOLCHAIN_SETUP_DOCUMENT}: mise.lock must be initialized before locking"
         )
     for marker in (
-        "mise use --path mise.toml",
+        "mise use --path mise.toml github:cloudflare/cf-terraforming@0.27.0",
         "mise lock",
         "git add mise.toml mise.lock",
     ):

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import re
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -153,7 +156,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
 
         self.assertTrue(any("active mise state" in error for error in errors), errors)
         self.assertTrue(
-            any("mise.lock is not required" in error for error in errors), errors
+            any("MISE_LOCKED=1 mise install" in error for error in errors), errors
         )
         self.assertTrue(
             any("review must precede trust" in error for error in errors), errors
@@ -161,6 +164,70 @@ class ValidateToolchainContractTests(unittest.TestCase):
         self.assertTrue(any("MISE_LOCKED=1" in error for error in errors), errors)
         self.assertTrue(any("before preflight" in error for error in errors), errors)
         self.assertTrue(any("without pin state" in error for error in errors), errors)
+
+    def test_tool_checks_reject_non_exact_selectors(self) -> None:
+        steps = (
+            Path(__file__).parents[1]
+            / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+        ).read_text(encoding="utf-8")
+
+        def check_for(tool: str) -> str:
+            match = re.search(
+                rf"  - tool: {tool}\n(?:(?!  - tool:).*\n)*?    check: >-\n"
+                rf"(?P<body>(?:      [^\n]*\n)+)",
+                steps,
+                re.MULTILINE,
+            )
+            self.assertIsNotNone(match)
+            return "\n".join(
+                line[6:] for line in match.group("body").splitlines()
+            )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            binary_directory = Path(temporary_directory)
+            scripts = {
+                "mise": """#!/bin/sh
+if [ "$1" = config ]; then printf '%s\n' "$PIN"; else exit 0; fi
+""",
+                "terraform": """#!/bin/sh
+printf '%s\n' '{"terraform_version":"1.15.9"}'
+""",
+                "gh": """#!/bin/sh
+printf '%s\n' 'gh version 2.81.0 (fixture)'
+""",
+                "jq": """#!/bin/sh
+if [ "$1" = --version ]; then printf '%s\n' 'jq-1.8.1';
+else cat >/dev/null; printf '%s\n' '1.15.9'; fi
+""",
+            }
+            for name, body in scripts.items():
+                executable = binary_directory / name
+                executable.write_text(body, encoding="utf-8")
+                executable.chmod(0o755)
+
+            environment = os.environ | {
+                "PATH": f"{binary_directory}:/usr/bin:/bin",
+            }
+            exact = {"terraform": "1.15.9", "gh": "2.81.0", "jq": "1.8.1"}
+            for tool, version in exact.items():
+                command = check_for(tool)
+                passing = subprocess.run(
+                    ["/bin/sh", "-c", command],
+                    env=environment | {"PIN": version},
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+                self.assertEqual(passing.returncode, 0, tool)
+                for selector in ("latest", ">=1.9", "1.15"):
+                    rejected = subprocess.run(
+                        ["/bin/sh", "-c", command],
+                        env=environment | {"PIN": selector},
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+                    self.assertNotEqual(rejected.returncode, 0, (tool, selector))
 
 
 if __name__ == "__main__":

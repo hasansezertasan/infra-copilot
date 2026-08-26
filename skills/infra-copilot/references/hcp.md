@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2cb0f7d411a5553a9bf9a15669afe2738ff79a2cc8f0664d34a17dd0a79e52ad
-Source-Hash: blake3:41f0f3a30a734d9aa9911d04385932b294910100fe0070e361b18b00036e9dc1
+Content-Hash: blake3:f5151cbbe4458037a7642f26c56c01800ca0987c74bc7154ef9b5292e2e40771
+Source-Hash: blake3:99eb6c3c30eb9e24dc38f114b269fd3f6c7f2e60be1e0d42f7cc850f3b5f68fc
 Schema-Version: v1
 -->
 
@@ -62,7 +62,7 @@ GitHub↔HCP OAuth connection (browser).
   : "${ORG:?run Step 0 (read config) first}"
   : "${REPO:?run Step 0 (read config) first}"   # the repo HCP watches via VCS
   load_tf_version () {
-    TERRAFORM_VERSION=$(mise config get --file ./mise.toml --raw tools.terraform 2>/dev/null)
+    TERRAFORM_VERSION=$(mise config get --file ./mise.toml tools.terraform 2>/dev/null)
     printf '%s' "$TERRAFORM_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' \
       || { echo "mise.toml must contain an exact tools.terraform version" >&2; return 1; }
   }

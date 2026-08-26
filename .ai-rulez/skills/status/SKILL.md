@@ -27,6 +27,8 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    applied. A missing `mise.toml` key or `mise.lock` is a failed toolchain contract — say
    so, and point at [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example).
    Report the HCP token pivot: present or not.
+   If `terraform/gcp` exists, also report `gcloud` as pinned/matching, drifted, or missing;
+   omit it while the optional GCP phase has not been adopted.
 3. **Full scan — but only with checks that don't touch the working tree.** Walk **every**
    step in [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml) (all phases, 0–6). Never run a
    step's `run`. Classify each `check` before running it — the read-only guarantee depends

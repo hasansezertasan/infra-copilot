@@ -59,6 +59,9 @@ so you get version parity rather than artifact identity; that is enough for the 
 discovering. On macOS its post-install step tries to `sudo`-install a system Python and
 fails; that is harmless, since the SDK ships its own.
 
+Once `terraform/gcp` exists, manifest preflight requires an exact `tools.gcloud` pin and
+checks it against the running `gcloud` version; status reports missing or drifted pins.
+
 ```sh
 gcloud config set project <PROJECT_ID>
 gcloud services enable cloudresourcemanager.googleapis.com iam.googleapis.com <needed-apis>

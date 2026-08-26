@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:987bff16d4982b268a82e4c795fa6d4ff02b480c6c78dd614952240fb690b048
-Source-Hash: blake3:41f0f3a30a734d9aa9911d04385932b294910100fe0070e361b18b00036e9dc1
+Content-Hash: blake3:eefe9c937c05f94b8b71f884d36d5f9cb79026546a3bdbf0f15913125a564655
+Source-Hash: blake3:99eb6c3c30eb9e24dc38f114b269fd3f6c7f2e60be1e0d42f7cc850f3b5f68fc
 Schema-Version: v1
 -->
 
@@ -65,6 +65,9 @@ so you get version parity rather than artifact identity; that is enough for the 
 [`docs/setup.md`](docs/setup.md#6-local-development), and worth knowing rather than
 discovering. On macOS its post-install step tries to `sudo`-install a system Python and
 fails; that is harmless, since the SDK ships its own.
+
+Once `terraform/gcp` exists, manifest preflight requires an exact `tools.gcloud` pin and
+checks it against the running `gcloud` version; status reports missing or drifted pins.
 
 ```sh
 gcloud config set project <PROJECT_ID>
