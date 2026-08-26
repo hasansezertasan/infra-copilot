@@ -46,6 +46,12 @@ mise lock                    # resolves the new pin into mise.lock
 MISE_LOCKED=1 mise install "github:cloudflare/cf-terraforming"
 git add mise.toml mise.lock  # commit the tool pin and refreshed lock together
 
+# Installing does not activate. This pin is added after setup's activation, so the
+# new binary is not on PATH yet — and an older system cf-terraforming would shadow
+# it if it were. Refresh the environment, or run the commands below via `mise exec`:
+eval "$(mise activate bash)"
+mise exec -- cf-terraforming --version   # must report 0.27.0, not a system build
+
 # or via the Go toolchain — an explicit tag, never @latest:
 go install github.com/cloudflare/cf-terraforming/cmd/cf-terraforming@v0.27.0
 ```
@@ -84,37 +90,37 @@ cd terraform/cloudflare
 terraform init -backend=false          # cf-terraforming requires an initialised dir
 
 # Zone-scoped resources (DNS records) — --account and --zone are mutually exclusive.
-cf-terraforming generate \
-  --terraform-binary-path "$(which terraform)" \
+mise exec -- cf-terraforming generate \
+  --terraform-binary-path "$(mise which terraform)" \
   --resource-type "cloudflare_dns_record" \
   --zone "$CLOUDFLARE_ZONE_ID" \
   > generated.tf
 
 # Account-scoped resources.
-cf-terraforming generate \
-  --terraform-binary-path "$(which terraform)" \
+mise exec -- cf-terraforming generate \
+  --terraform-binary-path "$(mise which terraform)" \
   --resource-type "cloudflare_r2_bucket,cloudflare_pages_project,cloudflare_workers_kv_namespace" \
   --account "$CLOUDFLARE_ACCOUNT_ID" \
   >> generated.tf
 ```
 
-Without `--terraform-binary-path`, cf-terraforming downloads its own terraform binary into the current directory. The flag tells it to reuse the one already on PATH.
+Without `--terraform-binary-path`, cf-terraforming downloads its own terraform binary into the current directory. The flag points it at the pinned one instead. `mise which terraform` is used rather than `which terraform` because the outer shell evaluates that substitution before `mise exec` runs, so an unactivated shell would hand over a system binary — or nothing.
 
 `generated.tf` is the file the existing comment in `main.tf` references. Review it: rename resource labels to something readable (cf-terraforming uses `terraform_managed_resource` placeholders), drop anything you don't actually want managed, and commit.
 
 ## Emit `import` blocks
 
 ```sh
-cf-terraforming import \
+mise exec -- cf-terraforming import \
   --modern-import-block \
-  --terraform-binary-path "$(which terraform)" \
+  --terraform-binary-path "$(mise which terraform)" \
   --resource-type "cloudflare_dns_record" \
   --zone "$CLOUDFLARE_ZONE_ID" \
   >> generated.tf
 
-cf-terraforming import \
+mise exec -- cf-terraforming import \
   --modern-import-block \
-  --terraform-binary-path "$(which terraform)" \
+  --terraform-binary-path "$(mise which terraform)" \
   --resource-type "cloudflare_r2_bucket,cloudflare_pages_project,cloudflare_workers_kv_namespace" \
   --account "$CLOUDFLARE_ACCOUNT_ID" \
   >> generated.tf

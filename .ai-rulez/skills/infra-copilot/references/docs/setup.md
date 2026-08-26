@@ -106,7 +106,12 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
    mise trust mise.toml
    touch mise.lock             # older mise releases only update an existing lockfile
    mise lock                   # populate/update it for common platforms
-   MISE_LOCKED=1 mise install
+   # Install exactly what this repository pins. The bare `mise install` would also
+   # pull in tools from your user-level config, and fail the locked install if any
+   # of those are absent from *this* repo's lockfile.
+   pinned=$(mise config get --file ./mise.toml tools |
+     sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p')
+   MISE_LOCKED=1 mise install $pinned
    eval "$(mise activate bash)"   # or zsh/fish — install alone does not touch PATH
    ```
 

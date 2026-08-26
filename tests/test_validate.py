@@ -192,7 +192,9 @@ class ValidateToolchainContractTests(unittest.TestCase):
             # Installs cf-terraforming as it writes the pin, before the lock exists.
             import_guide.write_text(
                 "mise use --path mise.toml github:cloudflare/cf-terraforming@0.27.0\n"
-                "mise lock\ngit add mise.toml mise.lock\n",
+                "mise lock\ngit add mise.toml mise.lock\n"
+                # Bare invocation, and terraform resolved by the outer shell.
+                'cf-terraforming generate --terraform-binary-path "$(which terraform)"\n',
                 encoding="utf-8",
             )
             config.write_text("", encoding="utf-8")
@@ -209,6 +211,15 @@ class ValidateToolchainContractTests(unittest.TestCase):
         )
         self.assertTrue(
             any("installs the pin before locking" in error for error in errors), errors
+        )
+        self.assertTrue(
+            any("instead of the merged config" in error for error in errors), errors
+        )
+        self.assertTrue(
+            any("through the pinned environment" in error for error in errors), errors
+        )
+        self.assertTrue(
+            any("not the outer shell" in error for error in errors), errors
         )
 
     # The manifest's `check` snippets are POSIX shell by contract, and this test

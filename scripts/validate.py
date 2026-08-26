@@ -260,6 +260,13 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             f"{TOOLCHAIN_SETUP_DOCUMENT}: installed toolchain must be activated "
             "before its binaries are invoked"
         )
+    # A bare `mise install` resolves the merged config, so a tool in the developer's
+    # user-level config that this repo never locked fails an otherwise valid setup.
+    if re.search(r"MISE_LOCKED=1 mise install\s*$", setup, re.MULTILINE):
+        errors.append(
+            f"{TOOLCHAIN_SETUP_DOCUMENT}: locked install must name the repository's "
+            "pinned tools instead of the merged config"
+        )
     if "lockfile = true" in setup:
         errors.append(
             f"{TOOLCHAIN_SETUP_DOCUMENT}: unsupported lockfile setting is documented"
@@ -292,6 +299,18 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         errors.append(
             f"{TOOLCHAIN_IMPORT_DOCUMENT}: cf-terraforming must be locked before "
             "it is installed"
+        )
+    # cf-terraforming is pinned after setup activated the environment, so the new
+    # binary is not on PATH and a system build would shadow it.
+    if re.search(r"^\s*cf-terraforming ", import_guide, re.MULTILINE):
+        errors.append(
+            f"{TOOLCHAIN_IMPORT_DOCUMENT}: cf-terraforming must run through the "
+            "pinned environment"
+        )
+    if '"$(which terraform)"' in import_guide:
+        errors.append(
+            f"{TOOLCHAIN_IMPORT_DOCUMENT}: terraform path must resolve through mise, "
+            "not the outer shell"
         )
     if "export TERRAFORM_VERSION=$(mise config get" in config:
         errors.append(
