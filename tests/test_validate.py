@@ -165,6 +165,55 @@ class ValidateToolchainContractTests(unittest.TestCase):
         self.assertTrue(any("before preflight" in error for error in errors), errors)
         self.assertTrue(any("without pin state" in error for error in errors), errors)
 
+    def test_rejects_unlocked_conditional_tools_and_unactivated_install(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            references = repository / ".ai-rulez/skills/infra-copilot/references"
+            steps = references / "steps.yaml"
+            hcp = references / "hcp.md"
+            setup = references / "docs/setup.md"
+            import_guide = references / "docs/import.md"
+            config = references / "config.md"
+            status = repository / ".ai-rulez/skills/status/SKILL.md"
+            setup.parent.mkdir(parents=True)
+            status.parent.mkdir(parents=True)
+            # A fixed tool list leaves conditionally configured tools unvalidated.
+            steps.write_text(
+                "MISE_LOCKED=1 mise install --dry-run terraform gh jq", encoding="utf-8"
+            )
+            hcp.write_text("terraform-version", encoding="utf-8")
+            # Installs the toolchain but never activates it or uses `mise exec`.
+            setup.write_text(
+                "cat -- mise.toml\nmise trust mise.toml\ntouch mise.lock\n"
+                "mise lock\nMISE_LOCKED=1 mise install\n",
+                encoding="utf-8",
+            )
+            # Installs cf-terraforming as it writes the pin, before the lock exists.
+            import_guide.write_text(
+                "mise use --path mise.toml github:cloudflare/cf-terraforming@0.27.0\n"
+                "mise lock\ngit add mise.toml mise.lock\n",
+                encoding="utf-8",
+            )
+            config.write_text("", encoding="utf-8")
+            status.write_text("", encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("enumerate the committed tool list" in error for error in errors),
+            errors,
+        )
+        self.assertTrue(
+            any("must be activated" in error for error in errors), errors
+        )
+        self.assertTrue(
+            any("installs the pin before locking" in error for error in errors), errors
+        )
+
+    # The manifest's `check` snippets are POSIX shell by contract, and this test
+    # proves them by executing them against shell fixtures. Windows has no
+    # /bin/sh, so the assertion is unrunnable there rather than failing.
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
     def test_tool_checks_reject_non_exact_selectors(self) -> None:
         steps = (
             Path(__file__).parents[1]
@@ -228,6 +277,110 @@ else cat >/dev/null; printf '%s\n' '1.15.9'; fi
                         check=False,
                     )
                     self.assertNotEqual(rejected.returncode, 0, (tool, selector))
+
+
+    # Executed against shell fixtures, so POSIX-only for the same reason as above.
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_lock_check_covers_every_configured_tool(self) -> None:
+        """The locked dry-run must cover conditionally added tools, not a fixed set."""
+        steps = (
+            Path(__file__).parents[1]
+            / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"  - tool: mise\n    check: >-\n(?P<body>(?:      [^\n]*\n)+)", steps
+        )
+        self.assertIsNotNone(match)
+        check = " ".join(
+            line[6:] for line in match.group("body").splitlines()
+        )
+
+        # `mise install` here stands in for the real locked install: it fails for any
+        # requested tool absent from LOCKED, exactly as --locked fails for a tool with
+        # no lockfile entry for the current platform.
+        fixture_mise = """#!/bin/sh
+case "$1" in
+  --version) exit 0 ;;
+  config) sed -n '/^\\[tools\\]/,$p' ./mise.toml | sed '1d' ;;
+  install)
+    shift 3
+    for requested in "$@"; do
+      found=1
+      for locked in $LOCKED; do
+        [ "$requested" = "$locked" ] && found=0
+      done
+      [ "$found" = 0 ] || exit 1
+    done
+    ;;
+esac
+"""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            binaries = repository / "bin"
+            binaries.mkdir()
+            executable = binaries / "mise"
+            executable.write_text(fixture_mise, encoding="utf-8")
+            executable.chmod(0o755)
+            # gcloud is the conditional pin: configured, but absent from the lock.
+            (repository / "mise.toml").write_text(
+                '[tools]\nterraform = "1.15.9"\ngh = "2.81.0"\njq = "1.8.1"\n'
+                'gcloud = "551.0.0"\n',
+                encoding="utf-8",
+            )
+            (repository / "mise.lock").write_text("# @generated\n", encoding="utf-8")
+            for command in (
+                ["git", "init", "-q"],
+                ["git", "add", "mise.toml", "mise.lock"],
+                [
+                    "git",
+                    "-c",
+                    "user.email=test@example.com",
+                    "-c",
+                    "user.name=test",
+                    "commit",
+                    "-qm",
+                    "pins",
+                ],
+            ):
+                subprocess.run(command, cwd=repository, check=True)
+
+            def run(locked: str) -> int:
+                return subprocess.run(
+                    ["/bin/sh", "-c", check],
+                    cwd=repository,
+                    env=os.environ
+                    | {
+                        "PATH": f"{binaries}:/usr/bin:/bin",
+                        "LOCKED": locked,
+                    },
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                ).returncode
+
+            # The old fixed list would have passed this: gcloud is configured but
+            # has no lock data, so a fresh clone's locked install would fail.
+            self.assertNotEqual(run("terraform gh jq"), 0)
+            self.assertEqual(run("terraform gh jq gcloud"), 0)
+
+            # An unpinned repository must not pass on file presence alone.
+            (repository / "mise.toml").write_text("[tools]\n", encoding="utf-8")
+            subprocess.run(["git", "add", "-A"], cwd=repository, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.email=test@example.com",
+                    "-c",
+                    "user.name=test",
+                    "commit",
+                    "-qm",
+                    "empty",
+                ],
+                cwd=repository,
+                check=True,
+            )
+            self.assertNotEqual(run("terraform gh jq gcloud"), 0)
 
 
 if __name__ == "__main__":

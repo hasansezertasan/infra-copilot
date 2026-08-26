@@ -209,10 +209,15 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     for marker in (
         "git ls-files --error-unmatch mise.toml mise.lock",
         "git diff --quiet HEAD -- mise.toml mise.lock",
-        "MISE_LOCKED=1 mise install --dry-run terraform gh jq",
+        "MISE_LOCKED=1 mise install --dry-run $pinned",
     ):
         if marker not in steps:
             errors.append(f"{TOOLCHAIN_STEPS_DOCUMENT}: missing {marker!r}")
+    if "mise config get --file ./mise.toml tools 2>/dev/null" not in steps:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: lock validation must enumerate the "
+            "committed tool list instead of a fixed set"
+        )
     if steps.count("grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+") < 4:
         errors.append(
             f"{TOOLCHAIN_STEPS_DOCUMENT}: exact version checks are incomplete"
@@ -233,6 +238,15 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     for marker in ("mise lock", "MISE_LOCKED=1 mise install"):
         if marker not in setup:
             errors.append(f"{TOOLCHAIN_SETUP_DOCUMENT}: missing {marker!r}")
+    # Installing does not put the pinned tools on PATH, so the guide has to activate
+    # them (or route through `mise exec`) before anything invokes a bare binary.
+    install = setup.find("MISE_LOCKED=1 mise install")
+    activate = setup.find("mise activate")
+    if activate < 0 or "mise exec" not in setup or install > activate:
+        errors.append(
+            f"{TOOLCHAIN_SETUP_DOCUMENT}: installed toolchain must be activated "
+            "before its binaries are invoked"
+        )
     if "lockfile = true" in setup:
         errors.append(
             f"{TOOLCHAIN_SETUP_DOCUMENT}: unsupported lockfile setting is documented"
@@ -244,12 +258,28 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             f"{TOOLCHAIN_SETUP_DOCUMENT}: mise.lock must be initialized before locking"
         )
     for marker in (
-        "mise use --path mise.toml github:cloudflare/cf-terraforming@0.27.0",
+        '"github:cloudflare/cf-terraforming" = "0.27.0"',
         "mise lock",
+        'MISE_LOCKED=1 mise install "github:cloudflare/cf-terraforming"',
         "git add mise.toml mise.lock",
     ):
         if marker not in import_guide:
             errors.append(f"{TOOLCHAIN_IMPORT_DOCUMENT}: missing {marker!r}")
+    # `mise use` installs as it writes the pin, which resolves the binary before the
+    # lock covering it exists. The pin must be written, then locked, then installed.
+    if re.search(r"^\s*mise use\b", import_guide, re.MULTILINE):
+        errors.append(
+            f"{TOOLCHAIN_IMPORT_DOCUMENT}: installs the pin before locking it"
+        )
+    import_lock = import_guide.find("mise lock")
+    import_install = import_guide.find(
+        'MISE_LOCKED=1 mise install "github:cloudflare/cf-terraforming"'
+    )
+    if import_lock < 0 or import_install < 0 or import_lock > import_install:
+        errors.append(
+            f"{TOOLCHAIN_IMPORT_DOCUMENT}: cf-terraforming must be locked before "
+            "it is installed"
+        )
     if "export TERRAFORM_VERSION=$(mise config get" in config:
         errors.append(
             f"{TOOLCHAIN_CONFIG_DOCUMENT}: Terraform pin export runs before preflight"

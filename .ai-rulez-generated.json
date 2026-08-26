@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:99eb6c3c30eb9e24dc38f114b269fd3f6c7f2e60be1e0d42f7cc850f3b5f68fc",
+  "source_hash": "blake3:fd16c02ecd9307a2a618c64f71f0ad4ee2a7ebcd5a2546f6b225e7804d55eedb",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -51,13 +51,13 @@
       "content_hash": "blake3:0d664e1fae72eaffbfd2cc007c22d8c387d8c63306a51382e0a1a3761a45260b"
     },
     "skills/infra-copilot/references/docs/import.md": {
-      "content_hash": "blake3:908f31c4c129e08986fd344c6485822352c6c690fc9e53da2f977ace196b14ff"
+      "content_hash": "blake3:e91590056b7cd8b156479343a675ef1b5395b0b07c513df64f01aa68814596bc"
     },
     "skills/infra-copilot/references/docs/secrets.md": {
       "content_hash": "blake3:b22f8d640f99a742030be95e7b6aaba7eaf7b52de9e33e64c3806f4d784f9190"
     },
     "skills/infra-copilot/references/docs/setup.md": {
-      "content_hash": "blake3:96e3816482a339cf52c78fcce0835fd3fa9bd91e1acd18133759cdbb94f6f423"
+      "content_hash": "blake3:7578ae78b3dc3cef9a75f0a61afb325a5c36ab86ba09bc8b1bbebe7e34ea13fa"
     },
     "skills/infra-copilot/references/docs/state.md": {
       "content_hash": "blake3:2683957cff4f8c81564df487865dd1fc8bb5201e5f5b2a3af8b817054a05669f"
@@ -75,10 +75,10 @@
       "content_hash": "blake3:3c15bf5e9dae060bc08a0f9d08ac7e125f6b7fdd06eaa7660563274899c1c6ca"
     },
     "skills/infra-copilot/references/protocol.md": {
-      "content_hash": "blake3:310ab627134d9d421a186ff6fa9869725fa5d5b4824b9e59edc0451bed27a884"
+      "content_hash": "blake3:e11c616f9b9f265fabeffc089bb10d72f6352fd63187b32a2d855b739bfe74c3"
     },
     "skills/infra-copilot/references/steps.yaml": {
-      "content_hash": "blake3:8e4b15ff3cc922e3f29e87958992e1e0b0e1aafafc64dec0ff2fea8756e9a341"
+      "content_hash": "blake3:17d58e27ce4da2365ead0012357d41b18f2ecc0da30ff108480099e97f29f36c"
     },
     "skills/setup/SKILL.md": {
       "content_hash": "blake3:3829d1cec31729a3aa07989af993e33080bf633c6115d66acc931ca6772d285f"

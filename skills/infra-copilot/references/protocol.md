@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:310ab627134d9d421a186ff6fa9869725fa5d5b4824b9e59edc0451bed27a884
-Source-Hash: blake3:99eb6c3c30eb9e24dc38f114b269fd3f6c7f2e60be1e0d42f7cc850f3b5f68fc
+Content-Hash: blake3:e11c616f9b9f265fabeffc089bb10d72f6352fd63187b32a2d855b739bfe74c3
+Source-Hash: blake3:fd16c02ecd9307a2a618c64f71f0ad4ee2a7ebcd5a2546f6b225e7804d55eedb
 Schema-Version: v1
 -->
 
@@ -96,6 +96,12 @@ jq --version           # JSON wrangling for HCP/Cloudflare/GitHub APIs
 curl --version         # HCP + Cloudflare REST
 mise --version         # reads committed pins and enforces the lockfile
 ```
+
+**Installed is not activated.** `mise install` downloads the pinned tools without
+putting them on `PATH`. Every check below invokes a bare binary, so activate the
+environment first (`eval "$(mise activate bash)"`, or the hook for the running shell) or
+run each command through `mise exec --`. Skipping this compares a system binary against
+the repository pin and reports drift that does not exist.
 
 **Pinned, not merely present.** A tool that runs is not the same as the tool the repo
 agreed on. Two contributors can both clear a `>= 1.9` floor on Terraform 1.9 and 1.15 and

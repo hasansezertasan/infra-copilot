@@ -54,13 +54,22 @@ hcp_api: https://app.terraform.io/api/v2
 #
 #   pin    exact key in the committed file that records the pin.
 #   check  exit 0 == the running binary exactly matches that committed pin.
+#
+# The lock check enumerates the `[tools]` keys of the committed file and dry-runs a
+# locked install over exactly those. Naming a fixed list would leave conditionally
+# added tools (gcloud, cf-terraforming) unvalidated, and running `mise install`
+# with no tool arguments would pull in user/global config — the same leak that
+# rules out `mise current`.
 preflight:
   - tool: mise
     check: >-
       mise --version >/dev/null &&
       git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
       git diff --quiet HEAD -- mise.toml mise.lock &&
-      MISE_LOCKED=1 mise install --dry-run terraform gh jq >/dev/null
+      pinned=$(mise config get --file ./mise.toml tools 2>/dev/null |
+      sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
+      [ -n "$pinned" ] &&
+      MISE_LOCKED=1 mise install --dry-run $pinned >/dev/null 2>&1
   - tool: terraform
     pin: mise.toml#tools.terraform
     check: >-

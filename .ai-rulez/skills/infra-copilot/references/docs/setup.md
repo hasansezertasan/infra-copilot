@@ -107,7 +107,23 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
    touch mise.lock             # older mise releases only update an existing lockfile
    mise lock                   # populate/update it for common platforms
    MISE_LOCKED=1 mise install
+   eval "$(mise activate bash)"   # or zsh/fish — install alone does not touch PATH
    ```
+
+   Installing is not activating. `mise install --help` states plainly that
+   "Installing alone will not activate the tools so they won't be in PATH", so a shell
+   without the mise hook downloads the pinned toolchain and then keeps resolving
+   `terraform` to whatever the system had — or to nothing. The pin is only enforced for
+   commands that actually run the pinned binary, and every later command here plus every
+   `check` in [`../steps.yaml`](../steps.yaml) invokes a bare binary. Confirm it took:
+
+   ```sh
+   command -v terraform && terraform version   # must resolve inside the mise install dir
+   ```
+
+   If you would rather not activate the shell, prefix each command instead —
+   `mise exec -- terraform login`, `mise exec -- terraform version` — and run the
+   preflight checks the same way.
 
    Review matters because trusting a repository config enables its templates, plugins,
    and other executable behavior. Review the whole file, regardless of its length.
@@ -121,7 +137,9 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
    checks that read that manager's committed file; active-environment commands are not a
    substitute for inspecting the repository pin.
 
-   Do this **before** step 3: `terraform login` needs `terraform` on `PATH`.
+   Do all of this — including the activation — **before** step 3: `terraform login`
+   needs the pinned `terraform` on `PATH`, and installing without activating does not
+   put it there.
 
 2. **Verify the same Terraform version on every HCP workspace.** The Phase 1 API flow
    reads `tools.terraform` from the repository's `mise.toml`, sets `terraform-version`

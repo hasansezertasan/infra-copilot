@@ -90,6 +90,12 @@ curl --version         # HCP + Cloudflare REST
 mise --version         # reads committed pins and enforces the lockfile
 ```
 
+**Installed is not activated.** `mise install` downloads the pinned tools without
+putting them on `PATH`. Every check below invokes a bare binary, so activate the
+environment first (`eval "$(mise activate bash)"`, or the hook for the running shell) or
+run each command through `mise exec --`. Skipping this compares a system binary against
+the repository pin and reports drift that does not exist.
+
 **Pinned, not merely present.** A tool that runs is not the same as the tool the repo
 agreed on. Two contributors can both clear a `>= 1.9` floor on Terraform 1.9 and 1.15 and
 get plans that render differently. So the `preflight` block in [`steps.yaml`](steps.yaml)
