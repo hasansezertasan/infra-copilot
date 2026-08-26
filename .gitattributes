@@ -1,0 +1,22 @@
+# Line endings are normalized to LF in the repository regardless of checkout OS.
+#
+# This matters more here than in most repos: `ai-rulez verify --plugin` compares
+# content hashes of the generated trees (skills/, commands/, .claude-plugin/)
+# against their .ai-rulez/ sources. A CRLF round-trip through a Windows checkout
+# changes those bytes and fails the check with an error that says nothing about
+# line endings. CI already runs a Windows job, so the exposure is real.
+#
+# No *.ps1 / *.cmd carve-out yet — this repo ships no Windows scripts. Add
+# `*.ps1 text eol=crlf` when it does (see the SessionStart hook discussion).
+* text=auto eol=lf
+
+# Generated payloads. Marking them collapses them in GitHub diffs and excludes
+# them from language stats, so a review shows the .ai-rulez/ source change
+# rather than the same edit repeated across every host package.
+# Edit .ai-rulez/ — never these.
+skills/**                linguist-generated=true
+commands/**              linguist-generated=true
+.claude-plugin/**        linguist-generated=true
+.codex-plugin/**         linguist-generated=true
+.agents/**               linguist-generated=true
+.ai-rulez-generated.json linguist-generated=true
