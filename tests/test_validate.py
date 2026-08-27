@@ -172,7 +172,12 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         self.assertEqual(validate_versions(), [])
 
     @staticmethod
-    def _version_fixture(root: Path, *, changelog: str = "## 9.9.9 (unreleased)\n") -> None:
+    def _version_fixture(
+        root: Path,
+        *,
+        changelog: str = "## 9.9.9 (unreleased)\n",
+        version: str = "9.9.9",
+    ) -> None:
         """A self-consistent repository at 9.9.9.
 
         Every input has to come from `root`; an earlier version of
@@ -182,7 +187,7 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         """
         (root / ".ai-rulez").mkdir(parents=True, exist_ok=True)
         (root / ".ai-rulez/config.toml").write_text(
-            '[plugin]\nversion = "9.9.9"\n', encoding="utf-8"
+            f'[plugin]\nversion = "{version}"\n', encoding="utf-8"
         )
         (root / "CHANGELOG.md").write_text(f"# Changelog\n\n{changelog}", encoding="utf-8")
         for relative in JSON_MANIFESTS:
@@ -191,9 +196,9 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             if relative in VERSIONLESS_MANIFESTS:
                 body = '{"name": "infra-copilot"}'
             elif "marketplace" in relative:
-                body = '{"plugins": [{"version": "9.9.9"}]}'
+                body = f'{{"plugins": [{{"version": "{version}"}}]}}'
             else:
-                body = '{"version": "9.9.9"}'
+                body = f'{{"version": "{version}"}}'
             manifest.write_text(body, encoding="utf-8")
 
     def test_fixture_is_read_entirely_from_the_supplied_root(self) -> None:
@@ -251,8 +256,38 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
 
             self.assertEqual(
                 validate_versions(repository),
-                [".agents/plugins/marketplace.json: no version field found"],
+                [".agents/plugins/marketplace.json#plugins[0]: no version field found"],
             )
+
+    def test_sibling_entry_cannot_hide_a_missing_version(self) -> None:
+        """One entry losing its version must not pass because another has one."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._version_fixture(repository)
+            (repository / ".claude-plugin/marketplace.json").write_text(
+                '{"plugins": [{}, {"version": "9.9.9"}]}', encoding="utf-8"
+            )
+
+            self.assertEqual(
+                validate_versions(repository),
+                [".claude-plugin/marketplace.json#plugins[0]: no version field found"],
+            )
+
+    def test_full_semver_is_not_reported_malformed(self) -> None:
+        """Prerelease and build metadata can both appear in one version.
+
+        `VERSION_PATTERN` allowed only one of the two, so a real release of
+        0.3.0-rc.1+build.5 would have failed `make check` on the changelog.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._version_fixture(
+                repository,
+                version="9.9.9-rc.1+build.5",
+                changelog="## 9.9.9-rc.1+build.5 (unreleased)\n",
+            )
+
+            self.assertEqual(validate_versions(repository), [])
 
     def test_malformed_manifest_does_not_mask_the_parse_error(self) -> None:
         """Version discovery must not raise over a manifest that cannot parse.

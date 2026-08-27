@@ -68,7 +68,9 @@ TOOL_PIN_WORKFLOWS = (
     ".github/workflows/check.yml",
     ".github/workflows/release.yml",
 )
-VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?"
+# Prerelease and build metadata are independent and may both appear:
+# 0.3.0-rc.1+build.5 is one version, not a version plus trailing junk.
+VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+){2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
 
 
 def load_json(path: str, root: Path = ROOT) -> dict[str, object]:
@@ -480,22 +482,28 @@ def toml_string(path: str, table: str, key: str, root: Path = ROOT) -> str:
 VERSIONLESS_MANIFESTS = frozenset({"plugin.json"})
 
 
-def json_versions(path: str, root: Path = ROOT) -> dict[str, str]:
-    """Every version string in a manifest, keyed by where it was found.
+def json_versions(path: str, root: Path = ROOT) -> dict[str, str | None]:
+    """Every version location in a manifest, keyed by where it was found.
 
     Discovered rather than listed, so a manifest added later is compared
-    without anyone remembering to register it.
+    without anyone remembering to register it. A location that exists but
+    carries no version maps to ``None``: every marketplace entry is its own
+    location, so one entry losing its version cannot hide behind a sibling
+    that still has one.
     """
     data = load_json(path, root)
-    found: dict[str, str] = {}
+    found: dict[str, str | None] = {}
     version = data.get("version")
     if version is not None:
         found[path] = str(version)
     plugins = data.get("plugins") or []
     if isinstance(plugins, list):
         for index, plugin in enumerate(plugins):
-            if isinstance(plugin, dict) and "version" in plugin:
-                found[f"{path}#plugins[{index}]"] = str(plugin["version"])
+            if isinstance(plugin, dict):
+                entry = plugin.get("version")
+                found[f"{path}#plugins[{index}]"] = (
+                    None if entry is None else str(entry)
+                )
     return found
 
 
@@ -529,7 +537,11 @@ def validate_versions(root: Path = ROOT) -> list[str]:
             continue
         if not found and manifest not in VERSIONLESS_MANIFESTS:
             errors.append(f"{manifest}: no version field found")
-        actual.update(found)
+        for where, value in found.items():
+            if value is None:
+                errors.append(f"{where}: no version field found")
+            else:
+                actual[where] = value
 
     version, heading = changelog_version(root)
     if version is None:
