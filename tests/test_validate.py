@@ -11,6 +11,7 @@ from pathlib import Path
 from scripts.validate import (
     JSON_MANIFESTS,
     TOOL_PIN_WORKFLOWS,
+    toml_string,
     collect_manifest_errors,
     validate_config_fallbacks,
     validate_json_manifests,
@@ -19,6 +20,7 @@ from scripts.validate import (
     validate_phase_five_rule,
     validate_toolchain_contract,
     validate_tool_pins,
+    validate_versions,
 )
 
 
@@ -164,6 +166,23 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                     f"{TOOL_PIN_WORKFLOWS[0]}: invokes ai-rulez@… directly; "
                     "call `make` so Makefile stays the only definition"
                 ],
+            )
+
+    def test_versions_agree_across_every_manifest_and_the_changelog(self) -> None:
+        self.assertEqual(validate_versions(), [])
+
+    def test_changelog_heading_drift_is_caught(self) -> None:
+        """The CHANGELOG was the one version string nothing compared."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            (repository / "CHANGELOG.md").write_text(
+                "# Changelog\n\n## 0.1.0 (unreleased)\n", encoding="utf-8"
+            )
+            expected = toml_string(".ai-rulez/config.toml", "plugin", "version")
+
+            self.assertIn(
+                f"CHANGELOG.md: version '0.1.0' != {expected!r}",
+                validate_versions(repository),
             )
 
     def test_malformed_manifest_is_reported_instead_of_raising(self) -> None:

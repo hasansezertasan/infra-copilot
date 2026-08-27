@@ -474,28 +474,47 @@ def toml_string(path: str, table: str, key: str) -> str:
     return value.group("value")
 
 
-def validate_versions() -> list[str]:
-    errors: list[str] = []
+def json_versions(path: str) -> dict[str, str]:
+    """Every version string in a manifest, keyed by where it was found.
+
+    Discovered rather than listed: a manifest added later is checked without
+    anyone remembering to register it here. Absence is fine — root
+    ``plugin.json`` carries no version — but a version that exists must match.
+    """
+    data = load_json(path)
+    found: dict[str, str] = {}
+    version = data.get("version")
+    if version is not None:
+        found[path] = str(version)
+    plugins = data.get("plugins") or []
+    for index, plugin in enumerate(plugins):  # type: ignore[call-overload]
+        if isinstance(plugin, dict) and "version" in plugin:
+            found[f"{path}#plugins[{index}]"] = str(plugin["version"])
+    return found
+
+
+def validate_versions(root: Path = ROOT) -> list[str]:
     expected = toml_string(".ai-rulez/config.toml", "plugin", "version")
 
-    actual = {
-        ".claude-plugin/marketplace.json": str(
-            load_json(".claude-plugin/marketplace.json")["plugins"][0]["version"]  # type: ignore[index]
-        ),
-        ".claude-plugin/plugin.json": str(
-            load_json(".claude-plugin/plugin.json")["version"]
-        ),
-        ".codex-plugin/plugin.json": str(
-            load_json(".codex-plugin/plugin.json")["version"]
-        ),
-        ".agents/plugins/marketplace.json": str(
-            load_json(".agents/plugins/marketplace.json")["plugins"][0]["version"]  # type: ignore[index]
-        ),
-    }
+    actual: dict[str, str] = {}
+    for manifest in JSON_MANIFESTS:
+        actual.update(json_versions(manifest))
 
-    for path, version in actual.items():
-        if version != expected:
-            errors.append(f"{path}: version {version!r} != {expected!r}")
+    # The CHANGELOG's newest heading is a version string too, and was the one
+    # place nothing checked: it could say 0.2.0 while every manifest said 0.3.0.
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    heading = re.search(rf"^##\s+(?P<version>{VERSION_PATTERN})", changelog, re.MULTILINE)
+    if heading is None:
+        errors = [f"CHANGELOG.md: no '## <version>' heading found"]
+    else:
+        errors = []
+        actual["CHANGELOG.md"] = heading.group("version")
+
+    errors += [
+        f"{path}: version {version!r} != {expected!r}"
+        for path, version in actual.items()
+        if version != expected
+    ]
     return errors
 
 
