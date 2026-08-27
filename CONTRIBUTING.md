@@ -89,13 +89,23 @@ Bump them in the `Makefile` and update the README in the same commit.
 The canonical plugin version is `[plugin].version` in `.ai-rulez/config.toml`. Four
 manifests carry a copy — three generated (`.claude-plugin/marketplace.json`,
 `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`) and one hand-authored
-(`.agents/plugins/marketplace.json`, which must be bumped by hand) — and
-`scripts/validate.py` asserts all four agree.
+(`.agents/plugins/marketplace.json`, which must be bumped by hand). `scripts/validate.py`
+asserts all four agree with each other and with the newest level-2 (`##`) heading in
+`CHANGELOG.md`.
 
-**Adding a new file that carries a version string means teaching
-`validate_versions` about it in the same commit.** Otherwise the check silently
-narrows as the repo grows — it iterates a known list, so a file it does not know about is
-a file it cannot compare.
+`validate_versions` discovers version strings inside those manifests, but only in two
+shapes: a top-level `version`, and `plugins[*].version`. Adding another JSON manifest to
+`JSON_MANIFESTS` is enough for those two locations to be compared, and a manifest there
+with no version in either is reported unless it is listed in `VERSIONLESS_MANIFESTS`.
+
+A version stored anywhere else in a JSON manifest — `metadata.version`, say — is **not**
+discovered, and if the same file also has a recognised field the unrecognised copy can
+drift silently behind a passing check.
+
+**A version string in any other kind of file is still invisible to it.** A README badge,
+a shell installer, a version-pinned command in an install doc: none of those are JSON
+manifests, so adding one means extending `scripts/validate.py` in the same commit.
+Otherwise the check silently narrows as the repo grows.
 
 ## Conventions
 
