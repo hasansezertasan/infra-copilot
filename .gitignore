@@ -1,0 +1,14 @@
+# Artifacts written by `make smoke-opencode` / `npx skills add . --copy`.
+# Anchored with a leading slash so `skills-lock.json` is ignored only at the
+# repo root, not at any depth. `.agents/plugins/marketplace.json` is tracked
+# and required — never ignore `.agents/` wholesale.
+/.agents/skills/
+/skills-lock.json
+
+# Written by a bare `python3 -m unittest`. `make test` sets
+# PYTHONDONTWRITEBYTECODE=1, but not everyone goes through make.
+__pycache__/
+
+# npx --yes caches outside the repo, but a contributor running npm/bun install
+# locally would create this. validate.py already skips it when walking Markdown.
+node_modules/
