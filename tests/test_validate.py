@@ -11,7 +11,7 @@ from pathlib import Path
 from scripts.validate import (
     JSON_MANIFESTS,
     TOOL_PIN_WORKFLOWS,
-    toml_string,
+    VERSIONLESS_MANIFESTS,
     collect_manifest_errors,
     validate_config_fallbacks,
     validate_json_manifests,
@@ -171,19 +171,102 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
     def test_versions_agree_across_every_manifest_and_the_changelog(self) -> None:
         self.assertEqual(validate_versions(), [])
 
+    @staticmethod
+    def _version_fixture(root: Path, *, changelog: str = "## 9.9.9 (unreleased)\n") -> None:
+        """A self-consistent repository at 9.9.9.
+
+        Every input has to come from `root`; an earlier version of
+        `validate_versions` read the changelog from the supplied root but the
+        config and manifests from the module-level one, so a fixture could
+        appear to pass while comparing against the real checkout.
+        """
+        (root / ".ai-rulez").mkdir(parents=True, exist_ok=True)
+        (root / ".ai-rulez/config.toml").write_text(
+            '[plugin]\nversion = "9.9.9"\n', encoding="utf-8"
+        )
+        (root / "CHANGELOG.md").write_text(f"# Changelog\n\n{changelog}", encoding="utf-8")
+        for relative in JSON_MANIFESTS:
+            manifest = root / relative
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            if relative in VERSIONLESS_MANIFESTS:
+                body = '{"name": "infra-copilot"}'
+            elif "marketplace" in relative:
+                body = '{"plugins": [{"version": "9.9.9"}]}'
+            else:
+                body = '{"version": "9.9.9"}'
+            manifest.write_text(body, encoding="utf-8")
+
+    def test_fixture_is_read_entirely_from_the_supplied_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._version_fixture(repository)
+
+            self.assertEqual(validate_versions(repository), [])
+
     def test_changelog_heading_drift_is_caught(self) -> None:
         """The CHANGELOG was the one version string nothing compared."""
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            (repository / "CHANGELOG.md").write_text(
-                "# Changelog\n\n## 0.1.0 (unreleased)\n", encoding="utf-8"
-            )
-            expected = toml_string(".ai-rulez/config.toml", "plugin", "version")
+            self._version_fixture(repository, changelog="## 9.9.8 (unreleased)\n")
 
-            self.assertIn(
-                f"CHANGELOG.md: version '0.1.0' != {expected!r}",
+            self.assertEqual(
                 validate_versions(repository),
+                ["CHANGELOG.md: version '9.9.8' != '9.9.9'"],
             )
+
+    def test_newest_changelog_heading_must_parse(self) -> None:
+        """A malformed newest heading must not fall through to an older one.
+
+        `## 9.9.9.1` also must not pass by matching only its `9.9.9` prefix.
+        """
+        for changelog, reported in (
+            ("## 0.3 (unreleased)\n\n## 9.9.9\n", "0.3 (unreleased)"),
+            ("## 9.9.9.1 (unreleased)\n", "9.9.9.1 (unreleased)"),
+        ):
+            with self.subTest(changelog=changelog):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._version_fixture(repository, changelog=changelog)
+
+                    self.assertEqual(
+                        validate_versions(repository),
+                        [
+                            f"CHANGELOG.md: newest heading {reported!r} does not "
+                            "start with a version"
+                        ],
+                    )
+
+    def test_missing_version_field_is_reported(self) -> None:
+        """Deleting the key must fail, not silently drop out of the comparison.
+
+        `.agents/plugins/marketplace.json` is hand-authored, so it is the one
+        this check exists to guard.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._version_fixture(repository)
+            (repository / ".agents/plugins/marketplace.json").write_text(
+                '{"plugins": [{}]}', encoding="utf-8"
+            )
+
+            self.assertEqual(
+                validate_versions(repository),
+                [".agents/plugins/marketplace.json: no version field found"],
+            )
+
+    def test_malformed_manifest_does_not_mask_the_parse_error(self) -> None:
+        """Version discovery must not raise over a manifest that cannot parse.
+
+        Root `plugin.json` carries no version, so the old check never loaded
+        it; traversing every manifest means an unparseable one would replace
+        `collect_manifest_errors`'s diagnostic with a traceback.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._version_fixture(repository)
+            (repository / "plugin.json").write_text("{not json", encoding="utf-8")
+
+            self.assertEqual(validate_versions(repository), [])
 
     def test_malformed_manifest_is_reported_instead_of_raising(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

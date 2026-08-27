@@ -71,8 +71,8 @@ TOOL_PIN_WORKFLOWS = (
 VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?"
 
 
-def load_json(path: str) -> dict[str, object]:
-    with (ROOT / path).open(encoding="utf-8") as source:
+def load_json(path: str, root: Path = ROOT) -> dict[str, object]:
+    with (root / path).open(encoding="utf-8") as source:
         return json.load(source)
 
 
@@ -455,8 +455,8 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
     return errors
 
 
-def toml_string(path: str, table: str, key: str) -> str:
-    text = (ROOT / path).read_text(encoding="utf-8")
+def toml_string(path: str, table: str, key: str, root: Path = ROOT) -> str:
+    text = (root / path).read_text(encoding="utf-8")
     section = re.search(
         rf"^\[{re.escape(table)}\]\s*$\n(?P<body>.*?)(?=^\[|\Z)",
         text,
@@ -474,46 +474,75 @@ def toml_string(path: str, table: str, key: str) -> str:
     return value.group("value")
 
 
-def json_versions(path: str) -> dict[str, str]:
+# Root plugin.json deliberately carries no version. Anything else in
+# JSON_MANIFESTS must have one, so a manifest added later either declares a
+# version or is added here on purpose — silence is not an option.
+VERSIONLESS_MANIFESTS = frozenset({"plugin.json"})
+
+
+def json_versions(path: str, root: Path = ROOT) -> dict[str, str]:
     """Every version string in a manifest, keyed by where it was found.
 
-    Discovered rather than listed: a manifest added later is checked without
-    anyone remembering to register it here. Absence is fine — root
-    ``plugin.json`` carries no version — but a version that exists must match.
+    Discovered rather than listed, so a manifest added later is compared
+    without anyone remembering to register it.
     """
-    data = load_json(path)
+    data = load_json(path, root)
     found: dict[str, str] = {}
     version = data.get("version")
     if version is not None:
         found[path] = str(version)
     plugins = data.get("plugins") or []
-    for index, plugin in enumerate(plugins):  # type: ignore[call-overload]
-        if isinstance(plugin, dict) and "version" in plugin:
-            found[f"{path}#plugins[{index}]"] = str(plugin["version"])
+    if isinstance(plugins, list):
+        for index, plugin in enumerate(plugins):
+            if isinstance(plugin, dict) and "version" in plugin:
+                found[f"{path}#plugins[{index}]"] = str(plugin["version"])
     return found
 
 
+def changelog_version(root: Path = ROOT) -> tuple[str | None, str]:
+    """The version token of the *newest* `## ` heading, and that heading's text.
+
+    Deliberately not a search for the first semver-shaped heading anywhere: a
+    malformed newest heading (`## 0.3 (unreleased)`) would then be skipped in
+    favour of an older one that happens to match the canonical version, and the
+    drift would pass unnoticed.
+    """
+    for line in (root / "CHANGELOG.md").read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            heading = line[3:].strip()
+            match = re.match(rf"(?P<version>{VERSION_PATTERN})(?=\s|$)", heading)
+            return (match.group("version") if match else None), heading
+    return None, ""
+
+
 def validate_versions(root: Path = ROOT) -> list[str]:
-    expected = toml_string(".ai-rulez/config.toml", "plugin", "version")
-
+    expected = toml_string(".ai-rulez/config.toml", "plugin", "version", root)
+    errors: list[str] = []
     actual: dict[str, str] = {}
-    for manifest in JSON_MANIFESTS:
-        actual.update(json_versions(manifest))
 
-    # The CHANGELOG's newest heading is a version string too, and was the one
-    # place nothing checked: it could say 0.2.0 while every manifest said 0.3.0.
-    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
-    heading = re.search(rf"^##\s+(?P<version>{VERSION_PATTERN})", changelog, re.MULTILINE)
-    if heading is None:
-        errors = [f"CHANGELOG.md: no '## <version>' heading found"]
+    for manifest in JSON_MANIFESTS:
+        try:
+            found = json_versions(manifest, root)
+        except (OSError, json.JSONDecodeError):
+            # collect_manifest_errors() already reports unreadable manifests;
+            # raising here would replace its diagnostic with a traceback.
+            continue
+        if not found and manifest not in VERSIONLESS_MANIFESTS:
+            errors.append(f"{manifest}: no version field found")
+        actual.update(found)
+
+    version, heading = changelog_version(root)
+    if version is None:
+        errors.append(
+            f"CHANGELOG.md: newest heading {heading!r} does not start with a version"
+        )
     else:
-        errors = []
-        actual["CHANGELOG.md"] = heading.group("version")
+        actual["CHANGELOG.md"] = version
 
     errors += [
-        f"{path}: version {version!r} != {expected!r}"
-        for path, version in actual.items()
-        if version != expected
+        f"{path}: version {value!r} != {expected!r}"
+        for path, value in actual.items()
+        if value != expected
     ]
     return errors
 
