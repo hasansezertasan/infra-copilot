@@ -90,12 +90,17 @@ The canonical plugin version is `[plugin].version` in `.ai-rulez/config.toml`. F
 manifests carry a copy — three generated (`.claude-plugin/marketplace.json`,
 `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`) and one hand-authored
 (`.agents/plugins/marketplace.json`, which must be bumped by hand). `scripts/validate.py`
-asserts all four agree with each other and with the newest `## ` heading in
+asserts all four agree with each other and with the newest level-2 (`##`) heading in
 `CHANGELOG.md`.
 
-`validate_versions` discovers version strings inside those manifests, so adding another
-JSON manifest to `JSON_MANIFESTS` is enough for it to be compared — and a manifest there
-that carries *no* version is reported unless it is listed in `VERSIONLESS_MANIFESTS`.
+`validate_versions` discovers version strings inside those manifests, but only in two
+shapes: a top-level `version`, and `plugins[*].version`. Adding another JSON manifest to
+`JSON_MANIFESTS` is enough for those two locations to be compared, and a manifest there
+with no version in either is reported unless it is listed in `VERSIONLESS_MANIFESTS`.
+
+A version stored anywhere else in a JSON manifest — `metadata.version`, say — is **not**
+discovered, and if the same file also has a recognised field the unrecognised copy can
+drift silently behind a passing check.
 
 **A version string in any other kind of file is still invisible to it.** A README badge,
 a shell installer, a version-pinned command in an install doc: none of those are JSON
