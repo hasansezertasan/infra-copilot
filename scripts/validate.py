@@ -502,6 +502,9 @@ def validate_versions() -> list[str]:
 def validate_layout() -> list[str]:
     required = (
         "Makefile",
+        "AGENTS.md",
+        "CONTRIBUTING.md",
+        "docs/roadmap.md",
         ".github/renovate.json",
         ".github/workflows/check.yml",
         ".github/workflows/release.yml",
