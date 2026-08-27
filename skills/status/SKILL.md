@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:c18efd2eb32ef4fa003fd44a4991f42805d7d52a4b71ca1fd17cbdbefae3200e
-Source-Hash: blake3:c17ce8586717d26f30e3f9988f3313f8aff2536b61cbb5ee21773f20b988d275
+Content-Hash: blake3:adc3c435aa0b71ce5736627a898281bf6d5807cd4b70071b753afa0d78f7bc7f
+Source-Hash: blake3:c7e18e4bed4625c5997461695420f0cec83964365dec9f247022fafb62fd97fb
 Schema-Version: v1
 -->
 
@@ -129,7 +129,7 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 
 | First red step is in… | Run |
 |---|---|
-| `status-check-context` (phase 4) | **Nothing.** Fix it directly: read the context HCP publishes and set the `contexts` list in `terraform/github/branch_protection.tf` to exactly that string ([`../infra-copilot/references/docs/ci.md`](../infra-copilot/references/docs/ci.md#hcp-status-check-context)). |
+| `status-check-context` (phase 4) | **Nothing — fix it directly.** Replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keeping every other required context, and follow the break-glass sequence ([`../infra-copilot/references/docs/ci.md`](../infra-copilot/references/docs/ci.md#hcp-status-check-context)). If the message says no `Terraform Cloud/` context is required at all, protection is misconfigured rather than stale — HCP plans are not gating merges. |
 | Other steps in phases 0–4 | **infra-copilot:setup** |
 | Phase 5 (migrate-*) | **infra-copilot:import** — only relevant if adopting pre-existing resources |
 | Phase 6 (gcp-*) | **infra-copilot:add** — and only after the design decision |

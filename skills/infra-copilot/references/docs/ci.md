@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:64128b976e8d47209ada0bf871db4e1ae3dcef2c61f868179e39800c309c8627
-Source-Hash: blake3:c17ce8586717d26f30e3f9988f3313f8aff2536b61cbb5ee21773f20b988d275
+Content-Hash: blake3:2b45d835a0e3a24731502b08a581d875decbf2e9bc392fc6714e0d2bd3a1edff
+Source-Hash: blake3:c7e18e4bed4625c5997461695420f0cec83964365dec9f247022fafb62fd97fb
 Schema-Version: v1
 -->
 
@@ -113,8 +113,21 @@ Pick one, and record which in `.infra-copilot/decisions.md`:
 
 **A — Relax protection out of band, then reconcile immediately (preferred).**
 
-1. Remove the stale context from the required list in the GitHub UI or via
-   `gh api -X PATCH "repos/$REPO/branches/main/protection"`. Change *only* that context.
+1. Remove the stale context from the required list — GitHub UI, or the dedicated
+   endpoint, which takes only the status-check settings rather than the whole protection
+   object. **Send the full list you want to keep**, since the field is replaced wholesale:
+
+   ```sh
+   gh api -X PATCH \
+     "repos/$REPO/branches/main/protection/required_status_checks" \
+     -F strict=true \
+     -f 'contexts[]=terraform fmt' \
+     -f 'contexts[]=terraform validate (terraform/cloudflare)' \
+     -f 'contexts[]=terraform validate (terraform/github)'
+   ```
+
+   That is the documented list minus the stale HCP context. Keep the other three: dropping
+   them would let merges through with no CI at all.
 2. Merge the `branch_protection.tf` PR through the now-unblocked normal flow.
 3. Confirm the HCP apply, then re-run the `status-check-context` check. The applied
    Terraform is what restores the intended protection — out-of-band state is temporary and

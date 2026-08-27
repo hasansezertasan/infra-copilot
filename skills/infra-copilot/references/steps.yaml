@@ -314,15 +314,22 @@ steps:
       "Expected — Waiting for status to be reported", forever, while every other
       check stays green.
     run: >-
-      Read the context HCP actually published, then set the contexts list in
-      terraform/github/branch_protection.tf to exactly that string. The stale
-      context blocks the very PR that fixes it, so follow the break-glass
-      sequence in docs/ci.md#hcp-status-check-context.
+      Read the context HCP actually published, then in
+      terraform/github/branch_protection.tf replace ONLY the stale
+      "Terraform Cloud/…" entry with it. Keep every other required context —
+      terraform fmt and both terraform validate checks — exactly as they are;
+      dropping them would allow merges with no CI at all. The stale context
+      blocks the very PR carrying this fix, so follow the break-glass sequence
+      in docs/ci.md#break-glass-the-fix-cannot-merge-through-the-normal-path.
     check: >-
+      protected=$(gh api "repos/$REPO/branches/main" --jq '.protected') || exit 1;
+      [ "$protected" = true ] || exit 0;
       required=$(gh api "repos/$REPO/branches/main/protection"
       --jq '.required_status_checks.contexts[]? | select(startswith("Terraform Cloud/"))')
       || exit 1;
-      [ -n "$required" ] || exit 0;
+      if [ -z "$required" ]; then
+      echo "branch protection requires no Terraform Cloud/ context; HCP plans are not enforced before merge" >&2;
+      exit 1; fi;
       compare() { tmp=$(mktemp); printf '%s\n' "$1" > "$tmp";
       missing=$(printf '%s\n' "$required" | grep -vxF -f "$tmp"); rm -f "$tmp";
       [ -z "$missing" ] && return 0;

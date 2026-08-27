@@ -122,7 +122,7 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 
 | First red step is in… | Run |
 |---|---|
-| `status-check-context` (phase 4) | **Nothing.** Fix it directly: read the context HCP publishes and set the `contexts` list in `terraform/github/branch_protection.tf` to exactly that string ([`../infra-copilot/references/docs/ci.md`](../infra-copilot/references/docs/ci.md#hcp-status-check-context)). |
+| `status-check-context` (phase 4) | **Nothing — fix it directly.** Replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keeping every other required context, and follow the break-glass sequence ([`../infra-copilot/references/docs/ci.md`](../infra-copilot/references/docs/ci.md#hcp-status-check-context)). If the message says no `Terraform Cloud/` context is required at all, protection is misconfigured rather than stale — HCP plans are not gating merges. |
 | Other steps in phases 0–4 | **infra-copilot:setup** |
 | Phase 5 (migrate-*) | **infra-copilot:import** — only relevant if adopting pre-existing resources |
 | Phase 6 (gcp-*) | **infra-copilot:add** — and only after the design decision |
