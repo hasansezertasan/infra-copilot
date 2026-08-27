@@ -94,6 +94,34 @@ compare against, and a repo whose leaves are simply idle is not broken.
 `contexts` list in `terraform/github/branch_protection.tf` to exactly that. Do not
 invent the ID; HCP regenerates it.
 
+#### Break-glass: the fix cannot merge through the normal path
+
+The stale required context blocks **every** PR — including the one carrying the
+`branch_protection.tf` correction. And per [What runs on merge to `main`](#what-runs-on-merge-to-main),
+the HCP run that actually applies that file is only created *after* the merge, and then
+waits for a human confirmation. So editing the file is necessary but not sufficient: the
+normal workflow cannot deliver it.
+
+Pick one, and record which in `.infra-copilot/decisions.md`:
+
+**A — Relax protection out of band, then reconcile immediately (preferred).**
+
+1. Remove the stale context from the required list in the GitHub UI or via
+   `gh api -X PATCH "repos/$REPO/branches/main/protection"`. Change *only* that context.
+2. Merge the `branch_protection.tf` PR through the now-unblocked normal flow.
+3. Confirm the HCP apply, then re-run the `status-check-context` check. The applied
+   Terraform is what restores the intended protection — out-of-band state is temporary and
+   must not be left as the source of truth.
+
+**B — Reviewed admin bypass.**
+
+Merge the correction using the `enforce_admins = false` bypass, then confirm the HCP apply.
+Faster, but it merges code no required check verified, so a second reviewer should read the
+diff first. Prefer A unless protection cannot be edited.
+
+Either way the window between steps is one where `main` is less protected than intended.
+Keep it short, and do not batch unrelated changes into the unblocking PR.
+
 ## Rules
 
 1. **Never use `pull_request_target`** unless the workflow is reviewed line-by-line for fork-PR safety. The default trigger is `pull_request`, which gives fork PRs no access to secrets.

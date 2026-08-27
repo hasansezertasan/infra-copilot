@@ -314,23 +314,31 @@ steps:
       "Expected — Waiting for status to be reported", forever, while every other
       check stays green.
     run: >-
-      Compare the contexts branch protection requires against the ones HCP
-      actually posted, and update terraform/github/branch_protection.tf to the
-      published string. See docs/ci.md#hcp-status-check-context.
+      Read the context HCP actually published, then set the contexts list in
+      terraform/github/branch_protection.tf to exactly that string. The stale
+      context blocks the very PR that fixes it, so follow the break-glass
+      sequence in docs/ci.md#hcp-status-check-context.
     check: >-
       required=$(gh api "repos/$REPO/branches/main/protection"
-      --jq '.required_status_checks.contexts[]? | select(startswith("Terraform Cloud/"))'
-      2>/dev/null) || exit 1;
+      --jq '.required_status_checks.contexts[]? | select(startswith("Terraform Cloud/"))')
+      || exit 1;
       [ -n "$required" ] || exit 0;
-      for sha in $(gh api "repos/$REPO/commits?per_page=20" --jq '.[].sha' 2>/dev/null); do
-      reported=$(gh api "repos/$REPO/commits/$sha/status" --jq '.statuses[].context'
-      2>/dev/null) || continue;
-      printf '%s\n' "$reported" | grep -q '^Terraform Cloud/' || continue;
-      tmp=$(mktemp); printf '%s\n' "$reported" > "$tmp";
+      compare() { tmp=$(mktemp); printf '%s\n' "$1" > "$tmp";
       missing=$(printf '%s\n' "$required" | grep -vxF -f "$tmp"); rm -f "$tmp";
-      [ -z "$missing" ] && exit 0;
-      echo "required but never reported: $missing" >&2; exit 1;
-      done; exit 0
+      [ -z "$missing" ] && return 0;
+      echo "required but never reported: $missing" >&2; return 1; };
+      head_sha=$(git rev-parse HEAD 2>/dev/null) || head_sha="";
+      if [ -n "$head_sha" ]; then
+      head_reported=$(gh api "repos/$REPO/commits/$head_sha/status"
+      --jq '.statuses[].context' 2>/dev/null) || head_reported="";
+      if printf '%s\n' "$head_reported" | grep -q '^Terraform Cloud/'; then
+      compare "$head_reported"; exit $?; fi; fi;
+      commits=$(gh api "repos/$REPO/commits?per_page=20" --jq '.[].sha') || exit 1;
+      for sha in $commits; do
+      reported=$(gh api "repos/$REPO/commits/$sha/status" --jq '.statuses[].context')
+      || exit 1;
+      printf '%s\n' "$reported" | grep -q '^Terraform Cloud/' || continue;
+      compare "$reported"; exit $?; done; exit 0
     produces: proof that branch protection cannot silently block every PR
     docs: docs/ci.md#hcp-status-check-context
 
