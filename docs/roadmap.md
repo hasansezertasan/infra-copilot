@@ -12,8 +12,10 @@ oversight. Each item links to the issue that owns it.
   instructions that go inert once applied, and no skill or step removes them. Phase-5
   completion currently means the opposite of the correct end state.
   ([#9](https://github.com/hasansezertasan/infra-copilot/issues/9))
-- **Preflight gates on a `mise.toml` no step creates.** The pins are required before phase
-  0, but the only instructions for producing them sit under the last phase.
+- **The toolchain bootstrap has no tracked step.** `protocol.md` tells `setup` to bootstrap
+  a missing `mise.toml`/`mise.lock` before running the checks, so the behavior is
+  specified — but no entry in `steps.yaml` owns it, so the resume scan cannot report it and
+  `status` sees only a red preflight.
   ([#25](https://github.com/hasansezertasan/infra-copilot/issues/25))
 - **Phases 5 and 6 are expected-red for most repos.** Import only matters if resources
   pre-exist; GCP is a template. `status` says so rather than reporting them as failures.
@@ -32,7 +34,10 @@ oversight. Each item links to the issue that owns it.
   ([#18](https://github.com/hasansezertasan/infra-copilot/issues/18),
   [#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
 - **Host question capability is undeclared.** Three commands grant `AskUserQuestion` — a
-  Claude-only tool — and nothing documents what the handoff does on the other three hosts.
+  Claude-only tool — that nothing instructs the agent to use. The *handoff* block for
+  unblocking a `HUMAN` step is already specified host-neutrally in `protocol.md`; the gap is
+  the undeclared per-host capability, and what a *choosing* step (which provider flavor,
+  whether to adopt a discovered resource) should do where native question tools differ.
   ([#12](https://github.com/hasansezertasan/infra-copilot/issues/12))
 - **Install is all-or-nothing.** There is no way to install `status` alone.
   ([#20](https://github.com/hasansezertasan/infra-copilot/issues/20))

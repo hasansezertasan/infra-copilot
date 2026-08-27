@@ -15,7 +15,7 @@ The sources are in **`.ai-rulez/`**.
 .ai-rulez/config.toml                     →  .claude-plugin/*, .codex-plugin/plugin.json
 ```
 
-Every generated file says so in a comment at the top, with the hash that proves it:
+Most generated files say so in a comment at the top, with the hash that proves it:
 
 ```markdown
 <!--
@@ -23,6 +23,10 @@ AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:…
 -->
 ```
+
+Six of the 28 have no such header — `.claude-plugin/marketplace.json`,
+`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `config.md.example`,
+`decisions.md.example`, and `steps.yaml` — so a missing header proves nothing.
 
 `.ai-rulez-generated.json` is the authoritative list — 28 paths today. If a file is in
 there, edit its source instead.

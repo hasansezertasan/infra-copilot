@@ -12,8 +12,10 @@ skill — and editing them is silently undone by the next `make generate`.
 Before editing any file under those paths, check `.ai-rulez-generated.json`. If the path
 is listed (28 are), edit its source under `.ai-rulez/` instead, then run `make generate`.
 
-Every generated file carries an `AI-RULEZ :: GENERATED FILE — DO NOT EDIT` header. Treat
-that header as binding.
+Most generated files carry an `AI-RULEZ :: GENERATED FILE — DO NOT EDIT` header, but **six
+of the 28 do not** — the three JSON manifests, `config.md.example`, `decisions.md.example`,
+and `steps.yaml`. Absence of the header is not evidence a file is safe to edit. The
+manifest is the authority; the header is only a convenience.
 
 ## File resolution
 
@@ -31,7 +33,13 @@ that header as binding.
 ## Rule 2: run `make check`
 
 Never invoke `npx ai-rulez`, `python3 scripts/validate.py`, or the `skills` installer
-directly in documentation or in a commit's verification step. `make check` is CI parity.
+directly in documentation, in a commit's verification step, or in the Linux CI job.
+`make check` is CI parity.
+
+One deliberate exception: the `windows-paths` job in `.github/workflows/check.yml` calls
+`python scripts/validate.py` and the tests directly, because `make` is not guaranteed on
+`windows-latest`. That job exists to prove paths stay portable, not to be CI parity. Leave
+it as it is.
 
 ## Architecture, in one paragraph
 
