@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e68acf98f386794bbd07405f8badd8f9aadfb81b27f40e16579d101c33b16063
-Source-Hash: blake3:2eec352e33b8b739fd517a9546d6d71f91aed9b5883d2e4dab043c0ee2317a36
+Content-Hash: blake3:15f865efcf74a060e1762e4255fa1ddee0c8aa36004b3408877bbb053cb7ae3a
+Source-Hash: blake3:7eb0895cd3070892e1d1034ffc1c5172384bb068e56b31349c03747a4f248aeb
 Schema-Version: v1
 -->
 
@@ -76,7 +76,30 @@ Enforced via this repo's `terraform/github/branch_protection.tf` (not part of th
 
 Plus: linear history, no force-push, no branch deletion, conversation resolution required. Admins can bypass for emergencies (`enforce_admins = false`).
 
+### HCP status check context
+
 > ⚠️ The HCP check name embeds a per-installation VCS-repo ID (`<hcp-status-check-id>`, i.e. `$HCP_STATUS_CHECK_ID` — see [`../config.md`](../config.md)). If the GitHub–HCP OAuth/App connection is ever rebuilt, that string changes and branch protection silently blocks every PR until `terraform/github/branch_protection.tf` is updated to match.
+
+This has happened. A second OAuth client was created; HCP publishes one aggregated status per repo, so PR reporting moved to the newer connection, the `repo-id` changed, and every subsequent PR stalled on `Expected — Waiting for status to be reported`. Nothing went red — the required context simply never arrived. One PR was merged anyway through the `enforce_admins = false` bypass, which is the dangerous part: bypassing is the natural reaction to a check that never comes.
+
+The warning above did not prevent it, because prose cannot. The `status-check-context` step in [`../steps.yaml`](../steps.yaml) now asserts it: every required `Terraform Cloud/…` context must appear among the contexts HCP actually posted on a recent commit.
+
+```sh
+# what branch protection requires
+gh api "repos/$REPO/branches/main/protection" \
+  --jq '.required_status_checks.contexts[]? | select(startswith("Terraform Cloud/"))'
+
+# what HCP actually posted
+gh api "repos/$REPO/commits/$SHA/status" --jq '.statuses[].context'
+```
+
+It is a string comparison, not a timing heuristic. If no recent commit carries any
+`Terraform Cloud/` status the check passes rather than failing — there is nothing to
+compare against, and a repo whose leaves are simply idle is not broken.
+
+**When it goes red**, read the published string from the second command and set the
+`contexts` list in `terraform/github/branch_protection.tf` to exactly that. Do not
+invent the ID; HCP regenerates it.
 
 ## Rules
 

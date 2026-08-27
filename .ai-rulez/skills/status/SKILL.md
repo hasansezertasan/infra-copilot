@@ -35,9 +35,12 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    on this:
 
    - **Non-mutating checks** (HCP/Cloudflare/GitHub API reads, file existence, tool
-     versions — phases 0–3) — run them directly. These only read.
-   - **Mutating checks — do NOT run them.** The phase-4 checks (`plan-cloudflare`,
-     `plan-github`) and the phase-5 `migrate-import` check run `terraform init`/`plan`,
+     versions — phases 0–3, plus the phase-4 `status-check-context` step) — run them
+     directly. These only read. `status-check-context` is two `gh api` reads and a
+     comparison in `$TMPDIR`; it touches neither the working tree nor any provider state,
+     so run it even though it sits in phase 4.
+   - **Mutating checks — do NOT run them.** `plan-cloudflare`, `plan-github`, and the
+     phase-5 `migrate-import` check run `terraform init`/`plan`,
      which writes `.terraform/` and can create or update `.terraform.lock.hcl` — that would
      dirty the checkout, and this command promises to change nothing. Instead, read the
      **run status per workspace via the HCP API** (non-mutating — see
@@ -119,10 +122,15 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 
 | First red step is in… | Run |
 |---|---|
-| Phases 0–4 | **infra-copilot:setup** |
+| `status-check-context` (phase 4) | **Nothing.** Fix it directly: read the context HCP publishes and set the `contexts` list in `terraform/github/branch_protection.tf` to exactly that string ([`../infra-copilot/references/docs/ci.md`](../infra-copilot/references/docs/ci.md#hcp-status-check-context)). |
+| Other steps in phases 0–4 | **infra-copilot:setup** |
 | Phase 5 (migrate-*) | **infra-copilot:import** — only relevant if adopting pre-existing resources |
 | Phase 6 (gcp-*) | **infra-copilot:add** — and only after the design decision |
 | All green | Nothing — repo is set up. |
+
+A red `status-check-context` is never expected and is never cosmetic: it means branch
+protection requires a status nobody publishes, so **every PR is blocked** while the rest
+of the report reads green. Say so plainly and put it first, ahead of any other finding.
 
 Note that a red Phase 5 or 6 is **expected and fine** for most repos — they're optional
 (import only matters if resources pre-exist; GCP is a template). Say so rather than

@@ -304,6 +304,36 @@ steps:
     produces: green speculative plan for github-org
     docs: docs/hcp-api.md
 
+  - id: status-check-context
+    phase: 4
+    provider: github
+    actor: AGENT
+    title: Required status check context matches what HCP publishes
+    why: >-
+      A required context HCP no longer posts blocks every PR on
+      "Expected — Waiting for status to be reported", forever, while every other
+      check stays green.
+    run: >-
+      Compare the contexts branch protection requires against the ones HCP
+      actually posted, and update terraform/github/branch_protection.tf to the
+      published string. See docs/ci.md#hcp-status-check-context.
+    check: >-
+      required=$(gh api "repos/$REPO/branches/main/protection"
+      --jq '.required_status_checks.contexts[]? | select(startswith("Terraform Cloud/"))'
+      2>/dev/null) || exit 1;
+      [ -n "$required" ] || exit 0;
+      for sha in $(gh api "repos/$REPO/commits?per_page=20" --jq '.[].sha' 2>/dev/null); do
+      reported=$(gh api "repos/$REPO/commits/$sha/status" --jq '.statuses[].context'
+      2>/dev/null) || continue;
+      printf '%s\n' "$reported" | grep -q '^Terraform Cloud/' || continue;
+      tmp=$(mktemp); printf '%s\n' "$reported" > "$tmp";
+      missing=$(printf '%s\n' "$required" | grep -vxF -f "$tmp"); rm -f "$tmp";
+      [ -z "$missing" ] && exit 0;
+      echo "required but never reported: $missing" >&2; exit 1;
+      done; exit 0
+    produces: proof that branch protection cannot silently block every PR
+    docs: docs/ci.md#hcp-status-check-context
+
   # ── Phase 5 — Migration (only if resources pre-exist) ───────────────────
   - id: migrate-discovery-token
     phase: 5
