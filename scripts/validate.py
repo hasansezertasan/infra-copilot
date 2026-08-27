@@ -68,11 +68,13 @@ TOOL_PIN_WORKFLOWS = (
     ".github/workflows/check.yml",
     ".github/workflows/release.yml",
 )
-VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?"
+# Prerelease and build metadata are independent and may both appear:
+# 0.3.0-rc.1+build.5 is one version, not a version plus trailing junk.
+VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+){2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
 
 
-def load_json(path: str) -> dict[str, object]:
-    with (ROOT / path).open(encoding="utf-8") as source:
+def load_json(path: str, root: Path = ROOT) -> dict[str, object]:
+    with (root / path).open(encoding="utf-8") as source:
         return json.load(source)
 
 
@@ -455,8 +457,8 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
     return errors
 
 
-def toml_string(path: str, table: str, key: str) -> str:
-    text = (ROOT / path).read_text(encoding="utf-8")
+def toml_string(path: str, table: str, key: str, root: Path = ROOT) -> str:
+    text = (root / path).read_text(encoding="utf-8")
     section = re.search(
         rf"^\[{re.escape(table)}\]\s*$\n(?P<body>.*?)(?=^\[|\Z)",
         text,
@@ -474,28 +476,86 @@ def toml_string(path: str, table: str, key: str) -> str:
     return value.group("value")
 
 
-def validate_versions() -> list[str]:
+# Root plugin.json deliberately carries no version. Anything else in
+# JSON_MANIFESTS must have one, so a manifest added later either declares a
+# version or is added here on purpose — silence is not an option.
+VERSIONLESS_MANIFESTS = frozenset({"plugin.json"})
+
+
+def json_versions(path: str, root: Path = ROOT) -> dict[str, str | None]:
+    """Every version location in a manifest, keyed by where it was found.
+
+    Discovered rather than listed, so a manifest added later is compared
+    without anyone remembering to register it. A location that exists but
+    carries no version maps to ``None``: every marketplace entry is its own
+    location, so one entry losing its version cannot hide behind a sibling
+    that still has one.
+    """
+    data = load_json(path, root)
+    found: dict[str, str | None] = {}
+    version = data.get("version")
+    if version is not None:
+        found[path] = str(version)
+    plugins = data.get("plugins") or []
+    if isinstance(plugins, list):
+        for index, plugin in enumerate(plugins):
+            if isinstance(plugin, dict):
+                entry = plugin.get("version")
+                found[f"{path}#plugins[{index}]"] = (
+                    None if entry is None else str(entry)
+                )
+    return found
+
+
+def changelog_version(root: Path = ROOT) -> tuple[str | None, str]:
+    """The version token of the *newest* `## ` heading, and that heading's text.
+
+    Deliberately not a search for the first semver-shaped heading anywhere: a
+    malformed newest heading (`## 0.3 (unreleased)`) would then be skipped in
+    favour of an older one that happens to match the canonical version, and the
+    drift would pass unnoticed.
+    """
+    for line in (root / "CHANGELOG.md").read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            heading = line[3:].strip()
+            match = re.match(rf"(?P<version>{VERSION_PATTERN})(?=\s|$)", heading)
+            return (match.group("version") if match else None), heading
+    return None, ""
+
+
+def validate_versions(root: Path = ROOT) -> list[str]:
+    expected = toml_string(".ai-rulez/config.toml", "plugin", "version", root)
     errors: list[str] = []
-    expected = toml_string(".ai-rulez/config.toml", "plugin", "version")
+    actual: dict[str, str] = {}
 
-    actual = {
-        ".claude-plugin/marketplace.json": str(
-            load_json(".claude-plugin/marketplace.json")["plugins"][0]["version"]  # type: ignore[index]
-        ),
-        ".claude-plugin/plugin.json": str(
-            load_json(".claude-plugin/plugin.json")["version"]
-        ),
-        ".codex-plugin/plugin.json": str(
-            load_json(".codex-plugin/plugin.json")["version"]
-        ),
-        ".agents/plugins/marketplace.json": str(
-            load_json(".agents/plugins/marketplace.json")["plugins"][0]["version"]  # type: ignore[index]
-        ),
-    }
+    for manifest in JSON_MANIFESTS:
+        try:
+            found = json_versions(manifest, root)
+        except (OSError, json.JSONDecodeError):
+            # collect_manifest_errors() already reports unreadable manifests;
+            # raising here would replace its diagnostic with a traceback.
+            continue
+        if not found and manifest not in VERSIONLESS_MANIFESTS:
+            errors.append(f"{manifest}: no version field found")
+        for where, value in found.items():
+            if value is None:
+                errors.append(f"{where}: no version field found")
+            else:
+                actual[where] = value
 
-    for path, version in actual.items():
-        if version != expected:
-            errors.append(f"{path}: version {version!r} != {expected!r}")
+    version, heading = changelog_version(root)
+    if version is None:
+        errors.append(
+            f"CHANGELOG.md: newest heading {heading!r} does not start with a version"
+        )
+    else:
+        actual["CHANGELOG.md"] = version
+
+    errors += [
+        f"{path}: version {value!r} != {expected!r}"
+        for path, value in actual.items()
+        if value != expected
+    ]
     return errors
 
 
