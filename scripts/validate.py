@@ -57,10 +57,13 @@ JSON_MANIFESTS = (
     ".codex-plugin/plugin.json",
     "plugin.json",
 )
+MAKEFILE_PATH = "Makefile"
 TOOL_PIN_SPECS = {
-    "ai-rulez": "INFRA_COPILOT_AI_RULEZ_VERSION",
-    "skills": "INFRA_COPILOT_SKILLS_VERSION",
+    "ai-rulez": "AI_RULEZ_VERSION",
+    "skills": "SKILLS_VERSION",
 }
+# Workflows call `make check` and must not carry their own copy of a pin; a
+# second definition is exactly the drift this check exists to prevent.
 TOOL_PIN_WORKFLOWS = (
     ".github/workflows/check.yml",
     ".github/workflows/release.yml",
@@ -409,30 +412,46 @@ def validate_manifest_paths(root: Path = ROOT) -> list[str]:
 
 
 def validate_tool_pins(root: Path = ROOT) -> list[str]:
+    """The Makefile owns every tool pin; README must document the same versions.
+
+    Previously each workflow carried its own copy of both versions, so the two
+    could drift apart silently. The Makefile is now the single definition, and
+    the workflows are asserted not to reintroduce one.
+    """
     errors: list[str] = []
+    makefile = (root / MAKEFILE_PATH).read_text(encoding="utf-8")
     readme = (root / "README.md").read_text(encoding="utf-8")
     for package, variable in TOOL_PIN_SPECS.items():
-        observed: dict[str, str] = {}
-        for relative in TOOL_PIN_WORKFLOWS:
-            workflow = (root / relative).read_text(encoding="utf-8")
-            match = re.search(
-                rf"^\s*{re.escape(variable)}:\s*(?P<version>{VERSION_PATTERN})\s*$",
-                workflow,
-                re.MULTILINE,
-            )
-            if match is None:
-                errors.append(f"{relative}: missing {variable}")
-            else:
-                observed[relative] = match.group("version")
+        match = re.search(
+            rf"^{re.escape(variable)}\s*:?=\s*(?P<version>{VERSION_PATTERN})\s*$",
+            makefile,
+            re.MULTILINE,
+        )
+        if match is None:
+            errors.append(f"{MAKEFILE_PATH}: missing {variable}")
+            continue
+        pinned = match.group("version")
         documented = set(
             re.findall(rf"{re.escape(package)}@(?P<version>{VERSION_PATTERN})", readme)
         )
-        versions = set(observed.values()) | documented
         if not documented:
             errors.append(f"README.md: missing pinned {package} command")
-        if len(versions) > 1:
-            details = ", ".join(sorted(versions))
-            errors.append(f"{package}: inconsistent pinned versions: {details}")
+        elif documented != {pinned}:
+            details = ", ".join(sorted(documented))
+            errors.append(
+                f"{package}: README documents {details}, {MAKEFILE_PATH} pins {pinned}"
+            )
+        for relative in TOOL_PIN_WORKFLOWS:
+            workflow = (root / relative).read_text(encoding="utf-8")
+            # Any `<package>@…` reference, not just a literal version. The form
+            # this replaced was indirect — `ai-rulez@${INFRA_COPILOT_..._VERSION}`
+            # with the value in `env:` — so matching only a literal semver would
+            # miss exactly the pattern being removed.
+            if re.search(rf"(?<![\w-]){re.escape(package)}@", workflow):
+                errors.append(
+                    f"{relative}: invokes {package}@… directly; "
+                    f"call `make` so {MAKEFILE_PATH} stays the only definition"
+                )
     return errors
 
 
@@ -482,6 +501,7 @@ def validate_versions() -> list[str]:
 
 def validate_layout() -> list[str]:
     required = (
+        "Makefile",
         ".github/renovate.json",
         ".github/workflows/check.yml",
         ".github/workflows/release.yml",

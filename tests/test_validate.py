@@ -10,6 +10,7 @@ from pathlib import Path
 
 from scripts.validate import (
     JSON_MANIFESTS,
+    TOOL_PIN_WORKFLOWS,
     collect_manifest_errors,
     validate_config_fallbacks,
     validate_json_manifests,
@@ -93,8 +94,77 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
     def test_manifest_paths_stay_inside_repository(self) -> None:
         self.assertEqual(validate_manifest_paths(), [])
 
-    def test_workflow_and_documentation_tool_pins_match(self) -> None:
+    def test_makefile_and_documentation_tool_pins_match(self) -> None:
         self.assertEqual(validate_tool_pins(), [])
+
+    def _pin_workspace(self, root: Path, *, readme_version: str) -> None:
+        (root / "Makefile").write_text(
+            "AI_RULEZ_VERSION := 4.11.3\nSKILLS_VERSION   := 1.5.23\n",
+            encoding="utf-8",
+        )
+        (root / "README.md").write_text(
+            f"npx --yes ai-rulez@{readme_version} validate\n"
+            "npx --yes skills@1.5.23 add .\n",
+            encoding="utf-8",
+        )
+        for relative in TOOL_PIN_WORKFLOWS:
+            workflow = root / relative
+            workflow.parent.mkdir(parents=True, exist_ok=True)
+            workflow.write_text("run: make check\n", encoding="utf-8")
+
+    def test_readme_pin_must_match_the_makefile(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository, readme_version="4.10.0")
+
+            self.assertEqual(
+                validate_tool_pins(repository),
+                ["ai-rulez: README documents 4.10.0, Makefile pins 4.11.3"],
+            )
+
+    def test_workflow_may_not_reintroduce_its_own_pin(self) -> None:
+        """The Makefile is the only definition; a second one is the drift itself.
+
+        Both workflows previously carried their own copy of each version, which
+        is why they could disagree.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository, readme_version="4.11.3")
+            reintroduced = repository / TOOL_PIN_WORKFLOWS[0]
+            reintroduced.write_text(
+                "run: npx --yes ai-rulez@4.9.0 validate\n", encoding="utf-8"
+            )
+
+            self.assertEqual(
+                validate_tool_pins(repository),
+                [
+                    f"{TOOL_PIN_WORKFLOWS[0]}: invokes ai-rulez@… directly; "
+                    "call `make` so Makefile stays the only definition"
+                ],
+            )
+
+    def test_workflow_may_not_reintroduce_an_indirect_pin(self) -> None:
+        """The replaced form kept the version in `env:`, not next to the `@`.
+
+        A guard that only matched a literal semver after `@` would miss the
+        exact pattern this change removes.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository, readme_version="4.11.3")
+            (repository / TOOL_PIN_WORKFLOWS[0]).write_text(
+                "env:\n  PIN: 4.9.0\nrun: npx --yes ai-rulez@${PIN} validate\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                validate_tool_pins(repository),
+                [
+                    f"{TOOL_PIN_WORKFLOWS[0]}: invokes ai-rulez@… directly; "
+                    "call `make` so Makefile stays the only definition"
+                ],
+            )
 
     def test_malformed_manifest_is_reported_instead_of_raising(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
