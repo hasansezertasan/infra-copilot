@@ -113,8 +113,10 @@ class StatusCheckContextTests(unittest.TestCase):
         self.assertIn("UNDERPROTECTED", result.stderr)
 
     def test_unauthenticated_gh_is_not_reported_as_a_stale_context(self) -> None:
+        """Exit 2, not 1: an unreadable check proves nothing about protection."""
         result = self.run_check(authenticated=False)
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("CANNOT VERIFY", result.stderr)
         self.assertIn("not authenticated", result.stderr)
 
     def test_missing_repo_variable_fails_loudly(self) -> None:
@@ -124,7 +126,7 @@ class StatusCheckContextTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 2)
         self.assertIn("REPO is not set", result.stderr)
 
     def test_no_published_hcp_status_anywhere_is_unverifiable_not_broken(self) -> None:
@@ -153,8 +155,24 @@ class StatusCheckContextTests(unittest.TestCase):
 
     def test_per_commit_status_failure_does_not_report_green(self) -> None:
         result = self.run_check(fail_on="*commits/*/status", commits="sha1")
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 2)
         self.assertIn("could not read commit status", result.stderr)
+
+    def test_unreadable_pr_head_does_not_fall_back_to_an_older_match(self) -> None:
+        """The sharpest form: the PR head read fails, main carries a matching status.
+
+        Treating that failure as "no status here" would accept main's older
+        matching context and report a blocked PR as healthy.
+        """
+        result = self.run_check(
+            required=HCP_OLD,
+            pulls="prsha",
+            commits="mainsha",
+            statuses={"mainsha": [(OLD_AT, HCP_OLD)]},
+            fail_on="*commits/prsha/status",
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("could not read commit status for prsha", result.stderr)
 
     def test_api_read_failures_do_not_report_green(self) -> None:
         for endpoint, label in (
@@ -165,7 +183,7 @@ class StatusCheckContextTests(unittest.TestCase):
         ):
             with self.subTest(endpoint=label):
                 result = self.run_check(fail_on=endpoint, commits="sha1")
-                self.assertEqual(result.returncode, 1, f"{label} failure read as green")
+                self.assertEqual(result.returncode, 2, f"{label} failure read as green")
 
 
 if __name__ == "__main__":

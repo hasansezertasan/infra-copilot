@@ -10,26 +10,30 @@
 # Exit codes:
 #   0  invariant holds, or nothing to verify yet (protection not applied; no HCP
 #      status published anywhere yet)
-#   1  invariant broken, or the evidence could not be read
+#   1  invariant BROKEN — a real verdict about the repository
+#   2  COULD NOT VERIFY — missing REPO, gh not authenticated, or an API read failed.
+#      Distinct from 1 on purpose: an unreadable check proves nothing about branch
+#      protection, and must not send anyone into a recovery flow.
 set -u
 
 fail() { echo "$1" >&2; exit 1; }
+cannot_verify() { echo "CANNOT VERIFY: $1" >&2; exit 2; }
 
-[ -n "${REPO:-}" ] || fail "REPO is not set; export it per references/config.md"
+[ -n "${REPO:-}" ] || cannot_verify "REPO is not set; export it per references/config.md"
 
 # gh api is an *authenticated* request even for public repos. Without this the first
 # call exits 4 and the failure reads as a stale context rather than a missing login.
-gh auth status >/dev/null 2>&1 || fail "gh is not authenticated; run 'gh auth login' or export GH_TOKEN, then re-run"
+gh auth status >/dev/null 2>&1 || cannot_verify "gh is not authenticated; run 'gh auth login' or export GH_TOKEN, then re-run"
 
 # A greenfield repo has no protection yet: setup ends at green speculative plans
 # without applying branch_protection.tf. Absent protection is "not yet", not "broken".
 protected=$(gh api "repos/$REPO/branches/main" --jq '.protected') \
-  || fail "could not read repos/$REPO/branches/main"
+  || cannot_verify "could not read repos/$REPO/branches/main"
 [ "$protected" = true ] || exit 0
 
 required=$(gh api "repos/$REPO/branches/main/protection" \
   --jq '.required_status_checks.contexts[]? | select(startswith("Terraform Cloud/"))') \
-  || fail "could not read branch protection for $REPO"
+  || cannot_verify "could not read branch protection for $REPO"
 
 if [ -z "$required" ]; then
     fail "UNDERPROTECTED: branch protection requires no 'Terraform Cloud/' context, so HCP plans do not gate merges. PRs are mergeable without a plan — this is not a stale-context incident."
@@ -47,7 +51,7 @@ collect() {  # $1 = sha, $2 = "tolerate" to allow a read failure
       --jq '.statuses[] | select(.context | startswith("Terraform Cloud/")) | "\(.updated_at) \(.context)"' 2>/dev/null)
     if [ $? -ne 0 ]; then
         [ "${2:-}" = tolerate ] && return 0
-        fail "could not read commit status for $1"
+        cannot_verify "could not read commit status for $1"
     fi
     [ -n "$reported" ] && published="$published
 $reported"
@@ -55,9 +59,9 @@ $reported"
 }
 
 candidates=$(gh api "repos/$REPO/pulls?state=open&sort=updated&direction=desc&per_page=20" \
-  --jq '.[].head.sha') || fail "could not list open pull requests for $REPO"
+  --jq '.[].head.sha') || cannot_verify "could not list open pull requests for $REPO"
 recent=$(gh api "repos/$REPO/commits?per_page=20" --jq '.[].sha') \
-  || fail "could not list commits for $REPO"
+  || cannot_verify "could not list commits for $REPO"
 
 # A local HEAD may be unpushed, so a failed read there is tolerated rather than fatal.
 head_sha=$(git rev-parse HEAD 2>/dev/null) || head_sha=""
@@ -80,7 +84,7 @@ published=$(printf '%s\n' "$published" | grep '^[0-9]')
 newest_at=$(printf '%s\n' "$published" | sort | tail -1 | cut -d' ' -f1)
 current=$(printf '%s\n' "$published" | grep "^$newest_at " | cut -d' ' -f2- | sort -u)
 
-tmp=$(mktemp) || fail "mktemp failed"
+tmp=$(mktemp) || cannot_verify "mktemp failed"
 printf '%s\n' "$current" > "$tmp"
 missing=$(printf '%s\n' "$required" | grep -vxF -f "$tmp")
 rm -f "$tmp"

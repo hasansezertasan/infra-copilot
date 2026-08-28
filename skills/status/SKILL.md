@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:40346133ca3803f3620710a98bc1f7c15f6782e25bb97fc6df68dd83c2253648
-Source-Hash: blake3:33ad831ff6e8838b81bc7996e6b64131b3837eb8734e2f82d3173c58846bae2b
+Content-Hash: blake3:e5bb2beb42b1d256676670b4640ccaad9f13e2d08a57676a0886a0e8f1fea8b6
+Source-Hash: blake3:c53700200cbc353000a2d366b6806c1a75ab3577f51df90eb3502d49ae546563
 Schema-Version: v1
 -->
 
@@ -129,15 +129,23 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 
 | First red step is in… | Run |
 |---|---|
-| `status-check-context` (phase 4) | **Nothing — fix it directly**, not via `setup`. For `BLOCKED`, replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keep every other required context, and follow the break-glass sequence ([`../infra-copilot/references/docs/ci.md`](../infra-copilot/references/docs/ci.md#hcp-status-check-context)). For `UNDERPROTECTED`, re-apply `branch_protection.tf` so an HCP context is required again. |
+| `status-check-context` exit 2 (`CANNOT VERIFY`) | **Nothing to fix in the repo.** Report `?` and name the cause — most often `gh auth login`. Do not route to any skill. |
+| `status-check-context` exit 1 (phase 4) | **Nothing — fix it directly**, not via `setup`. For `BLOCKED`, replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keep every other required context, and follow the break-glass sequence ([`../infra-copilot/references/docs/ci.md`](../infra-copilot/references/docs/ci.md#hcp-status-check-context)). For `UNDERPROTECTED`, re-apply `branch_protection.tf` so an HCP context is required again. |
 | Other steps in phases 0–4 | **infra-copilot:setup** |
 | Phase 5 (migrate-*) | **infra-copilot:import** — only relevant if adopting pre-existing resources |
 | Phase 6 (gcp-*) | **infra-copilot:add** — and only after the design decision |
 | All green | Nothing — repo is set up. |
 
-A red `status-check-context` is never expected and is never cosmetic, but it has **two
-modes with opposite operational risk** — read the message and report the right one first,
-ahead of any other finding:
+`status-check-context` has **three outcomes, and only two of them are verdicts.** Read the
+exit code, not just the fact that it was non-zero:
+
+- **exit 2, `CANNOT VERIFY: …`** — `REPO` unset, `gh` not authenticated, or an API read
+  failed. This proves *nothing* about branch protection. Report it as `?`, not `✗`, name
+  the cause, and do **not** mention `branch_protection.tf` or break-glass. The fix is
+  usually `gh auth login`.
+
+Exit 1 is a real verdict, and it has **two modes with opposite operational risk** — read
+the message and report the right one first, ahead of any other finding:
 
 - `BLOCKED: required but never published …` — protection requires a status nobody posts,
   so **every PR is blocked** even though the rest of the report reads green. This is the
@@ -148,7 +156,8 @@ ahead of any other finding:
   was left relaxed after a previous recovery, and `branch_protection.tf` needs re-applying.
 
 Never report one as the other: telling a user PRs are blocked when they are in fact
-under-protected inverts the risk.
+under-protected inverts the risk. And never report either when the check exited 2 — an
+unreadable check is not evidence of a misconfigured repository.
 
 Note that a red Phase 5 or 6 is **expected and fine** for most repos — they're optional
 (import only matters if resources pre-exist; GCP is a template). Say so rather than
