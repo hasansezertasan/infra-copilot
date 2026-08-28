@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2b45d835a0e3a24731502b08a581d875decbf2e9bc392fc6714e0d2bd3a1edff
-Source-Hash: blake3:c53700200cbc353000a2d366b6806c1a75ab3577f51df90eb3502d49ae546563
+Content-Hash: blake3:3d437d66766b6dbd0d28710e08cd4b820da4120f10e0f6bf3391c08d9f17ca5a
+Source-Hash: blake3:60445d85f65dc50976371eaf4a8ab51306f260f1a9c10896e8535f6df93afb73
 Schema-Version: v1
 -->
 
@@ -97,9 +97,11 @@ It is a string comparison, not a timing heuristic. If no recent commit carries a
 `Terraform Cloud/` status the check passes rather than failing — there is nothing to
 compare against, and a repo whose leaves are simply idle is not broken.
 
-**When it goes red**, read the published string from the second command and set the
-`contexts` list in `terraform/github/branch_protection.tf` to exactly that. Do not
-invent the ID; HCP regenerates it.
+**When it goes red**, read the published string from the second command and in
+`terraform/github/branch_protection.tf` replace **only** the stale `Terraform Cloud/…`
+entry with it. Keep `terraform fmt` and both `terraform validate` contexts listed above
+exactly as they are — replacing the whole list would drop them and allow merges with no CI
+at all. Do not invent the ID; HCP regenerates it.
 
 #### Break-glass: the fix cannot merge through the normal path
 

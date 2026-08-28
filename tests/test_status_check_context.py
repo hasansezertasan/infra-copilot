@@ -52,11 +52,14 @@ class StatusCheckContextTests(unittest.TestCase):
             stub = [
                 "#!/bin/sh",
                 f'[ "$1" = "auth" ] && exit {0 if authenticated else 1}',
+                # Find the URL wherever it sits: flags such as --paginate shift it.
+                'url=""',
+                'for arg in "$@"; do case "$arg" in repos/*) url="$arg"; break ;; esac; done',
             ]
             if fail_on:
-                stub.append(f'case "$2" in {fail_on}) exit 1 ;; esac')
+                stub.append(f'case "$url" in {fail_on}) exit 1 ;; esac')
             stub += [
-                'case "$2" in',
+                'case "$url" in',
                 f'    */branches/main) echo "{protected}" ;;',
                 f"    *branches/main/protection) printf '%s\\n' \"{required}\" ;;",
                 f"    *pulls\\?*) printf '%s\\n' \"{pulls}\" ;;",
@@ -106,6 +109,28 @@ class StatusCheckContextTests(unittest.TestCase):
         """setup ends at green speculative plans, so protection is not applied yet."""
         result = self.run_check(protected="false")
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_protection_removed_on_an_established_repo_is_underprotected(self) -> None:
+        """Absent protection is "not applied yet" only if HCP never published here.
+
+        On a repo where HCP has posted statuses, absent protection means it was
+        removed or disabled, and merges are no longer gated.
+        """
+        result = self.run_check(
+            protected="false",
+            commits="sha1",
+            statuses={"sha1": [(OLD_AT, HCP_OLD)]},
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("UNDERPROTECTED", result.stderr)
+        self.assertIn("removed or disabled", result.stderr)
+
+    def test_pr_list_is_paginated(self) -> None:
+        """A repo with >1 page of open PRs can hide the head carrying the new context."""
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("--paginate", script)
+        self.assertNotIn("per_page=20&", script)
+        self.assertIn("pulls?state=open", script)
 
     def test_protection_without_an_hcp_context_is_underprotected(self) -> None:
         result = self.run_check(required="")

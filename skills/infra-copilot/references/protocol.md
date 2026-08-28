@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e11c616f9b9f265fabeffc089bb10d72f6352fd63187b32a2d855b739bfe74c3
-Source-Hash: blake3:c53700200cbc353000a2d366b6806c1a75ab3577f51df90eb3502d49ae546563
+Content-Hash: blake3:50f6f52f76065353c503106a223e1af243f57fbdef6493b0cae45cb751693c05
+Source-Hash: blake3:60445d85f65dc50976371eaf4a8ab51306f260f1a9c10896e8535f6df93afb73
 Schema-Version: v1
 -->
 
@@ -78,12 +78,29 @@ check is red. An all-green scope means "already done, nothing to do."
 
 ```text
 for step in scope(steps.yaml):
-    if run(step.check) is green:  skip, print "✓ {step.id}"
-    else:                         resume here
+    rc = run(step.check)
+    if rc == 0:  skip, print "✓ {step.id}"
+    if rc == 2:  report "? {step.id} — could not verify: <stderr>", STOP, do NOT run step.run
+    else:        resume here
 ```
 
 Never assume state from memory or a prior session — always re-check. See
 [`steps.yaml`](steps.yaml) for the runtime contract (which shell vars to export first).
+
+### Exit code 2 — could not verify
+
+A check may exit **2** to mean *the evidence could not be read* — a missing export, an
+unauthenticated CLI, a failed API call — as distinct from exit 1, *the thing being checked
+is wrong*. Treat 2 as neither green nor red:
+
+- Report the step as `?` with the check's own stderr, which names the cause.
+- **Do not execute the step's `run`.** A `run` describes how to fix a real failure; on a 2
+  nothing has been shown to be broken, so following it can do harm. `status-check-context`
+  is the clearest case: its `run` tells you to edit branch protection, which is exactly the
+  wrong instruction when the only problem is that `gh` is not logged in.
+- Fix the named precondition, then re-run the scan from the same step.
+
+Only exit 1 means resume-and-fix. Checks that never exit 2 are unaffected.
 
 ## Preflight (AGENT)
 

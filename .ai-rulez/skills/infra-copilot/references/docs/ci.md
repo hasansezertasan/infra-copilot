@@ -90,9 +90,11 @@ It is a string comparison, not a timing heuristic. If no recent commit carries a
 `Terraform Cloud/` status the check passes rather than failing — there is nothing to
 compare against, and a repo whose leaves are simply idle is not broken.
 
-**When it goes red**, read the published string from the second command and set the
-`contexts` list in `terraform/github/branch_protection.tf` to exactly that. Do not
-invent the ID; HCP regenerates it.
+**When it goes red**, read the published string from the second command and in
+`terraform/github/branch_protection.tf` replace **only** the stale `Terraform Cloud/…`
+entry with it. Keep `terraform fmt` and both `terraform validate` contexts listed above
+exactly as they are — replacing the whole list would drop them and allow merges with no CI
+at all. Do not invent the ID; HCP regenerates it.
 
 #### Break-glass: the fix cannot merge through the normal path
 
