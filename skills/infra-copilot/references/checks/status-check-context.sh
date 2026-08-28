@@ -22,19 +22,29 @@ cannot_verify() { echo "CANNOT VERIFY: $1" >&2; exit 2; }
 
 [ -n "${REPO:-}" ] || cannot_verify "REPO is not set; export it per references/config.md"
 
-# gh api is an *authenticated* request even for public repos. Without this the first call
-# exits 4 and the failure reads as a stale context rather than a missing login.
-gh auth status >/dev/null 2>&1 \
-  || cannot_verify "gh is not authenticated; run 'gh auth login' or export GH_TOKEN, then re-run"
-
-protected=$(gh api "repos/$REPO/branches/main" --jq '.protected') \
-  || cannot_verify "could not read repos/$REPO/branches/main"
+# gh api is an *authenticated* request even for public repos, and exits 4 specifically
+# when authentication is required. Checking that code beats a `gh auth status` pre-flight:
+# without filters that command tests every account on every host and exits 1 if any of
+# them has a problem, so one stale account on an unrelated host would report a missing
+# login while a perfectly usable github.com account sat right there.
+protected=$(gh api "repos/$REPO/branches/main" --jq '.protected')
+case $? in
+    0) : ;;
+    4) cannot_verify "gh is not authenticated for this host; run 'gh auth login' or export GH_TOKEN, then re-run" ;;
+    *) cannot_verify "could not read repos/$REPO/branches/main" ;;
+esac
 
 required=""
 if [ "$protected" = true ]; then
     required=$(gh api "repos/$REPO/branches/main/protection" \
       --jq '.required_status_checks.contexts[]? | select(startswith("Terraform Cloud/"))') \
       || cannot_verify "could not read branch protection for $REPO"
+    # Decide this here, before any further reads. The verdict is already proven, and a
+    # rate-limited PR or commit request later would turn it into CANNOT VERIFY and hide
+    # the fact that merges are proceeding ungated.
+    if [ -z "$required" ]; then
+        fail "UNDERPROTECTED: branch protection requires no 'Terraform Cloud/' context, so HCP plans do not gate merges. PRs are mergeable without a plan — this is not a stale-context incident."
+    fi
 fi
 
 # Which context is published *now* is decided by the status timestamps, not by the order
@@ -71,14 +81,19 @@ for sha in $prs $recent; do
     collect "$sha"
 done
 
-# A local HEAD is only tolerated when the API never listed it — an unpushed branch
-# legitimately has no statuses. If it *was* listed it has already been read above, and a
-# failure there was fatal, so a swallowed failure can no longer hide a stale main match.
+# A local HEAD not in the candidate lists is not necessarily unpushed — it could be a
+# closed PR head, a branch without an open PR, or an older main commit. Absence proves
+# nothing, so ask whether the commit exists before deciding to tolerate a read failure.
 head_sha=$(git rev-parse HEAD 2>/dev/null) || head_sha=""
 if [ -n "$head_sha" ]; then
     case " $seen " in
-        *" $head_sha "*) : ;;
-        *) collect "$head_sha" tolerate ;;
+        *" $head_sha "*) : ;;  # already read above, fatally
+        *)
+            if gh api "repos/$REPO/commits/$head_sha" --jq '.sha' >/dev/null 2>&1; then
+                collect "$head_sha"   # pushed: a status read failure is fatal
+            fi
+            # Otherwise the commit is not on the remote and has no statuses to read.
+            ;;
     esac
 fi
 
@@ -90,10 +105,6 @@ if [ "$protected" != true ]; then
     # removed or disabled — merges are no longer gated.
     [ -z "$published" ] && exit 0
     fail "UNDERPROTECTED: main has no branch protection, but HCP publishes statuses here, so protection was removed or disabled. Merges are not gated by a plan — re-apply terraform/github/branch_protection.tf."
-fi
-
-if [ -z "$required" ]; then
-    fail "UNDERPROTECTED: branch protection requires no 'Terraform Cloud/' context, so HCP plans do not gate merges. PRs are mergeable without a plan — this is not a stale-context incident."
 fi
 
 # Nothing anywhere carries an HCP status. Unverifiable, not broken.

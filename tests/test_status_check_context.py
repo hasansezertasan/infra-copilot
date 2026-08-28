@@ -36,6 +36,7 @@ class StatusCheckContextTests(unittest.TestCase):
         commits: str = "",
         statuses: dict[str, list[tuple[str, str]]] | None = None,
         head: str = "",
+        head_exists: bool = False,
         authenticated: bool = True,
         fail_on: str = "",
     ) -> subprocess.CompletedProcess[str]:
@@ -51,7 +52,9 @@ class StatusCheckContextTests(unittest.TestCase):
             )
             stub = [
                 "#!/bin/sh",
-                f'[ "$1" = "auth" ] && exit {0 if authenticated else 1}',
+                # gh api exits 4 when authentication is required; the script keys off
+                # that rather than a `gh auth status` pre-flight.
+                f'{"" if authenticated else "exit 4"}',
                 # Find the URL wherever it sits: flags such as --paginate shift it.
                 'url=""',
                 'for arg in "$@"; do case "$arg" in repos/*) url="$arg"; break ;; esac; done',
@@ -61,6 +64,14 @@ class StatusCheckContextTests(unittest.TestCase):
             stub += [
                 'case "$url" in',
                 f'    */branches/main) echo "{protected}" ;;',
+                # Commit-existence probe for a local HEAD outside the candidate lists.
+                (
+                    f'    */commits/{head}) echo "{head}" ;;'
+                    if head and head_exists
+                    else f'    */commits/{head}) exit 1 ;;'
+                    if head
+                    else "    */commits/__none__) : ;;"
+                ),
                 f"    *branches/main/protection) printf '%s\\n' \"{required}\" ;;",
                 f"    *pulls\\?*) printf '%s\\n' \"{pulls}\" ;;",
                 f"    *commits\\?*) printf '%s\\n' \"{commits}\" ;;",
@@ -148,6 +159,42 @@ class StatusCheckContextTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("CANNOT VERIFY", result.stderr)
         self.assertIn("not authenticated", result.stderr)
+
+    def test_underprotected_is_reported_before_later_reads_can_fail(self) -> None:
+        """A proven verdict must not be downgraded to CANNOT VERIFY.
+
+        Once protection is known to require no HCP context the answer is
+        settled; a rate-limited PR listing afterwards would otherwise hide it.
+        """
+        result = self.run_check(required="", fail_on="*pulls*")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("UNDERPROTECTED", result.stderr)
+
+    def test_pushed_head_outside_the_candidate_lists_is_read_fatally(self) -> None:
+        """Absence from the candidate lists does not prove a SHA is unpushed.
+
+        A closed PR head or a branch with no open PR is pushed and has
+        statuses; tolerating its read failure could accept an older match.
+        """
+        result = self.run_check(
+            required=HCP_OLD,
+            commits="mainsha",
+            statuses={"mainsha": [(OLD_AT, HCP_OLD)]},
+            head="closedpr",
+            head_exists=True,
+            fail_on="*commits/closedpr/status*",
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("could not read commit status for closedpr", result.stderr)
+
+    def test_genuinely_unpushed_head_is_tolerated(self) -> None:
+        result = self.run_check(
+            commits="mainsha",
+            statuses={"mainsha": [(OLD_AT, HCP_OLD)]},
+            head="localonly",
+            head_exists=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_missing_repo_variable_fails_loudly(self) -> None:
         result = subprocess.run(

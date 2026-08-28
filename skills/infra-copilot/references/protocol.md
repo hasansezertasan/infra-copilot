@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:11bed9edc92a91d6bdda6d0d39e6070f92ea3878d0fa5b7f33cbb11af7272620
-Source-Hash: blake3:6def8ee868d1c22d06efeb02c42e5cf1f6daaf5cfabff189382ed8e95e796258
+Content-Hash: blake3:08a65fc233e848ec20501480174ff36b1b2d5d09122d742d74e512856ce8084d
+Source-Hash: blake3:1f159febf669d59592bade3b5be599b814fb649fd52227bbb44d1fecdd41ff69
 Schema-Version: v1
 -->
 
@@ -81,10 +81,14 @@ for step in scope(steps.yaml):
     rc = run(step.check)
     if rc == 0:
         skip, print "✓ {step.id}"
-    elif rc == 2 and step.tri_state:
+    elif not step.tri_state:
+        resume here                     # two-state: any non-zero is red
+    elif rc == 1:
+        resume here
+    elif rc == 2:
         report "? {step.id} — could not verify: <stderr>", STOP, do NOT run step.run
     else:
-        resume here
+        report "? {step.id} — unexpected check exit code {rc}", STOP, do NOT run step.run
 ```
 
 Never assume state from memory or a prior session — always re-check. See
@@ -112,7 +116,10 @@ For a `tri_state` step, treat 2 as neither green nor red:
   wrong instruction when the only problem is that `gh` is not logged in.
 - Fix the named precondition, then re-run the scan from the same step.
 
-Only exit 1 means resume-and-fix. Checks that never exit 2 are unaffected.
+For a `tri_state` step only exit **1** means resume-and-fix. Any other unexpected code is
+treated like a 2 — reported, not acted on — because a code the check does not define is
+not evidence about the repository either. A two-state step keeps the simple rule: non-zero
+is red.
 
 ## Preflight (AGENT)
 

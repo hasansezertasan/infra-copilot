@@ -74,10 +74,14 @@ for step in scope(steps.yaml):
     rc = run(step.check)
     if rc == 0:
         skip, print "✓ {step.id}"
-    elif rc == 2 and step.tri_state:
+    elif not step.tri_state:
+        resume here                     # two-state: any non-zero is red
+    elif rc == 1:
+        resume here
+    elif rc == 2:
         report "? {step.id} — could not verify: <stderr>", STOP, do NOT run step.run
     else:
-        resume here
+        report "? {step.id} — unexpected check exit code {rc}", STOP, do NOT run step.run
 ```
 
 Never assume state from memory or a prior session — always re-check. See
@@ -105,7 +109,10 @@ For a `tri_state` step, treat 2 as neither green nor red:
   wrong instruction when the only problem is that `gh` is not logged in.
 - Fix the named precondition, then re-run the scan from the same step.
 
-Only exit 1 means resume-and-fix. Checks that never exit 2 are unaffected.
+For a `tri_state` step only exit **1** means resume-and-fix. Any other unexpected code is
+treated like a 2 — reported, not acted on — because a code the check does not define is
+not evidence about the repository either. A two-state step keeps the simple rule: non-zero
+is red.
 
 ## Preflight (AGENT)
 
