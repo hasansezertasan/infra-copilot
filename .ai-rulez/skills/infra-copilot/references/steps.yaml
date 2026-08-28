@@ -16,6 +16,10 @@
 #   why       what this unblocks (goes in the handoff block's "Why:")
 #   run       AGENT steps: the command(s) the agent runs
 #             HUMAN steps: the human_action text (browser instructions)
+#   tri_state optional. `true` means this check reserves exit 2 for "could not verify"
+#             (see protocol.md). Absent/false: any non-zero exit is red, which is the
+#             default because ordinary tools use 2 for their own errors — jq exits 2 on
+#             a missing input file.
 #   check     command whose success (exit 0) means the step is DONE. Idempotent.
 #             `null` means "no scriptable check — prove it via the next plan".
 #   produces  the artifact/credential this step yields
@@ -321,6 +325,7 @@ steps:
       dropping them would allow merges with no CI at all. The stale context
       blocks the very PR carrying this fix, so follow the break-glass sequence
       in docs/ci.md.
+    tri_state: true   # exit 2 = could not verify; see protocol.md
     check: sh "$INFRA_COPILOT_REFERENCES/checks/status-check-context.sh"
     produces: proof that branch protection cannot silently block every PR
     docs: docs/ci.md#hcp-status-check-context

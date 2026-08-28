@@ -78,13 +78,23 @@ This has happened. A second OAuth client was created; HCP publishes one aggregat
 The warning above did not prevent it, because prose cannot. The `status-check-context` step in [`../steps.yaml`](../steps.yaml) now asserts it: every required `Terraform Cloud/…` context must appear among the contexts HCP actually posted on a recent commit.
 
 ```sh
-# what branch protection requires
-gh api "repos/$REPO/branches/main/protection" \
-  --jq '.required_status_checks.contexts[]? | select(startswith("Terraform Cloud/"))'
-
-# what HCP actually posted
-gh api "repos/$REPO/commits/$SHA/status" --jq '.statuses[].context'
+sh "$INFRA_COPILOT_REFERENCES/checks/status-check-context.sh"
 ```
+
+**Read the replacement context out of that output** rather than picking a commit yourself.
+Choosing the right commit is the hard part — the check gathers statuses across open PR
+heads, recent commits and local `HEAD`, then selects the one with the newest `updated_at`,
+because an older commit can still carry the pre-reconnection context. Its `BLOCKED`
+message names both sides:
+
+```text
+BLOCKED: required but not published by the current connection
+  (newest status at 2026-08-27T09:14:02Z publishes: Terraform Cloud/acme/repo-id-4711):
+  Terraform Cloud/acme/repo-id-2100
+```
+
+The context in parentheses is what HCP publishes now — the string to put in
+`branch_protection.tf`. The one after the colon is the stale entry to remove.
 
 It is a string comparison, not a timing heuristic. If no recent commit carries any
 `Terraform Cloud/` status the check passes rather than failing — there is nothing to

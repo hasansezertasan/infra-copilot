@@ -44,7 +44,9 @@ fi
 published=""
 
 collect() {  # $1 = sha, $2 = "tolerate" to allow a read failure
-    reported=$(gh api "repos/$REPO/commits/$1/status" \
+    # --paginate: the combined-status endpoint defaults to 30 contexts per page, and a
+    # commit with more than that could hide the HCP status outside the first page.
+    reported=$(gh api --paginate "repos/$REPO/commits/$1/status?per_page=100" \
       --jq '.statuses[] | select(.context | startswith("Terraform Cloud/")) | "\(.updated_at) \(.context)"' 2>/dev/null)
     if [ $? -ne 0 ]; then
         [ "${2:-}" = tolerate ] && return 0

@@ -72,9 +72,12 @@ check is red. An all-green scope means "already done, nothing to do."
 ```text
 for step in scope(steps.yaml):
     rc = run(step.check)
-    if rc == 0:  skip, print "✓ {step.id}"
-    if rc == 2:  report "? {step.id} — could not verify: <stderr>", STOP, do NOT run step.run
-    else:        resume here
+    if rc == 0:
+        skip, print "✓ {step.id}"
+    elif rc == 2 and step.tri_state:
+        report "? {step.id} — could not verify: <stderr>", STOP, do NOT run step.run
+    else:
+        resume here
 ```
 
 Never assume state from memory or a prior session — always re-check. See
@@ -84,7 +87,16 @@ Never assume state from memory or a prior session — always re-check. See
 
 A check may exit **2** to mean *the evidence could not be read* — a missing export, an
 unauthenticated CLI, a failed API call — as distinct from exit 1, *the thing being checked
-is wrong*. Treat 2 as neither green nor red:
+is wrong*.
+
+**This applies only to steps carrying `tri_state: true` in
+[`steps.yaml`](steps.yaml).** Every other check is two-state: any non-zero means red,
+full stop. That distinction is not cosmetic — ordinary tools already use 2 for their own
+reasons. `jq` exits 2 when its input file does not exist, which is exactly the cold-start
+state of `hcp-login`'s check, so treating 2 as "cannot verify" everywhere would refuse to
+run the login step that creates the file and would block every greenfield bootstrap.
+
+For a `tri_state` step, treat 2 as neither green nor red:
 
 - Report the step as `?` with the check's own stderr, which names the cause.
 - **Do not execute the step's `run`.** A `run` describes how to fix a real failure; on a 2

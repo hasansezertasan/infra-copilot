@@ -43,7 +43,7 @@ class StatusCheckContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             bin_dir = Path(directory)
             status_cases = "\n".join(
-                "    *commits/{sha}/status) printf '%s\\n' \"{lines}\" ;;".format(
+                "    *commits/{sha}/status*) printf '%s\\n' \"{lines}\" ;;".format(
                     sha=sha,
                     lines="\\n".join(f"{at} {context}" for at, context in entries),
                 )
@@ -65,7 +65,11 @@ class StatusCheckContextTests(unittest.TestCase):
                 f"    *pulls\\?*) printf '%s\\n' \"{pulls}\" ;;",
                 f"    *commits\\?*) printf '%s\\n' \"{commits}\" ;;",
                 status_cases,
-                "    *commits/*/status) echo '' ;;",
+                "    *commits/*/status*) echo '' ;;",
+                # Fail loudly on an unmatched URL. A silently-unmatched pattern makes
+                # every case pass, which has already happened twice: once when
+                # --paginate moved the URL out of $2, once when ?per_page was appended.
+                '    *) echo "STUB: unmatched url [$url]" >&2; exit 99 ;;',
                 "esac",
                 "exit 0",
             ]
@@ -87,6 +91,7 @@ class StatusCheckContextTests(unittest.TestCase):
     def test_passes_when_context_matches(self) -> None:
         result = self.run_check(commits="sha1", statuses={"sha1": [(OLD_AT, HCP_OLD)]})
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("STUB: unmatched", result.stderr)
 
     def test_stale_context_on_an_open_pr_head_is_caught(self) -> None:
         """The incident: main still carries the old context, the PR carries the new one.
@@ -179,7 +184,7 @@ class StatusCheckContextTests(unittest.TestCase):
         self.assertIn("BLOCKED", result.stderr)
 
     def test_per_commit_status_failure_does_not_report_green(self) -> None:
-        result = self.run_check(fail_on="*commits/*/status", commits="sha1")
+        result = self.run_check(fail_on="*commits/*/status*", commits="sha1")
         self.assertEqual(result.returncode, 2)
         self.assertIn("could not read commit status", result.stderr)
 
@@ -194,7 +199,7 @@ class StatusCheckContextTests(unittest.TestCase):
             pulls="prsha",
             commits="mainsha",
             statuses={"mainsha": [(OLD_AT, HCP_OLD)]},
-            fail_on="*commits/prsha/status",
+            fail_on="*commits/prsha/status*",
         )
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("could not read commit status for prsha", result.stderr)

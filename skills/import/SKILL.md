@@ -6,7 +6,7 @@ description: "Adopt EXISTING infrastructure that already lives at a provider int
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:23c08b05d4be5136cef653a3b77a762a6b21d8d8d1ebd9103a7438f42c4171b5
-Source-Hash: blake3:60445d85f65dc50976371eaf4a8ab51306f260f1a9c10896e8535f6df93afb73
+Source-Hash: blake3:6def8ee868d1c22d06efeb02c42e5cf1f6daaf5cfabff189382ed8e95e796258
 Schema-Version: v1
 -->
 
