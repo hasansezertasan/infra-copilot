@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:adc3c435aa0b71ce5736627a898281bf6d5807cd4b70071b753afa0d78f7bc7f
-Source-Hash: blake3:c7e18e4bed4625c5997461695420f0cec83964365dec9f247022fafb62fd97fb
+Content-Hash: blake3:40346133ca3803f3620710a98bc1f7c15f6782e25bb97fc6df68dd83c2253648
+Source-Hash: blake3:b3ae8623ca2650a5d4270cbae21c9f5d5ff2bb9ddddee4d9e8c183c06df7a2fa
 Schema-Version: v1
 -->
 
@@ -129,15 +129,26 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 
 | First red step is in… | Run |
 |---|---|
-| `status-check-context` (phase 4) | **Nothing — fix it directly.** Replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keeping every other required context, and follow the break-glass sequence ([`../infra-copilot/references/docs/ci.md`](../infra-copilot/references/docs/ci.md#hcp-status-check-context)). If the message says no `Terraform Cloud/` context is required at all, protection is misconfigured rather than stale — HCP plans are not gating merges. |
+| `status-check-context` (phase 4) | **Nothing — fix it directly**, not via `setup`. For `BLOCKED`, replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keep every other required context, and follow the break-glass sequence ([`../infra-copilot/references/docs/ci.md`](../infra-copilot/references/docs/ci.md#hcp-status-check-context)). For `UNDERPROTECTED`, re-apply `branch_protection.tf` so an HCP context is required again. |
 | Other steps in phases 0–4 | **infra-copilot:setup** |
 | Phase 5 (migrate-*) | **infra-copilot:import** — only relevant if adopting pre-existing resources |
 | Phase 6 (gcp-*) | **infra-copilot:add** — and only after the design decision |
 | All green | Nothing — repo is set up. |
 
-A red `status-check-context` is never expected and is never cosmetic: it means branch
-protection requires a status nobody publishes, so **every PR is blocked** while the rest
-of the report reads green. Say so plainly and put it first, ahead of any other finding.
+A red `status-check-context` is never expected and is never cosmetic, but it has **two
+modes with opposite operational risk** — read the message and report the right one first,
+ahead of any other finding:
+
+- `BLOCKED: required but never published …` — protection requires a status nobody posts,
+  so **every PR is blocked** even though the rest of the report reads green. This is the
+  stale-context incident; recovery is the break-glass sequence.
+- `UNDERPROTECTED: branch protection requires no 'Terraform Cloud/' context …` — the
+  opposite. Merges are **not** blocked; they are going through without an HCP plan
+  gating them. Do **not** send the user into break-glass — protection is misconfigured or
+  was left relaxed after a previous recovery, and `branch_protection.tf` needs re-applying.
+
+Never report one as the other: telling a user PRs are blocked when they are in fact
+under-protected inverts the risk.
 
 Note that a red Phase 5 or 6 is **expected and fine** for most repos — they're optional
 (import only matters if resources pre-exist; GCP is a template). Say so rather than

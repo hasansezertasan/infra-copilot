@@ -5,8 +5,8 @@ allowed-tools: Read, Bash, Glob, Grep
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:5fb8e6240f21ed4b6f705f5e04d7339bb6884df42299f0ebc89fa7e5dd33bc0b
-Source-Hash: blake3:c7e18e4bed4625c5997461695420f0cec83964365dec9f247022fafb62fd97fb
+Content-Hash: blake3:43bd1c308984d83bd3fde2a488f4d640dee8587c0e43ba5a17863b94d8dd500b
+Source-Hash: blake3:b3ae8623ca2650a5d4270cbae21c9f5d5ff2bb9ddddee4d9e8c183c06df7a2fa
 Schema-Version: v1
 -->
 
@@ -26,7 +26,10 @@ Load `../skills/status/SKILL.md` and drive it:
 3. **Full resume scan** over all phases of [`steps.yaml`](../skills/infra-copilot/references/steps.yaml). Run
    `check`s only — never a step's `run`, never a handoff block.
 4. **Report** the phase-by-phase table and a verdict mapping the first red step to the
-   skill that fixes it (setup / import / add). Phases 5–6 red is expected for most repos —
-   say so, don't flag as failure.
+   skill that fixes it (setup / import / add). Two exceptions the skill defines: phases 5–6
+   red is expected for most repos — say so, don't flag as failure — and a red
+   `status-check-context` maps to **no skill**, because it is fixed directly in
+   `terraform/github/branch_protection.tf`. Follow the skill's verdict table rather than
+   routing everything in phases 0–4 to `setup`.
 
 The status skill itself defines and enforces the read-only contract across hosts.

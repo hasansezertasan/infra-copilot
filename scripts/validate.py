@@ -579,6 +579,8 @@ def validate_layout() -> list[str]:
         "skills/infra-copilot/references/decisions.md.example",
         "skills/infra-copilot/references/protocol.md",
         "skills/infra-copilot/references/steps.yaml",
+        "skills/infra-copilot/references/checks/status-check-context.sh",
+        ".ai-rulez/skills/infra-copilot/references/checks/status-check-context.sh",
     )
     return [
         f"{path}: required host artifact is missing"
