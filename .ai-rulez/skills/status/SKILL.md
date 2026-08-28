@@ -152,6 +152,14 @@ Never report one as the other: telling a user PRs are blocked when they are in f
 under-protected inverts the risk. And never report either when the check exited 2 — an
 unreadable check is not evidence of a misconfigured repository.
 
+**What this step does not cover.** If `main` has no branch protection at all, the check
+passes. That is deliberate: `setup` ends at green speculative plans without applying
+`branch_protection.tf`, and HCP is already posting statuses by then, so nothing observable
+separates "not applied yet" from "removed". Do not read a green
+`status-check-context` as proof that protection exists — only that a required HCP context,
+if one is required, is being published. Whether protection is applied at all is a separate
+invariant, and no step asserts it today.
+
 Note that a red Phase 5 or 6 is **expected and fine** for most repos — they're optional
 (import only matters if resources pre-exist; GCP is a template). Say so rather than
 flagging them as failures. The meaningful failure is a red step in phases 0–4.

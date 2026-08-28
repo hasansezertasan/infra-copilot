@@ -34,17 +34,24 @@ case $? in
     *) cannot_verify "could not read repos/$REPO/branches/main" ;;
 esac
 
-required=""
-if [ "$protected" = true ]; then
-    required=$(gh api "repos/$REPO/branches/main/protection" \
+# Absent protection is not this check's business. setup ends at green speculative plans
+# without applying branch_protection.tf, and HCP already posts aggregated statuses by
+# then, so no observable signal here separates "not applied yet" from "removed". Guessing
+# from published statuses blocked the greenfield flow. Whether protection *should* exist
+# is a separate invariant owned by whatever applies that resource.
+if [ "$protected" != true ]; then
+    exit 0
+fi
+
+required=$(gh api "repos/$REPO/branches/main/protection" \
       --jq '.required_status_checks.contexts[]? | select(startswith("Terraform Cloud/"))') \
-      || cannot_verify "could not read branch protection for $REPO"
-    # Decide this here, before any further reads. The verdict is already proven, and a
-    # rate-limited PR or commit request later would turn it into CANNOT VERIFY and hide
-    # the fact that merges are proceeding ungated.
-    if [ -z "$required" ]; then
-        fail "UNDERPROTECTED: branch protection requires no 'Terraform Cloud/' context, so HCP plans do not gate merges. PRs are mergeable without a plan — this is not a stale-context incident."
-    fi
+  || cannot_verify "could not read branch protection for $REPO"
+
+# Decide this before any further reads. The verdict is already proven, and a rate-limited
+# PR or commit request afterwards would turn it into CANNOT VERIFY and hide the fact that
+# merges are proceeding ungated.
+if [ -z "$required" ]; then
+    fail "UNDERPROTECTED: branch protection requires no 'Terraform Cloud/' context, so HCP plans do not gate merges. PRs are mergeable without a plan — this is not a stale-context incident."
 fi
 
 # Which context is published *now* is decided by the status timestamps, not by the order
@@ -81,31 +88,14 @@ for sha in $prs $recent; do
     collect "$sha"
 done
 
-# A local HEAD not in the candidate lists is not necessarily unpushed — it could be a
-# closed PR head, a branch without an open PR, or an older main commit. Absence proves
-# nothing, so ask whether the commit exists before deciding to tolerate a read failure.
-head_sha=$(git rev-parse HEAD 2>/dev/null) || head_sha=""
-if [ -n "$head_sha" ]; then
-    case " $seen " in
-        *" $head_sha "*) : ;;  # already read above, fatally
-        *)
-            if gh api "repos/$REPO/commits/$head_sha" --jq '.sha' >/dev/null 2>&1; then
-                collect "$head_sha"   # pushed: a status read failure is fatal
-            fi
-            # Otherwise the commit is not on the remote and has no statuses to read.
-            ;;
-    esac
-fi
+# Local HEAD is deliberately not a candidate. Open PR heads cover every pushed branch
+# with a PR, recent commits cover main, and selection is by newest timestamp — so HEAD
+# contributes nothing those two do not already carry. It also could not be handled
+# safely: no single gh exit code distinguishes "this commit is not on the remote" from
+# "the request failed", so tolerating a failure risked accepting an older matching
+# context while propagating it would break ordinary unpushed branches.
 
 published=$(printf '%s\n' "$published" | grep '^[0-9]' || true)
-
-if [ "$protected" != true ]; then
-    # Absent protection is "not applied yet" only on a genuinely greenfield repo. If HCP
-    # has ever published a status here, the repo is established and its protection was
-    # removed or disabled — merges are no longer gated.
-    [ -z "$published" ] && exit 0
-    fail "UNDERPROTECTED: main has no branch protection, but HCP publishes statuses here, so protection was removed or disabled. Merges are not gated by a plan — re-apply terraform/github/branch_protection.tf."
-fi
 
 # Nothing anywhere carries an HCP status. Unverifiable, not broken.
 [ -n "$published" ] || exit 0

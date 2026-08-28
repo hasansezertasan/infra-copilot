@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e5bb2beb42b1d256676670b4640ccaad9f13e2d08a57676a0886a0e8f1fea8b6
-Source-Hash: blake3:1f159febf669d59592bade3b5be599b814fb649fd52227bbb44d1fecdd41ff69
+Content-Hash: blake3:2e7908085e8eb0713362482bc9f316455524dcc2d7c21167020b0c24689051d6
+Source-Hash: blake3:12b3d3a72035a2f80cbef94c4a717cd26053ba55cd9fe7fcb436614d93955148
 Schema-Version: v1
 -->
 
@@ -158,6 +158,14 @@ the message and report the right one first, ahead of any other finding:
 Never report one as the other: telling a user PRs are blocked when they are in fact
 under-protected inverts the risk. And never report either when the check exited 2 — an
 unreadable check is not evidence of a misconfigured repository.
+
+**What this step does not cover.** If `main` has no branch protection at all, the check
+passes. That is deliberate: `setup` ends at green speculative plans without applying
+`branch_protection.tf`, and HCP is already posting statuses by then, so nothing observable
+separates "not applied yet" from "removed". Do not read a green
+`status-check-context` as proof that protection exists — only that a required HCP context,
+if one is required, is being published. Whether protection is applied at all is a separate
+invariant, and no step asserts it today.
 
 Note that a red Phase 5 or 6 is **expected and fine** for most repos — they're optional
 (import only matters if resources pre-exist; GCP is a template). Say so rather than
