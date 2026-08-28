@@ -20,7 +20,8 @@ SCRIPT = REPO_ROOT / "skills/infra-copilot/references/checks/status-check-contex
 
 HCP_OLD = "Terraform Cloud/acme/repo-id-111"
 HCP_NEW = "Terraform Cloud/acme/repo-id-222"
-SIBLINGS = "terraform fmt"
+OLD_AT = "2026-01-01T00:00:00Z"
+NEW_AT = "2026-06-01T00:00:00Z"
 
 
 class StatusCheckContextTests(unittest.TestCase):
@@ -33,7 +34,7 @@ class StatusCheckContextTests(unittest.TestCase):
         required: str = HCP_OLD,
         pulls: str = "",
         commits: str = "",
-        statuses: dict[str, str] | None = None,
+        statuses: dict[str, list[tuple[str, str]]] | None = None,
         head: str = "",
         authenticated: bool = True,
         fail_on: str = "",
@@ -42,8 +43,11 @@ class StatusCheckContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             bin_dir = Path(directory)
             status_cases = "\n".join(
-                f'    *commits/{sha}/status) echo "{value}" ;;'
-                for sha, value in statuses.items()
+                "    *commits/{sha}/status) printf '%s\\n' \"{lines}\" ;;".format(
+                    sha=sha,
+                    lines="\\n".join(f"{at} {context}" for at, context in entries),
+                )
+                for sha, entries in statuses.items()
             )
             stub = [
                 "#!/bin/sh",
@@ -78,7 +82,7 @@ class StatusCheckContextTests(unittest.TestCase):
             )
 
     def test_passes_when_context_matches(self) -> None:
-        result = self.run_check(commits="sha1", statuses={"sha1": HCP_OLD})
+        result = self.run_check(commits="sha1", statuses={"sha1": [(OLD_AT, HCP_OLD)]})
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_stale_context_on_an_open_pr_head_is_caught(self) -> None:
@@ -91,7 +95,7 @@ class StatusCheckContextTests(unittest.TestCase):
             required=HCP_OLD,
             pulls="prsha",
             commits="mainsha",
-            statuses={"prsha": HCP_NEW, "mainsha": HCP_OLD},
+            statuses={"prsha": [(NEW_AT, HCP_NEW)], "mainsha": [(OLD_AT, HCP_OLD)]},
             head="mainsha",
         )
         self.assertEqual(result.returncode, 1)
@@ -124,8 +128,33 @@ class StatusCheckContextTests(unittest.TestCase):
         self.assertIn("REPO is not set", result.stderr)
 
     def test_no_published_hcp_status_anywhere_is_unverifiable_not_broken(self) -> None:
-        result = self.run_check(commits="sha1", statuses={"sha1": SIBLINGS})
+        """Non-HCP statuses are filtered out by the jq selector, so nothing is published."""
+        result = self.run_check(commits="sha1", statuses={"sha1": []})
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_stale_context_wins_no_matter_which_candidate_is_listed_first(self) -> None:
+        """An older PR sorting first must not decide what is published now.
+
+        Ordering by list position was wrong three separate ways; the newest
+        status timestamp decides, whichever candidate carried it.
+        """
+        result = self.run_check(
+            required=HCP_OLD,
+            pulls="oldpr newpr",
+            commits="mainsha",
+            statuses={
+                "oldpr": [(OLD_AT, HCP_OLD)],
+                "newpr": [(NEW_AT, HCP_NEW)],
+                "mainsha": [(OLD_AT, HCP_OLD)],
+            },
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("BLOCKED", result.stderr)
+
+    def test_per_commit_status_failure_does_not_report_green(self) -> None:
+        result = self.run_check(fail_on="*commits/*/status", commits="sha1")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("could not read commit status", result.stderr)
 
     def test_api_read_failures_do_not_report_green(self) -> None:
         for endpoint, label in (

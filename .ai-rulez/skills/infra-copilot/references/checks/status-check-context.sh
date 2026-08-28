@@ -35,44 +35,57 @@ if [ -z "$required" ]; then
     fail "UNDERPROTECTED: branch protection requires no 'Terraform Cloud/' context, so HCP plans do not gate merges. PRs are mergeable without a plan — this is not a stale-context incident."
 fi
 
-# Compare $required against the contexts published on one commit.
-compare() {
-    tmp=$(mktemp) || fail "mktemp failed"
-    printf '%s\n' "$1" > "$tmp"
-    missing=$(printf '%s\n' "$required" | grep -vxF -f "$tmp")
-    rm -f "$tmp"
-    [ -z "$missing" ] && return 0
-    echo "BLOCKED: required but never published (seen on $2): $missing" >&2
-    return 1
+# Which context is published *now* is decided by the status timestamps, not by the order
+# candidates happen to come back in. Ordering by list position was wrong three ways: an
+# old main commit at HEAD, a PR-less checkout, and an older PR that sorts first on
+# updated_at while a later PR carries the new context. Every one of those reported green
+# on the incident. The newest status wins regardless of which candidate carried it.
+published=""
+
+collect() {  # $1 = sha, $2 = "tolerate" to allow a read failure
+    reported=$(gh api "repos/$REPO/commits/$1/status" \
+      --jq '.statuses[] | select(.context | startswith("Terraform Cloud/")) | "\(.updated_at) \(.context)"' 2>/dev/null)
+    if [ $? -ne 0 ]; then
+        [ "${2:-}" = tolerate ] && return 0
+        fail "could not read commit status for $1"
+    fi
+    [ -n "$reported" ] && published="$published
+$reported"
+    return 0
 }
 
-# Freshest evidence first. Open PR heads matter most: after the connection is rebuilt,
-# main still carries the OLD context while the blocked PR's head carries the new one.
-# Trusting main here would report green on exactly the incident this exists to catch.
 candidates=$(gh api "repos/$REPO/pulls?state=open&sort=updated&direction=desc&per_page=20" \
   --jq '.[].head.sha') || fail "could not list open pull requests for $REPO"
-
-# Local HEAD comes AFTER the PR heads on purpose. Running /infra-status from a main
-# checkout puts an old main commit at HEAD, still carrying the old context; trusting it
-# first reports green on the incident. If HEAD is a pushed PR branch its sha is already
-# in the list above, so this only adds value for an unpushed or PR-less branch.
-head_sha=$(git rev-parse HEAD 2>/dev/null) || head_sha=""
-[ -n "$head_sha" ] && candidates="$candidates $head_sha"
-
 recent=$(gh api "repos/$REPO/commits?per_page=20" --jq '.[].sha') \
   || fail "could not list commits for $REPO"
-candidates="$candidates $recent"
+
+# A local HEAD may be unpushed, so a failed read there is tolerated rather than fatal.
+head_sha=$(git rev-parse HEAD 2>/dev/null) || head_sha=""
+[ -n "$head_sha" ] && collect "$head_sha" tolerate
 
 seen=""
-for sha in $candidates; do
+for sha in $candidates $recent; do
     case " $seen " in *" $sha "*) continue ;; esac
     seen="$seen $sha"
-    reported=$(gh api "repos/$REPO/commits/$sha/status" --jq '.statuses[].context' 2>/dev/null) \
-      || continue
-    printf '%s\n' "$reported" | grep -q '^Terraform Cloud/' || continue
-    compare "$reported" "$sha"
-    exit $?
+    [ "$sha" = "$head_sha" ] && continue
+    collect "$sha"
 done
 
+published=$(printf '%s\n' "$published" | grep '^[0-9]')
 # Nothing anywhere carries an HCP status. Unverifiable, not broken.
+[ -n "$published" ] || exit 0
+
+# Lexicographic sort is chronological for ISO-8601 UTC timestamps, which is what the
+# commit status API returns.
+newest_at=$(printf '%s\n' "$published" | sort | tail -1 | cut -d' ' -f1)
+current=$(printf '%s\n' "$published" | grep "^$newest_at " | cut -d' ' -f2- | sort -u)
+
+tmp=$(mktemp) || fail "mktemp failed"
+printf '%s\n' "$current" > "$tmp"
+missing=$(printf '%s\n' "$required" | grep -vxF -f "$tmp")
+rm -f "$tmp"
+
+if [ -n "$missing" ]; then
+    fail "BLOCKED: required but not published by the current connection (newest status at $newest_at publishes: $(printf '%s' "$current" | tr '\n' ' ')): $missing"
+fi
 exit 0
