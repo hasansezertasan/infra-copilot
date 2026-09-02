@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -87,6 +88,35 @@ class ValidatePhaseFiveRuleTests(unittest.TestCase):
                     "missing 'status `applied`'",
                 ],
             )
+
+
+class GeneratedInventoryDocsTests(unittest.TestCase):
+    """The docs quote a generated-file count and a headerless list; both drifted once."""
+
+    def test_docs_quote_the_real_counts(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        outputs = sorted(
+            json.loads((root / ".ai-rulez-generated.json").read_text(encoding="utf-8"))[
+                "outputs"
+            ]
+        )
+        headerless = [
+            path
+            for path in outputs
+            if "AI-RULEZ :: GENERATED FILE"
+            not in (root / path).read_text(encoding="utf-8", errors="replace")
+        ]
+        for document in ("AGENTS.md", "CONTRIBUTING.md"):
+            text = (root / document).read_text(encoding="utf-8")
+            self.assertIn(
+                str(len(outputs)), text, f"{document} does not quote {len(outputs)} outputs"
+            )
+            for path in headerless:
+                self.assertIn(
+                    Path(path).name,
+                    text,
+                    f"{document} omits headerless generated file {path}",
+                )
 
 
 class ValidateReleaseSurfacesTests(unittest.TestCase):

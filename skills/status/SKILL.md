@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:926e79f673b467fee03b735fec72cc9c86d2685e19bcdcc585fe795e3c752b23
-Source-Hash: blake3:2eec352e33b8b739fd517a9546d6d71f91aed9b5883d2e4dab043c0ee2317a36
+Content-Hash: blake3:2e7908085e8eb0713362482bc9f316455524dcc2d7c21167020b0c24689051d6
+Source-Hash: blake3:12b3d3a72035a2f80cbef94c4a717cd26053ba55cd9fe7fcb436614d93955148
 Schema-Version: v1
 -->
 
@@ -42,9 +42,12 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    on this:
 
    - **Non-mutating checks** (HCP/Cloudflare/GitHub API reads, file existence, tool
-     versions — phases 0–3) — run them directly. These only read.
-   - **Mutating checks — do NOT run them.** The phase-4 checks (`plan-cloudflare`,
-     `plan-github`) and the phase-5 `migrate-import` check run `terraform init`/`plan`,
+     versions — phases 0–3, plus the phase-4 `status-check-context` step) — run them
+     directly. These only read. `status-check-context` is two `gh api` reads and a
+     comparison in `$TMPDIR`; it touches neither the working tree nor any provider state,
+     so run it even though it sits in phase 4.
+   - **Mutating checks — do NOT run them.** `plan-cloudflare`, `plan-github`, and the
+     phase-5 `migrate-import` check run `terraform init`/`plan`,
      which writes `.terraform/` and can create or update `.terraform.lock.hcl` — that would
      dirty the checkout, and this command promises to change nothing. Instead, read the
      **run status per workspace via the HCP API** (non-mutating — see
@@ -126,10 +129,43 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 
 | First red step is in… | Run |
 |---|---|
-| Phases 0–4 | **infra-copilot:setup** |
+| `status-check-context` exit 2 (`CANNOT VERIFY`) | **Nothing to fix in the repo.** Report `?` and name the cause — most often `gh auth login`. Do not route to any skill. |
+| `status-check-context` exit 1 (phase 4) | **Nothing — fix it directly**, not via `setup`. For `BLOCKED`, replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keep every other required context, and follow the break-glass sequence ([`../infra-copilot/references/docs/ci.md`](../infra-copilot/references/docs/ci.md#hcp-status-check-context)). For `UNDERPROTECTED`, re-apply `branch_protection.tf` so an HCP context is required again. |
+| Other steps in phases 0–4 | **infra-copilot:setup** |
 | Phase 5 (migrate-*) | **infra-copilot:import** — only relevant if adopting pre-existing resources |
 | Phase 6 (gcp-*) | **infra-copilot:add** — and only after the design decision |
 | All green | Nothing — repo is set up. |
+
+`status-check-context` has **three outcomes, and only two of them are verdicts.** Read the
+exit code, not just the fact that it was non-zero:
+
+- **exit 2, `CANNOT VERIFY: …`** — `REPO` unset, `gh` not authenticated, or an API read
+  failed. This proves *nothing* about branch protection. Report it as `?`, not `✗`, name
+  the cause, and do **not** mention `branch_protection.tf` or break-glass. The fix is
+  usually `gh auth login`.
+
+Exit 1 is a real verdict, and it has **two modes with opposite operational risk** — read
+the message and report the right one first, ahead of any other finding:
+
+- `BLOCKED: required but never published …` — protection requires a status nobody posts,
+  so **every PR is blocked** even though the rest of the report reads green. This is the
+  stale-context incident; recovery is the break-glass sequence.
+- `UNDERPROTECTED: branch protection requires no 'Terraform Cloud/' context …` — the
+  opposite. Merges are **not** blocked; they are going through without an HCP plan
+  gating them. Do **not** send the user into break-glass — protection is misconfigured or
+  was left relaxed after a previous recovery, and `branch_protection.tf` needs re-applying.
+
+Never report one as the other: telling a user PRs are blocked when they are in fact
+under-protected inverts the risk. And never report either when the check exited 2 — an
+unreadable check is not evidence of a misconfigured repository.
+
+**What this step does not cover.** If `main` has no branch protection at all, the check
+passes. That is deliberate: `setup` ends at green speculative plans without applying
+`branch_protection.tf`, and HCP is already posting statuses by then, so nothing observable
+separates "not applied yet" from "removed". Do not read a green
+`status-check-context` as proof that protection exists — only that a required HCP context,
+if one is required, is being published. Whether protection is applied at all is a separate
+invariant, and no step asserts it today.
 
 Note that a red Phase 5 or 6 is **expected and fine** for most repos — they're optional
 (import only matters if resources pre-exist; GCP is a template). Say so rather than

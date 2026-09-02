@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e11c616f9b9f265fabeffc089bb10d72f6352fd63187b32a2d855b739bfe74c3
-Source-Hash: blake3:2eec352e33b8b739fd517a9546d6d71f91aed9b5883d2e4dab043c0ee2317a36
+Content-Hash: blake3:08a65fc233e848ec20501480174ff36b1b2d5d09122d742d74e512856ce8084d
+Source-Hash: blake3:12b3d3a72035a2f80cbef94c4a717cd26053ba55cd9fe7fcb436614d93955148
 Schema-Version: v1
 -->
 
@@ -78,12 +78,48 @@ check is red. An all-green scope means "already done, nothing to do."
 
 ```text
 for step in scope(steps.yaml):
-    if run(step.check) is green:  skip, print "✓ {step.id}"
-    else:                         resume here
+    rc = run(step.check)
+    if rc == 0:
+        skip, print "✓ {step.id}"
+    elif not step.tri_state:
+        resume here                     # two-state: any non-zero is red
+    elif rc == 1:
+        resume here
+    elif rc == 2:
+        report "? {step.id} — could not verify: <stderr>", STOP, do NOT run step.run
+    else:
+        report "? {step.id} — unexpected check exit code {rc}", STOP, do NOT run step.run
 ```
 
 Never assume state from memory or a prior session — always re-check. See
 [`steps.yaml`](steps.yaml) for the runtime contract (which shell vars to export first).
+
+### Exit code 2 — could not verify
+
+A check may exit **2** to mean *the evidence could not be read* — a missing export, an
+unauthenticated CLI, a failed API call — as distinct from exit 1, *the thing being checked
+is wrong*.
+
+**This applies only to steps carrying `tri_state: true` in
+[`steps.yaml`](steps.yaml).** Every other check is two-state: any non-zero means red,
+full stop. That distinction is not cosmetic — ordinary tools already use 2 for their own
+reasons. `jq` exits 2 when its input file does not exist, which is exactly the cold-start
+state of `hcp-login`'s check, so treating 2 as "cannot verify" everywhere would refuse to
+run the login step that creates the file and would block every greenfield bootstrap.
+
+For a `tri_state` step, treat 2 as neither green nor red:
+
+- Report the step as `?` with the check's own stderr, which names the cause.
+- **Do not execute the step's `run`.** A `run` describes how to fix a real failure; on a 2
+  nothing has been shown to be broken, so following it can do harm. `status-check-context`
+  is the clearest case: its `run` tells you to edit branch protection, which is exactly the
+  wrong instruction when the only problem is that `gh` is not logged in.
+- Fix the named precondition, then re-run the scan from the same step.
+
+For a `tri_state` step only exit **1** means resume-and-fix. Any other unexpected code is
+treated like a 2 — reported, not acted on — because a code the check does not define is
+not evidence about the repository either. A two-state step keeps the simple rule: non-zero
+is red.
 
 ## Preflight (AGENT)
 
