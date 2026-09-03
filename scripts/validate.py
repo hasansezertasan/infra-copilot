@@ -311,13 +311,21 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     # audited external versions. Hardcoding it here made that manifest the second one:
     # resolving a cf-terraforming bump would pass check_upstream and still fail here,
     # with nothing pointing at this line.
-    cf_version = audited_version("cf-terraforming")
-    for marker in (
-        f'"github:cloudflare/cf-terraforming" = "{cf_version}"',
-        "mise lock",
-        'MISE_LOCKED=1 mise install "github:cloudflare/cf-terraforming"',
-        "git add mise.toml mise.lock",
-    ):
+    # main() evaluates every validator into one list, so raising here would replace the
+    # errors already collected with a traceback. Report and keep going: an unreadable
+    # manifest must not suppress the checks below it either.
+    cf_version: str | None = None
+    try:
+        cf_version = audited_version("cf-terraforming", root)
+    except (OSError, json.JSONDecodeError, KeyError) as error:
+        errors.append(
+            f"{UPSTREAM_MANIFEST}: cannot read the cf-terraforming pin: {error}"
+        )
+    markers = ["mise lock", "git add mise.toml mise.lock",
+               'MISE_LOCKED=1 mise install "github:cloudflare/cf-terraforming"']
+    if cf_version is not None:
+        markers.append(f'"github:cloudflare/cf-terraforming" = "{cf_version}"')
+    for marker in markers:
         if marker not in import_guide:
             errors.append(f"{TOOLCHAIN_IMPORT_DOCUMENT}: missing {marker!r}")
     # `mise use` installs as it writes the pin, which resolves the binary before the
@@ -512,7 +520,11 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
                 f"{package}: README documents {details}, {MAKEFILE_PATH} pins {pinned}"
             )
         for relative in TOOL_PIN_WORKFLOWS:
-            workflow = (root / relative).read_text(encoding="utf-8")
+            try:
+                workflow = (root / relative).read_text(encoding="utf-8")
+            except OSError as error:
+                errors.append(f"{relative}: cannot read workflow: {error}")
+                continue
             # Any `<package>@…` reference, not just a literal version. The form
             # this replaced was indirect — `ai-rulez@${INFRA_COPILOT_..._VERSION}`
             # with the value in `env:` — so matching only a literal semver would

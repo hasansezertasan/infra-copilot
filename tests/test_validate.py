@@ -103,6 +103,43 @@ class SingleVersionAuthorityTests(unittest.TestCase):
     def test_toolchain_contract_reads_the_manifest(self) -> None:
         self.assertEqual(validate_toolchain_contract(), [])
 
+    def test_unreadable_manifest_is_reported_not_raised(self) -> None:
+        """main() evaluates every validator into one list.
+
+        Raising here would replace the errors already collected with a
+        traceback, which is the bug collect_manifest_errors exists to prevent.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            source = Path(__file__).resolve().parents[1]
+            shutil.copytree(
+                source / ".ai-rulez", repository / ".ai-rulez"
+            )
+            (repository / "scripts").mkdir()  # no upstream.json
+
+            errors = validate_toolchain_contract(repository)
+
+            self.assertTrue(
+                any("cannot read the cf-terraforming pin" in error for error in errors),
+                errors,
+            )
+
+    def test_unreadable_workflow_is_reported_not_raised(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            (repository / "Makefile").write_text(
+                "AI_RULEZ_VERSION := 4.11.3\nSKILLS_VERSION := 1.5.23\n", encoding="utf-8"
+            )
+            (repository / "README.md").write_text(
+                "ai-rulez@4.11.3 skills@1.5.23\n", encoding="utf-8"
+            )
+
+            errors = validate_tool_pins(repository)
+
+            self.assertTrue(
+                any("cannot read workflow" in error for error in errors), errors
+            )
+
     def test_unknown_entry_raises_rather_than_defaulting(self) -> None:
         with self.assertRaises(KeyError):
             audited_version("not-an-entry")

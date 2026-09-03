@@ -54,6 +54,15 @@ class ManifestTests(unittest.TestCase):
     def test_citations_encode_the_audited_version(self) -> None:
         self.assertEqual(check_linkage(load_entries()), [])
 
+    def test_pinned_sha_entries_declare_a_resolvable_tag(self) -> None:
+        """`audited_sha` needs a github_release source to resolve its tag against."""
+        for entry in load_entries():
+            if "audited_sha" not in entry:
+                continue
+            with self.subTest(entry=entry["name"]):
+                self.assertEqual(entry["source"]["type"], "github_release")
+                self.assertRegex(str(entry["audited_sha"]), r"^[0-9a-f]{40}$")
+
     def test_sources_are_machine_readable_kinds(self) -> None:
         for entry in load_entries():
             with self.subTest(entry=entry["name"]):
@@ -192,6 +201,15 @@ class CoherenceTests(unittest.TestCase):
 
         self.assertEqual(len(errors), 1, errors)
         self.assertIn("no cited_as string contains the audited version '6'", errors[0])
+
+    def test_linkage_rejects_a_prefix_match(self) -> None:
+        """`1.2.3` is a substring of `v1.2.30`, so linkage must be bounded too."""
+        errors = check_linkage([{
+            "name": "widget", "audited": "1.2.3", "cited_as": ["pin v1.2.30"],
+        }])
+
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("no cited_as string contains", errors[0])
 
     def test_present_version_passes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

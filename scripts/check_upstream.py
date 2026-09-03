@@ -92,7 +92,9 @@ def check_linkage(entries: list[dict[str, object]]) -> list[str]:
     for entry in entries:
         audited = str(entry["audited"])
         needles = [needle for needle, _count in cited_strings(entry)]
-        if not any(audited in needle for needle in needles):
+        # Bounded, like coherence: a substring test accepts "1.2.3" inside "v1.2.30",
+        # so linkage would pass while the citation named a different version.
+        if not any(occurrences(audited, needle) for needle in needles):
             errors.append(
                 f"{entry['name']}: no cited_as string contains the audited version "
                 f"{audited!r} ({', '.join(repr(n) for n in needles)}); the citation and "
@@ -172,6 +174,41 @@ def latest_version(source: dict[str, object]) -> str:
     return match.group(0)
 
 
+def resolve_tag_sha(repo: str, tag: str) -> str:
+    """The commit a release tag points at, dereferencing annotated tags."""
+    return str(fetch_json(f"https://api.github.com/repos/{repo}/commits/{tag}")["sha"])
+
+
+def check_pinned_shas(entries: list[dict[str, object]]) -> tuple[list[str], list[str]]:
+    """A cited SHA must be the commit its audited release tag resolves to.
+
+    Otherwise a maintainer can bump ``audited`` and the version citation while
+    leaving the old SHA in place: linkage is satisfied by the version citation,
+    coherence still finds the old SHA, freshness compares only the version — and
+    the shipped example keeps executing the previous action. Needs the network,
+    because only the upstream repository knows what a tag points at.
+    """
+    findings: list[str] = []
+    unreachable: list[str] = []
+    for entry in entries:
+        sha = entry.get("audited_sha")
+        if not sha:
+            continue
+        source = dict(entry["source"])  # type: ignore[arg-type]
+        tag = str(entry.get("tag_format", "v{audited}")).format(audited=entry["audited"])
+        try:
+            actual = resolve_tag_sha(str(source["repo"]), tag)
+        except (Unreachable, KeyError) as error:
+            unreachable.append(f"{entry['name']}: could not resolve {tag}: {error}")
+            continue
+        if actual != str(sha):
+            findings.append(
+                f"{entry['name']}: cited SHA {sha} is not what {tag} resolves to "
+                f"({actual}); the pinned commit and the audited version disagree"
+            )
+    return findings, unreachable
+
+
 def check_freshness(
     entries: list[dict[str, object]],
 ) -> tuple[list[str], list[str]]:
@@ -221,6 +258,9 @@ def main() -> int:
         return 0
 
     findings, unreachable = check_freshness(entries)
+    sha_findings, sha_unreachable = check_pinned_shas(entries)
+    findings += sha_findings
+    unreachable += sha_unreachable
     for finding in findings:
         print(f"DRIFT: {finding}", file=sys.stderr)
     for problem in unreachable:

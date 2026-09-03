@@ -26,6 +26,8 @@
     "",
     "A citation may include prose, such as a matrix's provenance date, when that prose",
     "goes stale with the version. There is no separate date field: one mechanism only.",
+    "An entry with `audited_sha` also has that SHA checked against the commit its",
+    "audited tag resolves to, so a version bump cannot leave a stale pinned commit.",
     "`sources` are all machine-readable and readable unauthenticated.",
     "API endpoint paths are deliberately NOT tracked here: HCP Terraform publishes",
     "no machine-readable API schema to diff them against, so any check would be a",
@@ -68,11 +70,12 @@
       "cited_in": [
         "docs/ci.md"
       ],
-      "why_it_matters": "Pinned by commit SHA in the CI example. The SHA is the value that runs; the version is only a comment, so both must move together.",
+      "why_it_matters": "Pinned by commit SHA in the CI example. The SHA is the value that runs; the version is only a comment. The nightly resolves the audited tag and requires the cited SHA to match it, so the two cannot be updated independently.",
       "cited_as": [
         "mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c",
         "4.3.0"
-      ]
+      ],
+      "audited_sha": "c2a87611a18de5b3828c5652fe268e992400cb5c"
     },
     {
       "name": "cloudflare-provider-major",
