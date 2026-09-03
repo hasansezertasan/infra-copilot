@@ -1,18 +1,29 @@
 {
   "$comment": [
-    "Audited external versions cited in shipped guidance, and where each is cited.",
+    "Audited external facts cited in shipped guidance, and where each is cited.",
+    "",
+    "What belongs here: facts whose *currency* matters \u2014 a coverage matrix tied to a",
+    "release, a provider major whose behaviour the guidance describes, an action",
+    "pinned by SHA in shipped CI. Drift in those needs a decision.",
+    "",
+    "What does not: values whose *form* matters rather than their currency. The",
+    "worked mise.toml in docs/setup.md names terraform, gh and jq versions that the",
+    "document itself labels examples \u2014 the requirement is that a reader pins an exact",
+    "version, not that it be the newest one. Tracking them produced a red nightly",
+    "every few weeks with no decision attached, and a check that cries wolf is how",
+    "the incident behind #24 stayed invisible.",
+    "",
     "Two checks run against this file. Coherence (offline, part of `make check`):",
-    "every `cited_as` string must still appear in each doc that cites it, so the",
-    "manifest cannot drift away from the prose. Freshness (network, nightly):",
-    "`audited` is compared against the current upstream release.",
+    "every `cited_as` string must still appear in each doc that cites it, the",
+    "expected number of times, so the manifest cannot drift away from the prose.",
+    "Freshness (network, nightly): `audited` is compared against the current",
+    "upstream release.",
     "",
     "`cited_as` exists because `audited` alone is not searchable: a bare major like",
-    "\"5\" matches a numbered step or `Terraform 1.5+`, so guidance could move from v5",
-    "to v6 with the manifest still passing. It defaults to `audited` when the version",
-    "string is itself distinctive.",
+    "\"5\" matches a numbered step or `Terraform 1.5+`. An item may be",
+    "{\"text\": ..., \"count\": n} to require an exact number of occurrences, so",
+    "updating one of several mentions cannot pass while the rest go stale.",
     "",
-    "A `cited_as` item may be {\"text\": ..., \"count\": n} to require an exact number of",
-    "occurrences, so updating one of several mentions cannot pass while the rest go stale.",
     "`sources` are all machine-readable and readable unauthenticated.",
     "API endpoint paths are deliberately NOT tracked here: HCP Terraform publishes",
     "no machine-readable API schema to diff them against, so any check would be a",
@@ -41,42 +52,6 @@
           "count": 1
         }
       ]
-    },
-    {
-      "name": "terraform",
-      "source": {
-        "type": "github_release",
-        "repo": "hashicorp/terraform"
-      },
-      "audited": "1.15.9",
-      "cited_in": [
-        "docs/setup.md"
-      ],
-      "why_it_matters": "Appears in the worked mise.toml a reader copies to establish the toolchain pin."
-    },
-    {
-      "name": "gh",
-      "source": {
-        "type": "github_release",
-        "repo": "cli/cli"
-      },
-      "audited": "2.81.0",
-      "cited_in": [
-        "docs/setup.md"
-      ],
-      "why_it_matters": "Same worked mise.toml."
-    },
-    {
-      "name": "jq",
-      "source": {
-        "type": "github_release",
-        "repo": "jqlang/jq"
-      },
-      "audited": "1.8.1",
-      "cited_in": [
-        "docs/setup.md"
-      ],
-      "why_it_matters": "Same worked mise.toml."
     },
     {
       "name": "mise-action",

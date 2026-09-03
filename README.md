@@ -112,11 +112,16 @@ Individual targets (`make validate`, `make test`, `make smoke-opencode`) exist f
 narrowing down a failure.
 
 `make check-upstream` is separate because it reads the network. The shipped references
-cite external versions — a `cf-terraforming` coverage matrix, a worked `mise.toml`, a
-provider major — and it compares each against the current upstream release. It runs
-nightly rather than on pull requests, so a rate limit can never fail a PR. The audited
-versions and what each one affects live in [`scripts/upstream.json`](scripts/upstream.json);
-`make check` verifies offline that the docs still cite them.
+cite external facts whose currency matters — a `cf-terraforming` coverage matrix, two
+provider majors, an action pinned by SHA in shipped CI — and it compares each against the
+current upstream release. It runs nightly rather than on pull requests, so a rate limit
+can never fail a PR. The audited facts and what each one affects live in
+[`scripts/upstream.json`](scripts/upstream.json); `make check` verifies offline that the
+docs still cite them.
+
+Versions that are only illustrative are deliberately not tracked — the worked `mise.toml`
+in the setup runbook names example versions whose requirement is being *exact*, not being
+*newest*, and gating them produced recurring failures with no decision attached.
 
 `Makefile` is the single definition of the tool versions this repository invokes —
 currently `ai-rulez@4.11.3` and `skills@1.5.23`. `scripts/validate.py` asserts this README
