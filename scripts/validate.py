@@ -352,6 +352,35 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     return errors
 
 
+SHIPPED_REFERENCES = "skills/infra-copilot/references"
+SHIPPED_CHECK_PATTERN = re.compile(r"\$INFRA_COPILOT_REFERENCES/(?P<path>[A-Za-z0-9._/-]+)")
+
+
+def validate_shipped_check_paths(root: Path = ROOT) -> list[str]:
+    """Every `$INFRA_COPILOT_REFERENCES/...` path must exist in the shipped tree.
+
+    A check that names a renamed or deleted script fails at run time inside a
+    consuming repo, where the diagnostic is a bare shell error. Catch it here.
+    """
+    errors: list[str] = []
+    manifest = root / SHIPPED_REFERENCES / "steps.yaml"
+    text = manifest.read_text(encoding="utf-8")
+    for match in SHIPPED_CHECK_PATTERN.finditer(text):
+        relative = match.group("path")
+        # Either a script or a directory: the preflight guard tests `checks/` itself.
+        if not (root / SHIPPED_REFERENCES / relative).exists():
+            errors.append(
+                f"{SHIPPED_REFERENCES}/steps.yaml: check references "
+                f"$INFRA_COPILOT_REFERENCES/{relative}, which does not exist"
+            )
+    if SHIPPED_CHECK_PATTERN.search(text) and "infra-copilot-references" not in text:
+        errors.append(
+            f"{SHIPPED_REFERENCES}/steps.yaml: a check resolves a shipped script but "
+            "preflight has no infra-copilot-references guard"
+        )
+    return errors
+
+
 def validate_json_manifests(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     for relative in JSON_MANIFESTS:
@@ -597,6 +626,7 @@ def main() -> int:
         *validate_config_fallbacks(),
         *validate_phase_five_rule(),
         *validate_toolchain_contract(),
+        *validate_shipped_check_paths(),
         *collect_manifest_errors(),
         *validate_links(),
         *validate_tool_pins(),

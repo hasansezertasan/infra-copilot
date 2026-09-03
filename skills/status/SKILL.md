@@ -6,7 +6,7 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:2e7908085e8eb0713362482bc9f316455524dcc2d7c21167020b0c24689051d6
-Source-Hash: blake3:a69151ee273985382c2141490512a52e8015e9eef6fb16851c72dbc5a9037b91
+Source-Hash: blake3:4aca50bce2e6932ab2756e3c02ef0b68b862a1d131b79a46c078bb828d02991b
 Schema-Version: v1
 -->
 

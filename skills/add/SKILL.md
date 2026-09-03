@@ -6,7 +6,7 @@ description: "Grow an already-bootstrapped infra repo by provisioning something 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:1b13ec27d9bea952df792bfbf96198420b2fcc86930ddd38b606a4b27b24aacd
-Source-Hash: blake3:a69151ee273985382c2141490512a52e8015e9eef6fb16851c72dbc5a9037b91
+Source-Hash: blake3:4aca50bce2e6932ab2756e3c02ef0b68b862a1d131b79a46c078bb828d02991b
 Schema-Version: v1
 -->
 

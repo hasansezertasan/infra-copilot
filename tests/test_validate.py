@@ -20,6 +20,7 @@ from scripts.validate import (
     validate_manifest_paths,
     validate_phase_five_rule,
     validate_toolchain_contract,
+    validate_shipped_check_paths,
     validate_tool_pins,
     validate_versions,
 )
@@ -86,6 +87,52 @@ class ValidatePhaseFiveRuleTests(unittest.TestCase):
                     "missing 'incomplete'",
                     ".ai-rulez/skills/status/SKILL.md: phase-5 completion rule "
                     "missing 'status `applied`'",
+                ],
+            )
+
+
+class ShippedCheckPathTests(unittest.TestCase):
+    """A check naming a shipped script fails obscurely in a consuming repo."""
+
+    def test_real_manifest_resolves_its_shipped_checks(self) -> None:
+        self.assertEqual(validate_shipped_check_paths(), [])
+
+    def test_missing_script_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            manifest = repository / "skills/infra-copilot/references/steps.yaml"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(
+                'preflight:\n  - tool: infra-copilot-references\n'
+                'steps:\n  - check: sh "$INFRA_COPILOT_REFERENCES/checks/gone.sh"\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                validate_shipped_check_paths(repository),
+                [
+                    "skills/infra-copilot/references/steps.yaml: check references "
+                    "$INFRA_COPILOT_REFERENCES/checks/gone.sh, which does not exist"
+                ],
+            )
+
+    def test_shipped_check_without_a_preflight_guard_is_reported(self) -> None:
+        """The export is the precondition; a check that needs it must be gated."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            references = repository / "skills/infra-copilot/references"
+            (references / "checks").mkdir(parents=True)
+            (references / "checks/present.sh").write_text("exit 0\n", encoding="utf-8")
+            (references / "steps.yaml").write_text(
+                'steps:\n  - check: sh "$INFRA_COPILOT_REFERENCES/checks/present.sh"\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                validate_shipped_check_paths(repository),
+                [
+                    "skills/infra-copilot/references/steps.yaml: a check resolves a "
+                    "shipped script but preflight has no infra-copilot-references guard"
                 ],
             )
 
