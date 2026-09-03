@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:43dfe6626e0d4cf591e126b9baf3758bce1094062cf6c14a3be8c4ef72bceccd
-Source-Hash: blake3:12b3d3a72035a2f80cbef94c4a717cd26053ba55cd9fe7fcb436614d93955148
+Content-Hash: blake3:b64c29f94310edd0815633bea6dd0fccbe40b0e6e09b2e0ddb783817ee83f01f
+Source-Hash: blake3:a69151ee273985382c2141490512a52e8015e9eef6fb16851c72dbc5a9037b91
 Schema-Version: v1
 -->
 
@@ -89,19 +89,25 @@ sh "$INFRA_COPILOT_REFERENCES/checks/status-check-context.sh"
 ```
 
 **Read the replacement context out of that output** rather than picking a commit yourself.
-Choosing the right commit is the hard part — the check gathers statuses across open PR
-heads, recent commits and local `HEAD`, then selects the one with the newest `updated_at`,
-because an older commit can still carry the pre-reconnection context. Its `BLOCKED`
-message names both sides:
+The check verifies **each open PR against `main` independently**, because each is blocked
+independently — one PR receiving the required context says nothing about another that is
+not. It reports every PR whose published contexts do not include what protection
+requires, and falls back to recent `main` history only when no open PR publishes an HCP
+status at all. Local `HEAD` is deliberately not consulted: no `gh` exit code separates
+"this commit is not on the remote" from "the request failed".
+
+Its `BLOCKED` message names both sides, per candidate:
 
 ```text
-BLOCKED: required but not published by the current connection
-  (newest status at 2026-08-27T09:14:02Z publishes: Terraform Cloud/acme/repo-id-4711):
-  Terraform Cloud/acme/repo-id-2100
+BLOCKED: open PR head (a1b2c3d) publishes [Terraform Cloud/acme/repo-id-4711]
+  but branch protection requires: Terraform Cloud/acme/repo-id-2100
 ```
 
-The context in parentheses is what HCP publishes now — the string to put in
+The context in brackets is what HCP publishes now — the string to put in
 `branch_protection.tf`. The one after the colon is the stale entry to remove.
+
+If a pushed branch has no open PR, open one (even as a draft) so HCP posts a status
+against it; that is what gives the check something current to compare.
 
 It is a string comparison, not a timing heuristic. If no recent commit carries any
 `Terraform Cloud/` status the check passes rather than failing — there is nothing to

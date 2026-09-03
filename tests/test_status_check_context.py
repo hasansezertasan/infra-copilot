@@ -20,8 +20,7 @@ SCRIPT = REPO_ROOT / "skills/infra-copilot/references/checks/status-check-contex
 
 HCP_OLD = "Terraform Cloud/acme/repo-id-111"
 HCP_NEW = "Terraform Cloud/acme/repo-id-222"
-OLD_AT = "2026-01-01T00:00:00Z"
-NEW_AT = "2026-06-01T00:00:00Z"
+
 
 
 # The check is a POSIX shell script that runs on the agent's machine in a consuming
@@ -40,7 +39,7 @@ class StatusCheckContextTests(unittest.TestCase):
         required: str = HCP_OLD,
         pulls: str = "",
         commits: str = "",
-        statuses: dict[str, list[tuple[str, str]]] | None = None,
+        statuses: dict[str, list[str]] | None = None,
         head: str = "",
         head_exists: bool = False,
         authenticated: bool = True,
@@ -51,8 +50,7 @@ class StatusCheckContextTests(unittest.TestCase):
             bin_dir = Path(directory)
             status_cases = "\n".join(
                 "    *commits/{sha}/status*) printf '%s\\n' \"{lines}\" ;;".format(
-                    sha=sha,
-                    lines="\\n".join(f"{at} {context}" for at, context in entries),
+                    sha=sha, lines="\\n".join(entries)
                 )
                 for sha, entries in statuses.items()
             )
@@ -106,7 +104,7 @@ class StatusCheckContextTests(unittest.TestCase):
             )
 
     def test_passes_when_context_matches(self) -> None:
-        result = self.run_check(commits="sha1", statuses={"sha1": [(OLD_AT, HCP_OLD)]})
+        result = self.run_check(commits="sha1", statuses={"sha1": [HCP_OLD]})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("STUB: unmatched", result.stderr)
 
@@ -120,7 +118,7 @@ class StatusCheckContextTests(unittest.TestCase):
             required=HCP_OLD,
             pulls="prsha",
             commits="mainsha",
-            statuses={"prsha": [(NEW_AT, HCP_NEW)], "mainsha": [(OLD_AT, HCP_OLD)]},
+            statuses={"prsha": [HCP_NEW], "mainsha": [HCP_OLD]},
             head="mainsha",
         )
         self.assertEqual(result.returncode, 1)
@@ -143,16 +141,35 @@ class StatusCheckContextTests(unittest.TestCase):
         result = self.run_check(
             protected="false",
             commits="sha1",
-            statuses={"sha1": [(OLD_AT, HCP_OLD)]},
+            statuses={"sha1": [HCP_OLD]},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_pr_list_is_paginated(self) -> None:
-        """A repo with >1 page of open PRs can hide the head carrying the new context."""
+    def test_candidates_are_scoped_to_the_protected_branch(self) -> None:
+        """The commits API defaults sha to the *default* branch, which need not be main.
+
+        Unfiltered, the pulls request also admits PRs based on other branches.
+        """
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("--paginate", script)
-        self.assertNotIn("per_page=20&", script)
-        self.assertIn("pulls?state=open", script)
+        self.assertIn("base=main", script)
+        self.assertIn("sha=main", script)
+
+    def test_a_late_finishing_old_run_cannot_clear_a_blocked_pr(self) -> None:
+        """The failure mode that killed newest-timestamp selection.
+
+        An in-flight pre-rebuild run finishing after the new-connection run made
+        the newest status the old context, which matched `required`, so the
+        check passed while the PR carrying the new context waited forever.
+        """
+        result = self.run_check(
+            required=HCP_OLD,
+            pulls="newpr latepr",
+            commits="mainsha",
+            statuses={"newpr": [HCP_NEW], "latepr": [HCP_OLD], "mainsha": [HCP_OLD]},
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("newpr", result.stderr)
 
     def test_protection_without_an_hcp_context_is_underprotected(self) -> None:
         result = self.run_check(required="")
@@ -185,24 +202,26 @@ class StatusCheckContextTests(unittest.TestCase):
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertNotIn("rev-parse", script)
         result = self.run_check(
-            commits="sha1", statuses={"sha1": [(OLD_AT, HCP_OLD)]}, head="ignored"
+            commits="sha1", statuses={"sha1": [HCP_OLD]}, head="ignored"
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_stale_context_wins_no_matter_which_candidate_is_listed_first(self) -> None:
-        """An older PR sorting first must not decide what is published now.
+    def test_every_open_pr_is_checked_not_just_one(self) -> None:
+        """One PR publishing the required context must not clear another that does not.
 
-        Ordering by list position was wrong three separate ways; the newest
-        status timestamp decides, whichever candidate carried it.
+        Each PR is blocked independently, so a single global "current context"
+        cannot express the invariant. Two attempts proved it: first-match let an
+        old commit win, and newest-timestamp let a pre-rebuild run finishing
+        late win.
         """
         result = self.run_check(
             required=HCP_OLD,
             pulls="oldpr newpr",
             commits="mainsha",
             statuses={
-                "oldpr": [(OLD_AT, HCP_OLD)],
-                "newpr": [(NEW_AT, HCP_NEW)],
-                "mainsha": [(OLD_AT, HCP_OLD)],
+                "oldpr": [HCP_OLD],
+                "newpr": [HCP_NEW],
+                "mainsha": [HCP_OLD],
             },
         )
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
@@ -223,7 +242,7 @@ class StatusCheckContextTests(unittest.TestCase):
             required=HCP_OLD,
             pulls="prsha",
             commits="mainsha",
-            statuses={"mainsha": [(OLD_AT, HCP_OLD)]},
+            statuses={"mainsha": [HCP_OLD]},
             fail_on="*commits/prsha/status*",
         )
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
