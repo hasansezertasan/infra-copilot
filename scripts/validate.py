@@ -236,7 +236,11 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         errors.append(
             f"{TOOLCHAIN_STEPS_DOCUMENT}: toolchain-pin metadata is incomplete"
         )
-    if preflight_check is not None and bootstrap_step is not None:
+    if preflight_check is None:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: missing mise preflight check"
+        )
+    elif bootstrap_step is not None:
         step_check = re.search(
             r"^    check: >-\n(?P<body>(?:      .*\n)+)",
             bootstrap_step.group("metadata"),

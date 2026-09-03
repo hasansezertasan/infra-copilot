@@ -485,6 +485,33 @@ class ValidateToolchainContractTests(unittest.TestCase):
             errors,
         )
 
+    def test_rejects_missing_mise_preflight_check(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8")
+            text = re.sub(
+                r"  - tool: mise\n(?:(?!  - tool: terraform).)*",
+                "",
+                text,
+                count=1,
+                flags=re.DOTALL,
+            )
+            steps.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("missing mise preflight check" in error for error in errors), errors
+        )
+
     def test_rejects_active_mise_state_and_unlocked_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
