@@ -38,21 +38,37 @@ def load_entries(manifest: Path = MANIFEST) -> list[dict[str, object]]:
         return list(json.load(source)["entries"])
 
 
+def cited_strings(entry: dict[str, object]) -> list[str]:
+    """The exact strings that must appear in the cited documents.
+
+    Defaults to ``audited``, but a bare major like ``"5"`` is not searchable — it
+    matches a numbered step or ``Terraform 1.5+`` — so an entry can declare
+    ``cited_as`` with something distinctive instead. Where a document carries
+    both an executed value and a human-readable one, such as an action pinned by
+    commit SHA with the version in a comment, list both: they must move together.
+    """
+    declared = entry.get("cited_as")
+    if declared:
+        return [str(value) for value in declared]  # type: ignore[union-attr]
+    return [str(entry["audited"])]
+
+
 def check_coherence(entries: list[dict[str, object]], references: Path = REFERENCES) -> list[str]:
-    """Each audited version must appear in every document that cites it."""
+    """Every cited string must still appear in every document that cites it."""
     errors: list[str] = []
     for entry in entries:
-        audited = str(entry["audited"])
         for relative in entry["cited_in"]:  # type: ignore[union-attr]
             document = references / str(relative)
             if not document.is_file():
                 errors.append(f"{entry['name']}: cited_in names {relative}, which does not exist")
                 continue
-            if audited not in document.read_text(encoding="utf-8"):
-                errors.append(
-                    f"{entry['name']}: {relative} no longer mentions the audited "
-                    f"version {audited}; update scripts/upstream.json or the document"
-                )
+            text = document.read_text(encoding="utf-8")
+            for needle in cited_strings(entry):
+                if needle not in text:
+                    errors.append(
+                        f"{entry['name']}: {relative} no longer contains {needle!r}; "
+                        "update scripts/upstream.json or the document"
+                    )
     return errors
 
 
