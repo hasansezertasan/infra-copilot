@@ -247,6 +247,21 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                 ],
             )
 
+    def test_every_linux_workflow_is_registered_with_the_pin_validator(self) -> None:
+        """A workflow outside TOOL_PIN_WORKFLOWS could pin a package unnoticed."""
+        root = Path(__file__).resolve().parents[1]
+        workflows = {
+            f".github/workflows/{path.name}"
+            for path in (root / ".github/workflows").glob("*.yml")
+        }
+        unregistered = workflows - set(TOOL_PIN_WORKFLOWS)
+
+        self.assertEqual(
+            unregistered,
+            set(),
+            "add these to TOOL_PIN_WORKFLOWS so validate_tool_pins scans them",
+        )
+
     def test_workflow_may_not_reintroduce_an_indirect_pin(self) -> None:
         """The replaced form kept the version in `env:`, not next to the `@`.
 

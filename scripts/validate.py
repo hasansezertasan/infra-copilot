@@ -67,6 +67,7 @@ TOOL_PIN_SPECS = {
 TOOL_PIN_WORKFLOWS = (
     ".github/workflows/check.yml",
     ".github/workflows/release.yml",
+    ".github/workflows/upstream.yml",
 )
 # Prerelease and build metadata are independent and may both appear:
 # 0.3.0-rc.1+build.5 is one version, not a version plus trailing junk.

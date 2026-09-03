@@ -38,19 +38,44 @@ def load_entries(manifest: Path = MANIFEST) -> list[dict[str, object]]:
         return list(json.load(source)["entries"])
 
 
-def cited_strings(entry: dict[str, object]) -> list[str]:
-    """The exact strings that must appear in the cited documents.
+def cited_strings(entry: dict[str, object]) -> list[tuple[str, int]]:
+    """The exact strings that must appear in the cited documents, with counts.
 
     Defaults to ``audited``, but a bare major like ``"5"`` is not searchable — it
     matches a numbered step or ``Terraform 1.5+`` — so an entry can declare
     ``cited_as`` with something distinctive instead. Where a document carries
     both an executed value and a human-readable one, such as an action pinned by
     commit SHA with the version in a comment, list both: they must move together.
+
+    An item may be ``{"text": ..., "count": n}`` to require an exact number of
+    occurrences. A plain membership test passes once *one* of several mentions is
+    updated, leaving the rest stale — ``docs/import.md`` cites ``0.27.0`` four
+    times in independently meaningful places. Requiring the count means a
+    partial edit fails, and adding a legitimate new mention forces a deliberate
+    manifest update rather than silently widening what goes unchecked.
     """
-    declared = entry.get("cited_as")
-    if declared:
-        return [str(value) for value in declared]  # type: ignore[union-attr]
-    return [str(entry["audited"])]
+    declared = entry.get("cited_as") or [str(entry["audited"])]
+    needles: list[tuple[str, int]] = []
+    for value in declared:  # type: ignore[union-attr]
+        if isinstance(value, dict):
+            needles.append((str(value["text"]), int(value.get("count", 0))))
+        else:
+            needles.append((str(value), 0))  # 0 = at least one
+    return needles
+
+
+def occurrences(needle: str, text: str) -> int:
+    """Count ``needle`` in ``text``, rejecting matches inside a longer version.
+
+    A plain substring test accepts a prefix: ``1.2.3`` is present in ``1.2.30``,
+    so a documented version could change and still read as coherent.
+    """
+    # Guard only the edges that are actually numeric. Applying the boundary
+    # unconditionally breaks a needle whose text edge sits next to a period —
+    # "v5 provider." reads as a failed lookahead rather than a match.
+    before = r"(?<![0-9.])" if needle[:1].isdigit() or needle.startswith(".") else ""
+    after = r"(?![0-9.])" if needle[-1:].isdigit() or needle.endswith(".") else ""
+    return len(re.findall(before + re.escape(needle) + after, text))
 
 
 def check_coherence(entries: list[dict[str, object]], references: Path = REFERENCES) -> list[str]:
@@ -63,8 +88,15 @@ def check_coherence(entries: list[dict[str, object]], references: Path = REFEREN
                 errors.append(f"{entry['name']}: cited_in names {relative}, which does not exist")
                 continue
             text = document.read_text(encoding="utf-8")
-            for needle in cited_strings(entry):
-                if needle not in text:
+            for needle, expected in cited_strings(entry):
+                found = occurrences(needle, text)
+                if expected and found != expected:
+                    errors.append(
+                        f"{entry['name']}: {relative} contains {needle!r} {found} "
+                        f"time(s), expected {expected}; update scripts/upstream.json "
+                        "or the document"
+                    )
+                elif not expected and not found:
                     errors.append(
                         f"{entry['name']}: {relative} no longer contains {needle!r}; "
                         "update scripts/upstream.json or the document"

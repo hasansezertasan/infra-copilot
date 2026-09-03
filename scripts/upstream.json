@@ -11,6 +11,8 @@
     "to v6 with the manifest still passing. It defaults to `audited` when the version",
     "string is itself distinctive.",
     "",
+    "A `cited_as` item may be {\"text\": ..., \"count\": n} to require an exact number of",
+    "occurrences, so updating one of several mentions cannot pass while the rest go stale.",
     "`sources` are all machine-readable and readable unauthenticated.",
     "API endpoint paths are deliberately NOT tracked here: HCP Terraform publishes",
     "no machine-readable API schema to diff them against, so any check would be a",
@@ -28,7 +30,17 @@
       "cited_in": [
         "docs/import.md"
       ],
-      "why_it_matters": "The per-resource coverage matrix in import.md was written against this release; newer ones may cover more or differ in generated HCL."
+      "why_it_matters": "The per-resource coverage matrix in import.md was written against this release; newer ones may cover more or differ in generated HCL. Cited in four places plus an abbreviated v0.27 claim, all of which must move together.",
+      "cited_as": [
+        {
+          "text": "0.27.0",
+          "count": 4
+        },
+        {
+          "text": "v0.27",
+          "count": 1
+        }
+      ]
     },
     {
       "name": "terraform",

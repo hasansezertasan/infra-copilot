@@ -13,7 +13,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.check_upstream import check_coherence, cited_strings, load_entries
+from scripts.check_upstream import (
+    check_coherence,
+    cited_strings,
+    load_entries,
+    occurrences,
+)
 
 
 class ManifestTests(unittest.TestCase):
@@ -40,7 +45,7 @@ class ManifestTests(unittest.TestCase):
                     self.assertIn(
                         "cited_as", entry, "a major-only version needs a searchable string"
                     )
-                for needle in cited_strings(entry):
+                for needle, _count in cited_strings(entry):
                     self.assertGreater(
                         len(needle), 2, f"{needle!r} is too short to be distinctive"
                     )
@@ -98,11 +103,14 @@ class CoherenceTests(unittest.TestCase):
             self.assertIn("does not exist", errors[0])
 
     def test_cited_as_defaults_to_the_audited_version(self) -> None:
+        self.assertEqual(cited_strings({"audited": "1.2.3"}), [("1.2.3", 0)])
         self.assertEqual(
-            cited_strings({"audited": "1.2.3"}), ["1.2.3"]
+            cited_strings({"audited": "5", "cited_as": ["v5 provider"]}),
+            [("v5 provider", 0)],
         )
         self.assertEqual(
-            cited_strings({"audited": "5", "cited_as": ["v5 provider"]}), ["v5 provider"]
+            cited_strings({"audited": "1", "cited_as": [{"text": "x", "count": 3}]}),
+            [("x", 3)],
         )
 
     def test_every_cited_string_must_be_present(self) -> None:
@@ -127,6 +135,38 @@ class CoherenceTests(unittest.TestCase):
 
             self.assertEqual(len(errors), 1, errors)
             self.assertIn("a/b@oldsha", errors[0])
+
+    def test_a_longer_version_does_not_satisfy_a_prefix(self) -> None:
+        """`1.2.3` is a substring of `1.2.30`, so a plain membership test lies."""
+        self.assertEqual(occurrences("1.2.3", "pin 1.2.30"), 0)
+        self.assertEqual(occurrences("1.2.3", "pin 1.2.3"), 1)
+
+    def test_boundary_applies_only_to_numeric_edges(self) -> None:
+        """A needle ending in text may legitimately be followed by a period."""
+        self.assertEqual(occurrences("v5 provider", "the v5 provider. State"), 1)
+
+    def test_partial_update_of_several_mentions_is_reported(self) -> None:
+        """One of four mentions updated must fail, not pass."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "guide.md").write_text("1.2.3 and 1.2.3 and 9.9.9\n", encoding="utf-8")
+            manifest = root / "upstream.json"
+            manifest.write_text(
+                json.dumps({"entries": [{
+                    "name": "widget",
+                    "source": {"type": "github_release", "repo": "a/b"},
+                    "audited": "1.2.3",
+                    "cited_as": [{"text": "1.2.3", "count": 3}],
+                    "cited_in": ["guide.md"],
+                    "why_it_matters": "test",
+                }]}),
+                encoding="utf-8",
+            )
+
+            errors = check_coherence(load_entries(manifest), root)
+
+            self.assertEqual(len(errors), 1, errors)
+            self.assertIn("2 time(s), expected 3", errors[0])
 
     def test_present_version_passes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
