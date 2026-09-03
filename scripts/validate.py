@@ -365,10 +365,25 @@ def validate_shipped_check_paths(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     manifest = root / SHIPPED_REFERENCES / "steps.yaml"
     text = manifest.read_text(encoding="utf-8")
+    references_root = (root / SHIPPED_REFERENCES).resolve()
     for match in SHIPPED_CHECK_PATTERN.finditer(text):
         relative = match.group("path")
+        # The path comes out of a shell string, so it can be absolute or contain `..`.
+        # `Path("a") / "/abs"` discards the prefix and `..` traverses upward, either of
+        # which would test some unrelated location. Resolve and require containment,
+        # matching validate_links and validate_manifest_paths.
+        resolved = (references_root / relative).resolve()
+        try:
+            resolved.relative_to(references_root)
+        except ValueError:
+            errors.append(
+                f"{SHIPPED_REFERENCES}/steps.yaml: check references "
+                f"$INFRA_COPILOT_REFERENCES/{relative}, which resolves outside the "
+                "shipped references tree"
+            )
+            continue
         # Either a script or a directory: the preflight guard tests `checks/` itself.
-        if not (root / SHIPPED_REFERENCES / relative).exists():
+        if not resolved.exists():
             errors.append(
                 f"{SHIPPED_REFERENCES}/steps.yaml: check references "
                 f"$INFRA_COPILOT_REFERENCES/{relative}, which does not exist"

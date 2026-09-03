@@ -116,6 +116,30 @@ class ShippedCheckPathTests(unittest.TestCase):
                 ],
             )
 
+    def test_paths_escaping_the_references_tree_are_reported(self) -> None:
+        """The path comes out of a shell string, so it can be absolute or traverse.
+
+        `Path("a") / "/abs"` discards the prefix and `..` walks upward, so
+        without a containment check the existence test could pass on an
+        unrelated filesystem path.
+        """
+        for payload in ("/etc/passwd", "../../../../etc/passwd", "checks/../../.."):
+            with self.subTest(payload=payload):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    references = repository / "skills/infra-copilot/references"
+                    (references / "checks").mkdir(parents=True)
+                    (references / "steps.yaml").write_text(
+                        "preflight:\n  - tool: infra-copilot-references\n"
+                        f'steps:\n  - check: sh "$INFRA_COPILOT_REFERENCES/{payload}"\n',
+                        encoding="utf-8",
+                    )
+
+                    errors = validate_shipped_check_paths(repository)
+
+                    self.assertEqual(len(errors), 1, errors)
+                    self.assertIn("resolves outside", errors[0])
+
     def test_shipped_check_without_a_preflight_guard_is_reported(self) -> None:
         """The export is the precondition; a check that needs it must be gated."""
         with tempfile.TemporaryDirectory() as temporary_directory:
