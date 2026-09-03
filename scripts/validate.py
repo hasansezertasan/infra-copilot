@@ -195,6 +195,24 @@ def validate_phase_five_rule(root: Path = ROOT) -> list[str]:
     ]
 
 
+UPSTREAM_MANIFEST = "scripts/upstream.json"
+
+
+def audited_version(name: str, root: Path = ROOT) -> str:
+    """The audited version of one entry in scripts/upstream.json.
+
+    That file is the single authority for external versions cited in shipped
+    guidance. Any other check needing one reads it from here rather than
+    repeating the literal, so a drift update has exactly one place to change.
+    """
+    with (root / UPSTREAM_MANIFEST).open(encoding="utf-8") as source:
+        entries = json.load(source)["entries"]
+    for entry in entries:
+        if entry["name"] == name:
+            return str(entry["audited"])
+    raise KeyError(f"{UPSTREAM_MANIFEST} has no entry named {name!r}")
+
+
 def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     """Pins must come from the committed file and reach every HCP workspace."""
     errors: list[str] = []
@@ -289,8 +307,13 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         errors.append(
             f"{TOOLCHAIN_SETUP_DOCUMENT}: mise.lock must be initialized before locking"
         )
+    # The version comes from scripts/upstream.json, which is the single authority for
+    # audited external versions. Hardcoding it here made that manifest the second one:
+    # resolving a cf-terraforming bump would pass check_upstream and still fail here,
+    # with nothing pointing at this line.
+    cf_version = audited_version("cf-terraforming")
     for marker in (
-        '"github:cloudflare/cf-terraforming" = "0.27.0"',
+        f'"github:cloudflare/cf-terraforming" = "{cf_version}"',
         "mise lock",
         'MISE_LOCKED=1 mise install "github:cloudflare/cf-terraforming"',
         "git add mise.toml mise.lock",

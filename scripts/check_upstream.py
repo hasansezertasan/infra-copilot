@@ -73,9 +73,32 @@ def occurrences(needle: str, text: str) -> int:
     # Guard only the edges that are actually numeric. Applying the boundary
     # unconditionally breaks a needle whose text edge sits next to a period —
     # "v5 provider." reads as a failed lookahead rather than a match.
+    # `-` and `+` continue a version too: without them, "0.27.0" matches inside
+    # "0.27.0-rc.1", so a pin could change to a prerelease and still read as coherent.
     before = r"(?<![0-9.])" if needle[:1].isdigit() or needle.startswith(".") else ""
-    after = r"(?![0-9.])" if needle[-1:].isdigit() or needle.endswith(".") else ""
+    after = r"(?![0-9.+-])" if needle[-1:].isdigit() or needle.endswith(".") else ""
     return len(re.findall(before + re.escape(needle) + after, text))
+
+
+def check_linkage(entries: list[dict[str, object]]) -> list[str]:
+    """At least one cited string must contain the audited version.
+
+    ``cited_as`` replaces ``audited`` for searching, so without this the two
+    checks can go green independently: bump ``audited`` to the new upstream
+    version, forget the documents and ``cited_as``, and freshness passes
+    against the new value while coherence passes against the old citation.
+    """
+    errors: list[str] = []
+    for entry in entries:
+        audited = str(entry["audited"])
+        needles = [needle for needle, _count in cited_strings(entry)]
+        if not any(audited in needle for needle in needles):
+            errors.append(
+                f"{entry['name']}: no cited_as string contains the audited version "
+                f"{audited!r} ({', '.join(repr(n) for n in needles)}); the citation and "
+                "the audited version must move together"
+            )
+    return errors
 
 
 def check_coherence(entries: list[dict[str, object]], references: Path = REFERENCES) -> list[str]:
@@ -187,7 +210,7 @@ def main() -> int:
     arguments = parser.parse_args()
 
     entries = load_entries()
-    errors = check_coherence(entries)
+    errors = check_linkage(entries) + check_coherence(entries)
     for error in errors:
         print(f"ERROR: {error}", file=sys.stderr)
 

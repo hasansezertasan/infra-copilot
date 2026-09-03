@@ -20,6 +20,7 @@ from scripts.validate import (
     validate_manifest_paths,
     validate_phase_five_rule,
     validate_toolchain_contract,
+    audited_version,
     validate_shipped_check_paths,
     validate_tool_pins,
     validate_versions,
@@ -89,6 +90,41 @@ class ValidatePhaseFiveRuleTests(unittest.TestCase):
                     "missing 'status `applied`'",
                 ],
             )
+
+
+class SingleVersionAuthorityTests(unittest.TestCase):
+    """External versions live in scripts/upstream.json and nowhere else.
+
+    validate_toolchain_contract used to hardcode the cf-terraforming pin, so a
+    drift update passed check_upstream and then failed here with nothing
+    pointing at the second copy.
+    """
+
+    def test_toolchain_contract_reads_the_manifest(self) -> None:
+        self.assertEqual(validate_toolchain_contract(), [])
+
+    def test_unknown_entry_raises_rather_than_defaulting(self) -> None:
+        with self.assertRaises(KeyError):
+            audited_version("not-an-entry")
+
+    def test_no_validator_hardcodes_an_audited_version(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        audited = {
+            str(entry["audited"])
+            for entry in json.loads(
+                (root / "scripts/upstream.json").read_text(encoding="utf-8")
+            )["entries"]
+        }
+        source = (root / "scripts/validate.py").read_text(encoding="utf-8")
+        for version in audited:
+            if len(version) < 4:  # a bare major appears in unrelated contexts
+                continue
+            with self.subTest(version=version):
+                self.assertNotIn(
+                    version,
+                    source,
+                    "read it via audited_version() instead of repeating the literal",
+                )
 
 
 class ShippedCheckPathTests(unittest.TestCase):
@@ -252,7 +288,8 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         workflows = {
             f".github/workflows/{path.name}"
-            for path in (root / ".github/workflows").glob("*.yml")
+            for pattern in ("*.yml", "*.yaml")  # GitHub supports both
+            for path in (root / ".github/workflows").glob(pattern)
         }
         unregistered = workflows - set(TOOL_PIN_WORKFLOWS)
 

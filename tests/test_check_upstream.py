@@ -15,6 +15,7 @@ from pathlib import Path
 
 from scripts.check_upstream import (
     check_coherence,
+    check_linkage,
     cited_strings,
     load_entries,
     occurrences,
@@ -49,6 +50,9 @@ class ManifestTests(unittest.TestCase):
                     self.assertGreater(
                         len(needle), 2, f"{needle!r} is too short to be distinctive"
                     )
+
+    def test_citations_encode_the_audited_version(self) -> None:
+        self.assertEqual(check_linkage(load_entries()), [])
 
     def test_sources_are_machine_readable_kinds(self) -> None:
         for entry in load_entries():
@@ -167,6 +171,27 @@ class CoherenceTests(unittest.TestCase):
 
             self.assertEqual(len(errors), 1, errors)
             self.assertIn("2 time(s), expected 3", errors[0])
+
+    def test_a_prerelease_does_not_satisfy_the_base_version(self) -> None:
+        """`-` and `+` continue a version, so a pin can change to a prerelease."""
+        self.assertEqual(occurrences("0.27.0", "0.27.0-rc.1"), 0)
+        self.assertEqual(occurrences("0.27.0", "0.27.0+build.2"), 0)
+        self.assertEqual(occurrences("0.27.0", "at 0.27.0 exactly"), 1)
+
+    def test_audited_bumped_without_the_citation_is_reported(self) -> None:
+        """Otherwise freshness and coherence go green independently.
+
+        Bump `audited` to the new upstream version, forget the documents and
+        `cited_as`, and both checks pass while the guidance is stale.
+        """
+        errors = check_linkage([{
+            "name": "widget",
+            "audited": "6",
+            "cited_as": ["v5 provider"],
+        }])
+
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("no cited_as string contains the audited version '6'", errors[0])
 
     def test_present_version_passes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
