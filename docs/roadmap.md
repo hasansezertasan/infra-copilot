@@ -18,9 +18,16 @@ oversight. Each item links to the issue that owns it.
 
 ## Known gaps in the repository itself
 
-- **No staleness gate on external facts.** The references hardcode 23 provider API paths, a
-  dated `cf-terraforming` coverage claim, and exact tool versions. Nothing checks any of
-  them against reality. ([#13](https://github.com/hasansezertasan/infra-copilot/issues/13))
+- **API endpoint paths have no staleness gate.** The references hardcode 23 provider API
+  paths. The `cf-terraforming` coverage claim, both provider majors and the SHA-pinned CI
+  action *are* now gated — see `scripts/upstream.json` and `make check-upstream` (#13) —
+  but endpoint paths are not, because HCP Terraform publishes no machine-readable API
+  schema to diff them against. Any such check would be a hand-maintained second copy of
+  the same strings, rotting in step with what it checks. Recorded as a deliberate limit
+  rather than a to-do.
+- **Illustrative versions are deliberately ungated.** The worked `mise.toml` in
+  `docs/setup.md` names example `terraform`, `gh` and `jq` versions. Their requirement is
+  being exact, not current, so they are not in the upstream manifest. Not an oversight.
 - **No permissions guidance.** The skills drive three provider APIs and handle an HCP
   token; there is no `docs/policy.md` and no managed-settings template.
   ([#14](https://github.com/hasansezertasan/infra-copilot/issues/14))

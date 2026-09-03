@@ -31,6 +31,13 @@ validate:  ## Validate the ai-rulez config, the committed payloads, links, and a
 	$(AI_RULEZ) validate
 	$(AI_RULEZ) verify --plugin
 	$(PYTHON) scripts/validate.py
+	$(PYTHON) scripts/check_upstream.py --offline
+
+# Network, so deliberately not part of `check`: a rate limit must never fail a PR.
+# Runs nightly in .github/workflows/upstream.yml.
+.PHONY: check-upstream
+check-upstream:  ## Compare audited external versions against current upstream releases
+	$(PYTHON) scripts/check_upstream.py
 
 .PHONY: test
 # PYTHONDONTWRITEBYTECODE keeps __pycache__ out of the checkout; the repo has no

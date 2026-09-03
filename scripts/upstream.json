@@ -1,0 +1,116 @@
+{
+  "$comment": [
+    "Audited external facts cited in shipped guidance, and where each is cited.",
+    "",
+    "What belongs here: facts whose *currency* matters \u2014 a coverage matrix tied to a",
+    "release, a provider major whose behaviour the guidance describes, an action",
+    "pinned by SHA in shipped CI. Drift in those needs a decision.",
+    "",
+    "What does not: values whose *form* matters rather than their currency. The",
+    "worked mise.toml in docs/setup.md names terraform, gh and jq versions that the",
+    "document itself labels examples \u2014 the requirement is that a reader pins an exact",
+    "version, not that it be the newest one. Tracking them produced a red nightly",
+    "every few weeks with no decision attached, and a check that cries wolf is how",
+    "the incident behind #24 stayed invisible.",
+    "",
+    "Two checks run against this file. Coherence (offline, part of `make check`):",
+    "every `cited_as` string must still appear in each doc that cites it, the",
+    "expected number of times, so the manifest cannot drift away from the prose.",
+    "Freshness (network, nightly): `audited` is compared against the current",
+    "upstream release.",
+    "",
+    "`cited_as` exists because `audited` alone is not searchable: a bare major like",
+    "\"5\" matches a numbered step or `Terraform 1.5+`. An item may be",
+    "{\"text\": ..., \"count\": n} to require an exact number of occurrences, so",
+    "updating one of several mentions cannot pass while the rest go stale.",
+    "",
+    "A citation may include prose, such as a matrix's provenance date, when that prose",
+    "goes stale with the version. There is no separate date field: one mechanism only.",
+    "An entry with `audited_sha` also has that SHA checked against the commit its",
+    "audited tag resolves to, so a version bump cannot leave a stale pinned commit.",
+    "`sources` are all machine-readable and readable unauthenticated.",
+    "API endpoint paths are deliberately NOT tracked here: HCP Terraform publishes",
+    "no machine-readable API schema to diff them against, so any check would be a",
+    "hand-maintained second list of the same strings."
+  ],
+  "entries": [
+    {
+      "name": "cf-terraforming",
+      "source": {
+        "type": "github_release",
+        "repo": "cloudflare/cf-terraforming"
+      },
+      "audited": "0.27.0",
+      "cited_in": [
+        "docs/import.md"
+      ],
+      "why_it_matters": "The per-resource coverage matrix in import.md was written against this release; newer ones may cover more or differ in generated HCL. Cited in four places, plus an abbreviated v0.27 claim and the matrix's 'May 2026' provenance date, all of which must move together.",
+      "cited_as": [
+        {
+          "text": "0.27.0",
+          "count": 4
+        },
+        {
+          "text": "v0.27",
+          "count": 1
+        },
+        {
+          "text": "v0.27 (May 2026)",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "mise-action",
+      "source": {
+        "type": "github_release",
+        "repo": "jdx/mise-action"
+      },
+      "audited": "4.3.0",
+      "cited_in": [
+        "docs/ci.md"
+      ],
+      "why_it_matters": "Pinned by commit SHA in the CI example. The SHA is the value that runs; the version is only a comment. The nightly resolves the audited tag and requires the cited SHA to match it, so the two cannot be updated independently.",
+      "cited_as": [
+        "mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c",
+        "4.3.0"
+      ],
+      "audited_sha": "c2a87611a18de5b3828c5652fe268e992400cb5c"
+    },
+    {
+      "name": "cloudflare-provider-major",
+      "source": {
+        "type": "terraform_provider",
+        "namespace": "cloudflare",
+        "name": "cloudflare"
+      },
+      "audited": "5",
+      "compare": "major",
+      "cited_in": [
+        "cloudflare.md",
+        "docs/import.md"
+      ],
+      "why_it_matters": "Guidance states behaviour specific to the v5 provider; a new major invalidates it.",
+      "cited_as": [
+        "v5 provider"
+      ]
+    },
+    {
+      "name": "github-provider-major",
+      "source": {
+        "type": "terraform_provider",
+        "namespace": "integrations",
+        "name": "github"
+      },
+      "audited": "6",
+      "compare": "major",
+      "cited_as": [
+        "`integrations/github` v6"
+      ],
+      "cited_in": [
+        "github.md"
+      ],
+      "why_it_matters": "Repository, branch-protection and label guidance is written against the v6 provider; a new major invalidates the resource shapes it describes."
+    }
+  ]
+}

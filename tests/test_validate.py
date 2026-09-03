@@ -20,6 +20,7 @@ from scripts.validate import (
     validate_manifest_paths,
     validate_phase_five_rule,
     validate_toolchain_contract,
+    audited_version,
     validate_shipped_check_paths,
     validate_tool_pins,
     validate_versions,
@@ -89,6 +90,78 @@ class ValidatePhaseFiveRuleTests(unittest.TestCase):
                     "missing 'status `applied`'",
                 ],
             )
+
+
+class SingleVersionAuthorityTests(unittest.TestCase):
+    """External versions live in scripts/upstream.json and nowhere else.
+
+    validate_toolchain_contract used to hardcode the cf-terraforming pin, so a
+    drift update passed check_upstream and then failed here with nothing
+    pointing at the second copy.
+    """
+
+    def test_toolchain_contract_reads_the_manifest(self) -> None:
+        self.assertEqual(validate_toolchain_contract(), [])
+
+    def test_unreadable_manifest_is_reported_not_raised(self) -> None:
+        """main() evaluates every validator into one list.
+
+        Raising here would replace the errors already collected with a
+        traceback, which is the bug collect_manifest_errors exists to prevent.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            source = Path(__file__).resolve().parents[1]
+            shutil.copytree(
+                source / ".ai-rulez", repository / ".ai-rulez"
+            )
+            (repository / "scripts").mkdir()  # no upstream.json
+
+            errors = validate_toolchain_contract(repository)
+
+            self.assertTrue(
+                any("cannot read the cf-terraforming pin" in error for error in errors),
+                errors,
+            )
+
+    def test_unreadable_workflow_is_reported_not_raised(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            (repository / "Makefile").write_text(
+                "AI_RULEZ_VERSION := 4.11.3\nSKILLS_VERSION := 1.5.23\n", encoding="utf-8"
+            )
+            (repository / "README.md").write_text(
+                "ai-rulez@4.11.3 skills@1.5.23\n", encoding="utf-8"
+            )
+
+            errors = validate_tool_pins(repository)
+
+            self.assertTrue(
+                any("cannot read workflow" in error for error in errors), errors
+            )
+
+    def test_unknown_entry_raises_rather_than_defaulting(self) -> None:
+        with self.assertRaises(KeyError):
+            audited_version("not-an-entry")
+
+    def test_no_validator_hardcodes_an_audited_version(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        audited = {
+            str(entry["audited"])
+            for entry in json.loads(
+                (root / "scripts/upstream.json").read_text(encoding="utf-8")
+            )["entries"]
+        }
+        source = (root / "scripts/validate.py").read_text(encoding="utf-8")
+        for version in audited:
+            if len(version) < 4:  # a bare major appears in unrelated contexts
+                continue
+            with self.subTest(version=version):
+                self.assertNotIn(
+                    version,
+                    source,
+                    "read it via audited_version() instead of repeating the literal",
+                )
 
 
 class ShippedCheckPathTests(unittest.TestCase):
@@ -246,6 +319,22 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                     "call `make` so Makefile stays the only definition"
                 ],
             )
+
+    def test_every_linux_workflow_is_registered_with_the_pin_validator(self) -> None:
+        """A workflow outside TOOL_PIN_WORKFLOWS could pin a package unnoticed."""
+        root = Path(__file__).resolve().parents[1]
+        workflows = {
+            f".github/workflows/{path.name}"
+            for pattern in ("*.yml", "*.yaml")  # GitHub supports both
+            for path in (root / ".github/workflows").glob(pattern)
+        }
+        unregistered = workflows - set(TOOL_PIN_WORKFLOWS)
+
+        self.assertEqual(
+            unregistered,
+            set(),
+            "add these to TOOL_PIN_WORKFLOWS so validate_tool_pins scans them",
+        )
 
     def test_workflow_may_not_reintroduce_an_indirect_pin(self) -> None:
         """The replaced form kept the version in `env:`, not next to the `@`.

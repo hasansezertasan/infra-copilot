@@ -67,6 +67,7 @@ TOOL_PIN_SPECS = {
 TOOL_PIN_WORKFLOWS = (
     ".github/workflows/check.yml",
     ".github/workflows/release.yml",
+    ".github/workflows/upstream.yml",
 )
 # Prerelease and build metadata are independent and may both appear:
 # 0.3.0-rc.1+build.5 is one version, not a version plus trailing junk.
@@ -192,6 +193,24 @@ def validate_phase_five_rule(root: Path = ROOT) -> list[str]:
         for marker in PHASE_FIVE_RULE_MARKERS
         if marker not in text
     ]
+
+
+UPSTREAM_MANIFEST = "scripts/upstream.json"
+
+
+def audited_version(name: str, root: Path = ROOT) -> str:
+    """The audited version of one entry in scripts/upstream.json.
+
+    That file is the single authority for external versions cited in shipped
+    guidance. Any other check needing one reads it from here rather than
+    repeating the literal, so a drift update has exactly one place to change.
+    """
+    with (root / UPSTREAM_MANIFEST).open(encoding="utf-8") as source:
+        entries = json.load(source)["entries"]
+    for entry in entries:
+        if entry["name"] == name:
+            return str(entry["audited"])
+    raise KeyError(f"{UPSTREAM_MANIFEST} has no entry named {name!r}")
 
 
 def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
@@ -345,12 +364,25 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         errors.append(
             f"{TOOLCHAIN_SETUP_DOCUMENT}: mise.lock must be initialized before locking"
         )
-    for marker in (
-        '"github:cloudflare/cf-terraforming" = "0.27.0"',
-        "mise lock",
-        'MISE_LOCKED=1 mise install "github:cloudflare/cf-terraforming"',
-        "git add mise.toml mise.lock",
-    ):
+    # The version comes from scripts/upstream.json, which is the single authority for
+    # audited external versions. Hardcoding it here made that manifest the second one:
+    # resolving a cf-terraforming bump would pass check_upstream and still fail here,
+    # with nothing pointing at this line.
+    # main() evaluates every validator into one list, so raising here would replace the
+    # errors already collected with a traceback. Report and keep going: an unreadable
+    # manifest must not suppress the checks below it either.
+    cf_version: str | None = None
+    try:
+        cf_version = audited_version("cf-terraforming", root)
+    except (OSError, json.JSONDecodeError, KeyError) as error:
+        errors.append(
+            f"{UPSTREAM_MANIFEST}: cannot read the cf-terraforming pin: {error}"
+        )
+    markers = ["mise lock", "git add mise.toml mise.lock",
+               'MISE_LOCKED=1 mise install "github:cloudflare/cf-terraforming"']
+    if cf_version is not None:
+        markers.append(f'"github:cloudflare/cf-terraforming" = "{cf_version}"')
+    for marker in markers:
         if marker not in import_guide:
             errors.append(f"{TOOLCHAIN_IMPORT_DOCUMENT}: missing {marker!r}")
     # `mise use` installs as it writes the pin, which resolves the binary before the
@@ -545,7 +577,11 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
                 f"{package}: README documents {details}, {MAKEFILE_PATH} pins {pinned}"
             )
         for relative in TOOL_PIN_WORKFLOWS:
-            workflow = (root / relative).read_text(encoding="utf-8")
+            try:
+                workflow = (root / relative).read_text(encoding="utf-8")
+            except OSError as error:
+                errors.append(f"{relative}: cannot read workflow: {error}")
+                continue
             # Any `<package>@…` reference, not just a literal version. The form
             # this replaced was indirect — `ai-rulez@${INFRA_COPILOT_..._VERSION}`
             # with the value in `env:` — so matching only a literal semver would
@@ -669,6 +705,9 @@ def validate_layout() -> list[str]:
         ".github/renovate.json",
         ".github/workflows/check.yml",
         ".github/workflows/release.yml",
+        ".github/workflows/upstream.yml",
+        "scripts/upstream.json",
+        "scripts/check_upstream.py",
         ".claude-plugin/marketplace.json",
         ".claude-plugin/plugin.json",
         ".agents/plugins/marketplace.json",
