@@ -54,62 +54,58 @@ if [ -z "$required" ]; then
     fail "UNDERPROTECTED: branch protection requires no 'Terraform Cloud/' context, so HCP plans do not gate merges. PRs are mergeable without a plan — this is not a stale-context incident."
 fi
 
-# Which context is published *now* is decided by the status timestamps, not by the order
-# candidates come back in. Ordering by list position was wrong three ways: an old main
-# commit at HEAD, a PR-less checkout, and an older PR sorting first on updated_at while a
-# later PR carries the new context. All three reported green on the incident.
-published=""
-
-collect() {  # $1 = sha, $2 = "tolerate" to allow a read failure
-    # --paginate: the combined-status endpoint defaults to 30 contexts per page, and a
-    # commit with more than that could hide the HCP status outside the first page.
-    reported=$(gh api --paginate "repos/$REPO/commits/$1/status?per_page=100" \
-      --jq '.statuses[] | select(.context | startswith("Terraform Cloud/")) | "\(.updated_at) \(.context)"' 2>/dev/null)
-    if [ $? -ne 0 ]; then
-        [ "${2:-}" = tolerate ] && return 0
-        cannot_verify "could not read commit status for $1"
-    fi
-    [ -n "$reported" ] && published="$published
-$reported"
-    return 0
+# Every open PR is blocked independently, so each is checked independently. Selecting a
+# single "current" context globally cannot work, and two attempts proved it: first-match
+# let an old commit win, and newest-timestamp lets a pre-rebuild run that finishes late
+# win — in both cases the old context matches `required`, the check passes, and the PR
+# carrying the new context waits forever.
+hcp_contexts() {  # $1 = sha; prints its Terraform Cloud contexts, one per line
+    gh api --paginate "repos/$REPO/commits/$1/status?per_page=100" \
+      --jq '.statuses[] | select(.context | startswith("Terraform Cloud/")) | .context'
 }
 
-# --paginate, because a repo with more than one page of open PRs can hide the head that
-# carries the newly published context behind 20 older PRs with recent comments.
-prs=$(gh api --paginate "repos/$REPO/pulls?state=open&sort=updated&direction=desc&per_page=100" \
+# Only PRs that target the protected branch, and only its history. Unfiltered, the pulls
+# request admits PRs based on unrelated branches, and the commits request defaults to the
+# repository's default branch, which need not be main.
+prs=$(gh api --paginate "repos/$REPO/pulls?state=open&base=main&per_page=100" \
   --jq '.[].head.sha') || cannot_verify "could not list open pull requests for $REPO"
-recent=$(gh api "repos/$REPO/commits?per_page=20" --jq '.[].sha') \
-  || cannot_verify "could not list commits for $REPO"
+recent=$(gh api "repos/$REPO/commits?sha=main&per_page=20" --jq '.[].sha') \
+  || cannot_verify "could not list commits on main for $REPO"
 
-seen=""
-for sha in $prs $recent; do
-    case " $seen " in *" $sha "*) continue ;; esac
-    seen="$seen $sha"
-    collect "$sha"
+# $1 = sha, $2 = human label. Returns 1 if this candidate publishes HCP contexts but not
+# every required one.
+verify() {
+    published=$(hcp_contexts "$1") \
+      || cannot_verify "could not read commit status for $1"
+    [ -n "$published" ] || return 0          # no HCP status here: nothing to compare
+    tmp=$(mktemp) || cannot_verify "mktemp failed"
+    printf '%s\n' "$published" > "$tmp"
+    missing=$(printf '%s\n' "$required" | grep -vxF -f "$tmp")
+    rm -f "$tmp"
+    [ -z "$missing" ] && return 0
+    echo "BLOCKED: $2 ($1) publishes [$(printf '%s' "$published" | tr '\n' ' ')] but branch protection requires: $missing" >&2
+    return 1
+}
+
+evidence=0
+broken=0
+for sha in $prs; do
+    published=""
+    verify "$sha" "open PR head" || broken=1
+    [ -n "$published" ] && evidence=1
 done
 
-# Local HEAD is deliberately not a candidate. Open PR heads cover every pushed branch
-# with a PR, recent commits cover main, and selection is by newest timestamp — so HEAD
-# contributes nothing those two do not already carry. It also could not be handled
-# safely: no single gh exit code distinguishes "this commit is not on the remote" from
-# "the request failed", so tolerating a failure risked accepting an older matching
-# context while propagating it would break ordinary unpushed branches.
-
-published=$(printf '%s\n' "$published" | grep '^[0-9]' || true)
-
-# Nothing anywhere carries an HCP status. Unverifiable, not broken.
-[ -n "$published" ] || exit 0
-
-# Lexicographic sort is chronological for the ISO-8601 UTC timestamps this API returns.
-newest_at=$(printf '%s\n' "$published" | sort | tail -1 | cut -d' ' -f1)
-current=$(printf '%s\n' "$published" | grep "^$newest_at " | cut -d' ' -f2- | sort -u)
-
-tmp=$(mktemp) || cannot_verify "mktemp failed"
-printf '%s\n' "$current" > "$tmp"
-missing=$(printf '%s\n' "$required" | grep -vxF -f "$tmp")
-rm -f "$tmp"
-
-if [ -n "$missing" ]; then
-    fail "BLOCKED: required but not published by the current connection (newest status at $newest_at publishes: $(printf '%s' "$current" | tr '\n' ' ')): $missing"
+# main's history is a fallback only: it proves nothing about a PR, but with no open PR
+# publishing a status it is the only evidence available.
+if [ "$evidence" = 0 ]; then
+    for sha in $recent; do
+        published=""
+        verify "$sha" "commit on main" || broken=1
+        if [ -n "$published" ]; then evidence=1; break; fi
+    done
 fi
+
+[ "$broken" = 0 ] || exit 1
+
+# No HCP status published anywhere. Unverifiable, not broken.
 exit 0
