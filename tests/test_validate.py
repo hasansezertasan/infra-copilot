@@ -432,6 +432,59 @@ class ValidateToolchainContractTests(unittest.TestCase):
     def test_committed_pins_flow_to_hcp(self) -> None:
         self.assertEqual(validate_toolchain_contract(), [])
 
+    def test_rejects_missing_toolchain_bootstrap_step(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8")
+            text = re.sub(
+                r"  - id: toolchain-pin\n(?:(?!  - id: hcp-login).)*",
+                "",
+                text,
+                count=1,
+                flags=re.DOTALL,
+            )
+            steps.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(any("first phase-0 step" in error for error in errors), errors)
+
+    def test_rejects_toolchain_step_check_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8")
+            start = text.index("  - id: toolchain-pin\n")
+            end = text.index("  - id: hcp-login\n", start)
+            bootstrap = text[start:end].replace(
+                "      mise --version >/dev/null &&\n",
+                "      mise --version >/dev/null 2>&1 &&\n",
+                1,
+            )
+            steps.write_text(text[:start] + bootstrap + text[end:], encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("must match the mise preflight check" in error for error in errors),
+            errors,
+        )
+
     def test_rejects_active_mise_state_and_unlocked_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)

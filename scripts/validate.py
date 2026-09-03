@@ -206,6 +206,51 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     ci = (root / TOOLCHAIN_CI_DOCUMENT).read_text(encoding="utf-8")
     decisions = (root / TOOLCHAIN_DECISIONS_DOCUMENT).read_text(encoding="utf-8")
 
+    preflight_check = re.search(
+        r"^  - tool: mise\n    check: >-\n(?P<body>(?:      .*\n)+)",
+        steps,
+        re.MULTILINE,
+    )
+    bootstrap_step = re.search(
+        r"^  - id: toolchain-pin\n(?P<metadata>(?:(?!^  - id:).*(?:\n|\Z))*)",
+        steps,
+        re.MULTILINE,
+    )
+    hcp_login = steps.find("  - id: hcp-login\n")
+    if bootstrap_step is None or (
+        hcp_login >= 0 and bootstrap_step.start() > hcp_login
+    ):
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: toolchain-pin must be the first phase-0 step"
+        )
+    elif not all(
+        marker in bootstrap_step.group("metadata")
+        for marker in (
+            "    phase: 0\n",
+            "    provider: repo\n",
+            "    actor: HUMAN\n",
+            "    produces: committed mise.toml + mise.lock\n",
+            "    docs: docs/setup.md#6-local-development\n",
+        )
+    ):
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: toolchain-pin metadata is incomplete"
+        )
+    if preflight_check is not None and bootstrap_step is not None:
+        step_check = re.search(
+            r"^    check: >-\n(?P<body>(?:      .*\n)+)",
+            bootstrap_step.group("metadata"),
+            re.MULTILINE,
+        )
+        if (
+            step_check is None
+            or step_check.group("body") != preflight_check.group("body")
+        ):
+            errors.append(
+                f"{TOOLCHAIN_STEPS_DOCUMENT}: toolchain-pin check must match the "
+                "mise preflight check"
+            )
+
     if "pin=$(mise current" in steps:
         errors.append(
             f"{TOOLCHAIN_STEPS_DOCUMENT}: reads active mise state instead of the "

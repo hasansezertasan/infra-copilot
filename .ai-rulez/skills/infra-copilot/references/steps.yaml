@@ -132,6 +132,39 @@ preflight:
 
 steps:
   # ── Phase 0 — HCP bootstrap ─────────────────────────────────────────────
+  - id: toolchain-pin
+    phase: 0
+    provider: repo
+    actor: HUMAN
+    title: Create and commit the pinned mise.toml + mise.lock
+    why: Preflight and every per-tool check compare installed binaries against these pins; nothing else creates them.
+    run: |
+      1. Follow docs/setup.md#6-local-development to choose exact tool versions and
+         author mise.toml. Choosing the versions is a project decision, not a lookup.
+      2. Review the entire mise.toml before trusting it; repository config can enable
+         templates, plugins, and other executable behavior.
+      3. Trust it, initialize and populate mise.lock, install the locked pins, and
+         activate the installed toolchain using the exact sequence in that guide.
+      4. Commit mise.toml and mise.lock together, then reply `done` so the agent can
+         re-run this check.
+    # Keep this byte-for-byte identical to the mise preflight check. The repository
+    # validator enforces that invariant so the step and fail-fast gate cannot drift.
+    check: >-
+      mise --version >/dev/null &&
+      git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- mise.toml mise.lock &&
+      tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
+      [ -n "$tools" ] &&
+      pinned=$(printf '%s\n' "$tools" |
+      sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
+      [ -n "$pinned" ] &&
+      ! printf '%s\n' "$tools" |
+      sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
+      grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      MISE_LOCKED=1 mise install --dry-run $pinned >/dev/null 2>&1
+    produces: committed mise.toml + mise.lock
+    docs: docs/setup.md#6-local-development
+
   - id: hcp-login
     phase: 0
     provider: hcp

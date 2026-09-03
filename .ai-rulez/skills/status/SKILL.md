@@ -24,8 +24,10 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    matching**, **pinned and drifted**, or **missing its required pin**. Report `curl`
    separately as present or missing; it is intentionally system-provided and has no pin. A
    drifted pin is a real finding: the plan a reviewer reads may not be the plan that gets
-   applied. A missing `mise.toml` key or `mise.lock` is a failed toolchain contract — say
-   so, and point at [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example).
+   applied. A missing `mise.toml` key or `mise.lock` is a failed toolchain contract and a
+   red phase-0 `toolchain-pin` step — say so, and point at
+   [`../infra-copilot/references/docs/setup.md#6`](../infra-copilot/references/docs/setup.md#6-local-development) and
+   [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example).
    Report the HCP token pivot: present or not.
    If `terraform/gcp` exists, also report `gcloud` as pinned/matching, drifted, or missing;
    omit it while the optional GCP phase has not been adopted.
@@ -105,7 +107,7 @@ Print a phase-by-phase table, then a one-line verdict. Use this shape:
 infra-copilot status — <repo> (org: $ORG)
 
 Preflight   terraform 1.15.9 ✓ pinned   gh 2.81.0 ✗ pin missing   jq ✓   curl ✓   HCP token ✓
-Phase 0  HCP bootstrap    ✓ hcp-login  ✓ hcp-signup  ✓ hcp-verify
+Phase 0  bootstrap        ✓ toolchain-pin  ✓ hcp-login  ✓ hcp-signup  ✓ hcp-verify
 Phase 1  workspaces       ✓ vcs-connect  ✗ workspaces-create   ← first red
 Phase 2  cloudflare       – cf-token            (not reached)
 …

@@ -22,11 +22,11 @@ the canonical docs under [`../infra-copilot/references/`](../infra-copilot/refer
 
 | # | Phase | Actors | Deep dive |
 |---|---|---|---|
-| 0 | **HCP bootstrap** — sign up, `terraform login`, get the pivot token | `HUMAN` then `AGENT` | [`../infra-copilot/references/hcp.md`](../infra-copilot/references/hcp.md), [`../infra-copilot/references/docs/setup.md#1`](../infra-copilot/references/docs/setup.md#1-hcp-terraform--organization) |
+| 0 | **Toolchain + HCP bootstrap** — commit reviewed pins, sign up, `terraform login`, get the pivot token | `HUMAN` then `AGENT` | [`../infra-copilot/references/docs/setup.md#6`](../infra-copilot/references/docs/setup.md#6-local-development), [`../infra-copilot/references/hcp.md`](../infra-copilot/references/hcp.md), [`../infra-copilot/references/docs/setup.md#1`](../infra-copilot/references/docs/setup.md#1-hcp-terraform--organization) |
 | 1 | **HCP workspaces** — create `cloudflare` + `github-org`, VCS + safety toggles | `AGENT` (API) + `HUMAN` VCS OAuth | [`../infra-copilot/references/hcp.md`](../infra-copilot/references/hcp.md), [`../infra-copilot/references/docs/setup.md#2`](../infra-copilot/references/docs/setup.md#2-hcp-terraform--workspaces) |
 | 2 | **Cloudflare** — mint scoped token, paste into HCP, verify | `HUMAN` mint/paste, `AGENT` verify | [`../infra-copilot/references/cloudflare.md`](../infra-copilot/references/cloudflare.md) |
 | 3 | **GitHub** — create + install the GitHub App, paste creds into HCP | `HUMAN` create/install/paste, `AGENT` verify | [`../infra-copilot/references/github.md`](../infra-copilot/references/github.md) |
-| 4 | **First plan** — `init` + speculative `plan` per leaf, read via API | `AGENT` | [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md), [`../infra-copilot/references/docs/setup.md#6`](../infra-copilot/references/docs/setup.md#6-local-development) |
+| 4 | **First plan** — `init` + speculative `plan` per leaf, read via API | `AGENT` | [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md) |
 
 Adopting resources that already exist (a live domain, existing repos)? That's
 **infra-copilot:import** (Phase 5), run after this reaches green plans.
@@ -44,9 +44,11 @@ Adopting resources that already exist (a live domain, existing repos)? That's
    use `.claude/infra-copilot.local.md` as the migration fallback, and export the org
    vars. If both are missing → handoff, offer to scaffold, wait.
    See [`../infra-copilot/references/config.md`](../infra-copilot/references/config.md).
-2. **Preflight**, then **resume scan** over phases 0–4 of
-   [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml): run each `check`, print `✓` for green,
-   resume at the first red step. Full contract:
+2. **Bootstrap preflight**, then **resume scan** over phases 0–4 of
+   [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). On a cold repo, check that `mise` itself
+   is available, then scan `toolchain-pin` before running the pin-dependent preflight
+   checks. Once it is green, finish preflight, print `✓`, and continue from
+   `hcp-login`. Full contract:
    [`../infra-copilot/references/protocol.md`](../infra-copilot/references/protocol.md).
 3. **Respect the actor split.** Run `AGENT` steps yourself. On a `HUMAN` step, stop, emit
    the handoff block, wait for `done`, re-run the `check` — never fake a signup, a
@@ -55,9 +57,12 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 ### Phase notes
 
-- **Phase 0 — HCP bootstrap.** The only unavoidable cold-start; produces the token that
-  lets you script everything after. `HUMAN` signs up + runs `terraform login`; then you
-  own the HCP API. Commands + verify: [`../infra-copilot/references/hcp.md`](../infra-copilot/references/hcp.md#phase-0--bootstrap).
+- **Phase 0 — Toolchain + HCP bootstrap.** The first `HUMAN` step chooses exact tool
+  versions, reviews the whole `mise.toml`, and commits it with `mise.lock`; this must
+  happen before pin-dependent preflight. Then `HUMAN` signs up + runs `terraform login`,
+  after which you own the HCP API. Toolchain sequence:
+  [`../infra-copilot/references/docs/setup.md#6`](../infra-copilot/references/docs/setup.md#6-local-development).
+  HCP commands + verify: [`../infra-copilot/references/hcp.md`](../infra-copilot/references/hcp.md#phase-0--bootstrap).
 - **Phase 1 — HCP workspaces.** Two workspaces (`cloudflare`, `github-org`), one per leaf.
   A human does the one-time GitHub↔HCP OAuth (browser); you create both via the API with
   the right working dir, path-scoped triggers, remote execution, and auto-apply **off**.
@@ -78,6 +83,8 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 Setup is complete when you can report:
 
+- ✓ `mise.toml` + `mise.lock` are reviewed, committed together, exact-pinned, and
+  installable with `MISE_LOCKED=1`.
 - ✓ HCP org `$ORG` + project `infra` reachable via API.
 - ✓ Workspaces `cloudflare` and `github-org` exist, VCS-linked, auto-apply off, fork speculative plans off.
 - ✓ Both workspaces use the exact Terraform version committed in `mise.toml`.
