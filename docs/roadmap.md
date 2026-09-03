@@ -12,11 +12,6 @@ oversight. Each item links to the issue that owns it.
   instructions that go inert once applied, and no skill or step removes them. Phase-5
   completion currently means the opposite of the correct end state.
   ([#9](https://github.com/hasansezertasan/infra-copilot/issues/9))
-- **The toolchain bootstrap has no tracked step.** `protocol.md` tells `setup` to bootstrap
-  a missing `mise.toml`/`mise.lock` before running the checks, so the behavior is
-  specified — but no entry in `steps.yaml` owns it, so the resume scan cannot report it and
-  `status` sees only a red preflight.
-  ([#25](https://github.com/hasansezertasan/infra-copilot/issues/25))
 - **Phases 5 and 6 are expected-red for most repos.** Import only matters if resources
   pre-exist; GCP is a template. `status` says so rather than reporting them as failures.
   This is intended, not a gap.

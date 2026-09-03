@@ -216,9 +216,16 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         steps,
         re.MULTILINE,
     )
-    hcp_login = steps.find("  - id: hcp-login\n")
-    if bootstrap_step is None or (
-        hcp_login >= 0 and bootstrap_step.start() > hcp_login
+    steps_start = steps.find("\nsteps:\n")
+    first_step = (
+        re.search(r"^  - id: ([^\n]+)", steps[steps_start:], re.MULTILINE)
+        if steps_start >= 0
+        else None
+    )
+    if (
+        bootstrap_step is None
+        or first_step is None
+        or first_step.group(1) != "toolchain-pin"
     ):
         errors.append(
             f"{TOOLCHAIN_STEPS_DOCUMENT}: toolchain-pin must be the first phase-0 step"
@@ -269,6 +276,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     for marker in (
         "git ls-files --error-unmatch mise.toml mise.lock",
         "git diff --quiet HEAD -- mise.toml mise.lock",
+        "git diff --cached --quiet HEAD -- mise.toml mise.lock",
         "MISE_LOCKED=1 mise install --dry-run $pinned",
     ):
         if marker not in steps:

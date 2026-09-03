@@ -76,6 +76,7 @@ preflight:
       mise --version >/dev/null &&
       git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
       git diff --quiet HEAD -- mise.toml mise.lock &&
+      git diff --cached --quiet HEAD -- mise.toml mise.lock &&
       tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
       [ -n "$tools" ] &&
       pinned=$(printf '%s\n' "$tools" |
@@ -153,6 +154,7 @@ steps:
       mise --version >/dev/null &&
       git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
       git diff --quiet HEAD -- mise.toml mise.lock &&
+      git diff --cached --quiet HEAD -- mise.toml mise.lock &&
       tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
       [ -n "$tools" ] &&
       pinned=$(printf '%s\n' "$tools" |
