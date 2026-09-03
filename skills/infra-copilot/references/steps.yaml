@@ -116,6 +116,17 @@ preflight:
       pin=$(mise config get --file ./mise.toml tools.gcloud 2>/dev/null | tr -d '[:space:]');
       printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
       [ -n "$ver" ] && [ "$ver" = "$pin" ]
+  - tool: infra-copilot-references
+    check: 'test -n "$INFRA_COPILOT_REFERENCES" && test -d "$INFRA_COPILOT_REFERENCES/checks"'
+    why: >-
+      Steps whose check is a shipped script resolve it from this path, because a check
+      runs with the consuming repo as its working directory. Unset, the step runs
+      sh "/checks/..." and fails with a bare shell error — and the script's own
+      "export it per config.md" diagnostic is inside the file that could not be found.
+    human_action: >-
+      Export INFRA_COPILOT_REFERENCES per references/config.md: the absolute path to the
+      loaded skill's references/ directory (the one holding config.md and checks/).
+
   - tool: curl
     check: "curl --version >/dev/null"   # system-provided; pinning it buys nothing
 
