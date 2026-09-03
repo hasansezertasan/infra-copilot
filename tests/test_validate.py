@@ -432,6 +432,114 @@ class ValidateToolchainContractTests(unittest.TestCase):
     def test_committed_pins_flow_to_hcp(self) -> None:
         self.assertEqual(validate_toolchain_contract(), [])
 
+    def test_rejects_missing_toolchain_bootstrap_step(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8")
+            text = re.sub(
+                r"  - id: toolchain-pin\n(?:(?!  - id: hcp-login).)*",
+                "",
+                text,
+                count=1,
+                flags=re.DOTALL,
+            )
+            steps.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(any("first phase-0 step" in error for error in errors), errors)
+
+    def test_rejects_a_step_before_toolchain_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8")
+            text = text.replace(
+                "steps:\n",
+                "steps:\n"
+                "  - id: premature-step\n"
+                "    phase: 0\n"
+                "    provider: repo\n"
+                "    actor: AGENT\n"
+                "    check: 'true'\n",
+                1,
+            )
+            steps.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(any("first phase-0 step" in error for error in errors), errors)
+
+    def test_rejects_toolchain_step_check_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8")
+            start = text.index("  - id: toolchain-pin\n")
+            end = text.index("  - id: hcp-login\n", start)
+            bootstrap = text[start:end].replace(
+                "      mise --version >/dev/null &&\n",
+                "      mise --version >/dev/null 2>&1 &&\n",
+                1,
+            )
+            steps.write_text(text[:start] + bootstrap + text[end:], encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("must match the mise preflight check" in error for error in errors),
+            errors,
+        )
+
+    def test_rejects_missing_mise_preflight_check(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8")
+            text = re.sub(
+                r"  - tool: mise\n(?:(?!  - tool: terraform).)*",
+                "",
+                text,
+                count=1,
+                flags=re.DOTALL,
+            )
+            steps.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("missing mise preflight check" in error for error in errors), errors
+        )
+
     def test_rejects_active_mise_state_and_unlocked_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
@@ -662,11 +770,11 @@ esac
             executable.write_text(fixture_mise, encoding="utf-8")
             executable.chmod(0o755)
             # gcloud is the conditional pin: configured, but absent from the lock.
-            (repository / "mise.toml").write_text(
+            committed_mise = (
                 '[tools]\nterraform = "1.15.9"\ngh = "2.81.0"\njq = "1.8.1"\n'
-                'gcloud = "551.0.0"\n',
-                encoding="utf-8",
+                'gcloud = "551.0.0"\n'
             )
+            (repository / "mise.toml").write_text(committed_mise, encoding="utf-8")
             (repository / "mise.lock").write_text("# @generated\n", encoding="utf-8")
             # A contributor's global config (commit.gpgsign, core.hooksPath, a
             # gpg.format) would otherwise fail these commits and error the test for
@@ -714,6 +822,21 @@ esac
             # from either end of the enumerated list is caught.
             self.assertNotEqual(run("gh jq gcloud"), 0)
             self.assertEqual(run("terraform gh jq gcloud"), 0)
+
+            # `git diff HEAD` reads the final working-tree content. If a different
+            # pin is staged and the file is then restored to HEAD, only --cached
+            # detects that the next commit would carry an unchecked version.
+            (repository / "mise.toml").write_text(
+                committed_mise.replace("1.15.9", "1.15.10"), encoding="utf-8"
+            )
+            subprocess.run(
+                ["git", "add", "mise.toml"], cwd=repository, env=git, check=True
+            )
+            (repository / "mise.toml").write_text(committed_mise, encoding="utf-8")
+            self.assertNotEqual(run("terraform gh jq gcloud"), 0)
+            subprocess.run(
+                ["git", "add", "mise.toml"], cwd=repository, env=git, check=True
+            )
 
             # A floating selector must fail even when the lock is refreshed and
             # every tool therefore resolves: the contract is exact pins, and only

@@ -5,8 +5,8 @@ description: "READ-ONLY health check for an infra-copilot repo: run every step's
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2e7908085e8eb0713362482bc9f316455524dcc2d7c21167020b0c24689051d6
-Source-Hash: blake3:4aca50bce2e6932ab2756e3c02ef0b68b862a1d131b79a46c078bb828d02991b
+Content-Hash: blake3:7c6b5516717a44ef133ada24d9ac0d92bb963e8fcea03c686a2727898a89fb2d
+Source-Hash: blake3:511b2c651dd638fc0e4e3cc7ec0c21a9f801a83caf042a776fbccf50dd92f298
 Schema-Version: v1
 -->
 
@@ -31,8 +31,10 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    matching**, **pinned and drifted**, or **missing its required pin**. Report `curl`
    separately as present or missing; it is intentionally system-provided and has no pin. A
    drifted pin is a real finding: the plan a reviewer reads may not be the plan that gets
-   applied. A missing `mise.toml` key or `mise.lock` is a failed toolchain contract — say
-   so, and point at [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example).
+   applied. A missing `mise.toml` key or `mise.lock` is a failed toolchain contract and a
+   red phase-0 `toolchain-pin` step — say so, and point at
+   [`../infra-copilot/references/docs/setup.md#6`](../infra-copilot/references/docs/setup.md#6-local-development) and
+   [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example).
    Report the HCP token pivot: present or not.
    If `terraform/gcp` exists, also report `gcloud` as pinned/matching, drifted, or missing;
    omit it while the optional GCP phase has not been adopted.
@@ -112,7 +114,7 @@ Print a phase-by-phase table, then a one-line verdict. Use this shape:
 infra-copilot status — <repo> (org: $ORG)
 
 Preflight   terraform 1.15.9 ✓ pinned   gh 2.81.0 ✗ pin missing   jq ✓   curl ✓   HCP token ✓
-Phase 0  HCP bootstrap    ✓ hcp-login  ✓ hcp-signup  ✓ hcp-verify
+Phase 0  bootstrap        ✓ toolchain-pin  ✓ hcp-login  ✓ hcp-signup  ✓ hcp-verify
 Phase 1  workspaces       ✓ vcs-connect  ✗ workspaces-create   ← first red
 Phase 2  cloudflare       – cf-token            (not reached)
 …

@@ -206,6 +206,62 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     ci = (root / TOOLCHAIN_CI_DOCUMENT).read_text(encoding="utf-8")
     decisions = (root / TOOLCHAIN_DECISIONS_DOCUMENT).read_text(encoding="utf-8")
 
+    preflight_check = re.search(
+        r"^  - tool: mise\n    check: >-\n(?P<body>(?:      .*\n)+)",
+        steps,
+        re.MULTILINE,
+    )
+    bootstrap_step = re.search(
+        r"^  - id: toolchain-pin\n(?P<metadata>(?:(?!^  - id:).*(?:\n|\Z))*)",
+        steps,
+        re.MULTILINE,
+    )
+    steps_start = steps.find("\nsteps:\n")
+    first_step = (
+        re.search(r"^  - id: ([^\n]+)", steps[steps_start:], re.MULTILINE)
+        if steps_start >= 0
+        else None
+    )
+    if (
+        bootstrap_step is None
+        or first_step is None
+        or first_step.group(1) != "toolchain-pin"
+    ):
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: toolchain-pin must be the first phase-0 step"
+        )
+    elif not all(
+        marker in bootstrap_step.group("metadata")
+        for marker in (
+            "    phase: 0\n",
+            "    provider: repo\n",
+            "    actor: HUMAN\n",
+            "    produces: committed mise.toml + mise.lock\n",
+            "    docs: docs/setup.md#6-local-development\n",
+        )
+    ):
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: toolchain-pin metadata is incomplete"
+        )
+    if preflight_check is None:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: missing mise preflight check"
+        )
+    elif bootstrap_step is not None:
+        step_check = re.search(
+            r"^    check: >-\n(?P<body>(?:      .*\n)+)",
+            bootstrap_step.group("metadata"),
+            re.MULTILINE,
+        )
+        if (
+            step_check is None
+            or step_check.group("body") != preflight_check.group("body")
+        ):
+            errors.append(
+                f"{TOOLCHAIN_STEPS_DOCUMENT}: toolchain-pin check must match the "
+                "mise preflight check"
+            )
+
     if "pin=$(mise current" in steps:
         errors.append(
             f"{TOOLCHAIN_STEPS_DOCUMENT}: reads active mise state instead of the "
@@ -220,6 +276,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     for marker in (
         "git ls-files --error-unmatch mise.toml mise.lock",
         "git diff --quiet HEAD -- mise.toml mise.lock",
+        "git diff --cached --quiet HEAD -- mise.toml mise.lock",
         "MISE_LOCKED=1 mise install --dry-run $pinned",
     ):
         if marker not in steps:

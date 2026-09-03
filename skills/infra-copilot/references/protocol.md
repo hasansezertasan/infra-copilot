@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:08a65fc233e848ec20501480174ff36b1b2d5d09122d742d74e512856ce8084d
-Source-Hash: blake3:4aca50bce2e6932ab2756e3c02ef0b68b862a1d131b79a46c078bb828d02991b
+Content-Hash: blake3:717e6da4c8486774448031fa1ff748d444ea8683e739a2a5f8f478d8a4624b8d
+Source-Hash: blake3:511b2c651dd638fc0e4e3cc7ec0c21a9f801a83caf042a776fbccf50dd92f298
 Schema-Version: v1
 -->
 
@@ -15,17 +15,19 @@ apart. Read this file whenever a skill says "follow the shared protocol."
 
 ## The one idea
 
-**The human is the browser and the keyholder. Everything scriptable is the agent's.**
+**The human is the browser, keyholder, and reviewer of executable repository trust.
+Everything else scriptable is the agent's.**
 
-There is exactly one thing a human must do that an agent cannot: sit at a browser, sign
-up for a SaaS, and mint the first credential. Once an HCP token exists (from
-`terraform login`), the agent creates workspaces, sets variables, reads plans, imports
-resources, and confirms applies **over the API** — no more clicking. The human surface is
-three action kinds only:
+Human steps are limited to actions that require browser identity, secret custody, or an
+independent trust decision. Once an HCP token exists (from `terraform login`), the agent
+creates workspaces, sets variables, reads plans, imports resources, and confirms applies
+**over the API** — no more clicking. The human surface is four action kinds only:
 
 1. **Sign up** for a service (browser-only).
 2. **Mint a credential** in a dashboard (browser-only — no API bootstraps the first token).
 3. **Paste a secret** into HCP (browser-only — the agent must never see the plaintext).
+4. **Choose and review repository tool pins** before trusting executable `mise.toml`
+   behavior; the agent that proposes a config must not approve its own trust boundary.
 
 Everything else — verifying, creating workspaces, importing, planning — is the agent's.
 
@@ -49,7 +51,7 @@ Every step in [`steps.yaml`](steps.yaml) is tagged with who performs it:
 | Tag | Meaning | Behaviour |
 |---|---|---|
 | **`AGENT`** | Agent runs it (shell, `gh`, `terraform`, HCP API). | Execute. Verify with the step's `check`. Continue on green. |
-| **`HUMAN`** | Irreducibly human (signup, dashboard, secret paste). | **Stop.** Emit the handoff block. Wait for `done`. Then run the `check` before continuing. |
+| **`HUMAN`** | Irreducibly human (signup, dashboard, secret paste, executable-config review). | **Stop.** Emit the handoff block. Wait for `done`. Then run the `check` before continuing. |
 
 ### The handoff block
 
@@ -75,6 +77,14 @@ Every skill here is **idempotent and resumable**. Before doing anything, walk th
 this skill's scope (its phase range of [`steps.yaml`](steps.yaml)) top to bottom and run
 each step's `check` to discover where things already stand. Resume at the first step whose
 check is red. An all-green scope means "already done, nothing to do."
+
+`setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
+available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
+pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool
+checks) before that step has established committed pins. Once `toolchain-pin` is green,
+run the full preflight and continue the resume scan at `hcp-login`. This keeps the
+fail-fast gate while giving a missing toolchain an owned, resumable step. `status` remains
+read-only: it reports the same failed step but never executes its `run`.
 
 ```text
 for step in scope(steps.yaml):
@@ -162,9 +172,11 @@ Read `./mise.toml` explicitly, require a non-empty exact value, and compare the 
 that value. If a consuming repo chooses another manager, its manifest checks must read
 that manager's committed pin directly.
 
-For `setup`, bootstrap missing `mise.toml` and `mise.lock` from the constrained example in
-[`docs/setup.md`](docs/setup.md#6-local-development), then run the checks. Only after the
-Terraform check passes, export the value needed by Phase 1:
+For `setup`, phase 0's `toolchain-pin` HUMAN step owns bootstrapping missing `mise.toml`
+and `mise.lock` from the constrained example in
+[`docs/setup.md`](docs/setup.md#6-local-development). Run its check, follow the handoff
+protocol if red, and only then run the pin-dependent preflight checks. After the Terraform
+check passes, export the value needed by Phase 1:
 
 ```sh
 export TERRAFORM_VERSION=$(mise config get --file ./mise.toml tools.terraform)
