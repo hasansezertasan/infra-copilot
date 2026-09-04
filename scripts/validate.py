@@ -357,12 +357,15 @@ def frontmatter_bounds(lines: list[str]) -> tuple[int, int] | None:
     """Indices of the opening and closing ``---``, or None if absent.
 
     Frontmatter has to start at line 0 -- that is what makes it frontmatter
-    rather than a YAML block sitting in a markdown body.
+    rather than a YAML block sitting in a markdown body -- and both delimiters
+    have to start at column 0. Indented by four spaces, Markdown reads the
+    block as an indented code span, so the document has no frontmatter at all
+    while ``strip()`` still sees a ``---``.
     """
-    if not lines or lines[0].strip() != "---":
+    if not lines or lines[0].rstrip() != "---":
         return None
     for index, line in enumerate(lines[1:], start=1):
-        if line.strip() == "---":
+        if line.rstrip() == "---":
             return 0, index
     return None
 
@@ -406,10 +409,17 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
         lines = text.splitlines()
         edges: dict[str, list[int]] = {"start": [], "end": []}
         malformed: list[int] = []
+        indented: list[int] = []
         for index, line in enumerate(lines):
-            match = rules.marker.match(line.strip())
+            # rstrip only. Leading whitespace is significant: indented four
+            # spaces, Markdown reads the region as a code block, so the markers
+            # become displayed text and the config block stops being
+            # frontmatter -- both of which passed while strip() hid the indent.
+            match = rules.marker.match(line.rstrip())
             if match:
                 edges[match.group("edge")].append(index)
+            elif rules.marker.match(line.strip()):
+                indented.append(index)
             elif _looks_like_marker(line):
                 # A line trying to be a marker but failing this file's syntax.
                 # Reported separately: "found 0 start" would be a confusing way
@@ -419,6 +429,17 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
                 # prose that names the token in backticks, and matching the
                 # bare token flagged those sentences.
                 malformed.append(index)
+        if indented:
+            # Reported apart from malformed: the marker is correct, only its
+            # column is wrong, and "not a well-formed comment marker" would
+            # send the reader looking for a typo that is not there.
+            errors.extend(
+                f"{relative}: {CUSTOMIZATION_TOKEN} marker on line {index + 1} "
+                "is indented; markers must start at column 0, or Markdown reads "
+                "the region as a code block"
+                for index in indented
+            )
+            continue
         if malformed:
             errors.extend(
                 f"{relative}: line {index + 1} carries {CUSTOMIZATION_TOKEN} but is "

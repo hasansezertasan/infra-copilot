@@ -195,6 +195,38 @@ class CustomizationMarkerTests(unittest.TestCase):
                 ],
             )
 
+    def test_rejects_indented_markers(self) -> None:
+        """Indented four spaces, Markdown reads the region as a code block.
+
+        The markers become displayed text and the config block stops being
+        frontmatter, while strip() still saw a well-formed marker.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "decisions.md.example": (
+                        "    <!-- infra-copilot:customization start -->\n"
+                        "    | Decision | Choice | Status | Rationale |\n"
+                        "    <!-- infra-copilot:customization end -->\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/decisions.md.example: "
+                    "infra-copilot:customization marker on line 1 is indented; "
+                    "markers must start at column 0, or Markdown reads the region "
+                    "as a code block",
+                    f"{self.REFERENCES}/decisions.md.example: "
+                    "infra-copilot:customization marker on line 3 is indented; "
+                    "markers must start at column 0, or Markdown reads the region "
+                    "as a code block",
+                ],
+            )
+
     def test_rejects_a_marker_that_is_not_a_comment(self) -> None:
         """A marker that loses its "#" becomes a stray line among the fields."""
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -457,6 +489,15 @@ class FrontmatterBoundsTests(unittest.TestCase):
     def test_requires_frontmatter_to_start_at_line_zero(self) -> None:
         """A YAML block below anything else is not frontmatter."""
         self.assertIsNone(frontmatter_bounds(["# comment", "---", "a: 1", "---"]))
+
+    def test_indented_delimiters_are_not_frontmatter(self) -> None:
+        """strip() reduced an indented delimiter to ---; column 0 is required."""
+        self.assertIsNone(frontmatter_bounds(["    ---", "a: 1", "    ---"]))
+        self.assertIsNone(frontmatter_bounds(["---", "a: 1", "    ---"]))
+
+    def test_trailing_whitespace_on_a_delimiter_is_tolerated(self) -> None:
+        """Only leading whitespace changes how Markdown reads the line."""
+        self.assertEqual(frontmatter_bounds(["--- ", "a: 1", "---  "]), (0, 2))
 
     def test_unterminated_frontmatter_has_no_bounds(self) -> None:
         self.assertIsNone(frontmatter_bounds(["---", "a: 1"]))
