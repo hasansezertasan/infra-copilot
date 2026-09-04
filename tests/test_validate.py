@@ -273,6 +273,18 @@ class DescriptionBudgetTests(unittest.TestCase):
                     "quoted trigger phrases belong in the hook's job, not here",
                 )
 
+    def test_provider_specific_tooling_is_not_described_as_general(self) -> None:
+        """cf-terraforming is Cloudflare-only; the body warns what happens otherwise.
+
+        Running the Cloudflare steps for a GitHub request mints an irrelevant
+        token and writes to the wrong leaf, so a description that implies the
+        tool is provider-agnostic causes exactly that misrouting.
+        """
+        for name, description in skill_descriptions().items():
+            if "cf-terraforming" in description:
+                with self.subTest(skill=name):
+                    self.assertIn("Cloudflare", description)
+
     def test_each_action_skill_still_disambiguates_itself(self) -> None:
         """Trimming must not remove the add-vs-import distinction.
 

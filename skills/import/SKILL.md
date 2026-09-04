@@ -1,12 +1,12 @@
 ---
 name: import
-description: "Adopt infrastructure that already exists at a provider into Terraform without recreating it: generate HCL and import blocks with cf-terraforming, then verify the plan shows imports rather than creates. Use when a plan wants to create things that are already live. Runs after infra-copilot:setup reaches green plans; for things that do not exist yet use infra-copilot:add."
+description: "Adopt infrastructure that already exists at a provider into Terraform without recreating it, verifying the plan shows imports rather than creates. Cloudflare has a scripted cf-terraforming flow; every other provider uses the same import-block pattern by hand. Use when a plan wants to create things that are already live. Runs after infra-copilot:setup reaches green plans; for things that do not exist yet use infra-copilot:add."
 ---
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:fb62fb1e2a652c32877187e2fee8c010dcd93a52136ebedf903167c8e4d4555b
-Source-Hash: blake3:3f73c151a6ad3b0d0b902b7a0bc91ebdab1103bc6f4cf44aff3caa4a866a52ba
+Content-Hash: blake3:e8ad70a609f93e255acd8f997ecf7c93dfc3aa7e3dee894ad8163392457dee96
+Source-Hash: blake3:582448718a7e3f3cff94fb0f82890abd34803db531280047a041dd9bcd8a2dfa
 Schema-Version: v1
 -->
 
