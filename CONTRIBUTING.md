@@ -74,7 +74,7 @@ Generated files are committed on purpose, so users can install the plugin withou
 | `make check-all` | `check` plus the smoke test |
 | `make clean` | removes `.agents/skills`, `skills-lock.json`, `__pycache__` |
 | `make preflight` | checks `node`, `npx` and `python3` are present |
-| `make release` | regenerates, runs `check`, and prints the tag command |
+| `make release` | regenerates, verifies the worktree is clean, runs `check-all`, prints the tag command |
 
 `smoke-opencode` is outside `check` on purpose: it downloads the `skills` installer, and
 on one run the tests took 65 seconds while that download took 421. It is a separate CI
@@ -134,8 +134,14 @@ Bump them in the `Makefile` and update the README in the same commit.
 
 ## Releasing
 
-`make release` regenerates the host packages, runs `check`, and prints the tag command. It
-does not bump anything — the bump is one edit to `[plugin].version` in
+`make release` regenerates the host packages, refuses to continue if generation left the
+worktree dirty, runs **`check-all`**, and prints the tag command. `check-all` rather than
+`check` because it includes the OpenCode smoke test that `release.yml` runs — so a green
+`make release` means the release workflow will not fail on it. That test downloads the
+`skills` installer, so `make release` needs network and can take minutes when the registry
+is slow.
+
+It does not bump anything — the bump is one edit to `[plugin].version` in
 `.ai-rulez/config.toml`, after which `ai-rulez` propagates it to the three generated
 manifests. Two copies are **not** generated and must be edited by hand:
 `.agents/plugins/marketplace.json` and the `CHANGELOG.md` heading. `validate_versions`

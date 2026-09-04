@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:f5151cbbe4458037a7642f26c56c01800ca0987c74bc7154ef9b5292e2e40771
-Source-Hash: blake3:442b1d6efb723635feb68e4317c333d9df78a268c7e774efc132d587f7d406e6
+Content-Hash: blake3:893065c157601a38fb754f8c55e22afb9514497e38de01233847fbab9c5e03ad
+Source-Hash: blake3:4e6a6c5c98165b144cbbc4fc83b2198714bd7f13b2acad454787d2e39eeedbd7
 Schema-Version: v1
 -->
 
@@ -26,6 +26,7 @@ The only unavoidable cold-start. Produces the HCP token that lets the agent scri
   **`<your-org>`** and project **`infra`**. (Org name must equal the `organization` field
   in every `terraform/*/versions.tf` — it does.)
 - **`AGENT` — hcp-verify.** From here you own the HCP API:
+
   ```sh
   # $ORG sourced from config — see config.md
   HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
@@ -132,6 +133,7 @@ GitHub↔HCP OAuth connection (browser).
   > (it defaults off; the label-gated flow in [`docs/ci.md`](docs/ci.md) replaces it for forks).
 
   Verify:
+
   ```sh
   for pair in "cloudflare:terraform/cloudflare" "github-org:terraform/github"; do
     ws=${pair%%:*}; dir=${pair#*:}

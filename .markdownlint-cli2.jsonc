@@ -13,5 +13,10 @@
   },
   // Generated trees are excluded: their content is owned by .ai-rulez/ sources, and
   // linting the output would report the same finding once per host package.
-  "globs": ["README.md", "AGENTS.md", "CONTRIBUTING.md", "CHANGELOG.md", "docs/**/*.md"]
+  "globs": [
+    "README.md", "AGENTS.md", "CONTRIBUTING.md", "CHANGELOG.md", "docs/**/*.md",
+    // Canonical sources. A nested .ai-rulez/.markdownlint-cli2.jsonc relaxes
+    // line width there; everything else still applies.
+    ".ai-rulez/**/*.md"
+  ]
 }

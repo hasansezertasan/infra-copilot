@@ -239,6 +239,28 @@ class ShippedCheckPathTests(unittest.TestCase):
             )
 
 
+class LintScopeTests(unittest.TestCase):
+    """The canonical sources must be linted, with width relaxed only there."""
+
+    def test_root_config_lints_the_canonical_sources(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        config = (root / ".markdownlint-cli2.jsonc").read_text(encoding="utf-8")
+        self.assertIn(".ai-rulez/**/*.md", config)
+
+    def test_nested_config_relaxes_only_line_width(self) -> None:
+        """Deleting this file silently reintroduces 119 findings, so pin its purpose.
+
+        `make lint` is the real enforcement — it fails loudly if a future
+        markdownlint version stops applying nested configuration — but nothing
+        stopped someone deleting the file as apparently inert.
+        """
+        root = Path(__file__).resolve().parents[1]
+        nested = root / ".ai-rulez/.markdownlint-cli2.jsonc"
+        self.assertTrue(nested.is_file(), "canonical sources need their own lint config")
+        body = nested.read_text(encoding="utf-8")
+        self.assertRegex(body, r'"MD013"\s*:\s*false')
+
+
 class SkillSectionTests(unittest.TestCase):
     """Four shapes across four skills is how the same concept got two names."""
 
