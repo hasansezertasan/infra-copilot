@@ -61,6 +61,7 @@ MAKEFILE_PATH = "Makefile"
 TOOL_PIN_SPECS = {
     "ai-rulez": "AI_RULEZ_VERSION",
     "skills": "SKILLS_VERSION",
+    "markdownlint-cli2": "MARKDOWNLINT_VERSION",
 }
 # Workflows call `make check` and must not carry their own copy of a pin; a
 # second definition is exactly the drift this check exists to prevent.
@@ -191,6 +192,38 @@ def validate_description_budget(root: Path = ROOT) -> list[str]:
             f"{MAX_DESCRIPTION_BUDGET}; shorten SKILL.md frontmatter descriptions"
         ]
     return []
+
+
+REQUIRED_SECTIONS = ("workflow", "guardrails", "validation", "example")
+#: The router selects a skill and performs no work, so it has nothing to demonstrate.
+SECTION_EXEMPTIONS = {"infra-copilot": {"example"}}
+
+
+def validate_skill_sections(root: Path = ROOT) -> list[str]:
+    """Every skill states its procedure, its limits, its done-condition, and one example.
+
+    Matching is deliberately lenient — any H2 mentioning the word counts, so
+    `## Example report` satisfies `example` — because the goal is that each
+    concern is addressed somewhere findable, not that headings be identical.
+
+    Before this existed the four action skills had four different shapes: the
+    same concept was `Done signal` in one and `Success signal` in another, two
+    had no completion section at all, and `status` buried its read-only
+    contract inside an 86-line procedure.
+    """
+    errors: list[str] = []
+    for skill in sorted((root / ".ai-rulez/skills").glob("*/SKILL.md")):
+        name = skill.parent.name
+        headings = re.findall(r"^##\s+(.*)$", skill.read_text(encoding="utf-8"), re.MULTILINE)
+        lowered = " ".join(headings).lower()
+        for section in REQUIRED_SECTIONS:
+            if section in SECTION_EXEMPTIONS.get(name, set()):
+                continue
+            if not re.search(rf"\b{section}s?\b", lowered):
+                errors.append(
+                    f".ai-rulez/skills/{name}/SKILL.md: no H2 mentioning {section!r}"
+                )
+    return errors
 
 
 def validate_command_tools() -> list[str]:
@@ -788,6 +821,7 @@ def validate_versions(root: Path = ROOT) -> list[str]:
 def validate_layout() -> list[str]:
     required = (
         "Makefile",
+        ".markdownlint-cli2.jsonc",
         "AGENTS.md",
         "CONTRIBUTING.md",
         "docs/roadmap.md",
@@ -825,6 +859,7 @@ def main() -> int:
         *validate_layout(),
         *validate_skills(),
         *validate_command_tools(),
+        *validate_skill_sections(),
         *validate_description_budget(),
         *validate_config_fallbacks(),
         *validate_phase_five_rule(),

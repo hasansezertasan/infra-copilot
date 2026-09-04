@@ -5,8 +5,8 @@ description: "Read-only health check: runs every step's check across the whole m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:cc67208ba04173e31420f144edd8190b4e4244243aefcf8448c5899670b3eb4e
-Source-Hash: blake3:409d2df7c4e28a8d504f5130b167e1123f7862f944e3806e7bdb0d35ee0f6b3b
+Content-Hash: blake3:7126db6a17849b6142b58bbc3288bc50d19072287e9a8e8df2b24309f0d94b9b
+Source-Hash: blake3:78d0196a56fe47cade151922e26093ce4f1f3b7ba682b5882304fad0139ae164
 Schema-Version: v1
 -->
 
@@ -20,7 +20,22 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
 [`../infra-copilot/references/protocol.md`](../infra-copilot/references/protocol.md); the manifest it scans is
 [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml).
 
-## What it does
+## Guardrails
+
+**This command changes nothing.** Everything below follows from that:
+
+- Never run a step's `run` — only its `check`, and only checks that do not touch the
+  working tree. The phase-4 plan checks and the phase-5 `migrate-import` check run
+  `terraform init`/`plan`, which writes `.terraform/` and can update
+  `.terraform.lock.hcl`; read run status via the HCP API instead.
+- Never emit the handoff block. Nothing is being unblocked here, so a `HUMAN` step's
+  `check` is classified like any other and its handoff is not printed.
+- Never scaffold or edit config. A missing or incomplete `.infra-copilot/config.md` is
+  reported and the scan stops; offering to create it belongs to `setup`.
+- Read git with `git --no-optional-locks`, which leaves git's index untouched.
+- A red step is a finding, not a licence to fix it. Report which skill owns it.
+
+## Workflow
 
 1. **Read config** (shared protocol, Step 0). Load `.infra-copilot/config.md`, falling
    back to `.claude/infra-copilot.local.md` for migration, and export the org vars
@@ -106,7 +121,15 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    imports, or when you cannot read that evidence at all. Only call phase 5 actionable when
    resources demonstrably exist at the provider but aren't in state.
 
-## Report format
+## Validation
+
+A complete report accounts for **every** step in the manifest — none silently omitted —
+carries a one-line verdict naming the first red step, and states which skill owns it.
+Distinguish the four outcomes rather than collapsing them: passed, failed, not evaluated,
+and *could not be verified*. Reporting an unreadable check as a failure is as wrong as
+reporting a failure as green.
+
+## Example report
 
 Print a phase-by-phase table, then a one-line verdict. Use this shape:
 

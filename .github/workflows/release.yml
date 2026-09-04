@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Run all checks
-        run: make check
+        run: make check-all
 
   release:
     needs: validate

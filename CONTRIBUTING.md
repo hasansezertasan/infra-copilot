@@ -66,10 +66,19 @@ Generated files are committed on purpose, so users can install the plugin withou
 
 | Target | What it covers |
 |---|---|
-| `make validate` | `ai-rulez validate`, `verify --plugin` (drift gate), `scripts/validate.py` |
+| `make lint` | markdownlint over the hand-authored Markdown |
+| `make validate` | `ai-rulez validate`, `verify --plugin` (drift gate), `scripts/validate.py`, upstream coherence |
 | `make test` | the validator tests under `tests/` |
+| `make check` | the three above — what CI runs on a pull request |
 | `make smoke-opencode` | installs a throwaway copy of the tree and asserts the OpenCode payload |
-| `make check` | all of the above |
+| `make check-all` | `check` plus the smoke test |
+| `make clean` | removes `.agents/skills`, `skills-lock.json`, `__pycache__` |
+| `make preflight` | checks `node`, `npx` and `python3` are present |
+| `make release` | regenerates, runs `check`, and prints the tag command |
+
+`smoke-opencode` is outside `check` on purpose: it downloads the `skills` installer, and
+on one run the tests took 65 seconds while that download took 421. It is a separate CI
+job, so a slow registry never gates validation, but it still blocks the merge.
 
 `make smoke-opencode` runs against a copy of the working tree in a temp directory, so it
 writes nothing into your checkout. That is deliberate: `skills add --copy` produces
@@ -77,6 +86,26 @@ writes nothing into your checkout. That is deliberate: `skills add --copy` produ
 either. If you ever do clean those up by hand, note that
 `.agents/plugins/marketplace.json` is tracked and required — never delete `.agents/`
 wholesale.
+
+## Skill structure
+
+Every `SKILL.md` addresses four concerns, and `make check` fails if one is missing:
+
+| Section | Answers |
+|---|---|
+| workflow | what the agent does, in order |
+| guardrails | what it must not do, and the preconditions |
+| validation | how to know it is done |
+| example | one concrete, worked case |
+
+Matching is lenient — any H2 mentioning the word counts, so `## Example report` satisfies
+`example`. The point is that each concern is findable, not that headings be identical.
+
+The `infra-copilot` router is exempt from `example` only: it selects a skill and performs
+no work, so it has nothing to demonstrate.
+
+Use **one** name per concern across skills. `setup` once said `Done signal` while `import`
+said `Success signal` for the same thing, which is why a test now rejects both spellings.
 
 ## Skill descriptions
 
@@ -102,6 +131,15 @@ difference is whether the resource already exists at the provider.
 documents the same versions, and rejects any workflow that reintroduces its own pin.
 
 Bump them in the `Makefile` and update the README in the same commit.
+
+## Releasing
+
+`make release` regenerates the host packages, runs `check`, and prints the tag command. It
+does not bump anything — the bump is one edit to `[plugin].version` in
+`.ai-rulez/config.toml`, after which `ai-rulez` propagates it to the three generated
+manifests. Two copies are **not** generated and must be edited by hand:
+`.agents/plugins/marketplace.json` and the `CHANGELOG.md` heading. `validate_versions`
+checks all of them, so `check` fails until they agree.
 
 ## Versioning
 
