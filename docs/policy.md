@@ -195,16 +195,11 @@ Precedence, highest first: managed settings → CLI flags → `.claude/settings.
 `.claude/settings.json` → `~/.claude/settings.json`. Rules evaluate **deny → ask → allow**,
 first match wins. `/status` shows the active layers.
 
-Managed settings live at a platform-specific **file**:
-
-| Platform | Path |
-|---|---|
-| macOS | `/Library/Application Support/ClaudeCode/managed-settings.json` |
-| Linux / WSL | `/etc/claude-code/managed-settings.json` |
-| Windows | `C:\Program Files\ClaudeCode\managed-settings.json` |
-
-Check your Claude Code version's own documentation — these paths and the managed-only
-field names are its to change, not this plugin's.
+Managed settings live at a platform-specific file, named per platform in Claude Code's
+[settings documentation](https://code.claude.com/docs/en/settings#settings-files). That
+path list and the managed-only field names are Claude's to change, not this plugin's —
+and two findings on this page were exactly that kind of drift, so read them there rather
+than from a copy here.
 
 > **Merge, do not copy.** If that file exists it carries your other rules, hooks and
 > marketplace restrictions. Writing a fresh document over it drops them. Back it up first.

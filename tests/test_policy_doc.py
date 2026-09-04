@@ -84,6 +84,21 @@ class PolicyDocTests(unittest.TestCase):
         self.assertIn("only a sandboxed command runner", self.policy.lower())
         self.assertNotIn("only mechanism that makes `status`", self.policy)
 
+    def test_does_not_reproduce_claude_owned_path_values(self) -> None:
+        """Those paths are Claude's to change, and two findings here were that drift.
+
+        The page links to Claude's settings documentation instead of copying a
+        table that can silently go stale.
+        """
+        for owned in (
+            "/Library/Application Support/ClaudeCode",
+            "/etc/claude-code/",
+            "Program Files",
+        ):
+            with self.subTest(value=owned):
+                self.assertNotIn(owned, self.raw)
+        self.assertIn("code.claude.com/docs/en/settings", self.policy)
+
     def test_qualifies_the_managed_rules_lock(self) -> None:
         """Whether an unmatched command blocks or prompts depends on permission mode.
 
@@ -120,11 +135,26 @@ class PolicyDocTests(unittest.TestCase):
     def test_the_manifest_still_does_not_apply(self) -> None:
         """The document tells readers to deny apply because nothing needs it."""
         body = MANIFEST.read_text(encoding="utf-8")
+        # Global options may precede the subcommand: `terraform -chdir=DIR apply` is
+        # valid, and a verb-immediately-after-terraform pattern misses it. Same rigid
+        # shape assumption that made `Bash(terraform apply *)` miss a bare apply.
         for verb in ("apply", "destroy"):
             self.assertIsNone(
-                re.search(rf"\bterraform {verb}\b", body),
+                re.search(rf"\bterraform\b(?:\s+-\S+)*\s+{verb}\b", body),
                 f"the manifest now runs terraform {verb}; revisit docs/policy.md",
             )
+
+    def test_the_apply_guard_sees_global_options(self) -> None:
+        """Pin the matcher itself, since its whole value is catching a future edit."""
+        pattern = re.compile(r"\bterraform\b(?:\s+-\S+)*\s+apply\b")
+        for command in (
+            "terraform apply",
+            "terraform -chdir=terraform/cloudflare apply",
+            "terraform -no-color -chdir=x apply -auto-approve",
+        ):
+            with self.subTest(command=command):
+                self.assertIsNotNone(pattern.search(command))
+        self.assertIsNone(pattern.search("terraform plan"))
 
 
 if __name__ == "__main__":
