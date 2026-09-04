@@ -108,6 +108,12 @@ class PolicyDocTests(unittest.TestCase):
         self.assertIn("allowManagedPermissionRulesOnly", self.policy)
         self.assertIn("depends on the active permission mode", self.policy)
         self.assertNotIn("becomes a hard block", self.policy)
+        # Two earlier versions each asserted what an unmatched command does -- first
+        # unconditionally, then per mode. Both were wrong in ways review caught, so the
+        # document now sends readers to Claude's docs instead of restating the matrix.
+        for characterisation in ("in a non-interactive run", "it is a block"):
+            self.assertNotIn(characterisation, self.policy)
+        self.assertIn("code.claude.com/docs/en/settings", self.policy)
 
     def test_records_the_hcp_token_exception_and_the_real_control(self) -> None:
         self.assertIn("credentials.tfrc.json", self.policy)
