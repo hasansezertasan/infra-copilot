@@ -31,10 +31,11 @@ oversight. Each item links to the issue that owns it.
 - **No permissions guidance.** The skills drive three provider APIs and handle an HCP
   token; there is no `docs/policy.md` and no managed-settings template.
   ([#14](https://github.com/hasansezertasan/infra-copilot/issues/14))
-- **No SessionStart hook and no subagents.** Discovery rests entirely on skill
-  descriptions, and the read-only `status` scan runs in the main context.
-  ([#18](https://github.com/hasansezertasan/infra-copilot/issues/18),
-  [#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
+- **The SessionStart hook is Claude-only.** It ships and is auto-discovered there (#18),
+  but Codex, Antigravity and OpenCode wiring is unverified and not shipped.
+  ([#42](https://github.com/hasansezertasan/infra-copilot/issues/42))
+- **No subagents.** The read-only, context-heavy `status` scan runs in the main context.
+  ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
 - **Host question capability is undeclared.** Three commands grant `AskUserQuestion` — a
   Claude-only tool — that nothing instructs the agent to use. The *handoff* block for
   unblocking a `HUMAN` step is already specified host-neutrally in `protocol.md`; the gap is

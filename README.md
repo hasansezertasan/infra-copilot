@@ -22,6 +22,19 @@ provider's API, pausing only for the irreducibly human steps.
 After an update, refresh the host marketplace/plugin and restart the session so changed
 skills are rediscovered.
 
+### Session announcement
+
+On Claude Code, a `SessionStart` hook announces that the plugin is installed when the
+working directory carries any of its markers — `.infra-copilot/config.md`, the legacy
+`.claude/infra-copilot.local.md`, or a `terraform/` tree. Discovery otherwise depends on
+a user's phrasing happening to match a skill description. It is
+deliberately static: one file-existence test, no provider calls, no `git`, and it names
+the skills rather than reporting any state, because state is re-derived by running each
+step check. Silence it with `INFRA_COPILOT_HOOK_DISABLE=1`.
+
+Codex, Antigravity and OpenCode wiring is not shipped yet — see
+[#42](https://github.com/hasansezertasan/infra-copilot/issues/42).
+
 ## Configure
 
 `infra-copilot` is org-agnostic — it carries no hardcoded organization, domain, or

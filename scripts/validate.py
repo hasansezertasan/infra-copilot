@@ -706,6 +706,8 @@ def validate_layout() -> list[str]:
         ".github/workflows/check.yml",
         ".github/workflows/release.yml",
         ".github/workflows/upstream.yml",
+        "hooks/session-start.sh",
+        "hooks/hooks.json",
         "scripts/upstream.json",
         "scripts/check_upstream.py",
         ".claude-plugin/marketplace.json",
