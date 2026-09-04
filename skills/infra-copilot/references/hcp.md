@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:f5151cbbe4458037a7642f26c56c01800ca0987c74bc7154ef9b5292e2e40771
-Source-Hash: blake3:775b9982e91c2ffff3708da888c704fe5780c305f7485b0e3484c0c62caaf396
+Content-Hash: blake3:15bd2d967f0b383cc29cadbc9fb91cbbd6ea55f55a7bca1e1b883802270a5d04
+Source-Hash: blake3:409d2df7c4e28a8d504f5130b167e1123f7862f944e3806e7bdb0d35ee0f6b3b
 Schema-Version: v1
 -->
 
@@ -82,7 +82,7 @@ GitHub↔HCP OAuth connection (browser).
         name:$name, "working-directory":$dir, "execution-mode":"remote",
         "terraform-version":$tf_version,
         "auto-apply":false, "speculative-enabled":true, "file-triggers-enabled":true,
-        "trigger-patterns":[$dir+"/**"], "queue-all-runs":false, "global-remote-state":false,
+        "trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"], "queue-all-runs":false, "global-remote-state":false,
         "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}' \
       | curl -s -w '\n%{http_code}' -X POST "https://app.terraform.io/api/v2/organizations/$ORG/workspaces" \
           -H "Authorization: Bearer $HCP_TOKEN" \
@@ -126,7 +126,9 @@ GitHub↔HCP OAuth connection (browser).
   ```
 
   > `trigger-patterns` (glob) requires `file-triggers-enabled: true` — that pair is the
-  > path-scoping toggle. `speculative-enabled: true` is the master switch for plans on PRs.
+  > path-scoping toggle. Both workspaces also watch the shared `.infra-copilot/config.md`
+  > so public-identifier changes are validated by both plans. `speculative-enabled: true`
+  > is the master switch for plans on PRs.
   > The **fork** speculative-plan toggle is *separate* and has no clean create-time
   > attribute — confirm it's **off** in the workspace's UI → Settings → Version Control
   > (it defaults off; the label-gated flow in [`docs/ci.md`](docs/ci.md) replaces it for forks).
@@ -146,6 +148,7 @@ GitHub↔HCP OAuth connection (browser).
             and ($a["speculative-enabled"] == true)
             and ($a["file-triggers-enabled"] == true)
             and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
+            and ((($a["trigger-patterns"]) // []) | index(".infra-copilot/config.md") != null)
             and (($a["vcs-repo"].identifier // "") == $repo)
             and (($a["vcs-repo"].branch // "") == "main")' >/dev/null \
       && echo "✓ $ws configured as declared"

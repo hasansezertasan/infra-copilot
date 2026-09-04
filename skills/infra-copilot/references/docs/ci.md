@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:b64c29f94310edd0815633bea6dd0fccbe40b0e6e09b2e0ddb783817ee83f01f
-Source-Hash: blake3:775b9982e91c2ffff3708da888c704fe5780c305f7485b0e3484c0c62caaf396
+Content-Hash: blake3:1c79f9f6dde7432ce92f483c77a3c1dcffe99daa17fef2254f75a9940f8875d0
+Source-Hash: blake3:409d2df7c4e28a8d504f5130b167e1123f7862f944e3806e7bdb0d35ee0f6b3b
 Schema-Version: v1
 -->
 
@@ -59,7 +59,7 @@ none. If your workflow reuses a self-hosted runner with a user-level mise config
 
 ## What runs on merge to `main`
 
-- HCP creates a real run for each workspace whose path filter matches the merged commit (`terraform/cloudflare/**` for the `cloudflare` workspace, `terraform/github/**` for `github-org`).
+- HCP creates a real run for each workspace whose path filter matches the merged commit (`terraform/cloudflare/**` for the `cloudflare` workspace, `terraform/github/**` for `github-org`, and `.infra-copilot/config.md` for both).
 - The run plans then **stops at "needs confirmation"** — applies require a human click in HCP UI (or an authenticated `POST /runs/<id>/actions/apply`).
 - Apply logs live in HCP, not GitHub Actions.
 

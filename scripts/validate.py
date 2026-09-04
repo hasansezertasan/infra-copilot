@@ -316,10 +316,12 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         for marker in (
             "    phase: 0\n",
             "    provider: repo\n",
-            "    actor: AGENT\n",
-            "test ! -x ./scripts/sync-config.sh",
-            "test -f .infra-copilot/config.md",
-            'organization = \\\"$ORG\\\"',
+            "    actor: HUMAN\n",
+            "test ! -x ./scripts/sync-config.sh || test ! -f .infra-copilot/config.md",
+            "git ls-files --error-unmatch .infra-copilot/config.md",
+            "git diff --quiet HEAD -- .infra-copilot/config.md",
+            "git diff --cached --quiet HEAD -- .infra-copilot/config.md",
+            '^[[:space:]]*organization[[:space:]]*=[[:space:]]*\\\"$ORG\\\"[[:space:]]*$',
         )
     ):
         errors.append(
@@ -396,6 +398,24 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         errors.append(
             f"{TOOLCHAIN_HCP_DOCUMENT}: Terraform pin must be created, reconciled, "
             "and verified"
+        )
+    for document, document_name in (
+        (steps, TOOLCHAIN_STEPS_DOCUMENT),
+        (hcp, TOOLCHAIN_HCP_DOCUMENT),
+    ):
+        if (
+            document.count(
+                'index(".infra-copilot/config.md") != null'
+            )
+            < 1
+        ):
+            errors.append(
+                f"{document_name}: every HCP workspace must watch the shared config"
+            )
+    if '"trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]' not in hcp:
+        errors.append(
+            f"{TOOLCHAIN_HCP_DOCUMENT}: workspace creation must include the shared "
+            "config trigger"
         )
 
     review = setup.find("cat -- mise.toml")

@@ -176,20 +176,25 @@ steps:
   - id: repo-config-sync
     phase: 0
     provider: repo
-    actor: AGENT
+    actor: HUMAN
     title: Synchronize repository configuration
-    why: A template helper may need to copy canonical public identifiers into tool-required literal fields before remote setup.
+    why: A template helper may need to copy canonical public identifiers into tool-required literal fields, but repository-controlled code must be reviewed before it runs.
     run: |
-      If `./scripts/sync-config.sh` is executable, run it from the repository root.
-      Review and commit its deterministic changes before continuing.
-      If the helper is absent, there is nothing to synchronize.
+      1. If `./scripts/sync-config.sh` or `.infra-copilot/config.md` is absent, there is nothing to synchronize.
+      2. Review `./scripts/sync-config.sh` in full before trusting it.
+      3. Run it yourself from the repository root.
+      4. Review the resulting diff, then commit `.infra-copilot/config.md` and both
+         Terraform `versions.tf` files together.
+      5. Reply `done`; the agent verifies the committed synchronized state.
     check: >-
-      if test ! -x ./scripts/sync-config.sh; then exit 0; fi;
-      test -f .infra-copilot/config.md &&
+      if test ! -x ./scripts/sync-config.sh || test ! -f .infra-copilot/config.md; then exit 0; fi;
+      git ls-files --error-unmatch .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf &&
+      git diff --cached --quiet HEAD -- .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf &&
       for path in terraform/cloudflare/versions.tf terraform/github/versions.tf; do
-      test -f "$path" && grep -Fq "organization = \"$ORG\"" "$path" || exit 1;
+      test -f "$path" && grep -Eq "^[[:space:]]*organization[[:space:]]*=[[:space:]]*\"$ORG\"[[:space:]]*$" "$path" || exit 1;
       done
-    produces: repository literals synchronized from `.infra-copilot/config.md`
+    produces: committed repository literals synchronized from `.infra-copilot/config.md`
     docs: config.md
 
   - id: hcp-login
@@ -274,7 +279,7 @@ steps:
       $hcp_api/organizations/$ORG/workspaces per workspace with:
         working-directory:   terraform/cloudflare  (and terraform/github)
         file-triggers-enabled: true
-        trigger-patterns:    ["terraform/cloudflare/**"]  (and terraform/github/**)
+        trigger-patterns:    ["terraform/cloudflare/**", ".infra-copilot/config.md"]  (and terraform/github/** plus the shared config)
         execution-mode:      remote
         terraform-version:   $TERRAFORM_VERSION  # exact committed mise.toml pin
         auto-apply:          false
@@ -298,6 +303,7 @@ steps:
                 and ($a["speculative-enabled"] == true)
                 and ($a["file-triggers-enabled"] == true)
                 and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
+                and ((($a["trigger-patterns"]) // []) | index(".infra-copilot/config.md") != null)
                 and (($a["vcs-repo"].identifier // "") == $repo)
                 and (($a["vcs-repo"].branch // "") == "main")' >/dev/null || exit 1
       done

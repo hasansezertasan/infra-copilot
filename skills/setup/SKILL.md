@@ -5,8 +5,8 @@ description: "Greenfield bootstrap of a Terraform + HCP Terraform + Cloudflare +
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:25ddb0ff5a98a2127997669193b7ba6280599f4f33bb6baf4b2274654d4bff88
-Source-Hash: blake3:775b9982e91c2ffff3708da888c704fe5780c305f7485b0e3484c0c62caaf396
+Content-Hash: blake3:817211855fc6f26e4e7830ef876aec0f054f8482904c61741973173653ee90a0
+Source-Hash: blake3:409d2df7c4e28a8d504f5130b167e1123f7862f944e3806e7bdb0d35ee0f6b3b
 Schema-Version: v1
 -->
 
@@ -54,7 +54,7 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 2. **Bootstrap preflight**, then **resume scan** over phases 0–4 of
    [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). On a cold repo, check that `mise` itself
    is available, then scan `toolchain-pin` before running the pin-dependent preflight
-   checks. Once it is green, finish preflight, run the optional `repo-config-sync` step,
+   checks. Once it is green, finish preflight, handle the optional `repo-config-sync` step,
    print `✓`, and continue from `hcp-login`. Full contract:
    [`../infra-copilot/references/protocol.md`](../infra-copilot/references/protocol.md).
 3. **Respect the actor split.** Run `AGENT` steps yourself. On a `HUMAN` step, stop, emit
@@ -67,7 +67,8 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 - **Phase 0 — Toolchain + HCP bootstrap.** The first `HUMAN` step chooses exact tool
   versions, reviews the whole `mise.toml`, and commits it with `mise.lock`; this must
   happen before pin-dependent preflight. If the consuming repository ships an executable
-  `scripts/sync-config.sh`, run it next and have its deterministic changes committed;
+  `scripts/sync-config.sh`, stop for a human to review and run it next, then verify its
+  deterministic changes and canonical config were committed together;
   repositories without the helper skip this step. Then `HUMAN` signs up + runs
   `terraform login`, after which you own the HCP API. Toolchain sequence:
   [`../infra-copilot/references/docs/setup.md#6`](../infra-copilot/references/docs/setup.md#6-local-development).
