@@ -1,13 +1,21 @@
 {
   "$comment": [
-    "A read-only profile: infra-copilot:status and nothing else. Use it to audit a",
-    "production infra repo without granting any way to change it.",
+    "A narrowed profile for auditing a live repo with infra-copilot:status.",
     "",
-    "status promises to change nothing and goes to some length to keep that promise —",
-    "it reads run status through the HCP API rather than running terraform plan, and",
-    "uses git --no-optional-locks so it does not touch git's index. This profile turns",
-    "that promise into something the host enforces rather than something the skill",
-    "asserts about itself."
+    "It reduces blast radius; it does NOT enforce read-only, and cannot. This plugin",
+    "reaches providers through `gh api` and `curl`, and its own runbooks use",
+    "`gh api -X PATCH`, `gh api -X PUT`, `curl -X POST` and `curl -X PATCH`. A",
+    "prefix-matching permission grammar cannot separate a GET from a PATCH inside those",
+    "commands, so allowing status to read at all also allows writing through the same",
+    "verb. The -X denies below stop the literal forms this plugin documents; they are a",
+    "speed bump, not a boundary.",
+    "",
+    "Enforced read-only needs a tool-level boundary rather than a command-level one --",
+    "an agent with no write tools at all. See issue #19.",
+    "",
+    "allowManagedPermissionRulesOnly is deliberately NOT set: the status scan runs 12",
+    "curl-based checks and launches a shipped shell script, so a locked list that misses",
+    "one turns an audit into a wall of denials."
   ],
   "permissions": {
     "allow": [
@@ -15,10 +23,16 @@
       "Bash(terraform version)",
       "Bash(mise *)",
       "Bash(jq *)",
-      "Bash(gh api *)",
+      "Bash(gh --version)",
       "Bash(gh auth status)",
+      "Bash(curl --version)",
       "Bash(git rev-parse *)",
-      "Bash(git --no-optional-locks *)"
+      "Bash(git --no-optional-locks status *)"
+    ],
+    "ask": [
+      "Bash(gh api *)",
+      "Bash(curl *)",
+      "Bash(sh *)"
     ],
     "deny": [
       "Edit(**)",
@@ -26,15 +40,25 @@
       "Skill(infra-copilot:setup)",
       "Skill(infra-copilot:import)",
       "Skill(infra-copilot:add)",
+      "Bash(terraform apply)",
       "Bash(terraform apply *)",
+      "Bash(terraform destroy)",
       "Bash(terraform destroy *)",
       "Bash(terraform init *)",
       "Bash(terraform plan *)",
       "Bash(cf-terraforming *)",
+      "Bash(gh api * -X *)",
+      "Bash(gh api -X *)",
+      "Bash(curl * -X *)",
+      "Bash(curl -X *)",
+      "Bash(git * reset *)",
+      "Bash(git * clean *)",
+      "Bash(git * push *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
       "Read(./.env)",
-      "Read(./.env.*)",
-      "Read(./terraform.tfvars)"
+      "Read(./**/.env)",
+      "Read(./**/*.tfvars)"
     ]
-  },
-  "allowManagedPermissionRulesOnly": true
+  }
 }

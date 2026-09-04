@@ -87,10 +87,16 @@ Two ready profiles for Claude Code, both meant to be read and edited before use:
 | Profile | For |
 |---|---|
 | [`claude-code.json`](templates/managed-settings/claude-code.json) | normal use — plan yes, apply never |
-| [`claude-code-status-only.json`](templates/managed-settings/claude-code-status-only.json) | auditing a live repo — `status` and nothing else |
+| [`claude-code-status-only.json`](templates/managed-settings/claude-code-status-only.json) | auditing a live repo — narrowed to `status` |
 
 `terraform apply` and `terraform destroy` appear nowhere in the manifest, so both profiles
-deny them outright.
+deny them — in both the bare and argument forms, since `Bash(terraform apply *)` alone
+does not match a bare `terraform apply`.
+
+Neither profile locks the rule set, and the status-only one **narrows** rather than
+enforces: the plugin reaches providers through `gh api` and `curl`, and a prefix-matching
+grammar cannot tell a GET from a PATCH inside those. `docs/policy.md` explains what that
+does and does not buy.
 
 ## Skills
 

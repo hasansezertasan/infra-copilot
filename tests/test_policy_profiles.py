@@ -34,12 +34,61 @@ class ProfileTests(unittest.TestCase):
             with self.subTest(profile=path.name):
                 self.assertIn("permissions", load(path))
 
-    def test_apply_and_destroy_are_denied_everywhere(self) -> None:
-        """They appear nowhere in the manifest, so denying them costs nothing."""
+    def test_apply_and_destroy_are_denied_in_both_forms(self) -> None:
+        """`Bash(terraform apply *)` does not match a bare `terraform apply`.
+
+        The wildcard needs an argument, so the bare form falls through to
+        default handling — and `terraform apply` with no arguments is the
+        common invocation.
+        """
         for path in (DEFAULT, STATUS_ONLY):
+            deny = rules(path, "deny")
             for verb in ("apply", "destroy"):
-                with self.subTest(profile=path.name, verb=verb):
-                    self.assertIn(f"Bash(terraform {verb} *)", rules(path, "deny"))
+                for rule in (f"Bash(terraform {verb})", f"Bash(terraform {verb} *)"):
+                    with self.subTest(profile=path.name, rule=rule):
+                        self.assertIn(rule, deny)
+
+    def test_neither_profile_locks_the_rule_set(self) -> None:
+        """A locked list that misses a command blocks work instead of restricting it.
+
+        The status scan runs twelve curl-based checks and launches a shipped
+        shell script, so the lock is left to the operator after they have
+        exercised the profile.
+        """
+        for path in (DEFAULT, STATUS_ONLY):
+            with self.subTest(profile=path.name):
+                self.assertNotIn("allowManagedPermissionRulesOnly", load(path))
+
+    def test_status_scan_commands_are_all_grantable(self) -> None:
+        """With no lock these degrade to prompts, but an omission is still friction.
+
+        preflight runs `gh --version` and `curl --version`, most checks use
+        `curl`, and the shipped check is launched through `sh`.
+        """
+        granted = " ".join(rules(STATUS_ONLY, "allow") + rules(STATUS_ONLY, "ask"))
+        for needed in ("gh --version", "curl --version", "curl *", "sh *"):
+            with self.subTest(command=needed):
+                self.assertIn(needed, granted)
+
+    def test_legacy_config_fallback_is_not_denied(self) -> None:
+        """config.md and the README both name it as a supported migration path."""
+        for path in (DEFAULT, STATUS_ONLY):
+            with self.subTest(profile=path.name):
+                for rule in rules(path, "deny"):
+                    self.assertNotIn("infra-copilot.local.md", rule)
+
+    def test_secret_denies_reach_nested_terraform_roots(self) -> None:
+        """Leaves live under terraform/cloudflare and terraform/github."""
+        deny = rules(DEFAULT, "deny")
+        self.assertIn("Read(./**/*.tfvars)", deny)
+        self.assertIn("Read(./**/.env)", deny)
+
+    def test_the_read_only_limitation_is_documented(self) -> None:
+        """The profile must not claim an enforcement the grammar cannot provide."""
+        policy = (REPO_ROOT / "docs/policy.md").read_text(encoding="utf-8")
+        self.assertIn("does not enforce read-only", policy)
+        comment = " ".join(load(STATUS_ONLY)["$comment"])  # type: ignore[arg-type]
+        self.assertIn("speed bump, not a boundary", comment)
 
     def test_the_manifest_still_does_not_apply(self) -> None:
         """If a future step applies, the deny above becomes a bug rather than a guard."""
@@ -67,7 +116,7 @@ class ProfileTests(unittest.TestCase):
         """
         used = set(
             re.findall(
-                r"\b(terraform|mise|jq|gh|curl|cf-terraforming|gcloud|git)\b",
+                r"\b(terraform|mise|jq|gh|curl|cf-terraforming|gcloud|git|sh)\b",
                 MANIFEST.read_text(encoding="utf-8")
                 + "".join(p.read_text(encoding="utf-8") for p in CHECKS.glob("*.sh")),
             )

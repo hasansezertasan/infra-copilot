@@ -67,23 +67,53 @@ Two profiles ship, both intended to be read and edited before use:
 | Profile | For |
 |---|---|
 | [`claude-code.json`](../templates/managed-settings/claude-code.json) | normal use: plan yes, apply never |
-| [`claude-code-status-only.json`](../templates/managed-settings/claude-code-status-only.json) | auditing a production repo: `status` and nothing else |
+| [`claude-code-status-only.json`](../templates/managed-settings/claude-code-status-only.json) | auditing a live repo: narrowed to `status` |
 
-The status-only profile is the more interesting one. `status` promises to change nothing
-and works to keep that promise — reading run status through the HCP API rather than
-running `terraform plan`, and using `git --no-optional-locks` so it leaves git's index
-alone. That profile turns a promise the skill makes about itself into something the host
-enforces.
+Note that `Bash(terraform apply *)` does **not** match a bare `terraform apply` — the
+wildcard needs an argument. Both profiles therefore deny the bare and argument forms of
+`apply` and `destroy` separately. It is worth checking your own rules for the same trap.
 
-Managed settings live at platform-specific paths — `/Library/Application
-Support/ClaudeCode/managed-settings.json` on macOS, `/etc/claude-code/` on Linux,
-`C:\Program Files\ClaudeCode\` on Windows — and support managed-only fields such as
-`allowManagedPermissionRulesOnly`, which the shipped profiles set. Check your Claude Code
-version's own documentation for the current path list before deploying; run `/status` in a
+The legacy `.claude/infra-copilot.local.md` fallback is **not** denied. `config.md` and the
+README both name it as a supported migration path, so denying it would stop `setup` and
+`status` loading any configuration in a repo that still uses it. Retire the fallback first
+if you want it blocked.
+
+Managed settings live at a platform-specific **file**:
+
+| Platform | Path |
+|---|---|
+| macOS | `/Library/Application Support/ClaudeCode/managed-settings.json` |
+| Linux / WSL | `/etc/claude-code/managed-settings.json` |
+| Windows | `C:\Program Files\ClaudeCode\managed-settings.json` |
+
+Check your Claude Code version's own documentation before deploying; run `/status` in a
 session to see which layers are active.
 
-> **`allowManagedPermissionRulesOnly` locks the rule set.** An incomplete allow list then
-> blocks work rather than merely failing to restrict it. Deploy to one machine first.
+> **Merge, do not copy.** If that file already exists it carries your other permission
+> rules, hooks and marketplace restrictions. Copying a template over it drops all of
+> them. Back it up, then merge these keys and arrays into it — the same rule this document
+> imposes on any automated installer.
+
+**Neither profile sets `allowManagedPermissionRulesOnly`,** deliberately. That field locks
+the rule set, so any command the list misses becomes a hard block rather than a prompt —
+and the status scan alone runs twelve `curl`-based checks plus a shipped shell script.
+Exercise a profile against a real bootstrap first, then add the lock if you want it.
+
+## What a command-level grammar cannot express
+
+The status-only profile **reduces blast radius; it does not enforce read-only**, and no
+arrangement of these rules would.
+
+This plugin reaches providers through `gh api` and `curl`, and its own runbooks use
+`gh api -X PATCH`, `gh api -X PUT`, `curl -X POST` and `curl -X PATCH`. A prefix-matching
+grammar cannot separate a GET from a PATCH *inside* those commands, so permitting `status`
+to read at all permits writing through the same verb. The `-X` denies in the profile stop
+the literal forms this plugin documents — a speed bump, not a boundary.
+
+Enforced read-only needs a **tool-level** boundary instead: an agent that has no write
+tools at all, which is what the read-only subagent in
+[`docs/roadmap.md`](roadmap.md) (#19) would provide. Until that exists, treat the
+status-only profile as narrowing rather than proof.
 
 ## Other hosts
 
