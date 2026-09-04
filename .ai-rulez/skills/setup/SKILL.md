@@ -38,7 +38,7 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 > recreate or clobber them. Run **infra-copilot:import** first to adopt them (the plan
 > should then read *imports, not creates*), and only then apply.
 
-## How to run
+## Workflow
 
 1. **Read config first** (shared protocol, Step 0). Load `.infra-copilot/config.md`, or
    use `.claude/infra-copilot.local.md` as the migration fallback, and export the org
@@ -79,7 +79,7 @@ Adopting resources that already exist (a live domain, existing repos)? That's
   [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md). Green on both leaves =
   credentials proven.
 
-## Done signal
+## Validation
 
 Setup is complete when you can report:
 
@@ -94,6 +94,30 @@ Setup is complete when you can report:
 If the domain/repos already exist, continue with **infra-copilot:import** to adopt them
 (plan should then show imports, not creates). Otherwise day-to-day work follows your
 repo's own contributor guide.
+
+## Guardrails
+
+`setup` ends at green **speculative** plans and does not apply. If a phase-4 plan shows
+resources as `will be created` that you know already exist live — a domain already
+serving traffic, repos already on GitHub — do **not** apply: an apply would recreate or
+clobber them. Run **infra-copilot:import** first, so the plan reads *imports, not
+creates*.
+
+Never fake a `HUMAN` step. A signup, a dashboard click and a secret paste are the
+human's, and the agent must never see a pasted secret in plaintext. On a red check after
+a human replies `done`, re-emit the handoff with what you observed rather than
+proceeding.
+
+## Example
+
+A resumed run prints what is already green and stops at the first red step:
+
+```text
+✓ toolchain-pin   ✓ hcp-login   ✓ hcp-signup   ✓ hcp-verify
+✓ vcs-connect     ✗ workspaces-create   ← resume here
+```
+
+Everything green means the scope is already done and there is nothing to do.
 
 ## Configuring for your org
 

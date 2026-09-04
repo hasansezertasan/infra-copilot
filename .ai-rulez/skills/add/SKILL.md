@@ -16,10 +16,15 @@ manifest in [`../infra-copilot/references/steps.yaml`](../infra-copilot/referenc
 > thing already exists at the provider and you're bringing it under management, that's
 > **infra-copilot:import** (where a `create` means something went wrong).
 
-## Precondition
+## Guardrails
 
-`infra-copilot:setup` phases 0–4 are green. `add` extends a working repo; it does not
-bootstrap credentials.
+`infra-copilot:setup` phases 0–4 are green before this runs. `add` extends a working
+repo; it does not bootstrap credentials.
+
+Only for things that do **not** exist yet. If the resource already exists at the
+provider, this skill would tell Terraform to create a duplicate — use
+**infra-copilot:import** instead. Never fake a `HUMAN` step: an App-scope change, a token
+mint or paste, and a provider decision are the human's, per the shared protocol.
 
 ## Pick the flavor
 
@@ -69,11 +74,28 @@ GCP is *not* provisioned today (template only). Before any Terraform:
 
 Template + rationale for the GCP case: [`../infra-copilot/references/gcp.md`](../infra-copilot/references/gcp.md).
 
-## How to run
+## Workflow
 
 1. **Read config first** (shared protocol, Step 0) — [`../infra-copilot/references/config.md`](../infra-copilot/references/config.md).
 2. **Pick the flavor** above; run its `AGENT` steps, stop + hand off on its `HUMAN` steps
    (App-scope change, token mint/paste, provider decision). Full actor/handoff/resume
    contract: [`../infra-copilot/references/protocol.md`](../infra-copilot/references/protocol.md).
-3. **Verify with a plan.** Done = `terraform plan` green, the new thing shown as **will be
-   created**, nothing unexpectedly destroyed. Then apply through your normal HCP review.
+3. **Verify with a plan**, then apply through your normal HCP review.
+
+## Validation
+
+`terraform plan` is green, the new thing is shown as **will be created**, and nothing is
+unexpectedly destroyed. A resource appearing as *will be created* that you know already
+exists live means this was the wrong skill — stop and use **infra-copilot:import**.
+
+## Example
+
+Adding one managed repo, after the config edit:
+
+```text
+# terraform/github
+Plan: 1 to add, 0 to change, 0 to destroy.
+  + github_repository.this["new-service"]
+```
+
+One `to add`, nothing to destroy: that is the shape to expect.

@@ -5,8 +5,8 @@ description: "Adopt infrastructure that already exists at a provider into Terraf
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e8ad70a609f93e255acd8f997ecf7c93dfc3aa7e3dee894ad8163392457dee96
-Source-Hash: blake3:582448718a7e3f3cff94fb0f82890abd34803db531280047a041dd9bcd8a2dfa
+Content-Hash: blake3:4309ffc2ca05c4407237902ad5aa8f640af54052d61b10c54f0d13f1a4ae0c81
+Source-Hash: blake3:442b1d6efb723635feb68e4317c333d9df78a268c7e774efc132d587f7d406e6
 Schema-Version: v1
 -->
 
@@ -27,7 +27,7 @@ preflight — lives in [`../infra-copilot/references/protocol.md`](../infra-copi
 > HCP edit token) and its own success signal. Keeping it distinct from `setup` means you
 > only reach for it deliberately, when there's pre-existing infra to adopt.
 
-## Precondition
+## Guardrails
 
 `infra-copilot:setup` phases 0–4 are green — HCP is reachable, both workspaces exist,
 credentials are proven. If not, run `setup` first; import needs the target provider's
@@ -60,7 +60,7 @@ write `terraform/cloudflare/generated.tf` for repos that live in the GitHub leaf
 The manifest's phase-5 steps are Cloudflare-specific — for other providers, there's no
 `check` to resume against; verify by hand with the same imports-not-creates plan diff.
 
-## How to run
+## Workflow
 
 1. **Read config first** (shared protocol, Step 0) and export the org vars —
    [`../infra-copilot/references/config.md`](../infra-copilot/references/config.md).
@@ -75,7 +75,7 @@ The manifest's phase-5 steps are Cloudflare-specific — for other providers, th
    HCL, write import blocks, and read the plan. See
    [`../infra-copilot/references/protocol.md`](../infra-copilot/references/protocol.md).
 
-## Success signal
+## Validation
 
 `terraform plan` shows **every existing resource as "will be imported"** and **nothing as
 "will be created."** The step's `check` captures one plan to a private temp file and fails
@@ -86,3 +86,17 @@ imports, review by hand (and consider whether that new resource belongs in
 
 Once green: delete the throwaway discovery token, commit `generated.tf`, and the resources
 are under management.
+
+## Example
+
+The shape to expect for a zone already serving traffic:
+
+```text
+# terraform/cloudflare
+Plan: 0 to add, 0 to change, 0 to destroy.
+  ~ cloudflare_dns_record.this["www"] will be imported
+  ~ cloudflare_zone.this          will be imported
+```
+
+`0 to add` is the point. A single `will be created` for a record that is already live
+means Terraform does not recognise it and an apply would duplicate it.

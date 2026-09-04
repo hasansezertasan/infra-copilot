@@ -87,6 +87,26 @@ either. If you ever do clean those up by hand, note that
 `.agents/plugins/marketplace.json` is tracked and required — never delete `.agents/`
 wholesale.
 
+## Skill structure
+
+Every `SKILL.md` addresses four concerns, and `make check` fails if one is missing:
+
+| Section | Answers |
+|---|---|
+| workflow | what the agent does, in order |
+| guardrails | what it must not do, and the preconditions |
+| validation | how to know it is done |
+| example | one concrete, worked case |
+
+Matching is lenient — any H2 mentioning the word counts, so `## Example report` satisfies
+`example`. The point is that each concern is findable, not that headings be identical.
+
+The `infra-copilot` router is exempt from `example` only: it selects a skill and performs
+no work, so it has nothing to demonstrate.
+
+Use **one** name per concern across skills. `setup` once said `Done signal` while `import`
+said `Success signal` for the same thing, which is why a test now rejects both spellings.
+
 ## Skill descriptions
 
 A skill's frontmatter `description` loads into the host's prompt for **every session**,
