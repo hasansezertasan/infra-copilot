@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1777429c8e1d4d5c083371480eb4d072f7fb322c7d89c4f73d72ed9efa8a6c17
-Source-Hash: blake3:4e6a6c5c98165b144cbbc4fc83b2198714bd7f13b2acad454787d2e39eeedbd7
+Content-Hash: blake3:ed94f067596aad0d5887ac120e0c4d9ce25a38645468897f15b6d835d5906e26
+Source-Hash: blake3:5f7666e62b3486e8c2f374aa632cc13d7177e26256f05f878c60a36718345d92
 Schema-Version: v1
 -->
 
@@ -82,9 +82,13 @@ check is red. An all-green scope means "already done, nothing to do."
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
 pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool
 checks) before that step has established committed pins. Once `toolchain-pin` is green,
-run the full preflight and continue the resume scan at `hcp-login`. This keeps the
-fail-fast gate while giving a missing toolchain an owned, resumable step. `status` remains
-read-only: it reports the same failed step but never executes its `run`.
+run the full preflight, stop for the `HUMAN` `repo-config-sync` step when its check is red, and continue the
+resume scan at `hcp-login`. The sync step is a no-op when the consuming repository does
+not ship `scripts/sync-config.sh`. This keeps the fail-fast gate while giving a missing
+toolchain and repository-specific literal synchronization owned, resumable steps. A
+repository with only the legacy config fallback skips synchronization because no canonical
+`.infra-copilot/config.md` exists yet.
+`status` remains read-only: it reports the same failed step but never executes its `run`.
 
 ```text
 for step in scope(steps.yaml):

@@ -5,8 +5,8 @@ description: "Greenfield bootstrap of a Terraform + HCP Terraform + Cloudflare +
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:a5fc5633220c75a97ffad049052f606b0119f2953543f1c108936066ffb2efac
-Source-Hash: blake3:4e6a6c5c98165b144cbbc4fc83b2198714bd7f13b2acad454787d2e39eeedbd7
+Content-Hash: blake3:fb26470eec39a89de4f1a64a5b8f17d91c8dfa2b756a992a219b421c5d023c8d
+Source-Hash: blake3:5f7666e62b3486e8c2f374aa632cc13d7177e26256f05f878c60a36718345d92
 Schema-Version: v1
 -->
 
@@ -54,8 +54,8 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 2. **Bootstrap preflight**, then **resume scan** over phases 0–4 of
    [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). On a cold repo, check that `mise` itself
    is available, then scan `toolchain-pin` before running the pin-dependent preflight
-   checks. Once it is green, finish preflight, print `✓`, and continue from
-   `hcp-login`. Full contract:
+   checks. Once it is green, finish preflight, handle the optional `repo-config-sync` step,
+   print `✓`, and continue from `hcp-login`. Full contract:
    [`../infra-copilot/references/protocol.md`](../infra-copilot/references/protocol.md).
 3. **Respect the actor split.** Run `AGENT` steps yourself. On a `HUMAN` step, stop, emit
    the handoff block, wait for `done`, re-run the `check` — never fake a signup, a
@@ -66,8 +66,11 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 - **Phase 0 — Toolchain + HCP bootstrap.** The first `HUMAN` step chooses exact tool
   versions, reviews the whole `mise.toml`, and commits it with `mise.lock`; this must
-  happen before pin-dependent preflight. Then `HUMAN` signs up + runs `terraform login`,
-  after which you own the HCP API. Toolchain sequence:
+  happen before pin-dependent preflight. If the consuming repository ships an executable
+  `scripts/sync-config.sh`, stop for a human to review and run it next, then verify its
+  deterministic changes and canonical config were committed together;
+  repositories without the helper skip this step. Then `HUMAN` signs up + runs
+  `terraform login`, after which you own the HCP API. Toolchain sequence:
   [`../infra-copilot/references/docs/setup.md#6`](../infra-copilot/references/docs/setup.md#6-local-development).
   HCP commands + verify: [`../infra-copilot/references/hcp.md`](../infra-copilot/references/hcp.md#phase-0--bootstrap).
 - **Phase 1 — HCP workspaces.** Two workspaces (`cloudflare`, `github-org`), one per leaf.

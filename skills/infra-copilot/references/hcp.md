@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:893065c157601a38fb754f8c55e22afb9514497e38de01233847fbab9c5e03ad
-Source-Hash: blake3:4e6a6c5c98165b144cbbc4fc83b2198714bd7f13b2acad454787d2e39eeedbd7
+Content-Hash: blake3:91e14353729f95e844f91db35bd5810f16c56493232af034ccb9569fe059765a
+Source-Hash: blake3:5f7666e62b3486e8c2f374aa632cc13d7177e26256f05f878c60a36718345d92
 Schema-Version: v1
 -->
 
@@ -83,7 +83,7 @@ GitHub↔HCP OAuth connection (browser).
         name:$name, "working-directory":$dir, "execution-mode":"remote",
         "terraform-version":$tf_version,
         "auto-apply":false, "speculative-enabled":true, "file-triggers-enabled":true,
-        "trigger-patterns":[$dir+"/**"], "queue-all-runs":false, "global-remote-state":false,
+        "trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"], "queue-all-runs":false, "global-remote-state":false,
         "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}' \
       | curl -s -w '\n%{http_code}' -X POST "https://app.terraform.io/api/v2/organizations/$ORG/workspaces" \
           -H "Authorization: Bearer $HCP_TOKEN" \
@@ -98,19 +98,21 @@ GitHub↔HCP OAuth connection (browser).
     esac
   }
 
-  # POST cannot update an existing workspace. Reconcile the committed Terraform pin
-  # after either a create or an "already exists" response so resume runs fix drift.
-  set_tf_version () { # $1 = workspace name
+  # POST cannot update an existing workspace. Reconcile the committed Terraform pin and
+  # trigger patterns after either response so resume runs fix all declared drift.
+  set_workspace_config () { # $1 = workspace name   $2 = working directory
     local ws_id payload
     ws_id=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$1" \
       -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id // empty') || return 1
     [ -n "$ws_id" ] || { echo "✗ $1: workspace id not found" >&2; return 1; }
-    payload=$(jq -n --arg id "$ws_id" --arg tf_version "$TERRAFORM_VERSION" \
-      '{data:{id:$id,type:"workspaces",attributes:{"terraform-version":$tf_version}}}')
+    payload=$(jq -n --arg id "$ws_id" --arg dir "$2" --arg tf_version "$TERRAFORM_VERSION" \
+      '{data:{id:$id,type:"workspaces",attributes:{
+        "terraform-version":$tf_version, "file-triggers-enabled":true,
+        "trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]}}}')
     curl -sf -X PATCH "https://app.terraform.io/api/v2/workspaces/$ws_id" \
       -H "Authorization: Bearer $HCP_TOKEN" \
       -H "Content-Type: application/vnd.api+json" -d "$payload" >/dev/null \
-      && echo "✓ $1 Terraform $TERRAFORM_VERSION"
+      && echo "✓ $1 Terraform $TERRAFORM_VERSION and trigger patterns"
   }
 
   # Gate with if/else, NOT `return`/`exit`: this block is run as a script by the agent,
@@ -121,13 +123,15 @@ GitHub↔HCP OAuth connection (browser).
   elif [ -z "$OAUTH_TOKEN_ID" ]; then
     echo "No VCS oauth-token found — finish the vcs-connect step first; not creating workspaces." >&2
   else
-    create_ws cloudflare terraform/cloudflare && set_tf_version cloudflare
-    create_ws github-org  terraform/github && set_tf_version github-org
+    create_ws cloudflare terraform/cloudflare && set_workspace_config cloudflare terraform/cloudflare
+    create_ws github-org  terraform/github && set_workspace_config github-org terraform/github
   fi
   ```
 
   > `trigger-patterns` (glob) requires `file-triggers-enabled: true` — that pair is the
-  > path-scoping toggle. `speculative-enabled: true` is the master switch for plans on PRs.
+  > path-scoping toggle. Both workspaces also watch the shared `.infra-copilot/config.md`
+  > so public-identifier changes are validated by both plans. `speculative-enabled: true`
+  > is the master switch for plans on PRs.
   > The **fork** speculative-plan toggle is *separate* and has no clean create-time
   > attribute — confirm it's **off** in the workspace's UI → Settings → Version Control
   > (it defaults off; the label-gated flow in [`docs/ci.md`](docs/ci.md) replaces it for forks).
@@ -148,6 +152,7 @@ GitHub↔HCP OAuth connection (browser).
             and ($a["speculative-enabled"] == true)
             and ($a["file-triggers-enabled"] == true)
             and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
+            and ((($a["trigger-patterns"]) // []) | index(".infra-copilot/config.md") != null)
             and (($a["vcs-repo"].identifier // "") == $repo)
             and (($a["vcs-repo"].branch // "") == "main")' >/dev/null \
       && echo "✓ $ws configured as declared"

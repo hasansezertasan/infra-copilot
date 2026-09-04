@@ -75,9 +75,13 @@ check is red. An all-green scope means "already done, nothing to do."
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
 pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool
 checks) before that step has established committed pins. Once `toolchain-pin` is green,
-run the full preflight and continue the resume scan at `hcp-login`. This keeps the
-fail-fast gate while giving a missing toolchain an owned, resumable step. `status` remains
-read-only: it reports the same failed step but never executes its `run`.
+run the full preflight, stop for the `HUMAN` `repo-config-sync` step when its check is red, and continue the
+resume scan at `hcp-login`. The sync step is a no-op when the consuming repository does
+not ship `scripts/sync-config.sh`. This keeps the fail-fast gate while giving a missing
+toolchain and repository-specific literal synchronization owned, resumable steps. A
+repository with only the legacy config fallback skips synchronization because no canonical
+`.infra-copilot/config.md` exists yet.
+`status` remains read-only: it reports the same failed step but never executes its `run`.
 
 ```text
 for step in scope(steps.yaml):

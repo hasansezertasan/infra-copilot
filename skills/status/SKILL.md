@@ -5,8 +5,8 @@ description: "Read-only health check: runs every step's check across the whole m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:b622428e82536fb5a70742d6ebcef3c672b06d6ceee2be052b60f9a5a02c3b5d
-Source-Hash: blake3:4e6a6c5c98165b144cbbc4fc83b2198714bd7f13b2acad454787d2e39eeedbd7
+Content-Hash: blake3:77d4af6ac5a9b212b7c4984f3f6d021736e8a0683f53e8a4f24000f8adc59456
+Source-Hash: blake3:5f7666e62b3486e8c2f374aa632cc13d7177e26256f05f878c60a36718345d92
 Schema-Version: v1
 -->
 
@@ -137,7 +137,7 @@ Print a phase-by-phase table, then a one-line verdict. Use this shape:
 infra-copilot status — <repo> (org: $ORG)
 
 Preflight   terraform 1.15.9 ✓ pinned   gh 2.81.0 ✗ pin missing   jq ✓   curl ✓   HCP token ✓
-Phase 0  bootstrap        ✓ toolchain-pin  ✓ hcp-login  ✓ hcp-signup  ✓ hcp-verify
+Phase 0  bootstrap        ✓ toolchain-pin  ✓ repo-config-sync  ✓ hcp-login  ✓ hcp-signup  ✓ hcp-verify
 Phase 1  workspaces       ✓ vcs-connect  ✗ workspaces-create   ← first red
 Phase 2  cloudflare       – cf-token            (not reached)
 …

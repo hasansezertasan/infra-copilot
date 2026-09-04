@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2683957cff4f8c81564df487865dd1fc8bb5201e5f5b2a3af8b817054a05669f
-Source-Hash: blake3:4e6a6c5c98165b144cbbc4fc83b2198714bd7f13b2acad454787d2e39eeedbd7
+Content-Hash: blake3:2ba012399a5a2df8f92a9589fd052905a276261ac0508d73bf99d70d20d4f38f
+Source-Hash: blake3:5f7666e62b3486e8c2f374aa632cc13d7177e26256f05f878c60a36718345d92
 Schema-Version: v1
 -->
 
@@ -27,8 +27,8 @@ One workspace per concern. We split per environment only when a change to one en
 
 | Workspace | Manages | VCS path filter | Auto-apply? |
 |---|---|---|---|
-| `cloudflare` | the `<apex-domain>` zone + all DNS records (Email Routing + GitHub Pages) | `terraform/cloudflare/**` | no — manual apply |
-| `github-org` | the repos in `managed_repos` (e.g. `<owner/repo>`) — repo settings, `main` branch protection, `safe-to-plan` label | `terraform/github/**` | no — manual apply |
+| `cloudflare` | the `<apex-domain>` zone + all DNS records (Email Routing + GitHub Pages) | `terraform/cloudflare/**`, `.infra-copilot/config.md` | no — manual apply |
+| `github-org` | the repos in `managed_repos` (e.g. `<owner/repo>`) — repo settings, `main` branch protection, `safe-to-plan` label | `terraform/github/**`, `.infra-copilot/config.md` | no — manual apply |
 
 Both are VCS-linked to this repo's `main` branch. Speculative plans run on PRs (see [`ci.md`](./ci.md)); applies stop at "needs confirmation" until a human (or authenticated API call) approves them.
 

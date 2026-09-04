@@ -20,8 +20,8 @@ One workspace per concern. We split per environment only when a change to one en
 
 | Workspace | Manages | VCS path filter | Auto-apply? |
 |---|---|---|---|
-| `cloudflare` | the `<apex-domain>` zone + all DNS records (Email Routing + GitHub Pages) | `terraform/cloudflare/**` | no — manual apply |
-| `github-org` | the repos in `managed_repos` (e.g. `<owner/repo>`) — repo settings, `main` branch protection, `safe-to-plan` label | `terraform/github/**` | no — manual apply |
+| `cloudflare` | the `<apex-domain>` zone + all DNS records (Email Routing + GitHub Pages) | `terraform/cloudflare/**`, `.infra-copilot/config.md` | no — manual apply |
+| `github-org` | the repos in `managed_repos` (e.g. `<owner/repo>`) — repo settings, `main` branch protection, `safe-to-plan` label | `terraform/github/**`, `.infra-copilot/config.md` | no — manual apply |
 
 Both are VCS-linked to this repo's `main` branch. Speculative plans run on PRs (see [`ci.md`](./ci.md)); applies stop at "needs confirmation" until a human (or authenticated API call) approves them.
 

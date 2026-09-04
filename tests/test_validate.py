@@ -740,6 +740,152 @@ class ValidateToolchainContractTests(unittest.TestCase):
 
         self.assertTrue(any("first phase-0 step" in error for error in errors), errors)
 
+    def test_rejects_missing_repo_config_sync_step(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8")
+            text = re.sub(
+                r"  - id: repo-config-sync\n(?:(?!  - id: hcp-login).)*",
+                "",
+                text,
+                count=1,
+                flags=re.DOTALL,
+            )
+            steps.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("repo-config-sync contract is incomplete" in error for error in errors),
+            errors,
+        )
+
+    def test_rejects_agent_running_repository_sync_helper(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8")
+            start = text.index("  - id: repo-config-sync\n")
+            end = text.index("  - id: hcp-login\n", start)
+            sync_step = text[start:end].replace(
+                "    actor: HUMAN\n", "    actor: AGENT\n", 1
+            )
+            steps.write_text(text[:start] + sync_step + text[end:], encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("repo-config-sync contract is incomplete" in error for error in errors),
+            errors,
+        )
+
+    def test_rejects_uncommitted_repo_config_sync_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8").replace(
+                "git diff --cached --quiet HEAD -- .infra-copilot/config.md",
+                "true # omitted staged-state check for .infra-copilot/config.md",
+                1,
+            )
+            steps.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("repo-config-sync contract is incomplete" in error for error in errors),
+            errors,
+        )
+
+    def test_rejects_missing_shared_config_workspace_trigger(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            hcp = repository / ".ai-rulez/skills/infra-copilot/references/hcp.md"
+            text = hcp.read_text(encoding="utf-8").replace(
+                '"trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]',
+                '"trigger-patterns":[$dir+"/**"]',
+                1,
+            )
+            hcp.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("workspace creation must include" in error for error in errors),
+            errors,
+        )
+
+    def test_rejects_missing_shared_trigger_reconciliation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            hcp = repository / ".ai-rulez/skills/infra-copilot/references/hcp.md"
+            text = hcp.read_text(encoding="utf-8")
+            start = text.index("  set_workspace_config () {")
+            end = text.index("\n  }", start)
+            reconciliation = text[start:end].replace(
+                '"trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]',
+                '"trigger-patterns":[$dir+"/**"]',
+                1,
+            )
+            hcp.write_text(
+                text[:start] + reconciliation + text[end:], encoding="utf-8"
+            )
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("trigger patterns must be" in error for error in errors), errors
+        )
+
+    def test_rejects_status_report_without_repo_config_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            status = repository / ".ai-rulez/skills/status/SKILL.md"
+            text = status.read_text(encoding="utf-8").replace(
+                "  ✓ repo-config-sync", "", 1
+            )
+            status.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("phase-0 report must include" in error for error in errors), errors
+        )
+
     def test_rejects_toolchain_step_check_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
@@ -793,6 +939,38 @@ class ValidateToolchainContractTests(unittest.TestCase):
 
         self.assertTrue(
             any("missing mise preflight check" in error for error in errors), errors
+        )
+
+    def test_rejects_shell_specific_pin_word_splitting(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8")
+            portable = (
+                "printf '%s\\n' \"$pinned\" |\n"
+                "      while IFS= read -r tool; do\n"
+                "      [ -z \"$tool\" ] && continue;\n"
+                "      MISE_LOCKED=1 mise install --dry-run \"$tool\" "
+                ">/dev/null 2>&1 || exit 1;\n"
+                "      done"
+            )
+            text = text.replace(
+                portable,
+                "MISE_LOCKED=1 mise install --dry-run $pinned >/dev/null 2>&1",
+            )
+            steps.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("shell-specific word splitting" in error for error in errors), errors
         )
 
     def test_rejects_active_mise_state_and_unlocked_install(self) -> None:
