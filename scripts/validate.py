@@ -31,6 +31,23 @@ CONFIG_FALLBACK_DOCUMENTS = (
     ".ai-rulez/skills/status/SKILL.md",
     ".ai-rulez/skills/infra-copilot/references/protocol.md",
 )
+CUSTOMIZATION_TOKEN = "infra-copilot:customization"
+# The scaffolded files a human is told to edit. Each must carry exactly one
+# balanced marker pair, or a re-scaffold cannot tell a filled-in value from the
+# template it came from.
+CUSTOMIZATION_DOCUMENTS = (
+    ".ai-rulez/skills/infra-copilot/references/config.md.example",
+    ".ai-rulez/skills/infra-copilot/references/decisions.md.example",
+)
+# Where the preserve-or-hand-off rule is stated. The markers are inert without it:
+# they are comments, so nothing enforces them but the documented rule.
+CUSTOMIZATION_RULE_DOCUMENT = (
+    ".ai-rulez/skills/infra-copilot/references/config.md"
+)
+CUSTOMIZATION_RULE_MARKERS = (
+    "verbatim",
+    "Never merge by inference",
+)
 PHASE_FIVE_RULE_DOCUMENT = ".ai-rulez/skills/status/SKILL.md"
 PHASE_FIVE_RULE_MARKERS = (
     # A clean run alone must never be read as "imports are done" ...
@@ -254,6 +271,50 @@ def validate_config_fallbacks(root: Path = ROOT) -> list[str]:
                 errors.append(
                     f"{relative}: missing config-path guidance for {config_path!r}"
                 )
+    return errors
+
+
+def validate_customization_markers(root: Path = ROOT) -> list[str]:
+    """Both scaffolded files must carry one balanced customization pair.
+
+    The markers are comments, so no parser enforces them; this is the only
+    thing standing between a template edit and a re-scaffold that silently
+    overwrites a hand-filled ``hcp_status_check_id``. Order is checked too --
+    an end before a start reads as balanced if you only count.
+    """
+    errors: list[str] = []
+    for relative in CUSTOMIZATION_DOCUMENTS:
+        text = (root / relative).read_text(encoding="utf-8")
+        starts = [
+            index
+            for index, line in enumerate(text.splitlines())
+            if f"{CUSTOMIZATION_TOKEN} start" in line
+        ]
+        ends = [
+            index
+            for index, line in enumerate(text.splitlines())
+            if f"{CUSTOMIZATION_TOKEN} end" in line
+        ]
+        if len(starts) != 1 or len(ends) != 1:
+            errors.append(
+                f"{relative}: expected exactly one {CUSTOMIZATION_TOKEN} pair, "
+                f"found {len(starts)} start and {len(ends)} end"
+            )
+            continue
+        if starts[0] >= ends[0]:
+            errors.append(
+                f"{relative}: {CUSTOMIZATION_TOKEN} end precedes its start"
+            )
+    # Collapse whitespace: the rule is prose and re-wraps on edit, so matching the
+    # raw text reports a phrase as missing purely because a line break moved.
+    rule = re.sub(
+        r"\s+", " ", (root / CUSTOMIZATION_RULE_DOCUMENT).read_text(encoding="utf-8")
+    )
+    errors.extend(
+        f"{CUSTOMIZATION_RULE_DOCUMENT}: re-scaffold rule missing {marker!r}"
+        for marker in CUSTOMIZATION_RULE_MARKERS
+        if marker not in rule
+    )
     return errors
 
 
@@ -899,6 +960,7 @@ def main() -> int:
         *validate_skill_sections(),
         *validate_description_budget(),
         *validate_config_fallbacks(),
+        *validate_customization_markers(),
         *validate_phase_five_rule(),
         *validate_toolchain_contract(),
         *validate_shipped_check_paths(),

@@ -1,4 +1,5 @@
 ---
+# infra-copilot:customization start
 hcp_org: your-org
 github_org: your-org
 apex_domain: example.dev
@@ -7,9 +8,15 @@ cloudflare_zone_id: 0000000000000000000000000000000
 managed_repos:
   - your-org/infra
 hcp_status_check_id: ""
+# infra-copilot:customization end
 ---
 
 # infra-copilot config
 
 Public identifiers for this repo. Copy to `.infra-copilot/config.md`, fill in
 your org's values, and commit. Sensitive data lives in HCP workspace variables.
+
+Keep the two `infra-copilot:customization` comments. Everything between them is
+yours; a re-scaffold preserves it verbatim and rewrites only the rest. Delete or
+unbalance them and a re-scaffold has no way to tell your values from the
+template, so it stops and hands off instead of guessing.
