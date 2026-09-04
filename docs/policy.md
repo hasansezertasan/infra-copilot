@@ -1,158 +1,139 @@
 # Restricting what infra-copilot can do
 
-This plugin drives three provider APIs, runs Terraform against remote state, and reads a
-credential file. None of that is constrained by the plugin — restriction is the host's
-job, and this page is about what you can and cannot achieve there.
+**Host permission rules cannot meaningfully constrain this plugin.** That is the
+conclusion of trying, and it is worth more than the profile this page used to ship.
 
-**No permission profile ships with this plugin, deliberately.** An earlier draft included
-two ready-to-deploy Claude Code profiles; they were dropped because a file that looks
-authoritative invites being deployed unread, and the guarantees such a file appears to
-offer are weaker than its name implies. The reasons are below, and they are the useful
-part. Copy what fits your threat model, having read why each rule does or does not bite.
+If you need to bound what infra-copilot can do, the boundary has to be *tool-level* or
+*sandbox-level*, not command-level. The rest of this page is the evidence, because every
+bypass below is one the plugin's own documentation supplies — so anyone writing rules
+without knowing them will believe they have protections they do not have.
 
 ## What the plugin invokes
 
-The **provider-facing** tools that appear in `references/steps.yaml` and
-`references/checks/`. Not an exhaustive list of every process spawned — see
-[the compound-command problem](#the-compound-command-problem):
+The provider-facing tools in `references/steps.yaml` and `references/checks/`:
 
 | Command | Verbs used |
 |---|---|
 | `terraform` | `fmt`, `init`, `login`, `plan`, `validate`, `version` |
-| `mise` | pin reads, `install --dry-run`, `lock` |
+| `mise` | pin reads, `install --dry-run`, `lock`, **`exec --`** |
 | `gh` | `api`, `auth status`, `auth login`, `--version` |
 | `jq`, `curl` | JSON handling, provider REST |
 | `cf-terraforming` | Cloudflare import generation only |
 | `gcloud` | conditional, only when `terraform/gcp` exists |
-| `git` | `rev-parse`, `--no-optional-locks status`, `add mise.toml mise.lock` |
+| `git` | `rev-parse`, `--no-optional-locks status`, `add` |
 
-**`terraform apply` and `terraform destroy` appear nowhere.** `setup` ends at green
-*speculative* plans, `status` is read-only, and `import` warns that applying before
-adoption clobbers live resources. Applying is always a human action through HCP's own
-review.
+`terraform apply` and `terraform destroy` appear nowhere: `setup` ends at green
+*speculative* plans, `status` is read-only, `import` warns that applying before adoption
+clobbers live resources. Applying is a human action through HCP's own review.
 
-## The rules that actually bite
+That makes `Bash(terraform apply)` look like a cheap, effective guard. It is not.
 
-Two kinds of rule work regardless of how the plugin composes a command:
+## Four bypasses, all documented by this plugin
 
-**Non-`Bash` rules.** `Skill()`, `Edit()`, `Write()` and `Read()` match on their own
-terms, so these are the load-bearing ones:
+**1. `mise exec --` wraps anything.** `protocol.md` instructs the agent to *"run each
+command through `mise exec --`"*, because comparing a system binary against a repo pin is
+the bug that convention exists to prevent. So the recommended invocation style is:
 
-```json
-{
-  "permissions": {
-    "deny": [
-      "Skill(infra-copilot:setup)",
-      "Skill(infra-copilot:import)",
-      "Skill(infra-copilot:add)",
-      "Edit(**)",
-      "Write(**)",
-      "Read(./.env)",
-      "Read(./**/.env)",
-      "Read(./**/*.tfvars)",
-      "Read(./**/*.tfvars.json)"
-    ]
-  }
-}
+```sh
+mise exec -- terraform apply     # matches Bash(mise *), not Bash(terraform apply)
 ```
 
-Note the recursion: this plugin's Terraform roots are `terraform/cloudflare` and
-`terraform/github`, so a root-only `Read(./terraform.tfvars)` leaves
-`terraform/cloudflare/terraform.tfvars` readable.
+Any `Bash(mise *)` grant defeats every Terraform deny. Denying `mise` instead breaks the
+toolchain contract that #7 built the whole preflight around.
 
-**`Bash` denies.** These stop the agent composing a command directly:
+**2. Apply is a REST call.** `docs/hcp-api.md` ships the recipe:
 
-```json
-{
-  "permissions": {
-    "deny": [
-      "Bash(terraform apply)",
-      "Bash(terraform apply *)",
-      "Bash(terraform destroy)",
-      "Bash(terraform destroy *)"
-    ]
-  }
-}
+```sh
+curl -s -X POST "https://app.terraform.io/api/v2/runs/$RUN_ID/actions/apply" ...
 ```
 
-**Both forms are needed.** `Bash(terraform apply *)` requires an argument after the verb,
-so it does not match a bare `terraform apply` — which is the common invocation. The same
-trap applies to any rule you write in the `verb *` shape: `Bash(terraform version)` does
-not match `terraform version -json`, which this plugin's preflight runs.
+With an HCP token authorised to apply — which phase 0 puts in the agent's environment —
+that applies infrastructure without invoking Terraform at all. Denying the CLI verbs does
+not deny applying. And `curl` cannot be denied: twelve checks depend on it.
 
-## The compound-command problem
+**3. `Read()` rules do not govern Bash.** `Read(./**/*.tfvars)` constrains the **Read
+tool**. Any subprocess reads the file regardless:
 
-A `Bash` **allow**-list is close to inoperative here, because the manifest's checks are
-compound shell strings rather than single commands. A representative one:
+```sh
+jq -R . terraform/cloudflare/secrets.tfvars    # matches Bash(jq *)
+```
+
+`jq` cannot be denied either — twenty-eight checks use it.
+
+**4. A `Bash` allow-list cannot match the checks anyway.** They are compound shell strings
+that do not begin with a command name:
 
 ```sh
 ver=$(terraform version -json 2>/dev/null | jq -r '.terraform_version // empty');
 pin=$(mise config get --file ./mise.toml tools.terraform | tr -d '[:space:]')
 ```
 
-That does not begin with a command name, and it spawns `terraform`, `jq`, `mise` and `tr`
-in one invocation. A prefix-matching rule cannot reliably gate it. Enumerating the
-utilities such checks use — `mktemp`, `grep`, `sed`, `awk`, `tr`, `rm` — would grant `rm`
-and `sed` broadly and gate nothing in exchange.
+One invocation, five processes, no leading command name. Enumerating what such checks spawn
+would grant `rm` and `sed` broadly and gate nothing.
 
-So: use `Bash` rules to *deny* specific dangerous verbs, and do not expect an allow-list
-to bound what the plugin can run.
+## What that leaves
 
-> **`allowManagedPermissionRulesOnly` is a trap here.** It locks the rule set, so any
-> command your list misses becomes a hard block rather than a prompt. The `status` scan
-> alone runs twelve `curl`-based checks and launches a shipped shell script. If you want
-> the lock, add it only after a real bootstrap has run under your rules.
+| Rule | Holds? |
+|---|---|
+| `Skill(infra-copilot:setup)` etc. | **Yes** — skill invocation is not a Bash path |
+| `Bash(terraform apply)` | No — `mise exec --`, and REST |
+| `Read(./**/*.tfvars)` | No — any Bash subprocess |
+| `Edit(**)` / `Write(**)` | No — Bash writes files |
+| A curated `Bash` allow-list | No — compound checks |
 
-## Read-only cannot be enforced at the command level
+**Only `Skill()` denies are robust.** They are genuinely useful: denying
+`Skill(infra-copilot:setup)`, `:import` and `:add` while allowing `:status` stops the
+*workflows* that change things, which is a real reduction even though it does not stop a
+determined or confused agent reaching the same effects by hand.
 
-It is tempting to build a profile that permits `infra-copilot:status` and nothing else.
-`status` promises to change nothing and works at it — reading run status through the HCP
-API rather than running `plan`, using `git --no-optional-locks` so it leaves git's index
-alone.
+Write the `Bash` and `Read` denies too if you like — they raise the cost of an accident.
+Do not describe them to anyone as a boundary.
 
-That promise cannot be enforced with command rules. This plugin reaches providers through
-`gh api` and `curl`, and its own runbooks use `gh api -X PATCH`, `gh api -X PUT`,
-`curl -X POST` and `curl -X PATCH`. A prefix-matching grammar cannot separate a GET from a
-PATCH *inside* those commands, so permitting `status` to read permits writing through the
-same verb. `--no-optional-locks` suppresses optional locking; it does not make `git`
-read-only, so `reset`, `clean` and `push` all match a `git --no-optional-locks *` rule.
+> **Do not set `allowManagedPermissionRulesOnly`.** It locks the rule set, so any command
+> your list misses becomes a hard block. The `status` scan alone runs twelve `curl`-based
+> checks and launches a shipped shell script. You would be trading a guarantee you do not
+> get for an outage you do.
 
-Denying the literal `-X` forms is a speed bump, not a boundary.
+## What would actually work
 
-Enforced read-only needs a **tool-level** boundary instead — an agent with no write tools
-at all. That is the read-only subagent tracked in [`roadmap.md`](roadmap.md) (#19), and it
-is the only mechanism that makes `status`'s central promise something a host enforces
-rather than something the skill asserts about itself.
+- **Tool-level**: an agent with no write tools at all. That is the read-only subagent in
+  [`roadmap.md`](roadmap.md) (#19), and it is the only mechanism that makes `status`'s
+  change-nothing promise something a host enforces rather than something the skill asserts
+  about itself.
+- **Sandbox-level**: filesystem and network isolation, so `jq` cannot read a path and
+  `curl` cannot reach an endpoint regardless of which command wraps it. Outside this
+  plugin's control, and the right layer for the secret-file and REST-apply cases.
+- **Credential scoping**: the durable answer for apply. An HCP token without apply
+  permission cannot apply, whatever command is used. That is a provider-side control and
+  strictly stronger than anything expressible in host rules.
 
 ## The HCP token: what "the agent never sees secrets" does and does not cover
 
-`protocol.md` states the model plainly: the human signs up, mints credentials, and pastes
-secrets into HCP, and the agent must never see that plaintext. That holds for the
-**Cloudflare API token** and the **GitHub App credentials** — they go from a browser into
-HCP workspace variables, and the agent only ever verifies their presence over the API.
+`protocol.md` states the model: the human signs up, mints credentials, and pastes secrets
+into HCP, and the agent must never see that plaintext. That holds for the **Cloudflare API
+token** and the **GitHub App credentials** — browser into HCP workspace variables, and the
+agent only verifies their presence over the API.
 
-It does **not** hold for the HCP token itself. Phase 0 has the human run
-`terraform login`, and every later step reads the result:
+It does **not** hold for the HCP token. Phase 0 has the human run `terraform login`, and
+every later step reads the result:
 
 ```sh
 export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' \
   ~/.terraform.d/credentials.tfrc.json)
 ```
 
-The HCP token is in the agent's environment by design — it is the pivot the whole workflow
-turns on, and no version of this plugin drives the HCP API without it.
+That token is in the agent's environment by design — the pivot the workflow turns on. Do
+not deny the read; it breaks every HCP step, and a manual `export` puts the same secret in
+the same environment through another door.
 
-**Do not deny that read.** It breaks every HCP step from phase 0 onward. Requiring the
-operator to `export HCP_TOKEN` by hand each session moves the same secret into the same
-environment through a different door, so it buys appearance rather than safety. If your
-threat model needs the token out of the agent's reach entirely, this plugin is not the
-right tool for that repository.
+**Scope the token instead.** This is the one place where a real control exists: an HCP
+token that cannot apply removes bypass 2 above at the source.
 
 ## Claude Code specifics
 
 Precedence, highest first: managed settings → CLI flags → `.claude/settings.local.json` →
 `.claude/settings.json` → `~/.claude/settings.json`. Rules evaluate **deny → ask → allow**,
-first match wins. Run `/status` in a session to see which layers are active.
+first match wins. `/status` shows the active layers.
 
 Managed settings live at a platform-specific **file**:
 
@@ -162,26 +143,25 @@ Managed settings live at a platform-specific **file**:
 | Linux / WSL | `/etc/claude-code/managed-settings.json` |
 | Windows | `C:\Program Files\ClaudeCode\managed-settings.json` |
 
-Check your Claude Code version's own documentation before deploying — these paths and the
-managed-only field names are its to change, not this plugin's.
+Check your Claude Code version's own documentation — these paths and the managed-only
+field names are its to change, not this plugin's.
 
-> **Merge, do not copy.** If that file already exists it carries your other permission
-> rules, hooks and marketplace restrictions. Writing a fresh document over it drops all of
-> them. Back it up, then merge.
+> **Merge, do not copy.** If that file exists it carries your other rules, hooks and
+> marketplace restrictions. Writing a fresh document over it drops them. Back it up first.
+
+Two matching traps worth knowing whatever you write: `Bash(terraform apply *)` does **not**
+match a bare `terraform apply` — the wildcard needs an argument — and
+`Bash(terraform version)` is exact, so it does not match `terraform version -json`, which
+preflight runs.
 
 ## Other hosts
 
-Per-plugin restriction on the other supported hosts is **unverified**, and saying so beats
-describing a grammar nobody here has exercised:
+Unverified, and saying so beats describing a grammar nobody here has exercised.
+**OpenCode** has a tri-state `permission` block plus per-agent tool maps — the per-agent
+map is the interesting one, since it is tool-level rather than command-level. **Codex CLI**
+and **Antigravity** expose no per-plugin deny grammar that could be confirmed; treat
+restriction there as uninstall-only.
 
-- **OpenCode** has a tri-state `permission` block (`allow`/`ask`/`deny`) in
-  `opencode.json` plus per-agent tool maps. The shape above translates; the key names do
-  not. Consult OpenCode's documentation.
-- **Codex CLI** and **Antigravity** expose no per-plugin deny grammar that could be
-  confirmed. Treat restriction there as uninstall-only until proven otherwise:
-  `codex plugin remove` / `agy plugin uninstall`.
-
-**Do not auto-write host configuration.** If a future skill offers to install any of this,
-it must back up first, merge rather than overwrite, prompt opt-in, and be idempotent on
-re-run. Codex's own trust prompt is the right surface for Codex; writing
-`~/.codex/config.toml` on a user's behalf is not.
+**Do not auto-write host configuration.** Any future skill offering to install this must
+back up, merge rather than overwrite, prompt opt-in, and be idempotent. Codex's trust
+prompt is the right surface for Codex.

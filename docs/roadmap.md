@@ -28,11 +28,12 @@ oversight. Each item links to the issue that owns it.
 - **Illustrative versions are deliberately ungated.** The worked `mise.toml` in
   `docs/setup.md` names example `terraform`, `gh` and `jq` versions. Their requirement is
   being exact, not current, so they are not in the upstream manifest. Not an oversight.
-- **Permissions guidance is documentation, not a shipped profile.** `docs/policy.md`
-  explains what host rules can and cannot constrain (#14). No profile ships: a `Bash`
-  allow-list cannot bound compound shell checks, and read-only cannot be expressed in a
-  prefix grammar at all, so a deployable file would imply guarantees it does not provide.
-  Per-plugin restriction on Codex, Antigravity and OpenCode is separately unverified.
+- **Host permission rules cannot constrain this plugin.** `docs/policy.md` documents
+  four bypasses the plugin's own guidance supplies, so no profile ships and none should
+  (#14). Only `Skill()` denies hold. The gaps that remain are not documentation gaps:
+  they need a tool-level boundary (#19), sandbox isolation, or an HCP token scoped without
+  apply permission. Per-plugin restriction on Codex and Antigravity is separately
+  unverified.
 - **`status`'s read-only promise is unenforced.** Only a tool-level boundary can enforce
   it — the read-only subagent below, which `docs/policy.md` now names as the sole
   mechanism that would.

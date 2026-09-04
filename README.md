@@ -76,24 +76,22 @@ any legacy `CLAUDE.md` decision table into it.
 
 ## Restricting what it can do
 
-The plugin drives three provider APIs, runs Terraform against remote state, and reads your
-HCP credential file. Restriction is the host's job, and
-[`docs/policy.md`](docs/policy.md) covers what you can and cannot achieve there.
+**Host permission rules cannot meaningfully constrain this plugin**, and
+[`docs/policy.md`](docs/policy.md) shows why with four bypasses the plugin's own
+documentation supplies — `mise exec -- terraform apply` sidesteps a Terraform deny,
+`curl -X POST .../runs/<id>/actions/apply` applies without Terraform at all, `Read()`
+rules do not govern Bash subprocesses, and a `Bash` allow-list cannot match a compound
+check.
 
-No permission profile ships, deliberately: a file that looks authoritative invites being
-deployed unread, and the guarantees one would appear to offer are weaker than its name
-implies. The document gives the rules that do bite — `Skill()`, `Edit()`, `Write()`,
-`Read()`, and denies on `terraform apply`/`destroy` — alongside three things worth knowing
-before you write your own:
+Only `Skill()` denies hold. Denying `setup`, `import` and `add` while allowing `status` is
+a real reduction; the rest raises the cost of an accident without being a boundary.
 
-- `Bash(terraform apply *)` does **not** match a bare `terraform apply`.
-- A `Bash` allow-list cannot bound this plugin, because its checks are compound shell
-  strings that do not begin with a command name.
-- Read-only cannot be enforced at the command level at all: `status` reaches providers
-  through `gh api` and `curl`, and a prefix grammar cannot tell a GET from a PATCH inside
-  them.
+What does work: a tool-level boundary (an agent with no write tools —
+[#19](https://github.com/hasansezertasan/infra-copilot/issues/19)), sandbox isolation, or
+— for apply specifically — **an HCP token scoped without apply permission**, which is
+stronger than anything expressible in host rules.
 
-It also states plainly which secrets never reach the agent and which one does.
+The document also states which secrets never reach the agent and which one does.
 
 ## Skills
 
