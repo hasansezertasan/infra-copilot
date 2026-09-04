@@ -1,0 +1,14 @@
+{
+  // The canonical behavioural sources are linted for real defects — unlabelled fences,
+  // fences without surrounding blank lines, headings without them — but not for line
+  // width. Their prose is written long and no cap fixes it: 94 lines still exceed 140
+  // columns, so MD013 here would mean reflowing every behavioural instruction in the
+  // repository for no gain. Width is enforced on the hand-authored top-level documents,
+  // where it was measured to already hold.
+  "config": {
+    "MD013": false,
+    "MD024": { "siblings_only": true },
+    "MD046": { "style": "fenced" },
+    "MD060": false
+  }
+}

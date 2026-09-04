@@ -49,10 +49,12 @@ Rotate yearly or on any suspected exposure. The procedures below are zero-downti
 2. Copy the new value.
 3. HCP → workspace `cloudflare` → Variables → `cloudflare_api_token` → click the edit icon → paste new value → Save.
 4. Trigger a no-op plan to confirm the new token works:
+
    ```sh
    cd terraform/cloudflare
    terraform plan        # expect: no changes; speculative plan in HCP authenticates with the new token
    ```
+
 5. If the plan succeeds, return to the dashboard and **revoke the old token**.
 6. If the plan fails, paste the old value back into the HCP variable; the old token is still live. Investigate.
 
@@ -63,10 +65,12 @@ GitHub Apps support multiple active private keys, so rotation is overlap-then-cu
 1. GitHub → org Settings → Developer settings → GitHub Apps → your app → **Private keys → Generate a private key**. A `.pem` downloads. Both old and new keys are now active.
 2. HCP → workspace `github-org` → Variables → `github_app_pem` → paste the full new PEM contents (including `-----BEGIN/END-----` lines) → Save.
 3. Trigger a no-op plan to confirm:
+
    ```sh
    cd terraform/github
    terraform plan
    ```
+
 4. If the plan succeeds, return to the GitHub App's Private keys page and **delete the old key**.
 5. If the plan fails — likely PEM newline mangling on paste — paste again carefully and retry.
 

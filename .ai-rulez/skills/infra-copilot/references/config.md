@@ -4,7 +4,9 @@
 `infra-copilot` is org-agnostic. Every value that used to be hardcoded for one org lives
 in a **committed, non-secret** file in the *consuming* repo:
 
-    .infra-copilot/config.md
+```text
+.infra-copilot/config.md
+```
 
 It is Markdown with a YAML frontmatter block. **No secrets** — those stay in HCP
 workspace variables. This file holds only public identifiers.

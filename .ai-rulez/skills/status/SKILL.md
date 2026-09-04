@@ -126,7 +126,7 @@ reporting a failure as green.
 
 Print a phase-by-phase table, then a one-line verdict. Use this shape:
 
-```
+```text
 infra-copilot status — <repo> (org: $ORG)
 
 Preflight   terraform 1.15.9 ✓ pinned   gh 2.81.0 ✗ pin missing   jq ✓   curl ✓   HCP token ✓

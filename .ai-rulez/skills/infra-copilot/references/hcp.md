@@ -19,6 +19,7 @@ The only unavoidable cold-start. Produces the HCP token that lets the agent scri
   **`<your-org>`** and project **`infra`**. (Org name must equal the `organization` field
   in every `terraform/*/versions.tf` — it does.)
 - **`AGENT` — hcp-verify.** From here you own the HCP API:
+
   ```sh
   # $ORG sourced from config — see config.md
   HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
@@ -125,6 +126,7 @@ GitHub↔HCP OAuth connection (browser).
   > (it defaults off; the label-gated flow in [`docs/ci.md`](docs/ci.md) replaces it for forks).
 
   Verify:
+
   ```sh
   for pair in "cloudflare:terraform/cloudflare" "github-org:terraform/github"; do
     ws=${pair%%:*}; dir=${pair#*:}

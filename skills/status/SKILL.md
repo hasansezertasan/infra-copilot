@@ -5,8 +5,8 @@ description: "Read-only health check: runs every step's check across the whole m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7126db6a17849b6142b58bbc3288bc50d19072287e9a8e8df2b24309f0d94b9b
-Source-Hash: blake3:442b1d6efb723635feb68e4317c333d9df78a268c7e774efc132d587f7d406e6
+Content-Hash: blake3:b622428e82536fb5a70742d6ebcef3c672b06d6ceee2be052b60f9a5a02c3b5d
+Source-Hash: blake3:4e6a6c5c98165b144cbbc4fc83b2198714bd7f13b2acad454787d2e39eeedbd7
 Schema-Version: v1
 -->
 
@@ -133,7 +133,7 @@ reporting a failure as green.
 
 Print a phase-by-phase table, then a one-line verdict. Use this shape:
 
-```
+```text
 infra-copilot status — <repo> (org: $ORG)
 
 Preflight   terraform 1.15.9 ✓ pinned   gh 2.81.0 ✗ pin missing   jq ✓   curl ✓   HCP token ✓

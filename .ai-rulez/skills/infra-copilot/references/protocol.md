@@ -50,7 +50,7 @@ Every step in [`steps.yaml`](steps.yaml) is tagged with who performs it:
 
 When a step is `HUMAN`, do **not** guess or fake it. Stop and print exactly this shape, then wait:
 
-```
+```text
 ┌─ HUMAN ACTION NEEDED ─────────────────────────────
 │ Step:   <id> — <title>
 │ Why:    <one line — what this unblocks>
