@@ -74,6 +74,24 @@ and authentication decisions belong in `.infra-copilot/decisions.md`; copy the s
 [`decisions.md.example`](skills/infra-copilot/references/decisions.md.example) and migrate
 any legacy `CLAUDE.md` decision table into it.
 
+## Restricting what it can do
+
+The plugin drives three provider APIs, runs Terraform against remote state, and reads
+your HCP credential file. Restriction is the host's job, and
+[`docs/policy.md`](docs/policy.md) covers it — including what the "the agent never sees
+secrets" model does and does not cover, which is worth reading before pointing this at
+production.
+
+Two ready profiles for Claude Code, both meant to be read and edited before use:
+
+| Profile | For |
+|---|---|
+| [`claude-code.json`](templates/managed-settings/claude-code.json) | normal use — plan yes, apply never |
+| [`claude-code-status-only.json`](templates/managed-settings/claude-code-status-only.json) | auditing a live repo — `status` and nothing else |
+
+`terraform apply` and `terraform destroy` appear nowhere in the manifest, so both profiles
+deny them outright.
+
 ## Skills
 
 The work is split by function. Each skill is a thin router over the `infra-copilot` hub

@@ -1,0 +1,40 @@
+{
+  "$comment": [
+    "A read-only profile: infra-copilot:status and nothing else. Use it to audit a",
+    "production infra repo without granting any way to change it.",
+    "",
+    "status promises to change nothing and goes to some length to keep that promise —",
+    "it reads run status through the HCP API rather than running terraform plan, and",
+    "uses git --no-optional-locks so it does not touch git's index. This profile turns",
+    "that promise into something the host enforces rather than something the skill",
+    "asserts about itself."
+  ],
+  "permissions": {
+    "allow": [
+      "Skill(infra-copilot:status)",
+      "Bash(terraform version)",
+      "Bash(mise *)",
+      "Bash(jq *)",
+      "Bash(gh api *)",
+      "Bash(gh auth status)",
+      "Bash(git rev-parse *)",
+      "Bash(git --no-optional-locks *)"
+    ],
+    "deny": [
+      "Edit(**)",
+      "Write(**)",
+      "Skill(infra-copilot:setup)",
+      "Skill(infra-copilot:import)",
+      "Skill(infra-copilot:add)",
+      "Bash(terraform apply *)",
+      "Bash(terraform destroy *)",
+      "Bash(terraform init *)",
+      "Bash(terraform plan *)",
+      "Bash(cf-terraforming *)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./terraform.tfvars)"
+    ]
+  },
+  "allowManagedPermissionRulesOnly": true
+}

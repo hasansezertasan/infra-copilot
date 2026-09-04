@@ -28,9 +28,11 @@ oversight. Each item links to the issue that owns it.
 - **Illustrative versions are deliberately ungated.** The worked `mise.toml` in
   `docs/setup.md` names example `terraform`, `gh` and `jq` versions. Their requirement is
   being exact, not current, so they are not in the upstream manifest. Not an oversight.
-- **No permissions guidance.** The skills drive three provider APIs and handle an HCP
-  token; there is no `docs/policy.md` and no managed-settings template.
-  ([#14](https://github.com/hasansezertasan/infra-copilot/issues/14))
+- **Permissions guidance covers Claude Code only.** `docs/policy.md` and two
+  managed-settings profiles ship (#14), but per-plugin restriction on Codex, Antigravity
+  and OpenCode is unverified — OpenCode's tri-state `permission` block should translate,
+  while Codex and Antigravity may be uninstall-only. Stated as unverified in the document
+  rather than guessed at.
 - **The SessionStart hook is Claude-only.** It ships and is auto-discovered there (#18),
   but Codex, Antigravity and OpenCode wiring is unverified and not shipped.
   ([#42](https://github.com/hasansezertasan/infra-copilot/issues/42))

@@ -1,0 +1,49 @@
+{
+  "$comment": [
+    "Org-wide managed settings for infra-copilot on Claude Code. Copy to the managed",
+    "settings path for your platform (see docs/policy.md) and edit before deploying —",
+    "allowManagedPermissionRulesOnly locks the rule set, so an incomplete list here",
+    "blocks work rather than merely failing to restrict it.",
+    "",
+    "The rules are derived from what the plugin actually invokes, not from a guess:",
+    "terraform fmt/init/login/plan/validate/version, mise, jq, gh api/auth, curl,",
+    "cf-terraforming, gcloud, git rev-parse. terraform apply and destroy appear nowhere",
+    "in the manifest, which is why they are denied outright."
+  ],
+  "permissions": {
+    "allow": [
+      "Skill(infra-copilot:status)",
+      "Bash(terraform version)",
+      "Bash(terraform fmt *)",
+      "Bash(terraform validate *)",
+      "Bash(terraform init *)",
+      "Bash(terraform plan *)",
+      "Bash(mise *)",
+      "Bash(jq *)",
+      "Bash(gh api *)",
+      "Bash(gh auth status)",
+      "Bash(git rev-parse *)"
+    ],
+    "ask": [
+      "Bash(curl *)",
+      "Bash(cf-terraforming *)",
+      "Bash(gcloud *)",
+      "Bash(gh auth login)",
+      "Bash(terraform login)"
+    ],
+    "deny": [
+      "Bash(terraform apply *)",
+      "Bash(terraform destroy *)",
+      "Bash(sudo *)",
+      "Bash(curl * | sh)",
+      "Bash(curl * | bash)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./terraform.tfvars)",
+      "Read(./**/*.auto.tfvars)",
+      "Read(./.claude/infra-copilot.local.md)"
+    ]
+  },
+  "allowManagedPermissionRulesOnly": true,
+  "pluginTrustMessage": "infra-copilot may read your HCP Terraform token to drive the HCP API. It never applies Terraform: apply and destroy are denied."
+}
