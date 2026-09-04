@@ -1,6 +1,6 @@
 ---
 name: setup
-description: "Agent-first, human-in-the-loop GREENFIELD bootstrap of a Terraform + HCP Terraform Cloud + Cloudflare + GitHub SaaS infra repo. Reads a repo-local config (.infra-copilot/config.md), then wires HCP state, the Cloudflare token, and the GitHub App, and runs the first plan on both leaves. Use this WHENEVER a fresh/empty infra repo needs standing up — even if the user doesn't say 'infra-copilot'. Trigger on: 'set up infra', 'bootstrap this repo', 'nothing is wired up yet', 'get HCP/Cloudflare/the GitHub App connected', 'onboard our new org', 'wire up Terraform Cloud + Cloudflare + GitHub', 'there's no HCP workspace yet', 'plan won't init', 'run infra-setup', '/infra-setup'. This is the STAND-UP skill; use infra-copilot:import to adopt resources that already exist, infra-copilot:add to grow an already-bootstrapped repo, infra-copilot:status to just check state."
+description: "Greenfield bootstrap of a Terraform + HCP Terraform + Cloudflare + GitHub infra repo: wires HCP state, the Cloudflare token and the GitHub App, then reaches a green first plan on both leaves. Use when nothing is wired up yet, even if the user does not name infra-copilot. Not for adopting resources that already exist (infra-copilot:import), nor for provisioning new ones in a working repo (infra-copilot:add)."
 ---
 
 # infra-copilot: setup

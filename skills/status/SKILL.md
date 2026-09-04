@@ -1,12 +1,12 @@
 ---
 name: status
-description: "READ-ONLY health check for an infra-copilot repo: run every step's check across the whole manifest (HCP org, workspaces, Cloudflare token, GitHub App, plans, imports) and report exactly where things stand — what's green, what's the first red step, and which skill fixes it. Changes NOTHING. Use this WHENEVER the user asks where infra stands or whether it's done, rather than asking to change it. Trigger on: 'is our infra actually set up or did it stall', 'did the bootstrap finish', 'where did setup get to', 'which step is red', 'infra doctor', 'health check don't change anything', 'check infra state', 'audit the infra config'. Prefer this (read-only) over setup/import/add when the user only wants to know status; then it tells them which skill to run next."
+description: "Read-only health check: runs every step's check across the whole manifest and reports what is green, which step is the first red, and which skill fixes it. Changes nothing. Use when the question is where infra stands rather than a request to change it."
 ---
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7c6b5516717a44ef133ada24d9ac0d92bb963e8fcea03c686a2727898a89fb2d
-Source-Hash: blake3:511b2c651dd638fc0e4e3cc7ec0c21a9f801a83caf042a776fbccf50dd92f298
+Content-Hash: blake3:cc67208ba04173e31420f144edd8190b4e4244243aefcf8448c5899670b3eb4e
+Source-Hash: blake3:582448718a7e3f3cff94fb0f82890abd34803db531280047a041dd9bcd8a2dfa
 Schema-Version: v1
 -->
 

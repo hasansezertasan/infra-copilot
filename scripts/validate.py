@@ -149,6 +149,50 @@ def validate_skills() -> list[str]:
     return errors
 
 
+MAX_DESCRIPTION_BUDGET = 2000
+
+
+def skill_descriptions(root: Path = ROOT) -> dict[str, str]:
+    """Every skill's frontmatter description, keyed by skill name."""
+    found: dict[str, str] = {}
+    for skill in sorted((root / ".ai-rulez/skills").glob("*/SKILL.md")):
+        match = SKILL_FRONTMATTER.match(skill.read_text(encoding="utf-8"))
+        if match is None:
+            continue
+        description = re.search(
+            r'^description:\s*(?:"(?P<quoted>.*)"|(?P<plain>\S.*))$',
+            match.group("body"),
+            re.MULTILINE,
+        )
+        if description is None:
+            continue
+        # Key by the declared name, falling back to the directory. validate_skills
+        # enforces that they match, but this helper should not depend on that check
+        # having run to key the way its docstring says it does.
+        name = re.search(r"^name:\s*(\S+)", match.group("body"), re.MULTILINE)
+        key = name.group(1).strip("\"'") if name else skill.parent.name
+        found[key] = description.group("quoted") or description.group("plain")
+    return found
+
+
+def validate_description_budget(root: Path = ROOT) -> list[str]:
+    """Descriptions load into the host prompt every session, used or not.
+
+    An aggregate budget prices the real resource — session context — rather
+    than capping each skill, so a genuinely ambiguous skill can spend more as
+    long as another spends less. The four action skills once carried enumerated
+    trigger-phrase lists totalling 3.7 KB; the SessionStart hook now covers
+    "this plugin exists", leaving descriptions to answer only "which skill".
+    """
+    total = sum(len(value) for value in skill_descriptions(root).values())
+    if total > MAX_DESCRIPTION_BUDGET:
+        return [
+            f".ai-rulez/skills: description budget {total} > "
+            f"{MAX_DESCRIPTION_BUDGET}; shorten SKILL.md frontmatter descriptions"
+        ]
+    return []
+
+
 def validate_command_tools() -> list[str]:
     errors: list[str] = []
     for filename, expected in COMMAND_TOOLS.items():
@@ -736,6 +780,7 @@ def main() -> int:
         *validate_layout(),
         *validate_skills(),
         *validate_command_tools(),
+        *validate_description_budget(),
         *validate_config_fallbacks(),
         *validate_phase_five_rule(),
         *validate_toolchain_contract(),

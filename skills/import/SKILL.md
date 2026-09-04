@@ -1,12 +1,12 @@
 ---
 name: import
-description: "Adopt EXISTING infrastructure that already lives at a provider into Terraform management WITHOUT recreating it — generate HCL + import blocks (cf-terraforming) and verify the plan shows imports, not creates. Use this WHENEVER resources already exist somewhere (a live domain, DNS records, repos already on GitHub) and Terraform doesn't yet manage them — especially to stop a plan from recreating live things. Trigger on: 'our domain/DNS/records already exist, pull them into Terraform', 'the live zone is already up, adopt it', 'bring the existing repos under Terraform management', 'terraform plan wants to CREATE things that already exist', 'stop terraform recreating prod', 'run cf-terraforming', 'generate import blocks', 'migrate existing infra into state'. Run AFTER infra-copilot:setup reaches green plans. Not for standing up a fresh repo (infra-copilot:setup) or provisioning brand-new resources that don't exist yet (infra-copilot:add)."
+description: "Adopt infrastructure that already exists at a provider into Terraform without recreating it, verifying the plan shows imports rather than creates. Cloudflare has a scripted cf-terraforming flow; every other provider uses the same import-block pattern by hand. Use when a plan wants to create things that are already live. Runs after infra-copilot:setup reaches green plans; for things that do not exist yet use infra-copilot:add."
 ---
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:23c08b05d4be5136cef653a3b77a762a6b21d8d8d1ebd9103a7438f42c4171b5
-Source-Hash: blake3:511b2c651dd638fc0e4e3cc7ec0c21a9f801a83caf042a776fbccf50dd92f298
+Content-Hash: blake3:e8ad70a609f93e255acd8f997ecf7c93dfc3aa7e3dee894ad8163392457dee96
+Source-Hash: blake3:582448718a7e3f3cff94fb0f82890abd34803db531280047a041dd9bcd8a2dfa
 Schema-Version: v1
 -->
 
