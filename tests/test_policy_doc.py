@@ -143,29 +143,74 @@ class PolicyDocTests(unittest.TestCase):
     def test_records_other_hosts_as_unverified(self) -> None:
         self.assertIn("unverified", self.policy.lower())
 
-    def test_the_manifest_still_does_not_apply(self) -> None:
-        """The document tells readers to deny apply because nothing needs it."""
-        body = MANIFEST.read_text(encoding="utf-8")
-        # Global options may precede the subcommand: `terraform -chdir=DIR apply` is
-        # valid, and a verb-immediately-after-terraform pattern misses it. Same rigid
-        # shape assumption that made `Bash(terraform apply *)` miss a bare apply.
-        for verb in ("apply", "destroy"):
-            self.assertIsNone(
-                re.search(rf"\bterraform\b(?:\s+-\S+)*\s+{verb}\b", body),
-                f"the manifest now runs terraform {verb}; revisit docs/policy.md",
-            )
+    #: `terraform`, then any number of options -- bare, quoted or single-quoted -- then
+    #: the verb. Three earlier versions of this pattern each missed a valid form: a bare
+    #: verb, a `-chdir=DIR` option, and a quoted option.
+    APPLY_PATTERN = re.compile(
+        r"""\bterraform\b(?:\s+(?:"[^"]*"|'[^']*'|-\S+))*\s+(?:apply|destroy)\b"""
+    )
 
-    def test_the_apply_guard_sees_global_options(self) -> None:
-        """Pin the matcher itself, since its whole value is catching a future edit."""
-        pattern = re.compile(r"\bterraform\b(?:\s+-\S+)*\s+apply\b")
+    @staticmethod
+    def _normalise(text: str) -> str:
+        """Join shell line continuations and collapse whitespace before matching.
+
+        A raw-text regex misses a `terraform \\`-newline-`-chdir=x apply`, which the
+        shell sees as one command.
+        """
+        return re.sub(r"\s+", " ", text.replace("\\\n", " "))
+
+    def _executable_sources(self):
+        """The manifest, plus code fences in the references tree, plus shipped scripts.
+
+        Prose is deliberately excluded: `docs/import.md` explains that CLI apply is
+        *intentionally blocked*, so scanning prose would fail on a sentence saying the
+        thing cannot happen.
+        """
+        root = REPO_ROOT / ".ai-rulez/skills"
+        sources = [(MANIFEST, MANIFEST.read_text(encoding="utf-8"))]
+        for path in sorted(root.rglob("*.md")):
+            body = path.read_text(encoding="utf-8")
+            fenced = "\n".join(
+                m.group(1) for m in re.finditer(r"```[a-z]*\n(.*?)```", body, re.S)
+            )
+            if fenced:
+                sources.append((path, fenced))
+        for path in sorted(root.rglob("*.sh")):
+            sources.append((path, path.read_text(encoding="utf-8")))
+        return sources
+
+    def test_no_executable_source_applies_or_destroys(self) -> None:
+        """The document says the plugin never invokes these verbs.
+
+        An earlier version checked only `steps.yaml`, so a verb added to a runbook's
+        code fence or a shipped script would have passed while the claim went stale --
+        `migrate-import` delegates its commands to `docs/import.md`.
+        """
+        for path, body in self._executable_sources():
+            with self.subTest(source=path.name):
+                self.assertIsNone(
+                    self.APPLY_PATTERN.search(self._normalise(body)),
+                    f"{path} now runs terraform apply/destroy; revisit docs/policy.md",
+                )
+
+    def test_the_apply_guard_sees_every_documented_form(self) -> None:
+        """Pin the matcher, since its whole value is catching a future edit."""
         for command in (
             "terraform apply",
             "terraform -chdir=terraform/cloudflare apply",
             "terraform -no-color -chdir=x apply -auto-approve",
+            'terraform "-chdir=$dir" apply',
+            "terraform \\\n-chdir=terraform/cloudflare apply",
         ):
             with self.subTest(command=command):
-                self.assertIsNotNone(pattern.search(command))
-        self.assertIsNone(pattern.search("terraform plan"))
+                self.assertIsNotNone(
+                    self.APPLY_PATTERN.search(self._normalise(command)), command
+                )
+        for benign in ("terraform plan", "terraform -chdir=x validate"):
+            with self.subTest(benign=benign):
+                self.assertIsNone(
+                    self.APPLY_PATTERN.search(self._normalise(benign)), benign
+                )
 
 
 if __name__ == "__main__":

@@ -57,7 +57,8 @@ curl -s -X POST "https://app.terraform.io/api/v2/runs/$RUN_ID/actions/apply" ...
 
 With an HCP token authorised to apply — which phase 0 puts in the agent's environment —
 that applies infrastructure without invoking Terraform at all. Denying the CLI verbs does
-not deny applying. And `curl` cannot be denied: twelve checks depend on it.
+not deny applying. And `curl` cannot be denied: it is how the manifest's checks reach
+every provider API.
 
 **3. `Read()` rules do not govern Bash.** `Read(./**/*.tfvars)` constrains the **Read
 tool**. Any subprocess reads the file regardless:
@@ -66,7 +67,7 @@ tool**. Any subprocess reads the file regardless:
 jq -R . terraform/cloudflare/secrets.tfvars    # matches Bash(jq *)
 ```
 
-`jq` cannot be denied either — twenty-eight checks use it.
+`jq` cannot be denied either — it parses every API response the checks read.
 
 **4. A `Bash` allow-list cannot match the checks anyway.** They are compound shell strings
 that do not begin with a command name:
@@ -133,13 +134,13 @@ describe any of them as a boundary, and do not rely on them when pointing this p
 production.
 
 > **Think twice about `allowManagedPermissionRulesOnly`.** It stops user and project
-> rules being used, so your managed list is the only one that applies. Whether an
-> unmatched command then blocks or prompts depends on the active permission mode — in the
-> default interactive mode it can prompt; in a non-interactive run it is a block. The
-> `status` scan alone runs twelve `curl`-based checks and launches a shipped shell script,
-> so in CI or any headless context expect an incomplete list to stop work. Check the
-> interaction with your permission mode before enabling it, and remember you would be
-> trading a guarantee this page argues you do not get.
+> rules being used, so your managed list is the only one that applies. What happens to a
+> command your list does not cover depends on the active permission mode — see
+> [Claude's settings documentation](https://code.claude.com/docs/en/settings). A single
+> `status` scan runs the manifest's checks and launches a shipped shell script, so an
+> incomplete list has a lot of surface to trip over. Confirm the behaviour in your own
+> mode before enabling it, and remember you would be trading a guarantee this page argues
+> you do not get.
 
 ## What would actually work
 
