@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "name": "infra-copilot-session-start",
+            "type": "command",
+            "command": "r=\"${CLAUDE_PLUGIN_ROOT:-}\"; if [ -n \"$r\" ] && [ ! -f \"${r%/}/hooks/session-start.sh\" ]; then r=\"\"; fi; if [ -z \"$r\" ] && [ -f ./hooks/session-start.sh ]; then r=\".\"; fi; [ -n \"$r\" ] || exit 0; CLAUDE_PLUGIN_ROOT=\"${r%/}\" sh \"${r%/}/hooks/session-start.sh\"",
+            "timeout": 10,
+            "description": "Announce that infra-copilot is installed when the working directory looks like a managed infra repo."
+          }
+        ]
+      }
+    ]
+  }
+}
