@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:717e6da4c8486774448031fa1ff748d444ea8683e739a2a5f8f478d8a4624b8d
-Source-Hash: blake3:582448718a7e3f3cff94fb0f82890abd34803db531280047a041dd9bcd8a2dfa
+Content-Hash: blake3:509ffd73fda88b8f617ba9efb43a50f0b4400fcb487673c3452ce5078b25be80
+Source-Hash: blake3:775b9982e91c2ffff3708da888c704fe5780c305f7485b0e3484c0c62caaf396
 Schema-Version: v1
 -->
 
@@ -82,9 +82,11 @@ check is red. An all-green scope means "already done, nothing to do."
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
 pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool
 checks) before that step has established committed pins. Once `toolchain-pin` is green,
-run the full preflight and continue the resume scan at `hcp-login`. This keeps the
-fail-fast gate while giving a missing toolchain an owned, resumable step. `status` remains
-read-only: it reports the same failed step but never executes its `run`.
+run the full preflight, execute `repo-config-sync` when its check is red, and continue the
+resume scan at `hcp-login`. The sync step is a no-op when the consuming repository does
+not ship `scripts/sync-config.sh`. This keeps the fail-fast gate while giving a missing
+toolchain and repository-specific literal synchronization owned, resumable steps.
+`status` remains read-only: it reports the same failed step but never executes its `run`.
 
 ```text
 for step in scope(steps.yaml):

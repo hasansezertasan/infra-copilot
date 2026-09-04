@@ -85,7 +85,10 @@ preflight:
       ! printf '%s\n' "$tools" |
       sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
       grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
-      MISE_LOCKED=1 mise install --dry-run $pinned >/dev/null 2>&1
+      printf '%s\n' "$pinned" |
+      while IFS= read -r tool; do
+      [ -n "$tool" ] && MISE_LOCKED=1 mise install --dry-run "$tool" >/dev/null 2>&1 || exit 1;
+      done
   - tool: terraform
     pin: mise.toml#tools.terraform
     check: >-
@@ -163,9 +166,31 @@ steps:
       ! printf '%s\n' "$tools" |
       sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
       grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
-      MISE_LOCKED=1 mise install --dry-run $pinned >/dev/null 2>&1
+      printf '%s\n' "$pinned" |
+      while IFS= read -r tool; do
+      [ -n "$tool" ] && MISE_LOCKED=1 mise install --dry-run "$tool" >/dev/null 2>&1 || exit 1;
+      done
     produces: committed mise.toml + mise.lock
     docs: docs/setup.md#6-local-development
+
+  - id: repo-config-sync
+    phase: 0
+    provider: repo
+    actor: AGENT
+    title: Synchronize repository configuration
+    why: A template helper may need to copy canonical public identifiers into tool-required literal fields before remote setup.
+    run: |
+      If `./scripts/sync-config.sh` is executable, run it from the repository root.
+      Review and commit its deterministic changes before continuing.
+      If the helper is absent, there is nothing to synchronize.
+    check: >-
+      if test ! -x ./scripts/sync-config.sh; then exit 0; fi;
+      test -f .infra-copilot/config.md &&
+      for path in terraform/cloudflare/versions.tf terraform/github/versions.tf; do
+      test -f "$path" && grep -Fq "organization = \"$ORG\"" "$path" || exit 1;
+      done
+    produces: repository literals synchronized from `.infra-copilot/config.md`
+    docs: config.md
 
   - id: hcp-login
     phase: 0

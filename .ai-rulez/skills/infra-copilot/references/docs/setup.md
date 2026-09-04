@@ -111,7 +111,10 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
    # of those are absent from *this* repo's lockfile.
    pinned=$(mise config get --file ./mise.toml tools |
      sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p')
-   MISE_LOCKED=1 mise install $pinned
+   printf '%s\n' "$pinned" |
+     while IFS= read -r tool; do
+       [ -n "$tool" ] && MISE_LOCKED=1 mise install "$tool" || exit 1
+     done
    eval "$(mise activate bash)"   # or zsh/fish — install alone does not touch PATH
    ```
 
@@ -145,6 +148,10 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
    Do all of this — including the activation — **before** step 3: `terraform login`
    needs the pinned `terraform` on `PATH`, and installing without activating does not
    put it there.
+
+   Installing one newline-delimited tool at a time is intentional. It behaves the same
+   in POSIX shells, Bash, and zsh; an unquoted multi-line command substitution is not
+   split into separate arguments by zsh.
 
 2. **Verify the same Terraform version on every HCP workspace.** The Phase 1 API flow
    reads `tools.terraform` from the repository's `mise.toml`, sets `terraform-version`

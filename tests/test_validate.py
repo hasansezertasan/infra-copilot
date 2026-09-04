@@ -648,6 +648,34 @@ class ValidateToolchainContractTests(unittest.TestCase):
 
         self.assertTrue(any("first phase-0 step" in error for error in errors), errors)
 
+    def test_rejects_missing_repo_config_sync_step(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8")
+            text = re.sub(
+                r"  - id: repo-config-sync\n(?:(?!  - id: hcp-login).)*",
+                "",
+                text,
+                count=1,
+                flags=re.DOTALL,
+            )
+            steps.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("repo-config-sync contract is incomplete" in error for error in errors),
+            errors,
+        )
+
     def test_rejects_toolchain_step_check_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
@@ -701,6 +729,37 @@ class ValidateToolchainContractTests(unittest.TestCase):
 
         self.assertTrue(
             any("missing mise preflight check" in error for error in errors), errors
+        )
+
+    def test_rejects_shell_specific_pin_word_splitting(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8")
+            portable = (
+                "printf '%s\\n' \"$pinned\" |\n"
+                "      while IFS= read -r tool; do\n"
+                "      [ -n \"$tool\" ] && MISE_LOCKED=1 mise install "
+                "--dry-run \"$tool\" >/dev/null 2>&1 || exit 1;\n"
+                "      done"
+            )
+            text = text.replace(
+                portable,
+                "MISE_LOCKED=1 mise install --dry-run $pinned >/dev/null 2>&1",
+            )
+            steps.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("shell-specific word splitting" in error for error in errors), errors
         )
 
     def test_rejects_active_mise_state_and_unlocked_install(self) -> None:

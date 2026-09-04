@@ -47,8 +47,8 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 2. **Bootstrap preflight**, then **resume scan** over phases 0–4 of
    [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). On a cold repo, check that `mise` itself
    is available, then scan `toolchain-pin` before running the pin-dependent preflight
-   checks. Once it is green, finish preflight, print `✓`, and continue from
-   `hcp-login`. Full contract:
+   checks. Once it is green, finish preflight, run the optional `repo-config-sync` step,
+   print `✓`, and continue from `hcp-login`. Full contract:
    [`../infra-copilot/references/protocol.md`](../infra-copilot/references/protocol.md).
 3. **Respect the actor split.** Run `AGENT` steps yourself. On a `HUMAN` step, stop, emit
    the handoff block, wait for `done`, re-run the `check` — never fake a signup, a
@@ -59,8 +59,10 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 - **Phase 0 — Toolchain + HCP bootstrap.** The first `HUMAN` step chooses exact tool
   versions, reviews the whole `mise.toml`, and commits it with `mise.lock`; this must
-  happen before pin-dependent preflight. Then `HUMAN` signs up + runs `terraform login`,
-  after which you own the HCP API. Toolchain sequence:
+  happen before pin-dependent preflight. If the consuming repository ships an executable
+  `scripts/sync-config.sh`, run it next and have its deterministic changes committed;
+  repositories without the helper skip this step. Then `HUMAN` signs up + runs
+  `terraform login`, after which you own the HCP API. Toolchain sequence:
   [`../infra-copilot/references/docs/setup.md#6`](../infra-copilot/references/docs/setup.md#6-local-development).
   HCP commands + verify: [`../infra-copilot/references/hcp.md`](../infra-copilot/references/hcp.md#phase-0--bootstrap).
 - **Phase 1 — HCP workspaces.** Two workspaces (`cloudflare`, `github-org`), one per leaf.

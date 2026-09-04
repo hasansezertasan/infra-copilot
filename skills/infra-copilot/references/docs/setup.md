@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:ac8d8dc81756ccf70d41123ad472971a0e12e1e7830a4ae6086aaa32f370487b
-Source-Hash: blake3:582448718a7e3f3cff94fb0f82890abd34803db531280047a041dd9bcd8a2dfa
+Content-Hash: blake3:a3cacea98139f580795f8b73eff6255540a27ea81ac64a9fc18ea6f5a2fa29ae
+Source-Hash: blake3:775b9982e91c2ffff3708da888c704fe5780c305f7485b0e3484c0c62caaf396
 Schema-Version: v1
 -->
 
@@ -118,7 +118,10 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
    # of those are absent from *this* repo's lockfile.
    pinned=$(mise config get --file ./mise.toml tools |
      sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p')
-   MISE_LOCKED=1 mise install $pinned
+   printf '%s\n' "$pinned" |
+     while IFS= read -r tool; do
+       [ -n "$tool" ] && MISE_LOCKED=1 mise install "$tool" || exit 1
+     done
    eval "$(mise activate bash)"   # or zsh/fish — install alone does not touch PATH
    ```
 
@@ -152,6 +155,10 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
    Do all of this — including the activation — **before** step 3: `terraform login`
    needs the pinned `terraform` on `PATH`, and installing without activating does not
    put it there.
+
+   Installing one newline-delimited tool at a time is intentional. It behaves the same
+   in POSIX shells, Bash, and zsh; an unquoted multi-line command substitution is not
+   split into separate arguments by zsh.
 
 2. **Verify the same Terraform version on every HCP workspace.** The Phase 1 API flow
    reads `tools.terraform` from the repository's `mise.toml`, sets `terraform-version`

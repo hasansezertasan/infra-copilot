@@ -279,6 +279,11 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         steps,
         re.MULTILINE,
     )
+    repo_sync_step = re.search(
+        r"^  - id: repo-config-sync\n(?P<metadata>(?:(?!^  - id:).*(?:\n|\Z))*)",
+        steps,
+        re.MULTILINE,
+    )
     steps_start = steps.find("\nsteps:\n")
     first_step = (
         re.search(r"^  - id: ([^\n]+)", steps[steps_start:], re.MULTILINE)
@@ -305,6 +310,20 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     ):
         errors.append(
             f"{TOOLCHAIN_STEPS_DOCUMENT}: toolchain-pin metadata is incomplete"
+        )
+    if repo_sync_step is None or not all(
+        marker in repo_sync_step.group("metadata")
+        for marker in (
+            "    phase: 0\n",
+            "    provider: repo\n",
+            "    actor: AGENT\n",
+            "test ! -x ./scripts/sync-config.sh",
+            "test -f .infra-copilot/config.md",
+            'organization = \\\"$ORG\\\"',
+        )
+    ):
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: repo-config-sync contract is incomplete"
         )
     if preflight_check is None:
         errors.append(
@@ -340,10 +359,16 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         "git ls-files --error-unmatch mise.toml mise.lock",
         "git diff --quiet HEAD -- mise.toml mise.lock",
         "git diff --cached --quiet HEAD -- mise.toml mise.lock",
-        "MISE_LOCKED=1 mise install --dry-run $pinned",
+        'while IFS= read -r tool',
+        'MISE_LOCKED=1 mise install --dry-run "$tool"',
     ):
         if marker not in steps:
             errors.append(f"{TOOLCHAIN_STEPS_DOCUMENT}: missing {marker!r}")
+    if re.search(r"mise install[^\n]*\$pinned", steps):
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: newline-delimited tool pins rely on "
+            "shell-specific word splitting"
+        )
     if "mise config get --file ./mise.toml tools 2>/dev/null" not in steps:
         errors.append(
             f"{TOOLCHAIN_STEPS_DOCUMENT}: lock validation must enumerate the "
