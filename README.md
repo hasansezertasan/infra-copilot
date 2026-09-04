@@ -76,27 +76,24 @@ any legacy `CLAUDE.md` decision table into it.
 
 ## Restricting what it can do
 
-The plugin drives three provider APIs, runs Terraform against remote state, and reads
-your HCP credential file. Restriction is the host's job, and
-[`docs/policy.md`](docs/policy.md) covers it — including what the "agent never sees
-secrets" model does and does not cover, which is worth reading before pointing this at
-production.
+The plugin drives three provider APIs, runs Terraform against remote state, and reads your
+HCP credential file. Restriction is the host's job, and
+[`docs/policy.md`](docs/policy.md) covers what you can and cannot achieve there.
 
-Two ready profiles for Claude Code, both meant to be read and edited before use:
+No permission profile ships, deliberately: a file that looks authoritative invites being
+deployed unread, and the guarantees one would appear to offer are weaker than its name
+implies. The document gives the rules that do bite — `Skill()`, `Edit()`, `Write()`,
+`Read()`, and denies on `terraform apply`/`destroy` — alongside three things worth knowing
+before you write your own:
 
-| Profile | For |
-|---|---|
-| [`claude-code.json`](templates/managed-settings/claude-code.json) | normal use — plan yes, apply never |
-| [`claude-code-status-only.json`](templates/managed-settings/claude-code-status-only.json) | auditing a live repo — narrowed to `status` |
+- `Bash(terraform apply *)` does **not** match a bare `terraform apply`.
+- A `Bash` allow-list cannot bound this plugin, because its checks are compound shell
+  strings that do not begin with a command name.
+- Read-only cannot be enforced at the command level at all: `status` reaches providers
+  through `gh api` and `curl`, and a prefix grammar cannot tell a GET from a PATCH inside
+  them.
 
-`terraform apply` and `terraform destroy` appear nowhere in the manifest, so both profiles
-deny them — in both the bare and argument forms, since `Bash(terraform apply *)` alone
-does not match a bare `terraform apply`.
-
-Neither profile locks the rule set, and the status-only one **narrows** rather than
-enforces: the plugin reaches providers through `gh api` and `curl`, and a prefix-matching
-grammar cannot tell a GET from a PATCH inside those. `docs/policy.md` explains what that
-does and does not buy.
+It also states plainly which secrets never reach the agent and which one does.
 
 ## Skills
 

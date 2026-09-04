@@ -781,8 +781,6 @@ def validate_layout() -> list[str]:
         "CONTRIBUTING.md",
         "docs/roadmap.md",
         "docs/policy.md",
-        "templates/managed-settings/claude-code.json",
-        "templates/managed-settings/claude-code-status-only.json",
         ".github/renovate.json",
         ".github/workflows/check.yml",
         ".github/workflows/release.yml",

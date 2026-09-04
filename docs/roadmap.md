@@ -28,11 +28,15 @@ oversight. Each item links to the issue that owns it.
 - **Illustrative versions are deliberately ungated.** The worked `mise.toml` in
   `docs/setup.md` names example `terraform`, `gh` and `jq` versions. Their requirement is
   being exact, not current, so they are not in the upstream manifest. Not an oversight.
-- **Permissions guidance covers Claude Code only.** `docs/policy.md` and two
-  managed-settings profiles ship (#14), but per-plugin restriction on Codex, Antigravity
-  and OpenCode is unverified — OpenCode's tri-state `permission` block should translate,
-  while Codex and Antigravity may be uninstall-only. Stated as unverified in the document
-  rather than guessed at.
+- **Permissions guidance is documentation, not a shipped profile.** `docs/policy.md`
+  explains what host rules can and cannot constrain (#14). No profile ships: a `Bash`
+  allow-list cannot bound compound shell checks, and read-only cannot be expressed in a
+  prefix grammar at all, so a deployable file would imply guarantees it does not provide.
+  Per-plugin restriction on Codex, Antigravity and OpenCode is separately unverified.
+- **`status`'s read-only promise is unenforced.** Only a tool-level boundary can enforce
+  it — the read-only subagent below, which `docs/policy.md` now names as the sole
+  mechanism that would.
+  ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
 - **The SessionStart hook is Claude-only.** It ships and is auto-discovered there (#18),
   but Codex, Antigravity and OpenCode wiring is unverified and not shipped.
   ([#42](https://github.com/hasansezertasan/infra-copilot/issues/42))
