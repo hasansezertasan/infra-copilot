@@ -1,6 +1,6 @@
 ---
 name: import
-description: "Adopt EXISTING infrastructure that already lives at a provider into Terraform management WITHOUT recreating it — generate HCL + import blocks (cf-terraforming) and verify the plan shows imports, not creates. Use this WHENEVER resources already exist somewhere (a live domain, DNS records, repos already on GitHub) and Terraform doesn't yet manage them — especially to stop a plan from recreating live things. Trigger on: 'our domain/DNS/records already exist, pull them into Terraform', 'the live zone is already up, adopt it', 'bring the existing repos under Terraform management', 'terraform plan wants to CREATE things that already exist', 'stop terraform recreating prod', 'run cf-terraforming', 'generate import blocks', 'migrate existing infra into state'. Run AFTER infra-copilot:setup reaches green plans. Not for standing up a fresh repo (infra-copilot:setup) or provisioning brand-new resources that don't exist yet (infra-copilot:add)."
+description: "Adopt infrastructure that already exists at a provider into Terraform without recreating it: generate HCL and import blocks with cf-terraforming, then verify the plan shows imports rather than creates. Use when a plan wants to create things that are already live. Runs after infra-copilot:setup reaches green plans; for things that do not exist yet use infra-copilot:add."
 ---
 
 # infra-copilot: import

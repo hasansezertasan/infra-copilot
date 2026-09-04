@@ -1,12 +1,12 @@
 ---
 name: add
-description: "Grow an already-bootstrapped infra repo by provisioning something NEW that does not exist yet: a new managed GitHub repo, a new resource on an existing provider (a Cloudflare DNS record, page rule, GitHub repo setting), or a brand-NEW provider (e.g. start managing GCP). Handles the config + Terraform + workspace wiring and ends on a green plan (the new thing shows as 'will be created'). Use this WHENEVER the user wants Terraform to create/manage a new thing in an existing infra repo. Trigger on: 'add a repo to Terraform management', 'manage another repo/domain/record', 'add a new CNAME/DNS record via Terraform', 'provision a new Cloudflare page rule', 'start managing GCP too', 'add a new provider', 'extend the infra repo'. Use AFTER infra-copilot:setup. Not for first-time bootstrap (infra-copilot:setup) or adopting resources that ALREADY exist at the provider (infra-copilot:import)."
+description: "Provision something new in an already-bootstrapped infra repo: a managed GitHub repo, a resource on an existing provider, or a brand-new provider such as GCP. Ends on a green plan showing the new thing as will be created. Use when the thing does not exist yet — if it already exists at the provider, use infra-copilot:import instead."
 ---
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1b13ec27d9bea952df792bfbf96198420b2fcc86930ddd38b606a4b27b24aacd
-Source-Hash: blake3:511b2c651dd638fc0e4e3cc7ec0c21a9f801a83caf042a776fbccf50dd92f298
+Content-Hash: blake3:4263e0299f2bb263deaead3f46b112d9ca00ae9221258d186c07f2b5908def97
+Source-Hash: blake3:3f73c151a6ad3b0d0b902b7a0bc91ebdab1103bc6f4cf44aff3caa4a866a52ba
 Schema-Version: v1
 -->
 

@@ -11,10 +11,13 @@ from pathlib import Path
 
 from scripts.validate import (
     JSON_MANIFESTS,
+    MAX_DESCRIPTION_BUDGET,
     TOOL_PIN_WORKFLOWS,
     VERSIONLESS_MANIFESTS,
     collect_manifest_errors,
+    skill_descriptions,
     validate_config_fallbacks,
+    validate_description_budget,
     validate_json_manifests,
     validate_links,
     validate_manifest_paths,
@@ -232,6 +235,55 @@ class ShippedCheckPathTests(unittest.TestCase):
                     "shipped script but preflight has no infra-copilot-references guard"
                 ],
             )
+
+
+class DescriptionBudgetTests(unittest.TestCase):
+    """Descriptions load into the host prompt every session, whether used or not."""
+
+    def test_real_skills_are_within_budget(self) -> None:
+        self.assertEqual(validate_description_budget(), [])
+
+    def test_over_budget_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            skill = repository / ".ai-rulez/skills/verbose"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                f'---\nname: verbose\ndescription: "{"x" * (MAX_DESCRIPTION_BUDGET + 1)}"\n---\n',
+                encoding="utf-8",
+            )
+
+            errors = validate_description_budget(repository)
+
+            self.assertEqual(len(errors), 1, errors)
+            self.assertIn("description budget", errors[0])
+
+    def test_no_description_enumerates_trigger_phrases(self) -> None:
+        """Phrase lists were the bulk of the 3.7 KB this budget replaced.
+
+        The SessionStart hook now answers "this plugin exists", so a
+        description only has to answer "which skill".
+        """
+        for name, description in skill_descriptions().items():
+            with self.subTest(skill=name):
+                self.assertNotIn("Trigger on:", description)
+                self.assertLessEqual(
+                    description.count("'"),
+                    2,
+                    "quoted trigger phrases belong in the hook's job, not here",
+                )
+
+    def test_each_action_skill_still_disambiguates_itself(self) -> None:
+        """Trimming must not remove the add-vs-import distinction.
+
+        That pairing is the genuinely hard one: both touch a working repo, and
+        the difference is only whether the resource already exists.
+        """
+        descriptions = skill_descriptions()
+        self.assertIn("infra-copilot:import", descriptions["add"])
+        self.assertIn("infra-copilot:add", descriptions["import"])
+        self.assertIn("infra-copilot:import", descriptions["setup"])
+        self.assertIn("Read-only", descriptions["status"])
 
 
 class GeneratedInventoryDocsTests(unittest.TestCase):

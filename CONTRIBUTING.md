@@ -78,6 +78,21 @@ either. If you ever do clean those up by hand, note that
 `.agents/plugins/marketplace.json` is tracked and required — never delete `.agents/`
 wholesale.
 
+## Skill descriptions
+
+A skill's frontmatter `description` loads into the host's prompt for **every session**,
+whether or not the skill is used, so the total is capped: `make check` fails above
+`MAX_DESCRIPTION_BUDGET` (2000 characters across all skills, currently 1659).
+
+The budget is aggregate rather than per-skill on purpose — it prices session context, so a
+genuinely ambiguous skill may spend more as long as another spends less.
+
+Write a description to answer **which skill**, not **whether this plugin exists**: the
+`SessionStart` hook covers the second. In particular, do not enumerate trigger phrases;
+the four action skills once carried 3.7 KB of them between them. Do keep the negative
+routing that separates `add` from `import` — both act on a working repo, and the only
+difference is whether the resource already exists at the provider.
+
 ## Tool versions
 
 `Makefile` is the **only** definition of the versions this repository invokes
