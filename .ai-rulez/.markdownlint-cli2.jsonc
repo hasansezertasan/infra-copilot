@@ -1,4 +1,10 @@
 {
+  // Verified honoured: linting from the repository root with markdownlint-cli2 0.23.2
+  // applies this file to everything beneath .ai-rulez. Removing it and changing nothing
+  // else takes the same run from 0 to 119 MD013 findings, so `make lint` in CI is the
+  // enforcement — if a future version stopped applying nested configuration, lint would
+  // fail loudly rather than silently widening what goes unchecked. The version is pinned
+  // in the Makefile and asserted by validate_tool_pins.
   // The canonical behavioural sources are linted for real defects — unlabelled fences,
   // fences without surrounding blank lines, headings without them — but not for line
   // width. Their prose is written long and no cap fixes it: 94 lines still exceed 140
