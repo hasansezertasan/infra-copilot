@@ -86,10 +86,11 @@ and `/infra-setup` reaches the same procedure without invoking the denied skill.
 **No rule type holds**, including `Skill()` denies. Write them if you like — they raise
 the cost of an accident — but not as a boundary.
 
-What does work: a tool-level boundary (an agent with no write tools —
-[#19](https://github.com/hasansezertasan/infra-copilot/issues/19)), sandbox isolation, or
-— for apply specifically — **an HCP token scoped without apply permission**, which is
-stronger than anything expressible in host rules.
+What does work: sandbox isolation, or — for apply specifically — **an HCP token scoped
+without apply permission**, which is stronger than anything expressible in host rules. A
+read-only subagent ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
+narrows the surface but cannot enforce change-nothing: the scan runs 21 shell checks, so
+it needs `Bash`, and `Bash` writes files.
 
 The document also states which secrets never reach the agent and which one does.
 

@@ -68,9 +68,20 @@ class PolicyDocTests(unittest.TestCase):
         self.assertIn("nothing here enforces that", self.policy)
 
     def test_points_at_boundaries_that_would_work(self) -> None:
-        self.assertIn("#19", self.policy)
         self.assertIn("Sandbox-level", self.policy)
         self.assertIn("without apply permission", self.policy)
+
+    def test_does_not_present_the_subagent_as_enforcement(self) -> None:
+        """The subagent cannot enforce change-nothing, and saying so is the point.
+
+        status runs 21 shell checks so it needs Bash, and this document
+        establishes that Bash writes files. An earlier draft named the subagent
+        as the mechanism that would enforce the promise, which contradicted
+        the same page's own bypass 3.
+        """
+        self.assertIn("does **not** enforce", self.policy)
+        self.assertIn("only a sandboxed command runner", self.policy.lower())
+        self.assertNotIn("only mechanism that makes `status`", self.policy)
 
     def test_warns_against_locking_the_rule_set(self) -> None:
         self.assertIn("Do not set `allowManagedPermissionRulesOnly`", self.policy)

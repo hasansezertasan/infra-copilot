@@ -118,16 +118,21 @@ production.
 
 ## What would actually work
 
-- **Tool-level**: an agent with no write tools at all. That is the read-only subagent in
-  [`roadmap.md`](roadmap.md) (#19), and it is the only mechanism that makes `status`'s
-  change-nothing promise something a host enforces rather than something the skill asserts
-  about itself.
 - **Sandbox-level**: filesystem and network isolation, so `jq` cannot read a path and
-  `curl` cannot reach an endpoint regardless of which command wraps it. Outside this
-  plugin's control, and the right layer for the secret-file and REST-apply cases.
+  `curl` cannot reach an endpoint regardless of which command wraps it. This is the only
+  layer that actually enforces anything discussed on this page. It is outside the plugin's
+  control, and it is the right place for the secret-file and REST-apply cases.
 - **Credential scoping**: the durable answer for apply. An HCP token without apply
   permission cannot apply, whatever command is used. That is a provider-side control and
   strictly stronger than anything expressible in host rules.
+
+**And what only narrows.** A read-only subagent (#19) is worth building — it isolates the
+scan's context and removes `Edit` and `Write` — but it does **not** enforce
+change-nothing, and this page would be contradicting itself to say otherwise. `status`
+runs 21 shell checks: manifest checks, API reads, and a shipped script. It needs `Bash`,
+and bypass 3 above establishes that `Bash` writes files. Remove `Bash` and the scan cannot
+run at all. So the subagent reduces the surface for an accident; only a sandboxed
+command runner turns it into a boundary.
 
 ## The HCP token: what "the agent never sees secrets" does and does not cover
 
