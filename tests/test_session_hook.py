@@ -108,6 +108,44 @@ class SessionHookTests(unittest.TestCase):
         self.assertEqual(entry["type"], "command")
         self.assertLessEqual(entry["timeout"], 10, "it runs on every session start")
 
+    def test_manifest_never_runs_a_script_from_the_working_directory(self) -> None:
+        """A cwd fallback would execute a script out of whatever repo the user is in.
+
+        CLAUDE_PLUGIN_ROOT is not guaranteed for every invocation, so the
+        fallback has to be "do nothing", not "trust the checkout".
+        """
+        command = json.loads(MANIFEST.read_text(encoding="utf-8"))[
+            "hooks"
+        ]["SessionStart"][0]["hooks"][0]["command"]
+
+        self.assertNotIn("./hooks", command)
+        self.assertIn("CLAUDE_PLUGIN_ROOT", command)
+        self.assertIn("exit 0", command, "unresolved root must exit, not fall back")
+
+    def test_matcher_covers_every_session_start_source(self) -> None:
+        """`claude --resume` reports source `resume`; omitting it skips the hook."""
+        matcher = json.loads(MANIFEST.read_text(encoding="utf-8"))[
+            "hooks"
+        ]["SessionStart"][0]["matcher"]
+
+        for source in ("startup", "resume", "clear", "compact"):
+            self.assertIn(source, matcher)
+
+    def test_context_does_not_name_a_marker_it_cannot_vouch_for(self) -> None:
+        """Naming config.md is false for a repo matching only terraform/.
+
+        That would be the hook injecting wrong repository state, which is what
+        its own closing sentence warns against.
+        """
+        for marker in ("config", "legacy", "terraform"):
+            with self.subTest(marker=marker):
+                payload = json.loads(
+                    self.run_hook(marker=marker, host_env={"CLAUDE_PLUGIN_ROOT": "/x"})
+                )
+                context = payload["hookSpecificOutput"]["additionalContext"]
+                self.assertNotIn(".infra-copilot/config.md", context)
+                self.assertNotIn("terraform/ tree", context)
+
 
 if __name__ == "__main__":
     unittest.main()

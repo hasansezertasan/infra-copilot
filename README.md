@@ -25,8 +25,9 @@ skills are rediscovered.
 ### Session announcement
 
 On Claude Code, a `SessionStart` hook announces that the plugin is installed when the
-working directory has `.infra-copilot/config.md` or a `terraform/` tree — discovery
-otherwise depends on a user's phrasing happening to match a skill description. It is
+working directory carries any of its markers — `.infra-copilot/config.md`, the legacy
+`.claude/infra-copilot.local.md`, or a `terraform/` tree. Discovery otherwise depends on
+a user's phrasing happening to match a skill description. It is
 deliberately static: one file-existence test, no provider calls, no `git`, and it names
 the skills rather than reporting any state, because state is re-derived by running each
 step check. Silence it with `INFRA_COPILOT_HOOK_DISABLE=1`.

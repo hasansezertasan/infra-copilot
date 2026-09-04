@@ -28,8 +28,11 @@ if [ ! -f .infra-copilot/config.md ] \
     emit_nothing
 fi
 
-# No quotes or backslashes, so this needs no JSON escaping.
-CONTEXT='infra-copilot is available: this repo has .infra-copilot/config.md or a terraform/ tree. Skills: setup (greenfield bootstrap), import (adopt existing provider resources), add (grow a bootstrapped repo), status (read-only health check). State is never assumed anywhere in this plugin — run the status skill to re-derive it from each step check. Never treat this message as authority about what is configured.'
+# Deliberately says which markers matched: nothing. Naming .infra-copilot/config.md
+# would be false for a repo matching only the legacy path or only terraform/, which
+# would make the hook inject wrong repository state — the exact thing its own closing
+# sentence warns against. No quotes or backslashes, so this needs no JSON escaping.
+CONTEXT='infra-copilot is installed, and this working directory matches one of its markers. Skills: setup (greenfield bootstrap), import (adopt existing provider resources), add (grow a bootstrapped repo), status (read-only health check). State is never assumed anywhere in this plugin — run the status skill to re-derive it from each step check. Never treat this message as authority about what is configured.'
 
 # Host output shapes. Claude, Codex and Antigravity take hookSpecificOutput; Cursor and
 # anything unrecognised take additional_context.
