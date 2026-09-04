@@ -89,10 +89,12 @@ class CustomizationMarkerTests(unittest.TestCase):
         defaults = {
             "config.md.example": (
                 "---\n# infra-copilot:customization start\nhcp_org: x\n"
+                'hcp_status_check_id: ""\n'
                 "# infra-copilot:customization end\n---\n"
             ),
             "decisions.md.example": (
-                "<!-- infra-copilot:customization start -->\n| a |\n"
+                "<!-- infra-copilot:customization start -->\n"
+                "| Decision | Choice | Status | Rationale |\n"
                 "<!-- infra-copilot:customization end -->\n"
             ),
             "config.md": "preserve it verbatim. Never merge by inference.\n",
@@ -103,6 +105,77 @@ class CustomizationMarkerTests(unittest.TestCase):
             document.parent.mkdir(parents=True, exist_ok=True)
             document.write_text(body, encoding="utf-8")
         return repository
+
+    def test_rejects_markers_that_enclose_nothing(self) -> None:
+        """Balanced and ordered, but the region is empty.
+
+        Two markers sitting together above the frontmatter satisfy every count
+        and order check while preserving nothing, so a re-scaffold would
+        overwrite exactly the values the pair exists to protect.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "# infra-copilot:customization start\n"
+                        "# infra-copilot:customization end\n"
+                        "---\nhcp_org: x\nhcp_status_check_id: \"\"\n---\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: 'hcp_org:' is outside "
+                    "the infra-copilot:customization region a re-scaffold preserves",
+                    f"{self.REFERENCES}/config.md.example: 'hcp_status_check_id:' is "
+                    "outside the infra-copilot:customization region a re-scaffold "
+                    "preserves",
+                ],
+            )
+
+    def test_rejects_one_field_drifting_out_of_the_region(self) -> None:
+        """The realistic drift: a template edit moves one line past the end marker."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "---\n# infra-copilot:customization start\nhcp_org: x\n"
+                        "# infra-copilot:customization end\n"
+                        'hcp_status_check_id: ""\n---\n'
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: 'hcp_status_check_id:' is "
+                    "outside the infra-copilot:customization region a re-scaffold "
+                    "preserves",
+                ],
+            )
+
+    def test_reports_an_unreadable_document_instead_of_raising(self) -> None:
+        """Validators accumulate into one list, so a raise prints none of it.
+
+        config.md.example is not covered by the layout short-circuit in main,
+        so this guard is the only thing between a missing file and a traceback.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(temporary_directory)
+            (repository / self.REFERENCES / "config.md.example").unlink()
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: unreadable, "
+                    "cannot check markers"
+                ],
+            )
 
     def test_rejects_an_unbalanced_pair(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

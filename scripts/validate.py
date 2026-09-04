@@ -32,13 +32,22 @@ CONFIG_FALLBACK_DOCUMENTS = (
     ".ai-rulez/skills/infra-copilot/references/protocol.md",
 )
 CUSTOMIZATION_TOKEN = "infra-copilot:customization"
-# The scaffolded files a human is told to edit. Each must carry exactly one
-# balanced marker pair, or a re-scaffold cannot tell a filled-in value from the
-# template it came from.
-CUSTOMIZATION_DOCUMENTS = (
-    ".ai-rulez/skills/infra-copilot/references/config.md.example",
-    ".ai-rulez/skills/infra-copilot/references/decisions.md.example",
-)
+# The scaffolded files a human is told to edit, each mapped to content the marker
+# pair must *enclose*. A balanced pair is not enough: markers that sit together
+# above the frontmatter are balanced and in order while enclosing nothing, so a
+# re-scaffold would preserve an empty region and overwrite every real value.
+# These are the fields that would be lost, so they are what gets asserted.
+CUSTOMIZATION_DOCUMENTS = {
+    ".ai-rulez/skills/infra-copilot/references/config.md.example": (
+        "hcp_org:",
+        # The field the issue named: HCP regenerates it after first VCS connect,
+        # so it is filled in long after the scaffold and exists nowhere else.
+        "hcp_status_check_id:",
+    ),
+    ".ai-rulez/skills/infra-copilot/references/decisions.md.example": (
+        "| Decision | Choice | Status | Rationale |",
+    ),
+}
 # Where the preserve-or-hand-off rule is stated. The markers are inert without it:
 # they are comments, so nothing enforces them but the documented rule.
 CUSTOMIZATION_RULE_DOCUMENT = (
@@ -274,6 +283,19 @@ def validate_config_fallbacks(root: Path = ROOT) -> list[str]:
     return errors
 
 
+def read_document(path: Path) -> str | None:
+    """Text of ``path``, or None when it cannot be read.
+
+    Validators accumulate errors into one list, so an unguarded read raises
+    before ``main`` can print any of them -- including the missing-artifact
+    diagnostic that names the very file that failed to open.
+    """
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
 def validate_customization_markers(root: Path = ROOT) -> list[str]:
     """Both scaffolded files must carry one balanced customization pair.
 
@@ -283,16 +305,23 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
     an end before a start reads as balanced if you only count.
     """
     errors: list[str] = []
-    for relative in CUSTOMIZATION_DOCUMENTS:
-        text = (root / relative).read_text(encoding="utf-8")
+    for relative, enclosed in CUSTOMIZATION_DOCUMENTS.items():
+        text = read_document(root / relative)
+        if text is None:
+            # validate_layout reports the missing artifact, but it builds the same
+            # error list this runs in, so raising here would hide its diagnostic
+            # behind a traceback.
+            errors.append(f"{relative}: unreadable, cannot check markers")
+            continue
+        lines = text.splitlines()
         starts = [
             index
-            for index, line in enumerate(text.splitlines())
+            for index, line in enumerate(lines)
             if f"{CUSTOMIZATION_TOKEN} start" in line
         ]
         ends = [
             index
-            for index, line in enumerate(text.splitlines())
+            for index, line in enumerate(lines)
             if f"{CUSTOMIZATION_TOKEN} end" in line
         ]
         if len(starts) != 1 or len(ends) != 1:
@@ -305,11 +334,21 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
             errors.append(
                 f"{relative}: {CUSTOMIZATION_TOKEN} end precedes its start"
             )
+            continue
+        region = "\n".join(lines[starts[0] + 1 : ends[0]])
+        errors.extend(
+            f"{relative}: {phrase!r} is outside the "
+            f"{CUSTOMIZATION_TOKEN} region a re-scaffold preserves"
+            for phrase in enclosed
+            if phrase not in region
+        )
     # Collapse whitespace: the rule is prose and re-wraps on edit, so matching the
     # raw text reports a phrase as missing purely because a line break moved.
-    rule = re.sub(
-        r"\s+", " ", (root / CUSTOMIZATION_RULE_DOCUMENT).read_text(encoding="utf-8")
-    )
+    rule_text = read_document(root / CUSTOMIZATION_RULE_DOCUMENT)
+    if rule_text is None:
+        errors.append(f"{CUSTOMIZATION_RULE_DOCUMENT}: unreadable, cannot check rule")
+        return errors
+    rule = re.sub(r"\s+", " ", rule_text)
     errors.extend(
         f"{CUSTOMIZATION_RULE_DOCUMENT}: re-scaffold rule missing {marker!r}"
         for marker in CUSTOMIZATION_RULE_MARKERS
@@ -936,9 +975,13 @@ def validate_layout() -> list[str]:
         ".agents/plugins/marketplace.json",
         ".codex-plugin/plugin.json",
         "plugin.json",
+        ".ai-rulez/skills/infra-copilot/references/config.md",
+        ".ai-rulez/skills/infra-copilot/references/config.md.example",
         ".ai-rulez/skills/infra-copilot/references/decisions.md.example",
         ".ai-rulez/skills/infra-copilot/references/protocol.md",
         ".ai-rulez/skills/infra-copilot/references/steps.yaml",
+        "skills/infra-copilot/references/config.md",
+        "skills/infra-copilot/references/config.md.example",
         "skills/infra-copilot/references/decisions.md.example",
         "skills/infra-copilot/references/protocol.md",
         "skills/infra-copilot/references/steps.yaml",
@@ -953,8 +996,19 @@ def validate_layout() -> list[str]:
 
 
 def main() -> int:
+    # Layout is a precondition for everything below: every content validator reads
+    # files this list asserts exist, and Python builds the whole list before main
+    # can print any of it. Without this short-circuit a missing artifact surfaces
+    # as a FileNotFoundError traceback from whichever validator happened to touch
+    # it first -- hiding the one diagnostic that names the file. Guarding each
+    # read would mean 25 guards saying the same thing.
+    layout_errors = validate_layout()
+    if layout_errors:
+        for error in layout_errors:
+            print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+
     errors = [
-        *validate_layout(),
         *validate_skills(),
         *validate_command_tools(),
         *validate_skill_sections(),
