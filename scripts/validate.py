@@ -861,6 +861,7 @@ def validate_layout() -> list[str]:
         "AGENTS.md",
         "CONTRIBUTING.md",
         "docs/roadmap.md",
+        "docs/policy.md",
         ".github/renovate.json",
         ".github/workflows/check.yml",
         ".github/workflows/release.yml",

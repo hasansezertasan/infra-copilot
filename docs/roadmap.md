@@ -28,9 +28,20 @@ oversight. Each item links to the issue that owns it.
 - **Illustrative versions are deliberately ungated.** The worked `mise.toml` in
   `docs/setup.md` names example `terraform`, `gh` and `jq` versions. Their requirement is
   being exact, not current, so they are not in the upstream manifest. Not an oversight.
-- **No permissions guidance.** The skills drive three provider APIs and handle an HCP
-  token; there is no `docs/policy.md` and no managed-settings template.
-  ([#14](https://github.com/hasansezertasan/infra-copilot/issues/14))
+- **Claude Code's command-level rules cannot constrain this plugin.** `docs/policy.md`
+  documents the bypasses the plugin's own guidance supplies, so no profile ships and none
+  should (#14). **No rule type holds** — including `Skill()` denies, which the
+  `/infra-setup`, `/infra-import` and `/infra-add` commands reach around. The gaps that
+  remain are not documentation gaps: they need sandbox isolation, or the agent running as
+  a **separate lower-privilege HCP principal** — not a scope removed from the user token
+  `terraform login` mints, which has none ([#52](https://github.com/hasansezertasan/infra-copilot/issues/52)).
+  Per-plugin restriction on Codex and Antigravity is separately unverified.
+- **`status`'s read-only promise is unenforced, and a subagent will not fix that.** The
+  scan runs 21 shell checks, so it needs `Bash`, and `Bash` writes files — removing
+  `Edit`/`Write` narrows the surface without creating a boundary, and removing `Bash`
+  stops the scan working. Worth building for context isolation (#19); only a sandboxed
+  command runner would enforce the promise.
+  ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
 - **The SessionStart hook is Claude-only.** It ships and is auto-discovered there (#18),
   but Codex, Antigravity and OpenCode wiring is unverified and not shipped.
   ([#42](https://github.com/hasansezertasan/infra-copilot/issues/42))
