@@ -26,6 +26,7 @@ from scripts.validate import (
     validate_toolchain_contract,
     audited_version,
     validate_shipped_check_paths,
+    validate_skill_sections,
     validate_tool_pins,
     validate_versions,
 )
@@ -236,6 +237,56 @@ class ShippedCheckPathTests(unittest.TestCase):
                     "shipped script but preflight has no infra-copilot-references guard"
                 ],
             )
+
+
+class SkillSectionTests(unittest.TestCase):
+    """Four shapes across four skills is how the same concept got two names."""
+
+    def test_every_skill_has_the_required_sections(self) -> None:
+        self.assertEqual(validate_skill_sections(), [])
+
+    def test_missing_section_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            skill = repository / ".ai-rulez/skills/partial"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\nname: partial\n---\n\n## Workflow\n\n## Guardrails\n",
+                encoding="utf-8",
+            )
+
+            errors = validate_skill_sections(repository)
+
+            self.assertEqual(len(errors), 2, errors)
+            self.assertTrue(any("'validation'" in error for error in errors), errors)
+            self.assertTrue(any("'example'" in error for error in errors), errors)
+
+    def test_matching_is_lenient_about_wording(self) -> None:
+        """`## Example report` must satisfy `example`.
+
+        The goal is that each concern is addressed somewhere findable, not that
+        headings be identical across skills.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            skill = repository / ".ai-rulez/skills/worded"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\nname: worded\n---\n\n## How the workflow runs\n\n"
+                "## Guardrails\n\n## Validation checkpoint\n\n## Example report\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(validate_skill_sections(repository), [])
+
+    def test_the_completion_section_has_one_name_everywhere(self) -> None:
+        """`Done signal` in setup and `Success signal` in import was the bug."""
+        root = Path(__file__).resolve().parents[1]
+        for skill in sorted((root / ".ai-rulez/skills").glob("*/SKILL.md")):
+            with self.subTest(skill=skill.parent.name):
+                body = skill.read_text(encoding="utf-8")
+                self.assertNotIn("## Done signal", body)
+                self.assertNotIn("## Success signal", body)
 
 
 class DescriptionBudgetTests(unittest.TestCase):
