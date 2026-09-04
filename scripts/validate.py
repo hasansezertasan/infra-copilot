@@ -61,6 +61,7 @@ MAKEFILE_PATH = "Makefile"
 TOOL_PIN_SPECS = {
     "ai-rulez": "AI_RULEZ_VERSION",
     "skills": "SKILLS_VERSION",
+    "markdownlint-cli2": "MARKDOWNLINT_VERSION",
 }
 # Workflows call `make check` and must not carry their own copy of a pin; a
 # second definition is exactly the drift this check exists to prevent.
@@ -743,6 +744,7 @@ def validate_versions(root: Path = ROOT) -> list[str]:
 def validate_layout() -> list[str]:
     required = (
         "Makefile",
+        ".markdownlint-cli2.jsonc",
         "AGENTS.md",
         "CONTRIBUTING.md",
         "docs/roadmap.md",
