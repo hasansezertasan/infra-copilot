@@ -244,14 +244,24 @@ class DescriptionBudgetTests(unittest.TestCase):
         self.assertEqual(validate_description_budget(), [])
 
     def test_over_budget_is_reported(self) -> None:
+        """Built from several skills, because that is the only way it can happen.
+
+        validate_skills caps each description at 1024 characters, so no single
+        skill can exceed a 2000-character aggregate on its own.
+        """
+        per_skill = 900
+        needed = MAX_DESCRIPTION_BUDGET // per_skill + 1
+        self.assertLess(per_skill, 1024, "each skill must stay under the per-skill cap")
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            skill = repository / ".ai-rulez/skills/verbose"
-            skill.mkdir(parents=True)
-            (skill / "SKILL.md").write_text(
-                f'---\nname: verbose\ndescription: "{"x" * (MAX_DESCRIPTION_BUDGET + 1)}"\n---\n',
-                encoding="utf-8",
-            )
+            for index in range(needed):
+                skill = repository / f".ai-rulez/skills/verbose{index}"
+                skill.mkdir(parents=True)
+                (skill / "SKILL.md").write_text(
+                    f'---\nname: verbose{index}\n'
+                    f'description: "{"x" * per_skill}"\n---\n',
+                    encoding="utf-8",
+                )
 
             errors = validate_description_budget(repository)
 

@@ -164,10 +164,14 @@ def skill_descriptions(root: Path = ROOT) -> dict[str, str]:
             match.group("body"),
             re.MULTILINE,
         )
-        if description is not None:
-            found[skill.parent.name] = (
-                description.group("quoted") or description.group("plain")
-            )
+        if description is None:
+            continue
+        # Key by the declared name, falling back to the directory. validate_skills
+        # enforces that they match, but this helper should not depend on that check
+        # having run to key the way its docstring says it does.
+        name = re.search(r"^name:\s*(\S+)", match.group("body"), re.MULTILINE)
+        key = name.group(1).strip("\"'") if name else skill.parent.name
+        found[key] = description.group("quoted") or description.group("plain")
     return found
 
 

@@ -82,7 +82,9 @@ wholesale.
 
 A skill's frontmatter `description` loads into the host's prompt for **every session**,
 whether or not the skill is used, so the total is capped: `make check` fails above
-`MAX_DESCRIPTION_BUDGET` (2000 characters across all skills, currently 1659).
+`MAX_DESCRIPTION_BUDGET` in `scripts/validate.py`, measured across all skills. Read the
+current figure from that constant rather than from prose — an earlier draft of this
+paragraph quoted a total and went stale within the same pull request.
 
 The budget is aggregate rather than per-skill on purpose — it prices session context, so a
 genuinely ambiguous skill may spend more as long as another spends less.
