@@ -354,6 +354,8 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             "git ls-files --error-unmatch .infra-copilot/config.md",
             "git diff --quiet HEAD -- .infra-copilot/config.md",
             "git diff --cached --quiet HEAD -- .infra-copilot/config.md",
+            "for config_file in terraform/cloudflare/versions.tf terraform/github/versions.tf; do",
+            'test -f "$config_file"',
             '^[[:space:]]*organization[[:space:]]*=[[:space:]]*\\\"$ORG\\\"[[:space:]]*$',
         )
     ):

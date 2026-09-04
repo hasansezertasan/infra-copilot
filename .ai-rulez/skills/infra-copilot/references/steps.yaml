@@ -193,8 +193,8 @@ steps:
       git ls-files --error-unmatch .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf >/dev/null 2>&1 &&
       git diff --quiet HEAD -- .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf &&
       git diff --cached --quiet HEAD -- .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf &&
-      for path in terraform/cloudflare/versions.tf terraform/github/versions.tf; do
-      test -f "$path" && grep -Eq "^[[:space:]]*organization[[:space:]]*=[[:space:]]*\"$ORG\"[[:space:]]*$" "$path" || exit 1;
+      for config_file in terraform/cloudflare/versions.tf terraform/github/versions.tf; do
+      test -f "$config_file" && grep -Eq "^[[:space:]]*organization[[:space:]]*=[[:space:]]*\"$ORG\"[[:space:]]*$" "$config_file" || exit 1;
       done
     produces: committed repository literals synchronized from `.infra-copilot/config.md`
     docs: config.md

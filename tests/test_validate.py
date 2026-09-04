@@ -687,6 +687,75 @@ class ValidateToolchainContractTests(unittest.TestCase):
     def test_committed_pins_flow_to_hcp(self) -> None:
         self.assertEqual(validate_toolchain_contract(), [])
 
+    @unittest.skipUnless(shutil.which("zsh"), "zsh is not available")
+    def test_repo_config_sync_check_preserves_zsh_path(self) -> None:
+        steps = (
+            Path(__file__).parents[1]
+            / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+        ).read_text(encoding="utf-8")
+        step = re.search(
+            r"^  - id: repo-config-sync\n(?P<metadata>(?:(?!^  - id:).*(?:\n|\Z))*)",
+            steps,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(step)
+        check = re.search(
+            r"^    check: >-\n(?P<body>(?:      .*\n)+)",
+            step.group("metadata"),
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(check)
+        command = "\n".join(
+            line.removeprefix("      ")
+            for line in check.group("body").splitlines()
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            (repository / "scripts").mkdir()
+            sync_helper = repository / "scripts/sync-config.sh"
+            sync_helper.write_text("#!/bin/sh\n", encoding="utf-8")
+            sync_helper.chmod(0o755)
+            (repository / ".infra-copilot").mkdir()
+            (repository / ".infra-copilot/config.md").write_text(
+                "hcp_org: test-org\n", encoding="utf-8"
+            )
+            for terraform_root in ("cloudflare", "github"):
+                versions = repository / f"terraform/{terraform_root}/versions.tf"
+                versions.parent.mkdir(parents=True)
+                versions.write_text(
+                    'cloud {\n  organization = "test-org"\n}\n', encoding="utf-8"
+                )
+            subprocess.run(
+                ["git", "init", "--quiet"], cwd=repository, check=True
+            )
+            subprocess.run(["git", "add", "."], cwd=repository, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    "fixture",
+                ],
+                cwd=repository,
+                check=True,
+            )
+
+            result = subprocess.run(
+                ["zsh", "-c", command],
+                cwd=repository,
+                env={**os.environ, "ORG": "test-org"},
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_rejects_missing_toolchain_bootstrap_step(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
@@ -786,6 +855,31 @@ class ValidateToolchainContractTests(unittest.TestCase):
                 "    actor: HUMAN\n", "    actor: AGENT\n", 1
             )
             steps.write_text(text[:start] + sync_step + text[end:], encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("repo-config-sync contract is incomplete" in error for error in errors),
+            errors,
+        )
+
+    def test_rejects_zsh_special_repo_config_sync_loop_variable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            steps = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            )
+            text = steps.read_text(encoding="utf-8").replace(
+                "for config_file in terraform/cloudflare/versions.tf",
+                "for path in terraform/cloudflare/versions.tf",
+                1,
+            ).replace('"$config_file"', '"$path"')
+            steps.write_text(text, encoding="utf-8")
 
             errors = validate_toolchain_contract(repository)
 
