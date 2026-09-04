@@ -60,7 +60,7 @@ class PolicyDocTests(unittest.TestCase):
     def test_claims_no_rule_type_holds(self) -> None:
         """An earlier draft called Skill() denies load-bearing; the command surface
         is why that was wrong, so the document must not walk it back."""
-        self.assertIn("Nothing in the table holds", self.policy)
+        self.assertIn("Nothing in the table is a boundary", self.policy)
         self.assertNotIn("Only `Skill()` denies are robust", self.policy)
 
     def test_does_not_promise_apply_is_human_only(self) -> None:
@@ -125,6 +125,17 @@ class PolicyDocTests(unittest.TestCase):
     def test_marks_the_compound_bypass_as_unverified(self) -> None:
         """Claude documents per-segment evaluation, which may invalidate bypass 4."""
         self.assertIn("This one is unverified, and may be wrong", self.policy)
+
+    def test_the_summary_carries_the_same_qualification(self) -> None:
+        """Qualifying a bypass in one place and not the summary is how a
+        disputed claim keeps reading as definitive."""
+        self.assertIn("| A curated `Bash` allow-list | **Unverified**", self.policy)
+        self.assertNotIn("allow-list | No — compound checks", self.policy)
+
+    def test_sandboxing_is_not_called_the_only_control(self) -> None:
+        """The next bullet names a provider-side boundary, so 'only' contradicted it."""
+        self.assertNotIn("only layer that actually enforces anything", self.policy)
+        self.assertIn("only boundary for the **filesystem and unrestricted-network**", self.policy)
 
     def test_records_merge_not_copy(self) -> None:
         self.assertIn("Merge, do not copy", self.policy)

@@ -81,8 +81,9 @@ plugin**, and
 [`docs/policy.md`](docs/policy.md) shows why with six bypasses the plugin's own
 documentation supplies — `mise exec -- terraform apply` sidesteps a Terraform deny,
 `curl -X POST .../runs/<id>/actions/apply` applies without Terraform at all, `Read()`
-rules do not govern Bash subprocesses, a `Bash` allow-list cannot match a compound check,
-and `/infra-setup` reaches the same procedure without invoking the denied skill.
+rules do not govern Bash subprocesses, and `/infra-setup` reaches the same procedure
+without invoking the denied skill. One further bypass — whether a curated allow-list can
+match a compound check — is documented as unverified rather than asserted.
 
 **No rule type holds**, including `Skill()` denies. Write them if you like — they raise
 the cost of an accident — but not as a boundary.

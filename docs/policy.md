@@ -116,10 +116,16 @@ write Read denies anyway, cover the variants — `./.env`, `./.env.*`, `./**/.en
 | `Bash(terraform apply)` | No — `mise exec --`, and REST |
 | `Read(./**/*.tfvars)` | No — any Bash subprocess |
 | `Edit(**)` / `Write(**)` | No — Bash writes files |
-| A curated `Bash` allow-list | No — compound checks |
+| A curated `Bash` allow-list | **Unverified** — see bypass 4 |
 
-**Nothing in the table holds.** An earlier draft of this page claimed `Skill()` denies
-were load-bearing; the command surface is why that was wrong too.
+**Nothing in the table is a boundary**, with one row left open: whether a curated
+allow-list can match compound checks depends on segment evaluation, which is bypass 4 and
+which I have not exercised. If it does work, a least-privilege allow-list is worth
+building — it would still not stop bypasses 1, 2, 3, 5 or 6, but it is not the dead end an
+earlier draft of this page called it.
+
+An earlier draft also claimed `Skill()` denies were load-bearing; the command surface is
+why that was wrong too.
 
 Write these rules anyway if you like — they raise the cost of an *accident*, which is
 worth something when the risk is a confused agent rather than a hostile one. Do not
@@ -139,8 +145,8 @@ production.
 
 - **Sandbox-level**: filesystem and network isolation, so `jq` cannot read a path and
   `curl` cannot reach an endpoint regardless of which command wraps it. This is the only
-  layer that actually enforces anything discussed on this page. It is outside the plugin's
-  control, and it is the right place for the secret-file and REST-apply cases.
+  boundary for the **filesystem and unrestricted-network** cases — secret files, and any
+  request the plugin can compose. It is outside the plugin's control.
 - **A lower-privilege identity**: the durable answer for apply. A principal without apply
   permission on those workspaces cannot apply, whatever command is used. Note this is not
   the token phase 0 mints — see [the HCP token section](#the-hcp-token-what-the-agent-never-sees-secrets-does-and-does-not-cover).
