@@ -18,6 +18,7 @@ from scripts.validate import (
     collect_manifest_errors,
     skill_descriptions,
     validate_config_fallbacks,
+    fenced_lines,
     frontmatter_bounds,
     frontmatter_keys,
     validate_customization_markers,
@@ -192,6 +193,38 @@ class CustomizationMarkerTests(unittest.TestCase):
                     "preserves",
                     f"{self.REFERENCES}/config.md.example: 'hcp_org:' is outside the "
                     "infra-copilot:customization region a re-scaffold preserves",
+                ],
+            )
+
+    def test_rejects_markers_inside_a_fenced_code_block(self) -> None:
+        """A column-zero fence neutralises the region without any indentation.
+
+        Markdown renders the markers as text and does not render the table, so
+        the indentation rule cannot catch this shape.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "decisions.md.example": (
+                        "```\n<!-- infra-copilot:customization start -->\n"
+                        "| Decision | Choice | Status | Rationale |\n"
+                        "<!-- infra-copilot:customization end -->\n```\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/decisions.md.example: "
+                    "infra-copilot:customization marker on line 2 is inside a "
+                    "fenced code block, so Markdown renders it as text rather "
+                    "than a comment",
+                    f"{self.REFERENCES}/decisions.md.example: "
+                    "infra-copilot:customization marker on line 4 is inside a "
+                    "fenced code block, so Markdown renders it as text rather "
+                    "than a comment",
                 ],
             )
 
@@ -480,6 +513,24 @@ class FrontmatterKeyTests(unittest.TestCase):
         """decisions.md.example is a plain body; the derived rule is a no-op there."""
         self.assertEqual(frontmatter_keys(["# heading", "key: value"]), [])
         self.assertEqual(frontmatter_keys([]), [])
+
+
+class FencedLinesTests(unittest.TestCase):
+    def test_tracks_a_backtick_fence(self) -> None:
+        self.assertEqual(fenced_lines(["a", "```", "b", "```", "c"]), {1, 2, 3})
+
+    def test_an_info_string_still_opens_a_fence(self) -> None:
+        self.assertEqual(fenced_lines(["```yaml", "b", "```"]), {0, 1, 2})
+
+    def test_a_different_fence_character_does_not_close(self) -> None:
+        """Only the same character terminates, so ``` inside ~~~ is content."""
+        self.assertEqual(fenced_lines(["~~~", "```", "b", "~~~"]), {0, 1, 2, 3})
+
+    def test_unclosed_fence_swallows_the_rest(self) -> None:
+        self.assertEqual(fenced_lines(["```", "a", "b"]), {0, 1, 2})
+
+    def test_no_fence_means_no_fenced_lines(self) -> None:
+        self.assertEqual(fenced_lines(["a", "b"]), set())
 
 
 class FrontmatterBoundsTests(unittest.TestCase):

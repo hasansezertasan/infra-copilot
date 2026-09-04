@@ -353,6 +353,38 @@ def read_document(path: Path) -> str | None:
 FRONTMATTER_KEY = re.compile(r"^(?P<key>[A-Za-z_][A-Za-z0-9_]*):")
 
 
+FENCE = re.compile(r"^\s*(?P<fence>`{3,}|~{3,})")
+
+
+def fenced_lines(lines: list[str]) -> set[int]:
+    """Indices Markdown renders as a fenced code block, fences included.
+
+    A marker inside a fence is displayed text, not an HTML comment, and the
+    region it claims to delimit does not render at all. The indentation rule
+    cannot see this: a column-zero fence needs no indentation to neutralise
+    everything between its delimiters.
+
+    Tracked rather than parsed. A full Markdown parse is a dependency these
+    templates do not otherwise need, and the fence is the one piece of block
+    context that can silently void a marker.
+    """
+    inside: set[int] = set()
+    opener: str | None = None
+    for index, line in enumerate(lines):
+        match = FENCE.match(line)
+        if opener is None:
+            if match:
+                opener = match.group("fence")[0]
+                inside.add(index)
+            continue
+        inside.add(index)
+        # Only the same fence character closes a block, so a ``` inside a ~~~
+        # block is content rather than a terminator.
+        if match and match.group("fence")[0] == opener:
+            opener = None
+    return inside
+
+
 def frontmatter_bounds(lines: list[str]) -> tuple[int, int] | None:
     """Indices of the opening and closing ``---``, or None if absent.
 
@@ -410,13 +442,17 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
         edges: dict[str, list[int]] = {"start": [], "end": []}
         malformed: list[int] = []
         indented: list[int] = []
+        fenced: list[int] = []
+        in_fence = fenced_lines(lines)
         for index, line in enumerate(lines):
             # rstrip only. Leading whitespace is significant: indented four
             # spaces, Markdown reads the region as a code block, so the markers
             # become displayed text and the config block stops being
             # frontmatter -- both of which passed while strip() hid the indent.
             match = rules.marker.match(line.rstrip())
-            if match:
+            if match and index in in_fence:
+                fenced.append(index)
+            elif match:
                 edges[match.group("edge")].append(index)
             elif rules.marker.match(line.strip()):
                 indented.append(index)
@@ -429,6 +465,14 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
                 # prose that names the token in backticks, and matching the
                 # bare token flagged those sentences.
                 malformed.append(index)
+        if fenced:
+            errors.extend(
+                f"{relative}: {CUSTOMIZATION_TOKEN} marker on line {index + 1} "
+                "is inside a fenced code block, so Markdown renders it as text "
+                "rather than a comment"
+                for index in fenced
+            )
+            continue
         if indented:
             # Reported apart from malformed: the marker is correct, only its
             # column is wrong, and "not a well-formed comment marker" would
