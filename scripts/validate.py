@@ -7,6 +7,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import unquote, urlsplit
 
 
@@ -42,16 +43,63 @@ CUSTOMIZATION_TOKEN = "infra-copilot:customization"
 # key is required inside the region automatically -- enumerating them invites
 # exactly the drift the markers guard against, since a field added to the
 # template later would be silently unprotected.
+#
+# Each document also declares the exact comment form its markers must take and
+# whether they have to sit inside YAML frontmatter. The token alone is not
+# enough on either count: a marker that loses its "#" stops being a comment and
+# becomes a stray line among the fields, and a start marker moved above the
+# opening "---" leaves a document whose YAML block is no longer frontmatter at
+# all -- both of which passed while validation stayed green.
+class CustomizationRules(NamedTuple):
+    marker: re.Pattern[str]
+    enclosed: tuple[str, ...]
+    in_frontmatter: bool
+
+
+MARKER_EDGE = re.compile(
+    rf"{re.escape(CUSTOMIZATION_TOKEN)}\s+(?:start|end)\b"
+)
+
+
+def _looks_like_marker(line: str) -> bool:
+    """Whether a line is attempting to be a marker, however badly.
+
+    Prose that merely mentions the token does not count, so a sentence
+    explaining the markers is not read as a broken one.
+    """
+    stripped = line.strip()
+    if stripped.startswith(CUSTOMIZATION_TOKEN):
+        return True
+    opener = stripped.startswith("#") or stripped.startswith("<!--")
+    return opener and MARKER_EDGE.search(stripped) is not None
+
+
+def _marker_pattern(comment: str) -> re.Pattern[str]:
+    """Full-line pattern for a marker in the given comment syntax."""
+    token = re.escape(CUSTOMIZATION_TOKEN)
+    if comment == "yaml":
+        return re.compile(rf"^#\s*{token} (?P<edge>start|end)\s*$")
+    return re.compile(rf"^<!--\s*{token} (?P<edge>start|end)\s*-->\s*$")
+
+
 CUSTOMIZATION_DOCUMENTS = {
-    ".ai-rulez/skills/infra-copilot/references/config.md.example": (
-        # Kept explicit on top of the derived keys: HCP regenerates this after
-        # first VCS connect, so it is filled in long after the scaffold and
-        # exists nowhere else. Naming it also catches its removal, which the
-        # derived rule cannot see.
-        "hcp_status_check_id:",
+    ".ai-rulez/skills/infra-copilot/references/config.md.example": CustomizationRules(
+        marker=_marker_pattern("yaml"),
+        enclosed=(
+            # Kept explicit on top of the derived keys: HCP regenerates this
+            # after first VCS connect, so it is filled in long after the
+            # scaffold and exists nowhere else. Naming it catches its outright
+            # removal, which the derived rule cannot see.
+            "hcp_status_check_id:",
+        ),
+        in_frontmatter=True,
     ),
     ".ai-rulez/skills/infra-copilot/references/decisions.md.example": (
-        "| Decision | Choice | Status | Rationale |",
+        CustomizationRules(
+            marker=_marker_pattern("html"),
+            enclosed=("| Decision | Choice | Status | Rationale |",),
+            in_frontmatter=False,
+        )
     ),
 }
 # Where the preserve-or-hand-off rule is stated. The markers are inert without it:
@@ -305,6 +353,20 @@ def read_document(path: Path) -> str | None:
 FRONTMATTER_KEY = re.compile(r"^(?P<key>[A-Za-z_][A-Za-z0-9_]*):")
 
 
+def frontmatter_bounds(lines: list[str]) -> tuple[int, int] | None:
+    """Indices of the opening and closing ``---``, or None if absent.
+
+    Frontmatter has to start at line 0 -- that is what makes it frontmatter
+    rather than a YAML block sitting in a markdown body.
+    """
+    if not lines or lines[0].strip() != "---":
+        return None
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return 0, index
+    return None
+
+
 def frontmatter_keys(lines: list[str]) -> list[str]:
     """Top-level YAML keys in a document's frontmatter, or [] if it has none.
 
@@ -333,7 +395,7 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
     an end before a start reads as balanced if you only count.
     """
     errors: list[str] = []
-    for relative, enclosed in CUSTOMIZATION_DOCUMENTS.items():
+    for relative, rules in CUSTOMIZATION_DOCUMENTS.items():
         text = read_document(root / relative)
         if text is None:
             # validate_layout reports the missing artifact, but it builds the same
@@ -342,16 +404,29 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
             errors.append(f"{relative}: unreadable, cannot check markers")
             continue
         lines = text.splitlines()
-        starts = [
-            index
-            for index, line in enumerate(lines)
-            if f"{CUSTOMIZATION_TOKEN} start" in line
-        ]
-        ends = [
-            index
-            for index, line in enumerate(lines)
-            if f"{CUSTOMIZATION_TOKEN} end" in line
-        ]
+        edges: dict[str, list[int]] = {"start": [], "end": []}
+        malformed: list[int] = []
+        for index, line in enumerate(lines):
+            match = rules.marker.match(line.strip())
+            if match:
+                edges[match.group("edge")].append(index)
+            elif _looks_like_marker(line):
+                # A line trying to be a marker but failing this file's syntax.
+                # Reported separately: "found 0 start" would be a confusing way
+                # to say "your marker lost its # and is now a bare line".
+                #
+                # Deliberately narrow. Both templates explain the markers in
+                # prose that names the token in backticks, and matching the
+                # bare token flagged those sentences.
+                malformed.append(index)
+        if malformed:
+            errors.extend(
+                f"{relative}: line {index + 1} carries {CUSTOMIZATION_TOKEN} but is "
+                f"not a well-formed comment marker: {lines[index].strip()!r}"
+                for index in malformed
+            )
+            continue
+        starts, ends = edges["start"], edges["end"]
         if len(starts) != 1 or len(ends) != 1:
             errors.append(
                 f"{relative}: expected exactly one {CUSTOMIZATION_TOKEN} pair, "
@@ -363,8 +438,31 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
                 f"{relative}: {CUSTOMIZATION_TOKEN} end precedes its start"
             )
             continue
+        if rules.in_frontmatter:
+            bounds = frontmatter_bounds(lines)
+            if bounds is None:
+                errors.append(
+                    f"{relative}: no YAML frontmatter, so its markers cannot be "
+                    "inside it"
+                )
+                continue
+            opening, closing = bounds
+            outside = [
+                index
+                for index in (starts[0], ends[0])
+                if not opening < index < closing
+            ]
+            if outside:
+                errors.extend(
+                    f"{relative}: {CUSTOMIZATION_TOKEN} marker on line "
+                    f"{index + 1} is outside the frontmatter delimiters "
+                    f"(lines {opening + 1} and {closing + 1}), so the preserved "
+                    "region no longer matches the fields a human fills in"
+                    for index in outside
+                )
+                continue
         region = "\n".join(lines[starts[0] + 1 : ends[0]])
-        required = (*enclosed, *(f"{key}:" for key in frontmatter_keys(lines)))
+        required = (*rules.enclosed, *(f"{key}:" for key in frontmatter_keys(lines)))
         errors.extend(
             f"{relative}: {phrase!r} is outside the "
             f"{CUSTOMIZATION_TOKEN} region a re-scaffold preserves"

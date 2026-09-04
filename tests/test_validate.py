@@ -18,6 +18,7 @@ from scripts.validate import (
     collect_manifest_errors,
     skill_descriptions,
     validate_config_fallbacks,
+    frontmatter_bounds,
     frontmatter_keys,
     validate_customization_markers,
     validate_description_budget,
@@ -167,18 +168,18 @@ class CustomizationMarkerTests(unittest.TestCase):
         and order check while preserving nothing, so a re-scaffold would
         overwrite exactly the values the pair exists to protect.
 
-        This shape also displaces the frontmatter from line 0, so no keys are
-        derived from it -- the explicitly listed hcp_status_check_id is the
-        only thing that catches it. That is why the explicit entry stays.
+        This shape also displaces the frontmatter from line 0. The frontmatter
+        containment rule now catches that directly, so this fixture keeps the
+        delimiters intact and only collapses the region.
         """
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = self._repository(
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "# infra-copilot:customization start\n"
+                        "---\n# infra-copilot:customization start\n"
                         "# infra-copilot:customization end\n"
-                        "---\nhcp_org: x\nhcp_status_check_id: \"\"\n---\n"
+                        "hcp_org: x\nhcp_status_check_id: \"\"\n---\n"
                     )
                 },
             )
@@ -189,8 +190,121 @@ class CustomizationMarkerTests(unittest.TestCase):
                     f"{self.REFERENCES}/config.md.example: 'hcp_status_check_id:' is "
                     "outside the infra-copilot:customization region a re-scaffold "
                     "preserves",
+                    f"{self.REFERENCES}/config.md.example: 'hcp_org:' is outside the "
+                    "infra-copilot:customization region a re-scaffold preserves",
                 ],
             )
+
+    def test_rejects_a_marker_that_is_not_a_comment(self) -> None:
+        """A marker that loses its "#" becomes a stray line among the fields."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "---\ninfra-copilot:customization start\nhcp_org: x\n"
+                        'hcp_status_check_id: ""\n'
+                        "# infra-copilot:customization end\n---\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: line 2 carries "
+                    "infra-copilot:customization but is not a well-formed comment "
+                    "marker: 'infra-copilot:customization start'"
+                ],
+            )
+
+    def test_rejects_the_other_file_s_comment_syntax(self) -> None:
+        """An HTML comment is inert inside YAML frontmatter, and vice versa."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "decisions.md.example": (
+                        "# infra-copilot:customization start\n| a |\n"
+                        "<!-- infra-copilot:customization end -->\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/decisions.md.example: line 1 carries "
+                    "infra-copilot:customization but is not a well-formed comment "
+                    "marker: '# infra-copilot:customization start'"
+                ],
+            )
+
+    def test_rejects_a_marker_outside_the_frontmatter_delimiters(self) -> None:
+        """Frontmatter intact, but the region spills past its closing ---."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "---\n# infra-copilot:customization start\nhcp_org: x\n"
+                        'hcp_status_check_id: ""\n---\n'
+                        "# infra-copilot:customization end\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: "
+                    "infra-copilot:customization marker on line 6 is outside the "
+                    "frontmatter delimiters (lines 1 and 5), so the preserved "
+                    "region no longer matches the fields a human fills in"
+                ],
+            )
+
+    def test_rejects_a_config_template_with_no_frontmatter(self) -> None:
+        """A start marker above the opening --- stops it being frontmatter."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "# infra-copilot:customization start\n---\nhcp_org: x\n"
+                        'hcp_status_check_id: ""\n'
+                        "# infra-copilot:customization end\n---\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: no YAML frontmatter, "
+                    "so its markers cannot be inside it"
+                ],
+            )
+
+    def test_prose_naming_the_token_is_not_a_broken_marker(self) -> None:
+        """Both real templates explain the markers in prose that names the token.
+
+        Matching the bare token flagged those sentences as malformed markers.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "decisions.md.example": (
+                        "Keep the two `infra-copilot:customization` comments.\n"
+                        "<!-- infra-copilot:customization start -->\n"
+                        "| Decision | Choice | Status | Rationale |\n"
+                        "<!-- infra-copilot:customization end -->\n"
+                    )
+                },
+            )
+
+            self.assertEqual(validate_customization_markers(repository), [])
 
     def test_rejects_one_field_drifting_out_of_the_region(self) -> None:
         """The realistic drift: a template edit moves one line past the end marker."""
@@ -334,6 +448,19 @@ class FrontmatterKeyTests(unittest.TestCase):
         """decisions.md.example is a plain body; the derived rule is a no-op there."""
         self.assertEqual(frontmatter_keys(["# heading", "key: value"]), [])
         self.assertEqual(frontmatter_keys([]), [])
+
+
+class FrontmatterBoundsTests(unittest.TestCase):
+    def test_finds_the_delimiters(self) -> None:
+        self.assertEqual(frontmatter_bounds(["---", "a: 1", "---", "body"]), (0, 2))
+
+    def test_requires_frontmatter_to_start_at_line_zero(self) -> None:
+        """A YAML block below anything else is not frontmatter."""
+        self.assertIsNone(frontmatter_bounds(["# comment", "---", "a: 1", "---"]))
+
+    def test_unterminated_frontmatter_has_no_bounds(self) -> None:
+        self.assertIsNone(frontmatter_bounds(["---", "a: 1"]))
+        self.assertIsNone(frontmatter_bounds([]))
 
 
 class ValidatePhaseFiveRuleTests(unittest.TestCase):
