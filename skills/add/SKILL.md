@@ -6,7 +6,7 @@ description: "Provision something new in an already-bootstrapped infra repo: a m
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:28e2b2c68044a9b601cf3c591873117c7a9ab1af3f6153c01c297ea40b5a65a2
-Source-Hash: blake3:e13a4c5f4dbeaadc720bc01710edc461639771945a46f3123cb02f54690b1cbb
+Source-Hash: blake3:98bb14f05c8d6bcefb4ce8d00bd80c40e7d048f5d77b97e60fe67cfb258efb49
 Schema-Version: v1
 -->
 

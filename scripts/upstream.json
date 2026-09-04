@@ -29,9 +29,11 @@
     "An entry with `audited_sha` also has that SHA checked against the commit its",
     "audited tag resolves to, so a version bump cannot leave a stale pinned commit.",
     "`sources` are all machine-readable and readable unauthenticated.",
-    "API endpoint paths are deliberately NOT tracked here: HCP Terraform publishes",
-    "no machine-readable API schema to diff them against, so any check would be a",
-    "hand-maintained second list of the same strings."
+    "HCP API endpoint paths are not tracked here yet. An earlier version of this note",
+    "claimed HCP publishes no machine-readable API schema to diff them against; that is",
+    "wrong \u2014 hashicorp/go-tfe ships one at v2/openapi/spec.json, which is how #37 was",
+    "settled. Tracking paths against it is now possible and merely undone; see the issue",
+    "filed for it (#55) rather than treating this as impossible."
   ],
   "entries": [
     {

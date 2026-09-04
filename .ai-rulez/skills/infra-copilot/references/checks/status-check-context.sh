@@ -59,6 +59,16 @@ fi
 # let an old commit win, and newest-timestamp lets a pre-rebuild run that finishes late
 # win — in both cases the old context matches `required`, the check passes, and the PR
 # carrying the new context waits forever.
+#
+# Reading the ID from HCP instead was investigated and is not possible: no API field
+# carries the `repo-id-<id>` that the aggregated status context embeds. Per HCP's own
+# OpenAPI spec (hashicorp/go-tfe, v2/openapi/spec.json), a workspace's
+# `attributes.vcs-repo` holds only branch, display-identifier,
+# github-app-installation-id, identifier, ingress-submodules, oauth-token-id and
+# tags-regex; `/organizations/{org}/vcs/repo` returns a `vcs-repo-check` whose `id` is
+# documented as "typically the repository identifier", meaning owner/repo; and no
+# aggregated-commit-status resource or path exists at all. Inference over published
+# statuses is therefore the only available method, not a shortcut around a cleaner one.
 hcp_contexts() {  # $1 = sha; prints its Terraform Cloud contexts, one per line
     gh api --paginate "repos/$REPO/commits/$1/status?per_page=100" \
       --jq '.statuses[] | select(.context | startswith("Terraform Cloud/")) | .context'
