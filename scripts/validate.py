@@ -37,11 +37,17 @@ CUSTOMIZATION_TOKEN = "infra-copilot:customization"
 # above the frontmatter are balanced and in order while enclosing nothing, so a
 # re-scaffold would preserve an empty region and overwrite every real value.
 # These are the fields that would be lost, so they are what gets asserted.
+#
+# Only content a rule cannot derive is listed here. Every top-level frontmatter
+# key is required inside the region automatically -- enumerating them invites
+# exactly the drift the markers guard against, since a field added to the
+# template later would be silently unprotected.
 CUSTOMIZATION_DOCUMENTS = {
     ".ai-rulez/skills/infra-copilot/references/config.md.example": (
-        "hcp_org:",
-        # The field the issue named: HCP regenerates it after first VCS connect,
-        # so it is filled in long after the scaffold and exists nowhere else.
+        # Kept explicit on top of the derived keys: HCP regenerates this after
+        # first VCS connect, so it is filled in long after the scaffold and
+        # exists nowhere else. Naming it also catches its removal, which the
+        # derived rule cannot see.
         "hcp_status_check_id:",
     ),
     ".ai-rulez/skills/infra-copilot/references/decisions.md.example": (
@@ -296,6 +302,28 @@ def read_document(path: Path) -> str | None:
         return None
 
 
+FRONTMATTER_KEY = re.compile(r"^(?P<key>[A-Za-z_][A-Za-z0-9_]*):")
+
+
+def frontmatter_keys(lines: list[str]) -> list[str]:
+    """Top-level YAML keys in a document's frontmatter, or [] if it has none.
+
+    Every one of these is a value a human fills in, so every one has to sit
+    inside the preserved region. Deriving them means a field added to the
+    template later is protected without anyone remembering to list it.
+    """
+    if not lines or lines[0].strip() != "---":
+        return []
+    keys: list[str] = []
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        match = FRONTMATTER_KEY.match(line)
+        if match:
+            keys.append(match.group("key"))
+    return keys
+
+
 def validate_customization_markers(root: Path = ROOT) -> list[str]:
     """Both scaffolded files must carry one balanced customization pair.
 
@@ -336,10 +364,11 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
             )
             continue
         region = "\n".join(lines[starts[0] + 1 : ends[0]])
+        required = (*enclosed, *(f"{key}:" for key in frontmatter_keys(lines)))
         errors.extend(
             f"{relative}: {phrase!r} is outside the "
             f"{CUSTOMIZATION_TOKEN} region a re-scaffold preserves"
-            for phrase in enclosed
+            for phrase in dict.fromkeys(required)
             if phrase not in region
         )
     # Collapse whitespace: the rule is prose and re-wraps on edit, so matching the

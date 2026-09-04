@@ -18,6 +18,7 @@ from scripts.validate import (
     collect_manifest_errors,
     skill_descriptions,
     validate_config_fallbacks,
+    frontmatter_keys,
     validate_customization_markers,
     validate_description_budget,
     validate_json_manifests,
@@ -106,12 +107,69 @@ class CustomizationMarkerTests(unittest.TestCase):
             document.write_text(body, encoding="utf-8")
         return repository
 
+    def test_every_frontmatter_field_is_required_inside_the_region(self) -> None:
+        """Derived, not enumerated.
+
+        The first version listed two of the seven fields, so the other five
+        could drift out of the region while validation stayed green. Listing
+        them would only move the gap to whichever field is added next.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "---\n# infra-copilot:customization start\n"
+                        'hcp_org: x\nhcp_status_check_id: ""\n'
+                        "# infra-copilot:customization end\n"
+                        "github_org: x\napex_domain: x\n---\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: 'github_org:' is outside "
+                    "the infra-copilot:customization region a re-scaffold preserves",
+                    f"{self.REFERENCES}/config.md.example: 'apex_domain:' is outside "
+                    "the infra-copilot:customization region a re-scaffold preserves",
+                ],
+            )
+
+    def test_protects_a_field_added_to_the_template_later(self) -> None:
+        """The point of deriving: no list to remember to update."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "---\n# infra-copilot:customization start\n"
+                        'hcp_org: x\nhcp_status_check_id: ""\n'
+                        "# infra-copilot:customization end\n"
+                        "gcp_project: your-project\n---\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: 'gcp_project:' is outside "
+                    "the infra-copilot:customization region a re-scaffold preserves"
+                ],
+            )
+
     def test_rejects_markers_that_enclose_nothing(self) -> None:
         """Balanced and ordered, but the region is empty.
 
         Two markers sitting together above the frontmatter satisfy every count
         and order check while preserving nothing, so a re-scaffold would
         overwrite exactly the values the pair exists to protect.
+
+        This shape also displaces the frontmatter from line 0, so no keys are
+        derived from it -- the explicitly listed hcp_status_check_id is the
+        only thing that catches it. That is why the explicit entry stays.
         """
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = self._repository(
@@ -128,8 +186,6 @@ class CustomizationMarkerTests(unittest.TestCase):
             self.assertEqual(
                 validate_customization_markers(repository),
                 [
-                    f"{self.REFERENCES}/config.md.example: 'hcp_org:' is outside "
-                    "the infra-copilot:customization region a re-scaffold preserves",
                     f"{self.REFERENCES}/config.md.example: 'hcp_status_check_id:' is "
                     "outside the infra-copilot:customization region a re-scaffold "
                     "preserves",
@@ -260,6 +316,24 @@ class CustomizationMarkerTests(unittest.TestCase):
             )
 
             self.assertEqual(validate_customization_markers(repository), [])
+
+
+class FrontmatterKeyTests(unittest.TestCase):
+    def test_reads_top_level_keys_only(self) -> None:
+        lines = [
+            "---",
+            "hcp_org: x",
+            "managed_repos:",
+            "  - owner/name",
+            "---",
+            "body: not frontmatter",
+        ]
+        self.assertEqual(frontmatter_keys(lines), ["hcp_org", "managed_repos"])
+
+    def test_documents_without_frontmatter_have_no_keys(self) -> None:
+        """decisions.md.example is a plain body; the derived rule is a no-op there."""
+        self.assertEqual(frontmatter_keys(["# heading", "key: value"]), [])
+        self.assertEqual(frontmatter_keys([]), [])
 
 
 class ValidatePhaseFiveRuleTests(unittest.TestCase):
