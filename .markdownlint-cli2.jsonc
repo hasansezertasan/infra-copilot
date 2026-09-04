@@ -1,0 +1,17 @@
+{
+  // Rules chosen to match the prose style already in the repository, so adopting
+  // markdownlint needed no reflow. Measured before choosing: at a 100-column cap with
+  // tables and code blocks exempt, the hand-authored documents had zero violations.
+  "config": {
+    // Tables carry long install commands that cannot wrap; code blocks are verbatim.
+    "MD013": { "line_length": 100, "tables": false, "code_blocks": false },
+    // Repeated headings are fine under different parents (per-host sections).
+    "MD024": { "siblings_only": true },
+    // The repo writes padded header cells with compact separators (`|---|---|`),
+    // uniformly and deliberately. MD060 wants one or the other throughout.
+    "MD060": false
+  },
+  // Generated trees are excluded: their content is owned by .ai-rulez/ sources, and
+  // linting the output would report the same finding once per host package.
+  "globs": ["README.md", "AGENTS.md", "CONTRIBUTING.md", "CHANGELOG.md", "docs/**/*.md"]
+}

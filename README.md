@@ -41,7 +41,7 @@ Codex, Antigravity and OpenCode wiring is not shipped yet — see
 account IDs. The **consuming repo** (the infra repo you're bootstrapping) must carry a
 committed, non-secret config file:
 
-```
+```text
 .infra-copilot/config.md
 ```
 
@@ -137,8 +137,14 @@ in the setup runbook names example versions whose requirement is being *exact*, 
 *newest*, and gating them produced recurring failures with no decision attached.
 
 `Makefile` is the single definition of the tool versions this repository invokes —
-currently `ai-rulez@4.11.3` and `skills@1.5.23`. `scripts/validate.py` asserts this README
-documents the same versions and that no workflow reintroduces its own copy.
+currently `ai-rulez@4.11.3`, `skills@1.5.23` and `markdownlint-cli2@0.23.2`.
+`scripts/validate.py` asserts this README documents the same versions and that no
+workflow reintroduces its own copy.
+
+`make check` deliberately excludes `smoke-opencode`, which downloads the `skills`
+installer: on one run the tests finished in 65 seconds and that download took 421. It is
+its own CI job, so a slow registry never gates validation, and `make check-all` runs both
+locally.
 
 Generated files are committed so users can install without having `ai-rulez`. CI runs the
 same validation and fails if generated payloads drift or local Markdown links break.

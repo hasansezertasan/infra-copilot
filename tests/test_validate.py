@@ -12,6 +12,7 @@ from pathlib import Path
 from scripts.validate import (
     JSON_MANIFESTS,
     MAX_DESCRIPTION_BUDGET,
+    TOOL_PIN_SPECS,
     TOOL_PIN_WORKFLOWS,
     VERSIONLESS_MANIFESTS,
     collect_manifest_errors,
@@ -347,14 +348,32 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
     def test_makefile_and_documentation_tool_pins_match(self) -> None:
         self.assertEqual(validate_tool_pins(), [])
 
+    #: Fixture versions per package, one deliberately overridable via readme_version.
+    PIN_FIXTURE = {"ai-rulez": "4.11.3", "skills": "1.5.23", "markdownlint-cli2": "0.23.2"}
+
     def _pin_workspace(self, root: Path, *, readme_version: str) -> None:
+        """A self-consistent pin workspace, derived from TOOL_PIN_SPECS.
+
+        Hard-coding the pins here meant adding a fourth tool broke three
+        unrelated tests with a message about a missing variable.
+        """
+        versions = dict(self.PIN_FIXTURE)
+        self.assertEqual(
+            set(versions), set(TOOL_PIN_SPECS), "PIN_FIXTURE must cover every pinned tool"
+        )
         (root / "Makefile").write_text(
-            "AI_RULEZ_VERSION := 4.11.3\nSKILLS_VERSION   := 1.5.23\n",
+            "".join(
+                f"{variable} := {versions[package]}\n"
+                for package, variable in TOOL_PIN_SPECS.items()
+            ),
             encoding="utf-8",
         )
+        versions["ai-rulez"] = readme_version
         (root / "README.md").write_text(
-            f"npx --yes ai-rulez@{readme_version} validate\n"
-            "npx --yes skills@1.5.23 add .\n",
+            "".join(
+                f"npx --yes {package}@{version} run\n"
+                for package, version in versions.items()
+            ),
             encoding="utf-8",
         )
         for relative in TOOL_PIN_WORKFLOWS:
