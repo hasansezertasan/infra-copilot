@@ -24,11 +24,13 @@ The provider-facing tools in `references/steps.yaml` and `references/checks/`:
 
 `terraform apply` and `terraform destroy` appear nowhere: `setup` ends at green
 *speculative* plans, `status` is read-only, `import` warns that applying before adoption
-clobbers live resources. Applying is a human action through HCP's own review.
+clobbers live resources. Applying is *intended* to be a human action through HCP's own
+review — but nothing here enforces that, and the host rules below do not either. See
+bypass 2.
 
 That makes `Bash(terraform apply)` look like a cheap, effective guard. It is not.
 
-## Four bypasses, all documented by this plugin
+## Six bypasses, all documented by this plugin
 
 **1. `mise exec --` wraps anything.** `protocol.md` instructs the agent to *"run each
 command through `mise exec --`"*, because comparing a system binary against a repo pin is
@@ -71,23 +73,43 @@ pin=$(mise config get --file ./mise.toml tools.terraform | tr -d '[:space:]')
 One invocation, five processes, no leading command name. Enumerating what such checks spawn
 would grant `rm` and `sed` broadly and gate nothing.
 
+**5. The slash command is a second entry point.** `commands/infra-setup.md` describes
+itself as *"the same procedure, two surfaces"*, and its frontmatter grants broad tools:
+
+```yaml
+allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
+```
+
+Invoking `/infra-setup` does not require Claude to call the `Skill` tool, so
+`Skill(infra-copilot:setup)` does not cover it. Every action skill has a matching command
+— `/infra-setup`, `/infra-import`, `/infra-add` — so a rule set denying only the skills
+leaves the primary invocation path open. If your host exposes a rule type for command
+invocation, deny both surfaces; check its documentation rather than assuming one exists.
+
+**6. Secret files are readable by any subprocess.** Worth stating separately from bypass
+3: `Read(./.env)` and friends constrain the Read tool, so `cat .env`, `cat .env.local`,
+`grep -r secret .` and `jq -R . terraform/github/.env.production` all still work. If you
+write Read denies anyway, cover the variants — `./.env`, `./.env.*`, `./**/.env`,
+`./**/.env.*`, `./**/*.tfvars`, `./**/*.tfvars.json` — because an exact `./.env` misses
+`.env.local` even for direct Read-tool access. Treat them as tidiness, not protection.
+
 ## What that leaves
 
 | Rule | Holds? |
 |---|---|
-| `Skill(infra-copilot:setup)` etc. | **Yes** — skill invocation is not a Bash path |
+| `Skill(infra-copilot:setup)` etc. | No — `/infra-setup` is a second entry point |
 | `Bash(terraform apply)` | No — `mise exec --`, and REST |
 | `Read(./**/*.tfvars)` | No — any Bash subprocess |
 | `Edit(**)` / `Write(**)` | No — Bash writes files |
 | A curated `Bash` allow-list | No — compound checks |
 
-**Only `Skill()` denies are robust.** They are genuinely useful: denying
-`Skill(infra-copilot:setup)`, `:import` and `:add` while allowing `:status` stops the
-*workflows* that change things, which is a real reduction even though it does not stop a
-determined or confused agent reaching the same effects by hand.
+**Nothing in the table holds.** An earlier draft of this page claimed `Skill()` denies
+were load-bearing; the command surface is why that was wrong too.
 
-Write the `Bash` and `Read` denies too if you like — they raise the cost of an accident.
-Do not describe them to anyone as a boundary.
+Write these rules anyway if you like — they raise the cost of an *accident*, which is
+worth something when the risk is a confused agent rather than a hostile one. Do not
+describe any of them as a boundary, and do not rely on them when pointing this plugin at
+production.
 
 > **Do not set `allowManagedPermissionRulesOnly`.** It locks the rule set, so any command
 > your list misses becomes a hard block. The `status` scan alone runs twelve `curl`-based
@@ -114,7 +136,13 @@ into HCP, and the agent must never see that plaintext. That holds for the **Clou
 token** and the **GitHub App credentials** — browser into HCP workspace variables, and the
 agent only verifies their presence over the API.
 
-It does **not** hold for the HCP token. Phase 0 has the human run `terraform login`, and
+It also does not hold for the Cloudflare **discovery** token used by `import`.
+`docs/import.md` has the human mint a short-lived read-only token and write it to
+`/tmp/cf_token` for `cf-terraforming`, which the agent runs. A Bash-capable agent can read
+that file until step 7 deletes it and the token is revoked — so the exposure is bounded in
+time and scope, not absent. Keep that window short.
+
+It does **not** hold for the HCP token either. Phase 0 has the human run `terraform login`, and
 every later step reads the result:
 
 ```sh

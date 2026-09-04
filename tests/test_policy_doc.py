@@ -44,6 +44,8 @@ class PolicyDocTests(unittest.TestCase):
             "actions/apply",                  # hcp-api.md ships the REST recipe
             "do not govern Bash",             # Read() rules bind the Read tool only
             "compound shell strings",         # allow-lists cannot match the checks
+            "second entry point",             # /infra-setup bypasses the Skill deny
+            "/tmp/cf_token",                  # the import discovery token
         ):
             with self.subTest(bypass=bypass):
                 self.assertIn(bypass, self.policy)
@@ -54,8 +56,16 @@ class PolicyDocTests(unittest.TestCase):
         self.assertIn("bare `terraform apply`", self.policy)
         self.assertIn("wildcard needs an argument", self.policy)
 
-    def test_names_only_skill_denies_as_holding(self) -> None:
-        self.assertIn("Only `Skill()` denies are robust", self.policy)
+    def test_claims_no_rule_type_holds(self) -> None:
+        """An earlier draft called Skill() denies load-bearing; the command surface
+        is why that was wrong, so the document must not walk it back."""
+        self.assertIn("Nothing in the table holds", self.policy)
+        self.assertNotIn("Only `Skill()` denies are robust", self.policy)
+
+    def test_does_not_promise_apply_is_human_only(self) -> None:
+        """The same document documents the REST bypass; both cannot be true."""
+        self.assertNotIn("Applying is a human action", self.policy)
+        self.assertIn("nothing here enforces that", self.policy)
 
     def test_points_at_boundaries_that_would_work(self) -> None:
         self.assertIn("#19", self.policy)

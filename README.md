@@ -77,14 +77,14 @@ any legacy `CLAUDE.md` decision table into it.
 ## Restricting what it can do
 
 **Host permission rules cannot meaningfully constrain this plugin**, and
-[`docs/policy.md`](docs/policy.md) shows why with four bypasses the plugin's own
+[`docs/policy.md`](docs/policy.md) shows why with six bypasses the plugin's own
 documentation supplies — `mise exec -- terraform apply` sidesteps a Terraform deny,
 `curl -X POST .../runs/<id>/actions/apply` applies without Terraform at all, `Read()`
-rules do not govern Bash subprocesses, and a `Bash` allow-list cannot match a compound
-check.
+rules do not govern Bash subprocesses, a `Bash` allow-list cannot match a compound check,
+and `/infra-setup` reaches the same procedure without invoking the denied skill.
 
-Only `Skill()` denies hold. Denying `setup`, `import` and `add` while allowing `status` is
-a real reduction; the rest raises the cost of an accident without being a boundary.
+**No rule type holds**, including `Skill()` denies. Write them if you like — they raise
+the cost of an accident — but not as a boundary.
 
 What does work: a tool-level boundary (an agent with no write tools —
 [#19](https://github.com/hasansezertasan/infra-copilot/issues/19)), sandbox isolation, or
