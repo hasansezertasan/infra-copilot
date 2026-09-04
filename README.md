@@ -78,7 +78,7 @@ any legacy `CLAUDE.md` decision table into it.
 
 The plugin drives three provider APIs, runs Terraform against remote state, and reads
 your HCP credential file. Restriction is the host's job, and
-[`docs/policy.md`](docs/policy.md) covers it — including what the "the agent never sees
+[`docs/policy.md`](docs/policy.md) covers it — including what the "agent never sees
 secrets" model does and does not cover, which is worth reading before pointing this at
 production.
 

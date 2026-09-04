@@ -6,8 +6,10 @@ host's job, and the hosts differ enormously in what they offer.
 
 ## What the plugin actually invokes
 
-The rules below are derived from the shipped manifest rather than guessed. Every command
-that appears in `references/steps.yaml` or `references/checks/`:
+The rules below are derived from the shipped manifest rather than guessed. The
+**provider-facing** tools that appear in `references/steps.yaml` and `references/checks/`
+— not an exhaustive list of every process spawned, since the checks are compound shell
+strings that also use `mktemp`, `grep`, `sed`, `awk`, `tr` and `rm`:
 
 | Command | Verbs used |
 |---|---|
@@ -100,6 +102,28 @@ and the status scan alone runs twelve `curl`-based checks plus a shipped shell s
 Exercise a profile against a real bootstrap first, then add the lock if you want it.
 
 ## What a command-level grammar cannot express
+
+**The checks are compound shell strings, not single commands.** A representative one:
+
+```sh
+ver=$(terraform version -json 2>/dev/null | jq -r '.terraform_version // empty');
+pin=$(mise config get --file ./mise.toml tools.terraform 2>/dev/null | tr -d '[:space:]')
+```
+
+That does not begin with a command name, and it spawns half a dozen processes. A
+prefix-matching `Bash(...)` rule cannot reliably gate a string like that, and enumerating
+the utilities it uses would grant `rm` and `sed` broadly while buying nothing — so they
+are deliberately absent from both allow-lists.
+
+**The rules that bite regardless of command shape are the non-Bash ones** — `Skill()`,
+`Edit()`, `Write()`, `Read()` — plus the Bash *denies*, which stop an agent composing
+`terraform apply` directly. Read the Bash allow entries as documentation of intent rather
+than as the enforcement boundary.
+
+**Neither profile has been exercised against a live session.** Every rule here is derived
+from the manifest and unit-tested for internal consistency, which proves the rules say
+what was intended and not that Claude matches them as expected. Deploy to one machine and
+run a real bootstrap before relying on either.
 
 The status-only profile **reduces blast radius; it does not enforce read-only**, and no
 arrangement of these rules would.
