@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9c9a1283f5dfd7beff90a0138911b5cc59ec15474e4011881c22127b5d2039fc
-Source-Hash: blake3:78d0196a56fe47cade151922e26093ce4f1f3b7ba682b5882304fad0139ae164
+Content-Hash: blake3:ed94f067596aad0d5887ac120e0c4d9ce25a38645468897f15b6d835d5906e26
+Source-Hash: blake3:5f7666e62b3486e8c2f374aa632cc13d7177e26256f05f878c60a36718345d92
 Schema-Version: v1
 -->
 
@@ -57,7 +57,7 @@ Every step in [`steps.yaml`](steps.yaml) is tagged with who performs it:
 
 When a step is `HUMAN`, do **not** guess or fake it. Stop and print exactly this shape, then wait:
 
-```
+```text
 ┌─ HUMAN ACTION NEEDED ─────────────────────────────
 │ Step:   <id> — <title>
 │ Why:    <one line — what this unblocks>

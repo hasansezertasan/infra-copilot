@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:5245818b430b7dbc6428ad21506326f4c37da22e7402ef1c95618a3a8cf9bfcc
-Source-Hash: blake3:78d0196a56fe47cade151922e26093ce4f1f3b7ba682b5882304fad0139ae164
+Content-Hash: blake3:ee83830b84861e3ca39afc8960079722b5afe21bb4e468dac86bd2338195b109
+Source-Hash: blake3:5f7666e62b3486e8c2f374aa632cc13d7177e26256f05f878c60a36718345d92
 Schema-Version: v1
 -->
 
@@ -120,7 +120,8 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
      sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p')
    printf '%s\n' "$pinned" |
      while IFS= read -r tool; do
-       [ -n "$tool" ] && MISE_LOCKED=1 mise install "$tool" || exit 1
+       [ -z "$tool" ] && continue
+       MISE_LOCKED=1 mise install "$tool" || exit 1
      done
    eval "$(mise activate bash)"   # or zsh/fish — install alone does not touch PATH
    ```

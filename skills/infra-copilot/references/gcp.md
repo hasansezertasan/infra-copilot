@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:d5c594846c967f348b1b15d2472412b15b92d521f266d8741806851d49daf2ba
-Source-Hash: blake3:78d0196a56fe47cade151922e26093ce4f1f3b7ba682b5882304fad0139ae164
+Content-Hash: blake3:4b80d30347c3dea605845a0cfaf9001dd1b404b2ab292b190a86dbaad483f136
+Source-Hash: blake3:5f7666e62b3486e8c2f374aa632cc13d7177e26256f05f878c60a36718345d92
 Schema-Version: v1
 -->
 
@@ -48,6 +48,7 @@ the rotation burden that implies.
 ## Phases (projected)
 
 ### HUMAN — project + billing
+
 1. Create a GCP project (`gcloud projects create <id>` is possible, but billing linkage
    and the initial org/consent are browser steps). Note the **project ID**.
 2. Link a billing account (browser).
@@ -86,15 +87,18 @@ gcloud services enable cloudresourcemanager.googleapis.com iam.googleapis.com <n
 # and a service account with least-privilege roles that HCP may impersonate.
 gcloud iam workload-identity-pools create hcp-pool --location=global ...
 ```
+
 Provider block goes in `terraform/gcp/providers.tf`, using `google`/`google-beta`, with
 impersonation rather than a key file.
 
 ### AGENT — HCP workspace
+
 Create a `gcp` workspace (working dir `terraform/gcp`, path filter `terraform/gcp/**`,
 remote execution, auto-apply **off**) exactly like Phase 1. If using a SA key instead of
 WIF, that's where the sensitive var lives.
 
 ### AGENT — first plan
+
 ```sh
 cd terraform/gcp && terraform init && terraform plan
 ```
@@ -109,7 +113,7 @@ adopted with Terraform 1.5+ `import` blocks and either handwritten HCL or
 
 ## Leaf skeleton (for when it lands)
 
-```
+```text
 terraform/gcp/
   versions.tf     # required_providers { google }, cloud { organization=<your-org>, workspaces{name="gcp"} }
   providers.tf    # google provider, WIF impersonation (no key file)

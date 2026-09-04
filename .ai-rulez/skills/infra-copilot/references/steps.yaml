@@ -87,7 +87,8 @@ preflight:
       grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
       printf '%s\n' "$pinned" |
       while IFS= read -r tool; do
-      [ -n "$tool" ] && MISE_LOCKED=1 mise install --dry-run "$tool" >/dev/null 2>&1 || exit 1;
+      [ -z "$tool" ] && continue;
+      MISE_LOCKED=1 mise install --dry-run "$tool" >/dev/null 2>&1 || exit 1;
       done
   - tool: terraform
     pin: mise.toml#tools.terraform
@@ -168,7 +169,8 @@ steps:
       grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
       printf '%s\n' "$pinned" |
       while IFS= read -r tool; do
-      [ -n "$tool" ] && MISE_LOCKED=1 mise install --dry-run "$tool" >/dev/null 2>&1 || exit 1;
+      [ -z "$tool" ] && continue;
+      MISE_LOCKED=1 mise install --dry-run "$tool" >/dev/null 2>&1 || exit 1;
       done
     produces: committed mise.toml + mise.lock
     docs: docs/setup.md#6-local-development

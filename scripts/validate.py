@@ -395,6 +395,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         "git diff --quiet HEAD -- mise.toml mise.lock",
         "git diff --cached --quiet HEAD -- mise.toml mise.lock",
         'while IFS= read -r tool',
+        '[ -z "$tool" ] && continue',
         'MISE_LOCKED=1 mise install --dry-run "$tool"',
     ):
         if marker not in steps:
@@ -403,6 +404,11 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         errors.append(
             f"{TOOLCHAIN_STEPS_DOCUMENT}: newline-delimited tool pins rely on "
             "shell-specific word splitting"
+        )
+    if '[ -n "$tool" ] && MISE_LOCKED=1' in steps or '[ -n "$tool" ] && MISE_LOCKED=1' in setup:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: tool-install loops must skip empty records "
+            "explicitly"
         )
     if "mise config get --file ./mise.toml tools 2>/dev/null" not in steps:
         errors.append(
@@ -427,10 +433,25 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             f"{TOOLCHAIN_STEPS_DOCUMENT}: exact version checks are incomplete"
         )
 
-    if hcp.count('"terraform-version"') < 3 or "set_tf_version" not in hcp:
+    reconciliation = re.search(
+        r"^  set_workspace_config \(\) \{(?P<body>.*?^  \})",
+        hcp,
+        re.MULTILINE | re.DOTALL,
+    )
+    if (
+        hcp.count('"terraform-version"') < 3
+        or reconciliation is None
+        or not all(
+            marker in reconciliation.group("body")
+            for marker in (
+                '"file-triggers-enabled":true',
+                '"trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]',
+            )
+        )
+    ):
         errors.append(
-            f"{TOOLCHAIN_HCP_DOCUMENT}: Terraform pin must be created, reconciled, "
-            "and verified"
+            f"{TOOLCHAIN_HCP_DOCUMENT}: Terraform pin and trigger patterns must be "
+            "created, reconciled, and verified"
         )
     for document, document_name in (
         (steps, TOOLCHAIN_STEPS_DOCUMENT),
@@ -445,10 +466,23 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             errors.append(
                 f"{document_name}: every HCP workspace must watch the shared config"
             )
-    if '"trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]' not in hcp:
+    creation = re.search(
+        r"^  create_ws \(\) \{(?P<body>.*?^  \})",
+        hcp,
+        re.MULTILINE | re.DOTALL,
+    )
+    if (
+        creation is None
+        or '"trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]'
+        not in creation.group("body")
+    ):
         errors.append(
             f"{TOOLCHAIN_HCP_DOCUMENT}: workspace creation must include the shared "
             "config trigger"
+        )
+    if not re.search(r"^Phase 0.*\brepo-config-sync\b", status, re.MULTILINE):
+        errors.append(
+            f"{TOOLCHAIN_STATUS_DOCUMENT}: phase-0 report must include repo-config-sync"
         )
 
     review = setup.find("cat -- mise.toml")

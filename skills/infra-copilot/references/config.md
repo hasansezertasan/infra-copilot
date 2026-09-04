@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:42be0d7c1d2b33388cb12a81b905a6458f33a8b4699ca42741c23baf33a6e530
-Source-Hash: blake3:78d0196a56fe47cade151922e26093ce4f1f3b7ba682b5882304fad0139ae164
+Content-Hash: blake3:4804ae35957cb18102b2d4a76191b140e595a60d52c29915a3096a1bd81cf154
+Source-Hash: blake3:5f7666e62b3486e8c2f374aa632cc13d7177e26256f05f878c60a36718345d92
 Schema-Version: v1
 -->
 
@@ -11,7 +11,9 @@ Schema-Version: v1
 `infra-copilot` is org-agnostic. Every value that used to be hardcoded for one org lives
 in a **committed, non-secret** file in the *consuming* repo:
 
-    .infra-copilot/config.md
+```text
+.infra-copilot/config.md
+```
 
 It is Markdown with a YAML frontmatter block. **No secrets** — those stay in HCP
 workspace variables. This file holds only public identifiers.

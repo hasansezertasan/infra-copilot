@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:b22f8d640f99a742030be95e7b6aaba7eaf7b52de9e33e64c3806f4d784f9190
-Source-Hash: blake3:78d0196a56fe47cade151922e26093ce4f1f3b7ba682b5882304fad0139ae164
+Content-Hash: blake3:71c8c60461f0cc790906637da0391c8038671bf54ad80a5fb89c2e0edccdc140
+Source-Hash: blake3:5f7666e62b3486e8c2f374aa632cc13d7177e26256f05f878c60a36718345d92
 Schema-Version: v1
 -->
 
@@ -56,10 +56,12 @@ Rotate yearly or on any suspected exposure. The procedures below are zero-downti
 2. Copy the new value.
 3. HCP → workspace `cloudflare` → Variables → `cloudflare_api_token` → click the edit icon → paste new value → Save.
 4. Trigger a no-op plan to confirm the new token works:
+
    ```sh
    cd terraform/cloudflare
    terraform plan        # expect: no changes; speculative plan in HCP authenticates with the new token
    ```
+
 5. If the plan succeeds, return to the dashboard and **revoke the old token**.
 6. If the plan fails, paste the old value back into the HCP variable; the old token is still live. Investigate.
 
@@ -70,10 +72,12 @@ GitHub Apps support multiple active private keys, so rotation is overlap-then-cu
 1. GitHub → org Settings → Developer settings → GitHub Apps → your app → **Private keys → Generate a private key**. A `.pem` downloads. Both old and new keys are now active.
 2. HCP → workspace `github-org` → Variables → `github_app_pem` → paste the full new PEM contents (including `-----BEGIN/END-----` lines) → Save.
 3. Trigger a no-op plan to confirm:
+
    ```sh
    cd terraform/github
    terraform plan
    ```
+
 4. If the plan succeeds, return to the GitHub App's Private keys page and **delete the old key**.
 5. If the plan fails — likely PEM newline mangling on paste — paste again carefully and retry.
 

@@ -41,6 +41,7 @@ the rotation burden that implies.
 ## Phases (projected)
 
 ### HUMAN — project + billing
+
 1. Create a GCP project (`gcloud projects create <id>` is possible, but billing linkage
    and the initial org/consent are browser steps). Note the **project ID**.
 2. Link a billing account (browser).
@@ -79,15 +80,18 @@ gcloud services enable cloudresourcemanager.googleapis.com iam.googleapis.com <n
 # and a service account with least-privilege roles that HCP may impersonate.
 gcloud iam workload-identity-pools create hcp-pool --location=global ...
 ```
+
 Provider block goes in `terraform/gcp/providers.tf`, using `google`/`google-beta`, with
 impersonation rather than a key file.
 
 ### AGENT — HCP workspace
+
 Create a `gcp` workspace (working dir `terraform/gcp`, path filter `terraform/gcp/**`,
 remote execution, auto-apply **off**) exactly like Phase 1. If using a SA key instead of
 WIF, that's where the sensitive var lives.
 
 ### AGENT — first plan
+
 ```sh
 cd terraform/gcp && terraform init && terraform plan
 ```
@@ -102,7 +106,7 @@ adopted with Terraform 1.5+ `import` blocks and either handwritten HCL or
 
 ## Leaf skeleton (for when it lands)
 
-```
+```text
 terraform/gcp/
   versions.tf     # required_providers { google }, cloud { organization=<your-org>, workspaces{name="gcp"} }
   providers.tf    # google provider, WIF impersonation (no key file)

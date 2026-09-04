@@ -239,6 +239,28 @@ class ShippedCheckPathTests(unittest.TestCase):
             )
 
 
+class LintScopeTests(unittest.TestCase):
+    """The canonical sources must be linted, with width relaxed only there."""
+
+    def test_root_config_lints_the_canonical_sources(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        config = (root / ".markdownlint-cli2.jsonc").read_text(encoding="utf-8")
+        self.assertIn(".ai-rulez/**/*.md", config)
+
+    def test_nested_config_relaxes_only_line_width(self) -> None:
+        """Deleting this file silently reintroduces 119 findings, so pin its purpose.
+
+        `make lint` is the real enforcement — it fails loudly if a future
+        markdownlint version stops applying nested configuration — but nothing
+        stopped someone deleting the file as apparently inert.
+        """
+        root = Path(__file__).resolve().parents[1]
+        nested = root / ".ai-rulez/.markdownlint-cli2.jsonc"
+        self.assertTrue(nested.is_file(), "canonical sources need their own lint config")
+        body = nested.read_text(encoding="utf-8")
+        self.assertRegex(body, r'"MD013"\s*:\s*false')
+
+
 class SkillSectionTests(unittest.TestCase):
     """Four shapes across four skills is how the same concept got two names."""
 
@@ -819,6 +841,51 @@ class ValidateToolchainContractTests(unittest.TestCase):
             errors,
         )
 
+    def test_rejects_missing_shared_trigger_reconciliation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            hcp = repository / ".ai-rulez/skills/infra-copilot/references/hcp.md"
+            text = hcp.read_text(encoding="utf-8")
+            start = text.index("  set_workspace_config () {")
+            end = text.index("\n  }", start)
+            reconciliation = text[start:end].replace(
+                '"trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]',
+                '"trigger-patterns":[$dir+"/**"]',
+                1,
+            )
+            hcp.write_text(
+                text[:start] + reconciliation + text[end:], encoding="utf-8"
+            )
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("trigger patterns must be" in error for error in errors), errors
+        )
+
+    def test_rejects_status_report_without_repo_config_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            status = repository / ".ai-rulez/skills/status/SKILL.md"
+            text = status.read_text(encoding="utf-8").replace(
+                "  ✓ repo-config-sync", "", 1
+            )
+            status.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("phase-0 report must include" in error for error in errors), errors
+        )
+
     def test_rejects_toolchain_step_check_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
@@ -889,8 +956,9 @@ class ValidateToolchainContractTests(unittest.TestCase):
             portable = (
                 "printf '%s\\n' \"$pinned\" |\n"
                 "      while IFS= read -r tool; do\n"
-                "      [ -n \"$tool\" ] && MISE_LOCKED=1 mise install "
-                "--dry-run \"$tool\" >/dev/null 2>&1 || exit 1;\n"
+                "      [ -z \"$tool\" ] && continue;\n"
+                "      MISE_LOCKED=1 mise install --dry-run \"$tool\" "
+                ">/dev/null 2>&1 || exit 1;\n"
                 "      done"
             )
             text = text.replace(

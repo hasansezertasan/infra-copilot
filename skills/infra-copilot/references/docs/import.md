@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:07fc23d03ab3999995c7a36f1cfe4d1359d35ba56f8c509b4091e370ca507319
-Source-Hash: blake3:78d0196a56fe47cade151922e26093ce4f1f3b7ba682b5882304fad0139ae164
+Content-Hash: blake3:c74e7571ec3efb42c9bc398749f94d39bf01df22827dc7915c12cee360b40546
+Source-Hash: blake3:5f7666e62b3486e8c2f374aa632cc13d7177e26256f05f878c60a36718345d92
 Schema-Version: v1
 -->
 
@@ -25,6 +25,7 @@ Before you run cf-terraforming, generate a separate, short-lived Cloudflare toke
 4. **TTL**: set to a day or a few hours. This is throwaway.
 5. **Continue to summary** → **Create token** → copy the value (shown once).
 6. Park it on your laptop until the run is done:
+
    ```sh
    read -s "?Paste Cloudflare discovery token: " CF_TOK
    echo
@@ -32,6 +33,7 @@ Before you run cf-terraforming, generate a separate, short-lived Cloudflare toke
    chmod 600 /tmp/cf_token
    unset CF_TOK
    ```
+
 7. After cf-terraforming finishes: `rm /tmp/cf_token`, and revoke the token in the dashboard.
 
 ## Install

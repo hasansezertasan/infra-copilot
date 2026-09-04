@@ -19,6 +19,7 @@ The only unavoidable cold-start. Produces the HCP token that lets the agent scri
   **`<your-org>`** and project **`infra`**. (Org name must equal the `organization` field
   in every `terraform/*/versions.tf` — it does.)
 - **`AGENT` — hcp-verify.** From here you own the HCP API:
+
   ```sh
   # $ORG sourced from config — see config.md
   HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
@@ -90,19 +91,21 @@ GitHub↔HCP OAuth connection (browser).
     esac
   }
 
-  # POST cannot update an existing workspace. Reconcile the committed Terraform pin
-  # after either a create or an "already exists" response so resume runs fix drift.
-  set_tf_version () { # $1 = workspace name
+  # POST cannot update an existing workspace. Reconcile the committed Terraform pin and
+  # trigger patterns after either response so resume runs fix all declared drift.
+  set_workspace_config () { # $1 = workspace name   $2 = working directory
     local ws_id payload
     ws_id=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$1" \
       -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id // empty') || return 1
     [ -n "$ws_id" ] || { echo "✗ $1: workspace id not found" >&2; return 1; }
-    payload=$(jq -n --arg id "$ws_id" --arg tf_version "$TERRAFORM_VERSION" \
-      '{data:{id:$id,type:"workspaces",attributes:{"terraform-version":$tf_version}}}')
+    payload=$(jq -n --arg id "$ws_id" --arg dir "$2" --arg tf_version "$TERRAFORM_VERSION" \
+      '{data:{id:$id,type:"workspaces",attributes:{
+        "terraform-version":$tf_version, "file-triggers-enabled":true,
+        "trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]}}}')
     curl -sf -X PATCH "https://app.terraform.io/api/v2/workspaces/$ws_id" \
       -H "Authorization: Bearer $HCP_TOKEN" \
       -H "Content-Type: application/vnd.api+json" -d "$payload" >/dev/null \
-      && echo "✓ $1 Terraform $TERRAFORM_VERSION"
+      && echo "✓ $1 Terraform $TERRAFORM_VERSION and trigger patterns"
   }
 
   # Gate with if/else, NOT `return`/`exit`: this block is run as a script by the agent,
@@ -113,8 +116,8 @@ GitHub↔HCP OAuth connection (browser).
   elif [ -z "$OAUTH_TOKEN_ID" ]; then
     echo "No VCS oauth-token found — finish the vcs-connect step first; not creating workspaces." >&2
   else
-    create_ws cloudflare terraform/cloudflare && set_tf_version cloudflare
-    create_ws github-org  terraform/github && set_tf_version github-org
+    create_ws cloudflare terraform/cloudflare && set_workspace_config cloudflare terraform/cloudflare
+    create_ws github-org  terraform/github && set_workspace_config github-org terraform/github
   fi
   ```
 
@@ -127,6 +130,7 @@ GitHub↔HCP OAuth connection (browser).
   > (it defaults off; the label-gated flow in [`docs/ci.md`](docs/ci.md) replaces it for forks).
 
   Verify:
+
   ```sh
   for pair in "cloudflare:terraform/cloudflare" "github-org:terraform/github"; do
     ws=${pair%%:*}; dir=${pair#*:}

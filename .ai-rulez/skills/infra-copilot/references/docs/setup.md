@@ -113,7 +113,8 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
      sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p')
    printf '%s\n' "$pinned" |
      while IFS= read -r tool; do
-       [ -n "$tool" ] && MISE_LOCKED=1 mise install "$tool" || exit 1
+       [ -z "$tool" ] && continue
+       MISE_LOCKED=1 mise install "$tool" || exit 1
      done
    eval "$(mise activate bash)"   # or zsh/fish — install alone does not touch PATH
    ```
