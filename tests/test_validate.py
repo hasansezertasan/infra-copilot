@@ -18,6 +18,8 @@ from scripts.validate import (
     collect_manifest_errors,
     skill_descriptions,
     validate_config_fallbacks,
+    frontmatter_keys,
+    validate_customization_markers,
     validate_description_budget,
     validate_json_manifests,
     validate_links,
@@ -68,6 +70,270 @@ class ValidateLinksTests(unittest.TestCase):
 class ValidateConfigFallbacksTests(unittest.TestCase):
     def test_canonical_entrypoints_document_legacy_fallback(self) -> None:
         self.assertEqual(validate_config_fallbacks(), [])
+
+
+class CustomizationMarkerTests(unittest.TestCase):
+    """The markers are comments, so this validator is their only enforcement."""
+
+    REFERENCES = ".ai-rulez/skills/infra-copilot/references"
+
+    def test_shipped_examples_carry_balanced_markers(self) -> None:
+        self.assertEqual(validate_customization_markers(), [])
+
+    def _repository(self, temporary_directory: str, **files: str) -> Path:
+        """A tree holding both examples and the rule document.
+
+        Every file has to exist: the validator reads all three, so a partial
+        fixture fails on a missing file rather than on the case under test.
+        """
+        repository = Path(temporary_directory)
+        defaults = {
+            "config.md.example": (
+                "---\n# infra-copilot:customization start\nhcp_org: x\n"
+                'hcp_status_check_id: ""\n'
+                "# infra-copilot:customization end\n---\n"
+            ),
+            "decisions.md.example": (
+                "<!-- infra-copilot:customization start -->\n"
+                "| Decision | Choice | Status | Rationale |\n"
+                "<!-- infra-copilot:customization end -->\n"
+            ),
+            "config.md": "preserve it verbatim. Never merge by inference.\n",
+        }
+        defaults.update(files)
+        for name, body in defaults.items():
+            document = repository / self.REFERENCES / name
+            document.parent.mkdir(parents=True, exist_ok=True)
+            document.write_text(body, encoding="utf-8")
+        return repository
+
+    def test_every_frontmatter_field_is_required_inside_the_region(self) -> None:
+        """Derived, not enumerated.
+
+        The first version listed two of the seven fields, so the other five
+        could drift out of the region while validation stayed green. Listing
+        them would only move the gap to whichever field is added next.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "---\n# infra-copilot:customization start\n"
+                        'hcp_org: x\nhcp_status_check_id: ""\n'
+                        "# infra-copilot:customization end\n"
+                        "github_org: x\napex_domain: x\n---\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: 'github_org:' is outside "
+                    "the infra-copilot:customization region a re-scaffold preserves",
+                    f"{self.REFERENCES}/config.md.example: 'apex_domain:' is outside "
+                    "the infra-copilot:customization region a re-scaffold preserves",
+                ],
+            )
+
+    def test_protects_a_field_added_to_the_template_later(self) -> None:
+        """The point of deriving: no list to remember to update."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "---\n# infra-copilot:customization start\n"
+                        'hcp_org: x\nhcp_status_check_id: ""\n'
+                        "# infra-copilot:customization end\n"
+                        "gcp_project: your-project\n---\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: 'gcp_project:' is outside "
+                    "the infra-copilot:customization region a re-scaffold preserves"
+                ],
+            )
+
+    def test_rejects_markers_that_enclose_nothing(self) -> None:
+        """Balanced and ordered, but the region is empty.
+
+        Two markers sitting together above the frontmatter satisfy every count
+        and order check while preserving nothing, so a re-scaffold would
+        overwrite exactly the values the pair exists to protect.
+
+        This shape also displaces the frontmatter from line 0, so no keys are
+        derived from it -- the explicitly listed hcp_status_check_id is the
+        only thing that catches it. That is why the explicit entry stays.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "# infra-copilot:customization start\n"
+                        "# infra-copilot:customization end\n"
+                        "---\nhcp_org: x\nhcp_status_check_id: \"\"\n---\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: 'hcp_status_check_id:' is "
+                    "outside the infra-copilot:customization region a re-scaffold "
+                    "preserves",
+                ],
+            )
+
+    def test_rejects_one_field_drifting_out_of_the_region(self) -> None:
+        """The realistic drift: a template edit moves one line past the end marker."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "---\n# infra-copilot:customization start\nhcp_org: x\n"
+                        "# infra-copilot:customization end\n"
+                        'hcp_status_check_id: ""\n---\n'
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: 'hcp_status_check_id:' is "
+                    "outside the infra-copilot:customization region a re-scaffold "
+                    "preserves",
+                ],
+            )
+
+    def test_reports_an_unreadable_document_instead_of_raising(self) -> None:
+        """Validators accumulate into one list, so a raise prints none of it.
+
+        config.md.example is not covered by the layout short-circuit in main,
+        so this guard is the only thing between a missing file and a traceback.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(temporary_directory)
+            (repository / self.REFERENCES / "config.md.example").unlink()
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: unreadable, "
+                    "cannot check markers"
+                ],
+            )
+
+    def test_rejects_an_unbalanced_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{"config.md.example": "---\n# infra-copilot:customization start\n---\n"},
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: expected exactly one "
+                    "infra-copilot:customization pair, found 1 start and 0 end"
+                ],
+            )
+
+    def test_rejects_a_duplicated_start(self) -> None:
+        """Two starts are balanced by a naive count of the token alone."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "# infra-copilot:customization start\n"
+                        "# infra-copilot:customization start\n"
+                        "# infra-copilot:customization end\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: expected exactly one "
+                    "infra-copilot:customization pair, found 2 start and 1 end"
+                ],
+            )
+
+    def test_rejects_an_end_before_its_start(self) -> None:
+        """One of each, so counting alone calls this file well-formed."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "# infra-copilot:customization end\nhcp_org: x\n"
+                        "# infra-copilot:customization start\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: "
+                    "infra-copilot:customization end precedes its start"
+                ],
+            )
+
+    def test_requires_the_preserve_and_hand_off_rule(self) -> None:
+        """Markers with no documented rule preserve nothing."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory, **{"config.md": "Re-scaffold as you see fit.\n"}
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md: re-scaffold rule missing 'verbatim'",
+                    f"{self.REFERENCES}/config.md: re-scaffold rule missing "
+                    "'Never merge by inference'",
+                ],
+            )
+
+    def test_accepts_a_rule_whose_phrase_wraps_across_lines(self) -> None:
+        """Prose re-wraps on edit; a raw-text match would report a false failure."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{"config.md": "preserve it\nverbatim. **Never merge by\ninference.**\n"},
+            )
+
+            self.assertEqual(validate_customization_markers(repository), [])
+
+
+class FrontmatterKeyTests(unittest.TestCase):
+    def test_reads_top_level_keys_only(self) -> None:
+        lines = [
+            "---",
+            "hcp_org: x",
+            "managed_repos:",
+            "  - owner/name",
+            "---",
+            "body: not frontmatter",
+        ]
+        self.assertEqual(frontmatter_keys(lines), ["hcp_org", "managed_repos"])
+
+    def test_documents_without_frontmatter_have_no_keys(self) -> None:
+        """decisions.md.example is a plain body; the derived rule is a no-op there."""
+        self.assertEqual(frontmatter_keys(["# heading", "key: value"]), [])
+        self.assertEqual(frontmatter_keys([]), [])
 
 
 class ValidatePhaseFiveRuleTests(unittest.TestCase):

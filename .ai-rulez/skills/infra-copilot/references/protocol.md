@@ -30,7 +30,10 @@ Before any resume scan, read `.infra-copilot/config.md` from the current repo. I
 missing but `.claude/infra-copilot.local.md` exists, use that legacy file for this run and
 offer to copy it unchanged to the agent-neutral path. If both files are missing, emit the
 handoff block, show the schema, offer to scaffold from
-[`config.md.example`](config.md.example), and wait — never guess org/domain/IDs. Once a
+[`config.md.example`](config.md.example), and wait — never guess org/domain/IDs. If a
+config already exists and you are re-scaffolding, preserve the region between its
+`infra-copilot:customization` markers verbatim and hand off rather than guess when those
+markers are missing or unbalanced: [`config.md`](config.md#re-scaffolding-an-existing-config). Once a
 config is loaded, export the shell vars every check depends on. Full schema, migration
 rules, and export block: [`config.md`](config.md). On a cold run, `hcp-login` creates the
 credential file after this initial export; as soon as that step's check turns green,

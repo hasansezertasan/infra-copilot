@@ -1,12 +1,19 @@
 # infra-copilot decisions
 
 Durable provider, authentication, state, and safety choices for this consuming repository.
-Copy this file to `.infra-copilot/decisions.md`, replace the example row, and commit it.
+Copy this file to `.infra-copilot/decisions.md`, replace the example rows, and commit it.
+Keep the two `infra-copilot:customization` comments around the table: a re-scaffold
+preserves everything between them verbatim, and stops rather than guessing if they are
+missing or unbalanced.
+
+<!-- infra-copilot:customization start -->
 
 | Decision | Choice | Status | Rationale |
 |---|---|---|---|
 | Terraform backend | HCP Terraform | locked | Managed remote state and locking |
 | Toolchain | Exact pins in `mise.toml` + committed `mise.lock` | locked | Same versions locally, in CI (see [`docs/ci.md`](docs/ci.md#toolchain-in-ci)), and for Terraform in HCP; installs use locked metadata |
+
+<!-- infra-copilot:customization end -->
 
 Statuses:
 
