@@ -40,7 +40,7 @@ Before you run cf-terraforming, generate a separate, short-lived Cloudflare toke
 # would resolve the binary before the lock covering it exists. Add this line to the
 # committed [tools] table by editing the file:
 #
-#     "github:cloudflare/cf-terraforming" = "0.27.0"
+#     "github:cloudflare/cf-terraforming" = "0.29.0"
 #
 # Then lock it, and only then install from that lock:
 touch mise.lock
@@ -52,33 +52,41 @@ git add mise.toml mise.lock  # commit the tool pin and refreshed lock together
 # new binary is not on PATH yet — and an older system cf-terraforming would shadow
 # it if it were. Refresh the environment, or run the commands below via `mise exec`:
 eval "$(mise activate bash)"
-mise exec -- cf-terraforming --version   # must report 0.27.0, not a system build
+mise exec -- cf-terraforming --version   # must report 0.29.0, not a system build
 
 # or via the Go toolchain — an explicit tag, never @latest:
-go install github.com/cloudflare/cf-terraforming/cmd/cf-terraforming@v0.27.0
+go install github.com/cloudflare/cf-terraforming/cmd/cf-terraforming@v0.29.0
 ```
 
-> `0.27.0` is the version the matrix below was written against. Newer releases exist;
+> `0.29.0` is the version the matrix below was audited against. Newer releases exist;
 > bump the pin and re-check the matrix in the same change, so the documented coverage and
-> the installed binary never disagree.
+> the installed binary never disagree. When you re-check a row, the authority is
+> `internal/app/cf-terraforming/cmd/resource_to_endpoint_mapping.go` in the upstream tree,
+> not the README: `generate` skips a resource only when that file gives it neither a `list`
+> nor a `get` endpoint, and the README's v5 tables omit resources the file does map. That
+> is how the route row here came to be wrong.
 
 ## What it supports
 
-Coverage is **broad but not total** for the v5 provider. As of cf-terraforming v0.27 (May 2026):
+Coverage is **broad but not total** for the v5 provider. As of cf-terraforming v0.29 (September 2026):
 
-| Resource | Supported by `generate` |
-|---|---|
-| `cloudflare_dns_record` | yes |
-| `cloudflare_r2_bucket` | yes |
-| `cloudflare_pages_project` | yes |
-| `cloudflare_workers_kv_namespace` | yes |
-| `cloudflare_workers_custom_domain` | yes |
-| `cloudflare_workers_cron_trigger` | yes (needs `--resource-id`) |
-| `cloudflare_workers_script` | **no** — bundle content can't be round-tripped; define in the app repo |
-| `cloudflare_workers_route` | **no** — define manually alongside the script |
-| Zone settings (`cloudflare_zone_setting`) | yes (needs `--resource-id` listing each setting) |
+The two questions are separate, and an earlier version of this table ran them together:
+whether the tool *can* emit a resource is a fact about cf-terraforming, whereas whether it
+belongs in this repo is our recommendation. Read the columns independently.
 
-For the script/route gap: Worker code typically lives in the app repo it serves, not in this infra repo. Importing the resource here would tie its state to an empty `content` field. Define the route + script in the app's own Terraform once that app exists.
+| Resource | `generate` emits it | Import it here |
+|---|---|---|
+| `cloudflare_dns_record` | yes | yes |
+| `cloudflare_r2_bucket` | yes | yes |
+| `cloudflare_pages_project` | yes | yes |
+| `cloudflare_workers_kv_namespace` | yes | yes |
+| `cloudflare_workers_custom_domain` | yes | yes |
+| `cloudflare_workers_cron_trigger` | yes (needs `--resource-id`) | yes |
+| `cloudflare_workers_script` | **no** — unmapped, so `generate` logs `Unsupported terraform v5 provider resource` and skips it | no |
+| `cloudflare_workers_route` | yes (zone-scoped) | **no** — by choice, not because the tool cannot |
+| Zone settings (`cloudflare_zone_setting`) | yes (needs `--resource-id` listing each setting) | yes |
+
+For the script and route rows: Worker code typically lives in the app repo it serves, not in this infra repo. Importing the script here would tie its state to an empty `content` field, and a route whose script is absent from the same state is worse than no route at all. Define both in the app's own Terraform once that app exists — for the route that is our choice rather than a limit, so if your Workers code does live in this repo, importing it is fine.
 
 ## Generate HCL for the zone
 
