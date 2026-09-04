@@ -36,6 +36,7 @@ class PolicyDocTests(unittest.TestCase):
     def test_leads_with_the_conclusion(self) -> None:
         """A reader who stops after one line must not be left writing rules."""
         self.assertIn("cannot meaningfully constrain this plugin", self.policy)
+        self.assertIn("Claude Code's command-level permission rules", self.policy)
 
     def test_records_every_known_bypass(self) -> None:
         """Each was found by review, and each is supplied by this plugin's own docs."""
@@ -69,7 +70,7 @@ class PolicyDocTests(unittest.TestCase):
 
     def test_points_at_boundaries_that_would_work(self) -> None:
         self.assertIn("Sandbox-level", self.policy)
-        self.assertIn("without apply permission", self.policy)
+        self.assertIn("lower-privilege identity", self.policy)
 
     def test_does_not_present_the_subagent_as_enforcement(self) -> None:
         """The subagent cannot enforce change-nothing, and saying so is the point.
@@ -83,13 +84,32 @@ class PolicyDocTests(unittest.TestCase):
         self.assertIn("only a sandboxed command runner", self.policy.lower())
         self.assertNotIn("only mechanism that makes `status`", self.policy)
 
-    def test_warns_against_locking_the_rule_set(self) -> None:
-        self.assertIn("Do not set `allowManagedPermissionRulesOnly`", self.policy)
+    def test_qualifies_the_managed_rules_lock(self) -> None:
+        """Whether an unmatched command blocks or prompts depends on permission mode.
+
+        An earlier draft asserted a hard block unconditionally, which would
+        have talked administrators out of the field for the wrong reason.
+        """
+        self.assertIn("allowManagedPermissionRulesOnly", self.policy)
+        self.assertIn("depends on the active permission mode", self.policy)
+        self.assertNotIn("becomes a hard block", self.policy)
 
     def test_records_the_hcp_token_exception_and_the_real_control(self) -> None:
         self.assertIn("credentials.tfrc.json", self.policy)
         self.assertIn("Do not deny the read", self.policy)
-        self.assertIn("Scope the token instead", self.policy)
+
+    def test_does_not_advise_scoping_a_user_token(self) -> None:
+        """terraform login mints a user token, which carries the user's permissions.
+
+        There is no apply scope to remove from it, so the control is a
+        different principal — which phase 0 does not provision.
+        """
+        self.assertIn("Use a separate, lower-privilege identity", self.policy)
+        self.assertNotIn("Scope the token instead", self.policy)
+
+    def test_marks_the_compound_bypass_as_unverified(self) -> None:
+        """Claude documents per-segment evaluation, which may invalidate bypass 4."""
+        self.assertIn("This one is unverified, and may be wrong", self.policy)
 
     def test_records_merge_not_copy(self) -> None:
         self.assertIn("Merge, do not copy", self.policy)

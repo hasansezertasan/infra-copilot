@@ -1,7 +1,13 @@
 # Restricting what infra-copilot can do
 
-**Host permission rules cannot meaningfully constrain this plugin.** That is the
-conclusion of trying, and it is worth more than the profile this page used to ship.
+**Claude Code's command-level permission rules cannot meaningfully constrain this
+plugin.** That is the conclusion of trying, and it is worth more than the profile this
+page used to ship.
+
+Claude Code is the only grammar analysed here. The other hosts are
+[unverified](#other-hosts) — and OpenCode's per-agent tool maps are a *tool-level*
+mechanism, which is the category this page says can work, so do not read the conclusion as
+covering it.
 
 If you need to bound what infra-copilot can do, the boundary has to be *tool-level* or
 *sandbox-level*, not command-level. The rest of this page is the evidence, because every
@@ -70,8 +76,17 @@ ver=$(terraform version -json 2>/dev/null | jq -r '.terraform_version // empty')
 pin=$(mise config get --file ./mise.toml tools.terraform | tr -d '[:space:]')
 ```
 
-One invocation, five processes, no leading command name. Enumerating what such checks spawn
-would grant `rm` and `sed` broadly and gate nothing.
+One invocation, five processes, no leading command name.
+
+**This one is unverified, and may be wrong.** Claude Code documents compound Bash commands
+as having their shell-separated segments evaluated independently, which would mean a rule
+*can* match a segment of a check like this. I have not exercised the matcher, so treat
+bypass 4 as an open question rather than a finding. It does not affect the conclusion:
+bypasses 1, 2, 3, 5 and 6 are each about something other than compound matching —
+wrapping, REST, the Read tool's scope, the command surface, and subprocess file access.
+
+What does hold regardless is that enumerating what such checks spawn would grant `rm` and
+`sed` broadly, which is a poor trade whatever the matcher does.
 
 **5. The slash command is a second entry point.** `commands/infra-setup.md` describes
 itself as *"the same procedure, two surfaces"*, and its frontmatter grants broad tools:
@@ -111,10 +126,14 @@ worth something when the risk is a confused agent rather than a hostile one. Do 
 describe any of them as a boundary, and do not rely on them when pointing this plugin at
 production.
 
-> **Do not set `allowManagedPermissionRulesOnly`.** It locks the rule set, so any command
-> your list misses becomes a hard block. The `status` scan alone runs twelve `curl`-based
-> checks and launches a shipped shell script. You would be trading a guarantee you do not
-> get for an outage you do.
+> **Think twice about `allowManagedPermissionRulesOnly`.** It stops user and project
+> rules being used, so your managed list is the only one that applies. Whether an
+> unmatched command then blocks or prompts depends on the active permission mode — in the
+> default interactive mode it can prompt; in a non-interactive run it is a block. The
+> `status` scan alone runs twelve `curl`-based checks and launches a shipped shell script,
+> so in CI or any headless context expect an incomplete list to stop work. Check the
+> interaction with your permission mode before enabling it, and remember you would be
+> trading a guarantee this page argues you do not get.
 
 ## What would actually work
 
@@ -122,9 +141,9 @@ production.
   `curl` cannot reach an endpoint regardless of which command wraps it. This is the only
   layer that actually enforces anything discussed on this page. It is outside the plugin's
   control, and it is the right place for the secret-file and REST-apply cases.
-- **Credential scoping**: the durable answer for apply. An HCP token without apply
-  permission cannot apply, whatever command is used. That is a provider-side control and
-  strictly stronger than anything expressible in host rules.
+- **A lower-privilege identity**: the durable answer for apply. A principal without apply
+  permission on those workspaces cannot apply, whatever command is used. Note this is not
+  the token phase 0 mints — see [the HCP token section](#the-hcp-token-what-the-agent-never-sees-secrets-does-and-does-not-cover).
 
 **And what only narrows.** A read-only subagent (#19) is worth building — it isolates the
 scan's context and removes `Edit` and `Write` — but it does **not** enforce
@@ -159,8 +178,16 @@ That token is in the agent's environment by design — the pivot the workflow tu
 not deny the read; it breaks every HCP step, and a manual `export` puts the same secret in
 the same environment through another door.
 
-**Scope the token instead.** This is the one place where a real control exists: an HCP
-token that cannot apply removes bypass 2 above at the source.
+**Use a separate, lower-privilege identity.** This is the one place a real control
+exists, but "scope the token" understates the work. `terraform login` mints an HCP **user**
+API token, and a user token carries that user's permissions — `docs/state.md` says so
+plainly: *"the same token authenticates every HCP REST endpoint, so anything you can do in
+the UI you can script."* There is no apply scope to remove from it.
+
+The control is therefore to provision a **different principal** — a user or team without
+apply permission on the `cloudflare` and `github-org` workspaces — and run the agent as
+that identity. Phase 0 neither provisions nor verifies such an identity, so this is
+operator work today, and worth its own issue.
 
 ## Claude Code specifics
 

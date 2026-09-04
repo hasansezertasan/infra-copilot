@@ -76,7 +76,8 @@ any legacy `CLAUDE.md` decision table into it.
 
 ## Restricting what it can do
 
-**Host permission rules cannot meaningfully constrain this plugin**, and
+**Claude Code's command-level permission rules cannot meaningfully constrain this
+plugin**, and
 [`docs/policy.md`](docs/policy.md) shows why with six bypasses the plugin's own
 documentation supplies — `mise exec -- terraform apply` sidesteps a Terraform deny,
 `curl -X POST .../runs/<id>/actions/apply` applies without Terraform at all, `Read()`
@@ -86,8 +87,10 @@ and `/infra-setup` reaches the same procedure without invoking the denied skill.
 **No rule type holds**, including `Skill()` denies. Write them if you like — they raise
 the cost of an accident — but not as a boundary.
 
-What does work: sandbox isolation, or — for apply specifically — **an HCP token scoped
-without apply permission**, which is stronger than anything expressible in host rules. A
+What does work: sandbox isolation, or — for apply specifically — **running the agent as a
+principal that lacks apply permission**. Note that is not the token `terraform login`
+mints: a user token carries its user's permissions, so this needs a separate identity that
+phase 0 does not create. A
 read-only subagent ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
 narrows the surface but cannot enforce change-nothing: the scan runs 21 shell checks, so
 it needs `Bash`, and `Bash` writes files.
