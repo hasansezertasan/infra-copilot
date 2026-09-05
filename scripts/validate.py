@@ -70,8 +70,13 @@ def _looks_like_marker(line: str) -> bool:
     stripped = line.strip()
     if stripped.startswith(CUSTOMIZATION_TOKEN):
         return True
-    opener = stripped.startswith("#") or stripped.startswith("<!--")
-    return opener and MARKER_EDGE.search(stripped) is not None
+    for prefix in ("<!--", "#"):
+        if stripped.startswith(prefix):
+            # Anchored to just after the prefix. Searching the whole comment
+            # flagged explanatory prose that merely names the token and an edge
+            # word, such as "<!-- Use infra-copilot:customization start ... -->".
+            return MARKER_EDGE.match(stripped[len(prefix) :].lstrip()) is not None
+    return False
 
 
 def _marker_pattern(comment: str) -> re.Pattern[str]:
@@ -353,7 +358,9 @@ def read_document(path: Path) -> str | None:
 FRONTMATTER_KEY = re.compile(r"^(?P<key>[A-Za-z_][A-Za-z0-9_]*):")
 
 
-FENCE = re.compile(r"^\s*(?P<fence>`{3,}|~{3,})")
+# CommonMark: a fence opens on three or more backticks or tildes indented at most
+# three spaces. Four spaces makes it an indented code block, not a fence.
+FENCE = re.compile(r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
 
 
 def fenced_lines(lines: list[str]) -> set[int]:
@@ -369,18 +376,34 @@ def fenced_lines(lines: list[str]) -> set[int]:
     context that can silently void a marker.
     """
     inside: set[int] = set()
-    opener: str | None = None
+    opener: tuple[str, int] | None = None
     for index, line in enumerate(lines):
         match = FENCE.match(line)
         if opener is None:
-            if match:
-                opener = match.group("fence")[0]
-                inside.add(index)
+            if match is None:
+                continue
+            fence = match.group("fence")
+            # A backtick opener's info string may not itself contain a backtick.
+            if fence[0] == "`" and "`" in match.group("info"):
+                continue
+            opener = (fence[0], len(fence))
+            inside.add(index)
             continue
         inside.add(index)
-        # Only the same fence character closes a block, so a ``` inside a ~~~
-        # block is content rather than a terminator.
-        if match and match.group("fence")[0] == opener:
+        if match is None:
+            continue
+        fence = match.group("fence")
+        character, length = opener
+        # A closer must use the same character, be at least as long as the
+        # opener, and carry no info string. Tracking only the character closed a
+        # ```` block on ```, and treated ```python inside an open block as a
+        # terminator -- in both cases the lines after it stopped counting as
+        # fenced while Markdown still rendered them as code.
+        if (
+            fence[0] == character
+            and len(fence) >= length
+            and not match.group("info").strip()
+        ):
             opener = None
     return inside
 

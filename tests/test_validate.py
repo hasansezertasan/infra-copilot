@@ -18,6 +18,7 @@ from scripts.validate import (
     collect_manifest_errors,
     skill_descriptions,
     validate_config_fallbacks,
+    _looks_like_marker,
     fenced_lines,
     frontmatter_bounds,
     frontmatter_keys,
@@ -515,12 +516,71 @@ class FrontmatterKeyTests(unittest.TestCase):
         self.assertEqual(frontmatter_keys([]), [])
 
 
+class LooksLikeMarkerTests(unittest.TestCase):
+    """Which lines count as an attempted marker, and so as malformed."""
+
+    def test_a_bare_token_counts(self) -> None:
+        self.assertTrue(_looks_like_marker("infra-copilot:customization start"))
+
+    def test_the_wrong_comment_syntax_counts(self) -> None:
+        self.assertTrue(_looks_like_marker("# infra-copilot:customization start"))
+        self.assertTrue(
+            _looks_like_marker("<!-- infra-copilot:customization end -->")
+        )
+
+    def test_explanatory_prose_inside_a_comment_does_not_count(self) -> None:
+        """The token and edge must follow the prefix, not appear anywhere."""
+        self.assertFalse(
+            _looks_like_marker(
+                "<!-- Use infra-copilot:customization start before editing. -->"
+            )
+        )
+        self.assertFalse(
+            _looks_like_marker("# Keep infra-copilot:customization end in place")
+        )
+
+    def test_prose_naming_the_token_without_an_edge_does_not_count(self) -> None:
+        self.assertFalse(
+            _looks_like_marker("Keep the two `infra-copilot:customization` comments.")
+        )
+
+
 class FencedLinesTests(unittest.TestCase):
     def test_tracks_a_backtick_fence(self) -> None:
         self.assertEqual(fenced_lines(["a", "```", "b", "```", "c"]), {1, 2, 3})
 
     def test_an_info_string_still_opens_a_fence(self) -> None:
         self.assertEqual(fenced_lines(["```yaml", "b", "```"]), {0, 1, 2})
+
+    def test_a_shorter_run_does_not_close_a_longer_fence(self) -> None:
+        """CommonMark requires a closer at least as long as its opener.
+
+        Tracking only the fence character closed a ```` block on ```, which put
+        the lines after it outside the fenced set while Markdown still rendered
+        them as code.
+        """
+        self.assertEqual(
+            fenced_lines(["````", "```", "a", "````"]), {0, 1, 2, 3}
+        )
+
+    def test_a_closer_may_be_longer_than_its_opener(self) -> None:
+        self.assertEqual(fenced_lines(["```", "a", "`````"]), {0, 1, 2})
+
+    def test_a_line_with_an_info_string_is_not_a_closer(self) -> None:
+        """```python inside an open block is content, not a terminator."""
+        self.assertEqual(
+            fenced_lines(["```", "```python", "a", "```"]), {0, 1, 2, 3}
+        )
+
+    def test_a_backtick_opener_may_not_carry_a_backtick_info_string(self) -> None:
+        self.assertEqual(fenced_lines(["``` a ` b", "x"]), set())
+
+    def test_four_space_indent_opens_no_fence(self) -> None:
+        """At four spaces it is an indented code block, not a fence."""
+        self.assertEqual(fenced_lines(["    ```", "a", "    ```"]), set())
+
+    def test_up_to_three_spaces_still_opens_a_fence(self) -> None:
+        self.assertEqual(fenced_lines(["   ```", "a", "   ```"]), {0, 1, 2})
 
     def test_a_different_fence_character_does_not_close(self) -> None:
         """Only the same character terminates, so ``` inside ~~~ is content."""
