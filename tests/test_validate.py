@@ -18,6 +18,9 @@ from scripts.validate import (
     collect_manifest_errors,
     skill_descriptions,
     validate_config_fallbacks,
+    _looks_like_marker,
+    fenced_lines,
+    frontmatter_bounds,
     frontmatter_keys,
     validate_customization_markers,
     validate_description_budget,
@@ -167,18 +170,18 @@ class CustomizationMarkerTests(unittest.TestCase):
         and order check while preserving nothing, so a re-scaffold would
         overwrite exactly the values the pair exists to protect.
 
-        This shape also displaces the frontmatter from line 0, so no keys are
-        derived from it -- the explicitly listed hcp_status_check_id is the
-        only thing that catches it. That is why the explicit entry stays.
+        This shape also displaces the frontmatter from line 0. The frontmatter
+        containment rule now catches that directly, so this fixture keeps the
+        delimiters intact and only collapses the region.
         """
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = self._repository(
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "# infra-copilot:customization start\n"
+                        "---\n# infra-copilot:customization start\n"
                         "# infra-copilot:customization end\n"
-                        "---\nhcp_org: x\nhcp_status_check_id: \"\"\n---\n"
+                        "hcp_org: x\nhcp_status_check_id: \"\"\n---\n"
                     )
                 },
             )
@@ -189,8 +192,185 @@ class CustomizationMarkerTests(unittest.TestCase):
                     f"{self.REFERENCES}/config.md.example: 'hcp_status_check_id:' is "
                     "outside the infra-copilot:customization region a re-scaffold "
                     "preserves",
+                    f"{self.REFERENCES}/config.md.example: 'hcp_org:' is outside the "
+                    "infra-copilot:customization region a re-scaffold preserves",
                 ],
             )
+
+    def test_rejects_markers_inside_a_fenced_code_block(self) -> None:
+        """A column-zero fence neutralises the region without any indentation.
+
+        Markdown renders the markers as text and does not render the table, so
+        the indentation rule cannot catch this shape.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "decisions.md.example": (
+                        "```\n<!-- infra-copilot:customization start -->\n"
+                        "| Decision | Choice | Status | Rationale |\n"
+                        "<!-- infra-copilot:customization end -->\n```\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/decisions.md.example: "
+                    "infra-copilot:customization marker on line 2 is inside a "
+                    "fenced code block, so Markdown renders it as text rather "
+                    "than a comment",
+                    f"{self.REFERENCES}/decisions.md.example: "
+                    "infra-copilot:customization marker on line 4 is inside a "
+                    "fenced code block, so Markdown renders it as text rather "
+                    "than a comment",
+                ],
+            )
+
+    def test_rejects_indented_markers(self) -> None:
+        """Indented four spaces, Markdown reads the region as a code block.
+
+        The markers become displayed text and the config block stops being
+        frontmatter, while strip() still saw a well-formed marker.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "decisions.md.example": (
+                        "    <!-- infra-copilot:customization start -->\n"
+                        "    | Decision | Choice | Status | Rationale |\n"
+                        "    <!-- infra-copilot:customization end -->\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/decisions.md.example: "
+                    "infra-copilot:customization marker on line 1 is indented; "
+                    "markers must start at column 0, or Markdown reads the region "
+                    "as a code block",
+                    f"{self.REFERENCES}/decisions.md.example: "
+                    "infra-copilot:customization marker on line 3 is indented; "
+                    "markers must start at column 0, or Markdown reads the region "
+                    "as a code block",
+                ],
+            )
+
+    def test_rejects_a_marker_that_is_not_a_comment(self) -> None:
+        """A marker that loses its "#" becomes a stray line among the fields."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "---\ninfra-copilot:customization start\nhcp_org: x\n"
+                        'hcp_status_check_id: ""\n'
+                        "# infra-copilot:customization end\n---\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: line 2 carries "
+                    "infra-copilot:customization but is not a well-formed comment "
+                    "marker: 'infra-copilot:customization start'"
+                ],
+            )
+
+    def test_rejects_the_other_file_s_comment_syntax(self) -> None:
+        """An HTML comment is inert inside YAML frontmatter, and vice versa."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "decisions.md.example": (
+                        "# infra-copilot:customization start\n| a |\n"
+                        "<!-- infra-copilot:customization end -->\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/decisions.md.example: line 1 carries "
+                    "infra-copilot:customization but is not a well-formed comment "
+                    "marker: '# infra-copilot:customization start'"
+                ],
+            )
+
+    def test_rejects_a_marker_outside_the_frontmatter_delimiters(self) -> None:
+        """Frontmatter intact, but the region spills past its closing ---."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "---\n# infra-copilot:customization start\nhcp_org: x\n"
+                        'hcp_status_check_id: ""\n---\n'
+                        "# infra-copilot:customization end\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: "
+                    "infra-copilot:customization marker on line 6 is outside the "
+                    "frontmatter delimiters (lines 1 and 5), so the preserved "
+                    "region no longer matches the fields a human fills in"
+                ],
+            )
+
+    def test_rejects_a_config_template_with_no_frontmatter(self) -> None:
+        """A start marker above the opening --- stops it being frontmatter."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "# infra-copilot:customization start\n---\nhcp_org: x\n"
+                        'hcp_status_check_id: ""\n'
+                        "# infra-copilot:customization end\n---\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: no YAML frontmatter, "
+                    "so its markers cannot be inside it"
+                ],
+            )
+
+    def test_prose_naming_the_token_is_not_a_broken_marker(self) -> None:
+        """Both real templates explain the markers in prose that names the token.
+
+        Matching the bare token flagged those sentences as malformed markers.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "decisions.md.example": (
+                        "Keep the two `infra-copilot:customization` comments.\n"
+                        "<!-- infra-copilot:customization start -->\n"
+                        "| Decision | Choice | Status | Rationale |\n"
+                        "<!-- infra-copilot:customization end -->\n"
+                    )
+                },
+            )
+
+            self.assertEqual(validate_customization_markers(repository), [])
 
     def test_rejects_one_field_drifting_out_of_the_region(self) -> None:
         """The realistic drift: a template edit moves one line past the end marker."""
@@ -334,6 +514,105 @@ class FrontmatterKeyTests(unittest.TestCase):
         """decisions.md.example is a plain body; the derived rule is a no-op there."""
         self.assertEqual(frontmatter_keys(["# heading", "key: value"]), [])
         self.assertEqual(frontmatter_keys([]), [])
+
+
+class LooksLikeMarkerTests(unittest.TestCase):
+    """Which lines count as an attempted marker, and so as malformed."""
+
+    def test_a_bare_token_counts(self) -> None:
+        self.assertTrue(_looks_like_marker("infra-copilot:customization start"))
+
+    def test_the_wrong_comment_syntax_counts(self) -> None:
+        self.assertTrue(_looks_like_marker("# infra-copilot:customization start"))
+        self.assertTrue(
+            _looks_like_marker("<!-- infra-copilot:customization end -->")
+        )
+
+    def test_explanatory_prose_inside_a_comment_does_not_count(self) -> None:
+        """The token and edge must follow the prefix, not appear anywhere."""
+        self.assertFalse(
+            _looks_like_marker(
+                "<!-- Use infra-copilot:customization start before editing. -->"
+            )
+        )
+        self.assertFalse(
+            _looks_like_marker("# Keep infra-copilot:customization end in place")
+        )
+
+    def test_prose_naming_the_token_without_an_edge_does_not_count(self) -> None:
+        self.assertFalse(
+            _looks_like_marker("Keep the two `infra-copilot:customization` comments.")
+        )
+
+
+class FencedLinesTests(unittest.TestCase):
+    def test_tracks_a_backtick_fence(self) -> None:
+        self.assertEqual(fenced_lines(["a", "```", "b", "```", "c"]), {1, 2, 3})
+
+    def test_an_info_string_still_opens_a_fence(self) -> None:
+        self.assertEqual(fenced_lines(["```yaml", "b", "```"]), {0, 1, 2})
+
+    def test_a_shorter_run_does_not_close_a_longer_fence(self) -> None:
+        """CommonMark requires a closer at least as long as its opener.
+
+        Tracking only the fence character closed a ```` block on ```, which put
+        the lines after it outside the fenced set while Markdown still rendered
+        them as code.
+        """
+        self.assertEqual(
+            fenced_lines(["````", "```", "a", "````"]), {0, 1, 2, 3}
+        )
+
+    def test_a_closer_may_be_longer_than_its_opener(self) -> None:
+        self.assertEqual(fenced_lines(["```", "a", "`````"]), {0, 1, 2})
+
+    def test_a_line_with_an_info_string_is_not_a_closer(self) -> None:
+        """```python inside an open block is content, not a terminator."""
+        self.assertEqual(
+            fenced_lines(["```", "```python", "a", "```"]), {0, 1, 2, 3}
+        )
+
+    def test_a_backtick_opener_may_not_carry_a_backtick_info_string(self) -> None:
+        self.assertEqual(fenced_lines(["``` a ` b", "x"]), set())
+
+    def test_four_space_indent_opens_no_fence(self) -> None:
+        """At four spaces it is an indented code block, not a fence."""
+        self.assertEqual(fenced_lines(["    ```", "a", "    ```"]), set())
+
+    def test_up_to_three_spaces_still_opens_a_fence(self) -> None:
+        self.assertEqual(fenced_lines(["   ```", "a", "   ```"]), {0, 1, 2})
+
+    def test_a_different_fence_character_does_not_close(self) -> None:
+        """Only the same character terminates, so ``` inside ~~~ is content."""
+        self.assertEqual(fenced_lines(["~~~", "```", "b", "~~~"]), {0, 1, 2, 3})
+
+    def test_unclosed_fence_swallows_the_rest(self) -> None:
+        self.assertEqual(fenced_lines(["```", "a", "b"]), {0, 1, 2})
+
+    def test_no_fence_means_no_fenced_lines(self) -> None:
+        self.assertEqual(fenced_lines(["a", "b"]), set())
+
+
+class FrontmatterBoundsTests(unittest.TestCase):
+    def test_finds_the_delimiters(self) -> None:
+        self.assertEqual(frontmatter_bounds(["---", "a: 1", "---", "body"]), (0, 2))
+
+    def test_requires_frontmatter_to_start_at_line_zero(self) -> None:
+        """A YAML block below anything else is not frontmatter."""
+        self.assertIsNone(frontmatter_bounds(["# comment", "---", "a: 1", "---"]))
+
+    def test_indented_delimiters_are_not_frontmatter(self) -> None:
+        """strip() reduced an indented delimiter to ---; column 0 is required."""
+        self.assertIsNone(frontmatter_bounds(["    ---", "a: 1", "    ---"]))
+        self.assertIsNone(frontmatter_bounds(["---", "a: 1", "    ---"]))
+
+    def test_trailing_whitespace_on_a_delimiter_is_tolerated(self) -> None:
+        """Only leading whitespace changes how Markdown reads the line."""
+        self.assertEqual(frontmatter_bounds(["--- ", "a: 1", "---  "]), (0, 2))
+
+    def test_unterminated_frontmatter_has_no_bounds(self) -> None:
+        self.assertIsNone(frontmatter_bounds(["---", "a: 1"]))
+        self.assertIsNone(frontmatter_bounds([]))
 
 
 class ValidatePhaseFiveRuleTests(unittest.TestCase):
