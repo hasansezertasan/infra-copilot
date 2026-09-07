@@ -51,7 +51,10 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
    export hcp_api=https://app.terraform.io/api/v2
    export INFRA_COPILOT_REFERENCES=<absolute path to this references/ directory>
-   export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+   # Terraform's own precedence: TF_TOKEN_app_terraform_io wins over the credentials
+   # file. Follow it here, or HCP_TOKEN and `terraform` authenticate as different
+   # identities and `hcp-apply-scope` reports SPLIT-BRAIN.
+   export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
    ```
 
    Do not export `TERRAFORM_VERSION` here. A greenfield repo may not have `mise` or

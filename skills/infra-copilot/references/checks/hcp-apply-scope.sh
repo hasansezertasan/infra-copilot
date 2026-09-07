@@ -79,6 +79,7 @@ api() {  # $1 = path; prints the body, or reports CANNOT VERIFY
 page=1
 found=0
 broken=""
+seen_directories=""
 
 while : ; do
     body=$(api "organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page") || exit 2
@@ -94,13 +95,21 @@ while : ; do
         name=$(printf '%s' "$entry" | jq -er '.attributes.name' 2>/dev/null) \
             || cannot_verify "a workspace in $ORG has no name"
 
-        # `tostring`, NOT `// empty`. jq's alternative operator treats `false` as
-        # absent, so `can-queue-apply: false` -- the state this check exists to
-        # confirm -- came back indistinguishable from a missing block and reported
-        # CANNOT VERIFY on a correctly configured credential.
-        apply=$(printf '%s' "$entry" | jq -er '.attributes.permissions["can-queue-apply"] | tostring' 2>/dev/null) \
+        # The type is asserted inside jq, before any conversion. `tostring` alone
+        # renders the JSON string "false" and the boolean false as the same shell
+        # text, so a malformed response passed the exact-boolean check below.
+        # `// empty` is also wrong here: jq's alternative operator treats `false`
+        # as absent, which made the state this check exists to confirm read as a
+        # missing block.
+        permission () {  # $1 = permission key; prints true/false, or fails
+            printf '%s' "$entry" | jq -er --arg key "$1" '
+                .attributes.permissions[$key]
+                | if type == "boolean" then tostring else "not-a-boolean" end
+            ' 2>/dev/null
+        }
+        apply=$(permission can-queue-apply) \
             || cannot_verify "workspace $name returned no readable permissions block"
-        plan=$(printf '%s' "$entry" | jq -er '.attributes.permissions["can-queue-run"] | tostring' 2>/dev/null) \
+        plan=$(permission can-queue-run) \
             || cannot_verify "workspace $name returned no readable permissions block"
 
         # Exact booleans only. Anything else -- null, 0, a string, a renamed field --
@@ -120,6 +129,9 @@ while : ; do
 "
         fi
 
+        directory=$(printf '%s' "$entry" | jq -r '.attributes["working-directory"] // empty' 2>/dev/null)
+        [ -z "$directory" ] || seen_directories="$seen_directories $directory"
+
         found=$((found + 1))
         index=$((index + 1))
     done
@@ -136,5 +148,22 @@ done
 # anything" while telling us nothing about the credential's rights.
 [ "$found" -gt 0 ] \
     || cannot_verify "the credential in $source_description can see no workspaces in $ORG, so its rights cannot be determined"
+
+# The visible set cannot reveal a workspace hidden by the very grant being checked:
+# omit Plan for one leaf and it simply vanishes from the list, leaving every visible
+# entry correct and the check green. So compare against an inventory derived from
+# the repository instead -- each terraform/<leaf>/ directory is a workspace's
+# working-directory, which is independent of what the credential can see.
+for leaf in terraform/*/; do
+    [ -d "$leaf" ] || continue                      # no terraform/ yet: nothing to compare
+    directory=${leaf%/}
+    case " $seen_directories " in
+        *" $directory "*) continue ;;
+    esac
+    # Cannot tell "no grant" from "workspace not created yet" without an
+    # organization-level read the plan-only credential is not meant to have, and
+    # guessing either way would be a verdict this cannot support.
+    cannot_verify "no workspace visible for $directory: either it has no workspace yet, or the credential in $source_description lacks the Plan grant on it. Grant the team Plan on that workspace, or finish phase 1 for it, then re-run."
+done
 
 [ -z "$broken" ] || fail "$(printf '%s' "$broken")"

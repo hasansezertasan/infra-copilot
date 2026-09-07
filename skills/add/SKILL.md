@@ -5,8 +5,8 @@ description: "Provision something new in an already-bootstrapped infra repo: a m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:679e4187cef154687ad37f3e9e38038a35c9a5a96622de9f8e841c4b41a1d310
-Source-Hash: blake3:701b6aee56416c6a6656b878905af1f46b1aa58ffc02b815abd2d9a312ed738e
+Content-Hash: blake3:0d2cd5985d6e3e66e6bdf5357d7f66b3f63884f3b4058c4a0de6375e6c4ba408
+Source-Hash: blake3:cb48ec80faa1a30c67f7f596b81237aecd783b67a888e4b5de80b230480033e2
 Schema-Version: v1
 -->
 
@@ -71,16 +71,24 @@ GCP is *not* provisioned today (template only). Before any Terraform:
 1. **Decide, on the record** (`HUMAN`, step `gcp-decision` in
    [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml)) — update
    `.infra-copilot/decisions.md` and `terraform/README.md`. Do not provision ahead of the decision.
-2. **New leaf + workspace** — create `terraform/<provider>/`, a matching HCP workspace
-   (same `create_ws` pattern as setup Phase 1, [`../infra-copilot/references/hcp.md`](../infra-copilot/references/hcp.md)),
+2. **New leaf + workspace** (`HUMAN` once `hcp-apply-scope` is done) — create
+   `terraform/<provider>/`, a matching HCP workspace (same `create_ws` pattern as setup
+   Phase 1, [`../infra-copilot/references/hcp.md`](../infra-copilot/references/hcp.md)),
    with the same safety toggles (auto-apply off, path-scoped triggers).
+   `create_ws` is organization-scoped, and the plan-only team token deliberately holds no
+   organization permissions, so **the agent's credential cannot create a workspace**. A
+   human runs this with the user token — or an organization token — then grants the team
+   `Plan` on it in step 3 below. Do not widen the team's permissions to make the agent able
+   to do it: that hands back the apply rights `hcp-apply-scope` exists to remove.
 3. **Credential** — mint the provider's scoped token/service-account key (`HUMAN`) and
    paste it into the new workspace's variables (`HUMAN`, sensitive). The agent verifies via
    the vars API, never sees the plaintext.
-4. **Grant the plan-only team access** (`HUMAN`) — if `hcp-apply-scope` has been done,
-   the agent's credential is a team token with `Plan` on the *existing* workspaces only,
-   so it cannot queue a run on this one. Add `Plan` for that team on the new workspace
-   before the first plan, and never `Write`. `hcp-apply-scope` derives its workspace set
+4. **Grant the plan-only team access** (`HUMAN`) — the agent's credential is a team
+   token with `Plan` on the *existing* workspaces only, so it cannot queue a run on this
+   one. Add `Plan` for that team on the new workspace before the first plan, and never
+   `Write`. Until this is done, `hcp-apply-scope` reports `CANNOT VERIFY` for the new leaf
+   rather than a false pass, because a workspace the credential cannot see is
+   indistinguishable from one that does not exist. `hcp-apply-scope` derives its workspace set
    from the API, so it reports the gap either way — as `OVER-RESTRICTED` if the grant is
    missing, or `UNPROTECTED` if someone grants `Write` to work around it.
 5. **First plan** on the new leaf — same proof-of-credentials as setup Phase 4.

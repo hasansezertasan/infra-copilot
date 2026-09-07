@@ -5,8 +5,8 @@ description: "Read-only health check: runs every step's check across the whole m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6ae7e50455e8917a47ec4ed24dedef9560c41b5a984fc156df38d448530520c6
-Source-Hash: blake3:701b6aee56416c6a6656b878905af1f46b1aa58ffc02b815abd2d9a312ed738e
+Content-Hash: blake3:8d490568f7f91e81a1e5cb034b06aac3258b3efa2cbda18343aa499ac4cf3078
+Source-Hash: blake3:cb48ec80faa1a30c67f7f596b81237aecd783b67a888e4b5de80b230480033e2
 Schema-Version: v1
 -->
 
@@ -158,6 +158,8 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 | First red step is in… | Run |
 |---|---|
 | `status-check-context` exit 2 (`CANNOT VERIFY`) | **Nothing to fix in the repo.** Report `?` and name the cause — most often `gh auth login`. Do not route to any skill. |
+| `hcp-apply-scope` exit 2 (`CANNOT VERIFY`) | **Nothing to fix in the repo.** Report `?` and name the cause — a missing credential, an unreadable API response, or a managed `terraform/<leaf>/` with no visible workspace. Do not route to any skill; a transient read failure is not setup work. |
+| `hcp-apply-scope` exit 1 (phase 4) | **Nothing — this is credential work, not `setup`.** For `UNPROTECTED`, the agent's credential can apply: provision the plan-only identity in that step's `run`. For `OVER-RESTRICTED`, grant the team the workspace `Plan` permission. For `SPLIT-BRAIN`, re-export `HCP_TOKEN` from the source `terraform` uses. Running `setup` fixes none of these. |
 | `status-check-context` exit 1 (phase 4) | **Nothing — fix it directly**, not via `setup`. For `BLOCKED`, replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keep every other required context, and follow the break-glass sequence ([`../infra-copilot/references/docs/ci.md`](../infra-copilot/references/docs/ci.md#hcp-status-check-context)). For `UNDERPROTECTED`, re-apply `branch_protection.tf` so an HCP context is required again. |
 | Other steps in phases 0–4 | **infra-copilot:setup** |
 | Phase 5 (migrate-*) | **infra-copilot:import** — only relevant if adopting pre-existing resources |

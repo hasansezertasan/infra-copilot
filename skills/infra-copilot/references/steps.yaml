@@ -402,8 +402,11 @@ steps:
         4. Put that token where terraform will find it — overwrite the token in
            ~/.terraform.d/credentials.tfrc.json, or export
            TF_TOKEN_app_terraform_io — and keep the user token off this machine.
-           config.md's Step 0 reads that same file, so HCP_TOKEN then picks up the
-           plan-only token on every later run without any per-phase selection.
+           Step 0 resolves HCP_TOKEN in terraform's own order, preferring
+           TF_TOKEN_app_terraform_io and falling back to the credentials file, so
+           either route survives later runs and both agree with what `terraform`
+           itself uses. Exporting the variable in one shell only is not enough:
+           put it somewhere the agent's environment gets it every time.
 
       Phases 0 and 1 need the user token: a team token authenticates as a
       synthetic service account that cannot complete the personal OAuth flow

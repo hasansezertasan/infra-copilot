@@ -29,6 +29,11 @@ PLAN_ONLY = {"can-queue-run": True, "can-queue-apply": False}
 CAN_APPLY = {"can-queue-run": True, "can-queue-apply": True}
 READ_ONLY = {"can-queue-run": False, "can-queue-apply": False}
 
+# Workspace name to working-directory, as hcp.md's create_ws sets it. `github-org`
+# is the reason the check compares directories rather than names.
+DIRECTORIES = {"cloudflare": "terraform/cloudflare", "github-org": "terraform/github"}
+DEFAULT_LEAVES = ("terraform/cloudflare", "terraform/github")
+
 
 @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
 class HcpApplyScopeTests(unittest.TestCase):
@@ -36,6 +41,7 @@ class HcpApplyScopeTests(unittest.TestCase):
         self,
         *,
         workspaces: list[tuple[str, dict[str, object] | None]] | None = None,
+        leaves: list[str] | None = None,
         body: str | None = None,
         env: dict[str, str] | None = None,
         curl_fails: bool = False,
@@ -56,13 +62,22 @@ class HcpApplyScopeTests(unittest.TestCase):
             if body is None:
                 data = []
                 for name, permissions in workspaces:
-                    attributes: dict[str, object] = {"name": name}
+                    attributes: dict[str, object] = {
+                        "name": name,
+                        # Real workspaces carry this; the check compares it against
+                        # the repo's terraform/<leaf>/ directories.
+                        "working-directory": DIRECTORIES.get(name, f"terraform/{name}"),
+                    }
                     if permissions is not None:
                         attributes["permissions"] = permissions
                     data.append({"id": f"ws-{name}", "attributes": attributes})
                 body = json.dumps(
                     {"data": data, "meta": {"pagination": {"total-pages": total_pages}}}
                 )
+
+            # The check runs with the consuming repo as its working directory.
+            for leaf in leaves if leaves is not None else DEFAULT_LEAVES:
+                (Path(directory) / leaf).mkdir(parents=True)
 
             bin_dir = Path(directory) / "bin"
             bin_dir.mkdir()
@@ -134,7 +149,9 @@ class HcpApplyScopeTests(unittest.TestCase):
 
     def test_a_credential_that_cannot_plan_is_reported_separately(self) -> None:
         """The fix is to grant Plan, not to remove Apply."""
-        result = self.run_check(workspaces=[("cloudflare", READ_ONLY)])
+        result = self.run_check(
+            workspaces=[("cloudflare", READ_ONLY)], leaves=["terraform/cloudflare"]
+        )
         self.assertEqual(result.returncode, 1)
         self.assertIn("OVER-RESTRICTED", result.stderr)
         self.assertNotIn("UNPROTECTED", result.stderr)
@@ -172,14 +189,17 @@ class HcpApplyScopeTests(unittest.TestCase):
 
     def test_a_missing_permissions_block_cannot_be_verified(self) -> None:
         """Absent is not false: HCP told us nothing about this credential."""
-        result = self.run_check(workspaces=[("cloudflare", None)])
+        result = self.run_check(
+            workspaces=[("cloudflare", None)], leaves=["terraform/cloudflare"]
+        )
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("CANNOT VERIFY", result.stderr)
 
     def test_a_non_boolean_permission_cannot_be_verified(self) -> None:
         """`can-queue-apply: 0` is not `false`; it is unexpected evidence."""
         result = self.run_check(
-            workspaces=[("cloudflare", {"can-queue-run": True, "can-queue-apply": 0})]
+            workspaces=[("cloudflare", {"can-queue-run": True, "can-queue-apply": 0})],
+            leaves=["terraform/cloudflare"],
         )
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("not a boolean", result.stderr)
@@ -197,7 +217,7 @@ class HcpApplyScopeTests(unittest.TestCase):
 
     def test_no_visible_workspaces_cannot_be_verified(self) -> None:
         """An empty list reads as "cannot apply anything" while proving nothing."""
-        result = self.run_check(workspaces=[])
+        result = self.run_check(workspaces=[], leaves=[])
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("no workspaces", result.stderr)
 
@@ -239,10 +259,46 @@ class HcpApplyScopeTests(unittest.TestCase):
                 ("cloudflare", PLAN_ONLY),
                 ("github-org", PLAN_ONLY),
                 ("gcp", CAN_APPLY),
-            ]
+            ],
+            leaves=[*DEFAULT_LEAVES, "terraform/gcp"],
         )
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("gcp", result.stderr)
+
+    def test_a_managed_leaf_with_no_visible_workspace_cannot_be_verified(self) -> None:
+        """The gap the visible set cannot show.
+
+        Omit the Plan grant on one workspace and it vanishes from the list, so
+        every visible entry is correct and the check would read green. The repo's
+        own terraform/<leaf>/ directories are the independent inventory.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare", "terraform/github"],
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("terraform/github", result.stderr)
+        self.assertIn("lacks the Plan grant", result.stderr)
+
+    def test_a_string_permission_cannot_be_verified(self) -> None:
+        """The JSON string "false" is not the boolean false.
+
+        `tostring` rendered both as the same shell text, so a malformed response
+        passed the exact-boolean check.
+        """
+        result = self.run_check(
+            workspaces=[
+                ("cloudflare", {"can-queue-run": "true", "can-queue-apply": "false"})
+            ],
+            leaves=["terraform/cloudflare"],
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("not a boolean", result.stderr)
+
+    def test_no_terraform_directory_skips_the_inventory_comparison(self) -> None:
+        """A repo before phase 1 has no leaves; that must not be a verdict."""
+        result = self.run_check(workspaces=[("cloudflare", PLAN_ONLY)], leaves=[])
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_never_posts_an_apply(self) -> None:
         """A dry POST apply would apply if the credential held the rights."""
