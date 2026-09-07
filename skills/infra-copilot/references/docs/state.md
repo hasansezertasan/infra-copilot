@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:0ef098aaa99d7c283c64284f57edac3a1b19d4bfeb984df879056091d2cc8c30
-Source-Hash: blake3:fbf2ea6d789d44bee78746a86a2c2f3e715617bb047558ea87b859c615151255
+Content-Hash: blake3:2611875f8f5ea68be0ed4d286d663b4c62cba2e3a20b713a1d5856a0b7e6bb57
+Source-Hash: blake3:8c2b3b4ef5793b67e31632dbfc3e14a09ee92a6b710df04ab27eb2085842cb87
 Schema-Version: v1
 -->
 
@@ -55,10 +55,13 @@ Variable values live in HCP, not in the repo. The repo declares `variable "x" {}
 
 A `terraform login` writes an HCP **user** API token to `~/.terraform.d/credentials.tfrc.json`. The same token authenticates every HCP REST endpoint, so anything you can do in the UI you can script — including applying. That is the default, not the target state: it is what makes the agent's credential the only real boundary, and why `hcp-apply-scope` asks for a plan-only team token for everything after phase 1. That step's `run` in [`steps.yaml`](../steps.yaml) carries the procedure and its two limits.
 
-Read an endpoint with whichever token is in the environment:
+Read an endpoint with the token Step 0 already resolved. Re-deriving it from the
+credentials file would discard an environment-selected token, and — if a user token is
+still on disk — silently swap in an apply-capable identity:
 
 ```sh
-HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+# Same precedence as config.md Step 0. Omit these two lines if HCP_TOKEN is already set.
+HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
 curl -s "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/cloudflare" \
   -H "Authorization: Bearer $HCP_TOKEN" | jq '.data.id'
 ```

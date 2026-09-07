@@ -271,7 +271,40 @@ steps:
       scoped to this repo only. Note the oauth-token id if the agent will script workspace creation.
     # Assert a GitHub-family VCS provider specifically, not just "any oauth client" —
     # otherwise a pre-existing GitLab/Bitbucket connection would false-green this step.
-    check: 'curl -sf "$hcp_api/organizations/$ORG/oauth-clients" -H "Authorization: Bearer $HCP_TOKEN" | jq -e "[.data[] | select(.attributes[\"service-provider\"] | test(\"github\"))] | length > 0"'
+    # Tri-state, because this endpoint is organization-scoped and the plan-only
+    # credential hcp-apply-scope installs cannot read it. Without the distinction a
+    # resume scan stops here on the first non-zero check and re-emits the OAuth
+    # handoff, so `setup` could never resume past phase 1 after that handoff -- and
+    # the human would be told to redo a step that is already done. A 403 proves
+    # nothing about whether the VCS connection exists, which is exactly a 2.
+    tri_state: true   # exit 2 = could not verify; see protocol.md
+    check: |
+      body=$(mktemp); trap 'rm -f "$body"' EXIT
+      code=$(curl -s -o "$body" -w '%{http_code}' \
+        "$hcp_api/organizations/$ORG/oauth-clients" \
+        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+      case "$code" in
+        200)
+          jq -e '[.data[] | select(.attributes["service-provider"] | test("github"))] | length > 0' \
+            "$body" >/dev/null
+          exit $?
+          ;;
+        401|403) ;;   # fall through to the workspace-scoped evidence below
+        *) echo "CANNOT VERIFY: reading $ORG's oauth-clients returned $code" >&2; exit 2 ;;
+      esac
+      # The plan-only credential from hcp-apply-scope cannot read organization VCS
+      # settings, and stopping here would leave `setup` unable to resume past phase 1
+      # after that handoff. A workspace connected to $REPO is stronger evidence of the
+      # same fact anyway -- it is the connection actually being used -- and it is
+      # workspace-scoped, so the narrowed credential can read it. Only available once
+      # workspaces exist, which on a resume they do.
+      curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100" \
+        -H "Authorization: Bearer $HCP_TOKEN" >"$body" \
+        || { echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code) and the workspace list could not be read either" >&2; exit 2; }
+      jq -e --arg repo "${REPO:-}" \
+        '[.data[] | select(.attributes["vcs-repo"].identifier == $repo)] | length > 0' \
+        "$body" >/dev/null \
+        || { echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code), and no workspace connected to ${REPO:-<REPO unset>} is visible; if the plan-only identity is in use, phase 1 was verified under the user token" >&2; exit 2; }
     produces: GitHub<->HCP OAuth connection
     docs: docs/setup.md#2-hcp-terraform--workspaces
 

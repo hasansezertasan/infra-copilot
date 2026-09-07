@@ -88,6 +88,12 @@ GCP is *not* provisioned today (template only). Before any Terraform:
    `Write` to work around it is `UNPROTECTED`.
 5. **First plan** on the new leaf — same proof-of-credentials as setup Phase 4.
 
+> None of steps 2–5 have `steps.yaml` entries; phase 6 holds only `gcp-decision`, whose
+> check is satisfied by the directory existing. So an adoption interrupted part-way reads
+> green and neither `status` nor a later `add` can resume it. Tracked in
+> [#60](https://github.com/hasansezertasan/infra-copilot/issues/60) — until then, finish
+> the flow in one sitting or check the workspace by hand.
+
 Template + rationale for the GCP case: [`../infra-copilot/references/gcp.md`](../infra-copilot/references/gcp.md).
 
 ## Workflow

@@ -5,8 +5,8 @@ description: "Provision something new in an already-bootstrapped infra repo: a m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:40ad26f6b6a5bea902718695af6225d67223815d47d822c8181e6928b7a508cd
-Source-Hash: blake3:fbf2ea6d789d44bee78746a86a2c2f3e715617bb047558ea87b859c615151255
+Content-Hash: blake3:73b15b0399ce48c154b4ee5cdd130bad7df54e32fb0cde13f25c69e0fcf1c626
+Source-Hash: blake3:8c2b3b4ef5793b67e31632dbfc3e14a09ee92a6b710df04ab27eb2085842cb87
 Schema-Version: v1
 -->
 
@@ -94,6 +94,12 @@ GCP is *not* provisioned today (template only). Before any Terraform:
    means visible but unable to queue runs, the shape you get from granting `Read`. Granting
    `Write` to work around it is `UNPROTECTED`.
 5. **First plan** on the new leaf — same proof-of-credentials as setup Phase 4.
+
+> None of steps 2–5 have `steps.yaml` entries; phase 6 holds only `gcp-decision`, whose
+> check is satisfied by the directory existing. So an adoption interrupted part-way reads
+> green and neither `status` nor a later `add` can resume it. Tracked in
+> [#60](https://github.com/hasansezertasan/infra-copilot/issues/60) — until then, finish
+> the flow in one sitting or check the workspace by hand.
 
 Template + rationale for the GCP case: [`../infra-copilot/references/gcp.md`](../infra-copilot/references/gcp.md).
 

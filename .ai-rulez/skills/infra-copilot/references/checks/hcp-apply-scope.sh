@@ -13,9 +13,9 @@
 # token does hold apply rights and the run is confirmable, that probe applies
 # production infrastructure -- the check would cause the thing it detects.
 #
-# Requires $ORG and $hcp_api exported per references/config.md. $REPO is used to
-# tell this repository's workspaces from another repository's in the same
-# organization.
+# Requires $ORG, $hcp_api and $REPO exported per references/config.md. $REPO is not
+# optional: it tells this repository's workspaces from another repository's in the
+# same organization, where both have a terraform/cloudflare working directory.
 #
 # Exit codes:
 #   0  the credential can plan and cannot cause an apply, everywhere it can see
@@ -42,7 +42,10 @@ for tool in curl jq; do
         || cannot_verify "$tool is not on PATH; preflight installs it"
 done
 
-for required in ORG hcp_api; do
+# REPO is required, not optional. Skipping the correlation when it was unset let
+# another repository's workspaces -- same working directory, different repo --
+# satisfy this repo's inventory, which is the exact case the correlation exists for.
+for required in ORG hcp_api REPO; do
     eval "value=\${$required:-}"
     [ -n "$value" ] || cannot_verify "$required is not set; export it per references/config.md"
 done
@@ -158,7 +161,7 @@ while : ; do
         # this repo.
         directory=$(printf '%s' "$entry" | jq -r '.attributes["working-directory"] // empty' 2>/dev/null)
         identifier=$(printf '%s' "$entry" | jq -r '.attributes["vcs-repo"].identifier // empty' 2>/dev/null)
-        if [ -n "$directory" ] && { [ -z "${REPO:-}" ] || [ "$identifier" = "${REPO:-}" ]; }; then
+        if [ -n "$directory" ] && [ "$identifier" = "$REPO" ]; then
             seen_repo_directories="$seen_repo_directories $directory"
         fi
     done
@@ -182,7 +185,7 @@ for leaf in terraform/*/; do
     case " $seen_repo_directories " in
         *" $directory "*) continue ;;
     esac
-    note_unknown "no workspace for $directory is visible to this credential${REPO:+ and connected to $REPO}: either it has no workspace yet, or the credential lacks the Plan grant on it"
+    note_unknown "no workspace for $directory is visible to this credential and connected to $REPO: either it has no workspace yet, or the credential lacks the Plan grant on it"
 done
 
 if [ -n "$broken" ]; then

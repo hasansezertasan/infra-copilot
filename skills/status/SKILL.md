@@ -5,8 +5,8 @@ description: "Read-only health check: runs every step's check across the whole m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7f96a61e322110bebbcb7589894fad8d77f2de34ed3c9bb0f02d4b547b17e5ac
-Source-Hash: blake3:fbf2ea6d789d44bee78746a86a2c2f3e715617bb047558ea87b859c615151255
+Content-Hash: blake3:77b1f1ab6ecd89fe9073587b0d67c93e88fb7e28b4bc19de24a8ef06e7cd9674
+Source-Hash: blake3:8c2b3b4ef5793b67e31632dbfc3e14a09ee92a6b710df04ab27eb2085842cb87
 Schema-Version: v1
 -->
 
@@ -158,7 +158,7 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 | First red step is in… | Run |
 |---|---|
 | `status-check-context` exit 2 (`CANNOT VERIFY`) | **Nothing to fix in the repo.** Report `?` and name the cause — most often `gh auth login`. Do not route to any skill. |
-| `vcs-connect` red **and** `hcp-apply-scope` green | **Not applicable, not broken.** After the plan-only handoff the credential cannot read `/organizations/<org>/oauth-clients`, which is organization-scoped. Phase 1 is already complete; report it as `–` with that reason and do not route to `setup`. Re-verifying needs the user token, and widening the team's organization access would undo `hcp-apply-scope`. |
+| `vcs-connect` exit 2 (`CANNOT VERIFY`) | **Nothing to fix in the repo.** The check is tri-state: after the plan-only handoff the credential cannot read `/organizations/<org>/oauth-clients`, which is organization-scoped, so it falls back to looking for a workspace connected to `$REPO`. A 2 means neither signal was readable. Report `?` and name the cause; do not route to `setup`, and **do not** widen the team's organization access to turn it green — that would undo `hcp-apply-scope`. |
 | `hcp-apply-scope` exit 2 (`CANNOT VERIFY`) | **Nothing to fix in the repo.** Report `?` and name the cause — a missing credential, an unreadable API response, or a managed `terraform/<leaf>/` with no visible workspace. Do not route to any skill; a transient read failure is not setup work. |
 | `hcp-apply-scope` exit 1 (phase 4) | **Nothing — this is credential work, not `setup`.** For `UNPROTECTED`, the agent's credential can apply: provision the plan-only identity in that step's `run`. For `OVER-RESTRICTED`, grant the team the workspace `Plan` permission. For `SPLIT-BRAIN`, re-export `HCP_TOKEN` from the source `terraform` uses. Running `setup` fixes none of these. |
 | `status-check-context` exit 1 (phase 4) | **Nothing — fix it directly**, not via `setup`. For `BLOCKED`, replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keep every other required context, and follow the break-glass sequence ([`../infra-copilot/references/docs/ci.md`](../infra-copilot/references/docs/ci.md#hcp-status-check-context)). For `UNDERPROTECTED`, re-apply `branch_protection.tf` so an HCP context is required again. |

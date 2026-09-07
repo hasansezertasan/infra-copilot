@@ -231,7 +231,7 @@ class HcpApplyScopeTests(unittest.TestCase):
         self.assertIn("no workspaces", result.stderr)
 
     def test_missing_configuration_cannot_be_verified(self) -> None:
-        for variable in ("ORG", "hcp_api"):
+        for variable in ("ORG", "hcp_api", "REPO"):
             with self.subTest(missing=variable):
                 result = self.run_check(env={variable: ""})
                 self.assertEqual(result.returncode, 2, result.stdout)
@@ -396,6 +396,17 @@ class HcpApplyScopeTests(unittest.TestCase):
                 result = self.run_check(env={"hcp_api": endpoint})
                 self.assertEqual(result.returncode, 2, result.stdout)
                 self.assertIn("refusing to send", result.stderr)
+
+    def test_an_unset_repo_cannot_be_verified(self) -> None:
+        """The correlation must not disable itself when REPO is missing.
+
+        Skipping it let another repository's workspaces -- same working directory,
+        different repo -- satisfy this repo's inventory, which is the case the
+        correlation exists for.
+        """
+        result = self.run_check(env={"REPO": ""})
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("REPO", result.stderr)
 
     def test_never_posts_an_apply(self) -> None:
         """A dry POST apply would apply if the credential held the rights."""
