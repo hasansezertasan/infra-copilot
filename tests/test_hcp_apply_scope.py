@@ -101,7 +101,10 @@ class HcpApplyScopeTests(unittest.TestCase):
                 else:
                     environment[key] = value
             return subprocess.run(
-                ["sh", str(SCRIPT)],
+                # Absolute interpreter so PATH controls only the tools under
+                # test. Resolving `sh` through PATH made the missing-tool cases
+                # depend on what the host keeps in /bin.
+                ["/bin/sh", str(SCRIPT)],
                 capture_output=True,
                 text=True,
                 env=environment,
@@ -219,8 +222,11 @@ class HcpApplyScopeTests(unittest.TestCase):
                     stub = bin_dir / present
                     stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
                     stub.chmod(0o755)
-                    # /bin so `sh` itself still resolves.
-                    result = self.run_check(env={"PATH": f"{bin_dir}:/bin"})
+                    # PATH holds only the tool that should be present. An earlier
+                    # version appended /bin, which on Linux supplies both tools --
+                    # so the "removal" removed nothing and CI failed while this
+                    # passed on macOS.
+                    result = self.run_check(env={"PATH": str(bin_dir)})
                     self.assertEqual(result.returncode, 2, result.stdout)
                     self.assertIn(f"{missing} is not on PATH", result.stderr)
 
