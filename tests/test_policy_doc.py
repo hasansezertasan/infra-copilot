@@ -115,6 +115,27 @@ class PolicyDocTests(unittest.TestCase):
             self.assertNotIn(characterisation, self.policy)
         self.assertIn("code.claude.com/docs/en/settings", self.policy)
 
+    def test_does_not_sell_plan_only_as_a_security_boundary(self) -> None:
+        """HCP treats plan as security-equivalent to write.
+
+        A plan runs the configuration's code in the same security context as an
+        apply, with access to workspace variables and state. An earlier version
+        of this page called a plan-only identity "the only enforcing control",
+        which is the exact overstatement the rest of the page argues against.
+        """
+        self.assertIn("equivalent to the write permission", self.policy)
+        self.assertIn("not intended to stop malicious actors", self.policy)
+        self.assertIn("architectural-details/security-model", self.policy)
+        # The claim it replaced must not come back.
+        for overstatement in (
+            "the only enforcing control",
+            "the durable answer for apply",
+        ):
+            self.assertNotIn(overstatement, self.policy)
+
+    def test_keeps_the_sandbox_as_the_only_hostile_actor_boundary(self) -> None:
+        self.assertIn("still the only boundary", self.policy)
+
     def test_records_the_hcp_token_exception_and_the_real_control(self) -> None:
         self.assertIn("credentials.tfrc.json", self.policy)
         self.assertIn("Do not deny the read", self.policy)

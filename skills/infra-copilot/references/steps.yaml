@@ -253,7 +253,10 @@ steps:
     title: Confirm HCP API reachable
     why: Gate — the rest of this skill is HCP API calls.
     run: |
-      export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+      # Same precedence as config.md Step 0. Reading only the credentials file
+      # sent an empty bearer token when TF_TOKEN_app_terraform_io was the only
+      # credential, which hcp-apply-scope's environment route makes a real case.
+      export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
       curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e '.data.id'
     check: 'curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
     produces: verified API access
@@ -422,9 +425,13 @@ steps:
       docs/policy.md works through every host-level permission control and finds
       that none of them constrain this plugin: Bash denies are wrapped by
       `mise exec --`, Read denies do not govern subprocesses, and a Skill deny is
-      reached around by the command. The credential is the only boundary that
-      holds, and `terraform login` mints a user token that can apply anything the
-      operator can. Nothing here applies — setup stops at speculative plans — but
+      reached around by the command. Narrowing the credential is the strongest
+      control left, and `terraform login` mints a user token that can apply
+      anything the operator can. It is not a boundary against a hostile actor:
+      HCP treats plan as security-equivalent to write, because a plan runs the
+      configuration's code with access to workspace variables and state. What it
+      buys is the removal of the direct apply path, so an accidental apply takes
+      deliberate steps. Nothing here applies — setup stops at speculative plans — but
       a repo bootstrapped by this plugin leaves its agent apply rights on
       production until someone narrows them. First step of phase 4, so the plan
       steps that follow already run under the narrowed credential.
@@ -461,11 +468,12 @@ steps:
       `vcs-connect` requires. So this is a one-time handoff after phase 1, not a
       token you swap per command.
 
-      Expect `vcs-connect` to read red afterwards. Its check reads
-      /organizations/<org>/oauth-clients, which is organization-scoped, and team
-      tokens do not inherit organization permissions the way user tokens do. That
-      is the handoff working, not a regression: phase 1 is already done, and it is
-      the phase that legitimately needs the user token.
+`vcs-connect` handles this credential already. Its check reads
+      /organizations/<org>/oauth-clients, which is organization-scoped and
+      unreadable by a team token, so it falls back to looking for a workspace
+      connected to $REPO — the connection actually in use. Expect it to stay
+      green, or to report `?` if neither signal can be read; it will not go red
+      merely because the credential narrowed.
 
       Do NOT grant the team "Manage version control settings" to turn it green.
       That is an organization permission, and organization permissions are the
@@ -475,7 +483,7 @@ steps:
       empty.
     tri_state: true   # exit 2 = could not verify; see protocol.md
     check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
-    produces: an agent credential that cannot change infrastructure
+    produces: an agent credential with no direct apply path (not a boundary against a hostile actor — see docs/policy.md)
     docs: docs/policy.md#a-credential-that-cannot-apply
 
   - id: plan-cloudflare

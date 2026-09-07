@@ -148,9 +148,12 @@ production.
   `curl` cannot reach an endpoint regardless of which command wraps it. This is the only
   boundary for the **filesystem and unrestricted-network** cases — secret files, and any
   request the plugin can compose. It is outside the plugin's control.
-- **A lower-privilege identity**: the durable answer for apply, and the only enforcing
-  control inside this repository's reach. A principal without apply permission on those
-  workspaces cannot apply, whatever command wraps the request. This is not the token phase
+- **A lower-privilege identity**: the strongest control inside this repository's reach,
+  and the right one for the threat this plugin actually has — but **not** a boundary
+  against a hostile actor. A principal without apply permission cannot call apply,
+  whatever command wraps the request, which removes the direct path and stops an accident.
+  It does not contain someone who controls the Terraform configuration: see
+  [what plan-only does not buy](#what-plan-only-does-not-buy). This is not the token phase
   0 mints — see [the HCP token section](#the-hcp-token-what-the-agent-never-sees-secrets-does-and-does-not-cover)
   — so it has to be provisioned deliberately: [A credential that cannot apply](#a-credential-that-cannot-apply).
 
@@ -167,6 +170,28 @@ command runner turns it into a boundary.
 The `hcp-apply-scope` step in [`steps.yaml`](../.ai-rulez/skills/infra-copilot/references/steps.yaml)
 owns this. It is a `HUMAN` step, and it stays red until someone does the work — like
 `gcp-decision`, a red here is a standing to-do rather than a fault.
+
+### What plan-only does not buy
+
+HashiCorp is explicit that this is not a security boundary
+([security model](https://developer.hashicorp.com/terraform/cloud-docs/architectural-details/security-model)):
+
+> It's important to note that, from a security perspective, the plan permission is
+> equivalent to the write permission. The plan permission is provided to protect against
+> accidental Terraform runs but is not intended to stop malicious actors from accessing
+> sensitive data within a workspace or Stack.
+
+Because a plan runs arbitrary code from the configuration in the same security context as
+an apply, with access to the full set of workspace variables and state. Anyone who can
+queue a plan and can influence what is in `terraform/` can read every secret the workspace
+holds and can act with the providers' credentials.
+
+So this control is worth having for exactly the reason the rest of this page gives for
+host permission rules: it raises the cost of an **accident**, and the risk here is a
+confused agent rather than a hostile one. Against a hostile actor — or a compromised
+dependency in the configuration — the sandbox row above is still the only boundary. Do not
+read the section below as "the agent cannot change infrastructure"; read it as "the agent
+has no direct apply path, and an accidental apply now takes deliberate steps".
 
 **The rights are separable.** HCP's workspace permissions distinguish them explicitly: the
 `Plan` permission is "read, queue, and comment on Terraform plans" and excludes apply,
