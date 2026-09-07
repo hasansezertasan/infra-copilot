@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:50ca8be0cfacb5db08dae9c10b7547db01192c706caf9e05fc35e1211ed5b71b
-Source-Hash: blake3:c0b1d5d73e61f55dafcecaa913e8b46851908a06a80b5f1d7dfef30ec5a77d04
+Content-Hash: blake3:640fd8d42f71f8cadf54c76361e4ffb2f77af2b804a7f95cf3366bb9240a59f9
+Source-Hash: blake3:e7ca8841c27b64533d4640f170097091079ec705e1d110dafb62dbbd0d57cf21
 Schema-Version: v1
 -->
 
@@ -71,7 +71,7 @@ is a locked decision — see this repo's `.infra-copilot/decisions.md`.
 ## AGENT — verify
 
 ```sh
-HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
 WS_ID=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/github-org" \
   -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
 

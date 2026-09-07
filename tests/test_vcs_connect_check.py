@@ -30,8 +30,18 @@ MANIFEST = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
 GITHUB_CLIENT = '{"data":[{"attributes":{"service-provider":"github_app"}}]}'
 NO_CLIENT = '{"data":[]}'
 GITLAB_ONLY = '{"data":[{"attributes":{"service-provider":"gitlab"}}]}'
-CONNECTED_WORKSPACE = '{"data":[{"attributes":{"vcs-repo":{"identifier":"acme/infra"}}}]}'
-OTHER_WORKSPACE = '{"data":[{"attributes":{"vcs-repo":{"identifier":"acme/other"}}}]}'
+def workspace(identifier: str, *, github: bool = True, pages: int = 1) -> str:
+    installation = '"github-app-installation-id":"ghi-1"' if github else '"github-app-installation-id":null'
+    return (
+        '{"data":[{"attributes":{"vcs-repo":{"identifier":"%s",%s}}}],'
+        '"meta":{"pagination":{"total-pages":%d}}}' % (identifier, installation, pages)
+    )
+
+
+CONNECTED_WORKSPACE = workspace("acme/infra")
+OTHER_WORKSPACE = workspace("acme/other")
+#: Same owner/name, but connected through a non-GitHub provider.
+NON_GITHUB_WORKSPACE = workspace("acme/infra", github=False)
 
 
 def extract_check() -> str:
@@ -44,7 +54,13 @@ def extract_check() -> str:
 @unittest.skipUnless(os.name == "posix", "the check is POSIX shell")
 class VcsConnectCheckTests(unittest.TestCase):
     def run_check(
-        self, *, code: str, oauth_body: str, workspace_body: str = "{}", repo: str = "acme/infra"
+        self,
+        *,
+        code: str,
+        oauth_body: str,
+        workspace_body: str = "{}",
+        repo: str = "acme/infra",
+        later_pages: dict[int, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
             # Two URLs, two bodies. The stub writes to whatever -o names, which is
@@ -60,7 +76,15 @@ class VcsConnectCheckTests(unittest.TestCase):
                 "done\n"
                 'case "$url" in\n'
                 f'  *oauth-clients*) body={oauth_body!r}; printf "%s" "$body" > "${{out:-/dev/stdout}}"; printf "%s" {code!r} ;;\n'
-                f'  *workspaces*) body={workspace_body!r};\n'
+                f'  *workspaces*)\n'
+                f'    page=1\n'
+                f'    for a in "$@"; do case "$a" in *page%5Bnumber%5D=*) page=${{a##*page%5Bnumber%5D=}}; page=${{page%%&*}} ;; esac; done\n'
+                + "".join(
+                    f'    [ "$page" != {number} ] || body={page_body!r}\n'
+                    for number, page_body in (later_pages or {}).items()
+                )
+                + f'    [ "$page" = 1 ] && body={workspace_body!r} || true\n'
+                f'    [ "${{body:-}}" != "" ] || body={workspace_body!r}\n'
                 f'    [ {workspace_body!r} != "{{}}" ] || exit 22\n'
                 '    if [ -n "$out" ]; then printf "%s" "$body" > "$out"; else printf "%s" "$body"; fi ;;\n'
                 '  *) echo "unstubbed: $url" >&2; exit 99 ;;\n'
@@ -135,6 +159,37 @@ class VcsConnectCheckTests(unittest.TestCase):
                 result = self.run_check(code="200", oauth_body=body)
                 self.assertEqual(result.returncode, 2, result.stdout)
                 self.assertIn("could not be parsed", result.stderr)
+
+    def test_a_matching_workspace_on_a_non_github_provider_is_not_evidence(self) -> None:
+        """An organization can hold a GitLab workspace with the same owner/name.
+
+        A bare identifier match would pass while GitHub speculative plans stayed
+        disconnected, contradicting the step's provider invariant.
+        """
+        result = self.run_check(
+            code="403", oauth_body="{}", workspace_body=NON_GITHUB_WORKSPACE
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("GitHub-connected", result.stderr)
+
+    def test_the_fallback_follows_pagination(self) -> None:
+        """The workspace may sit past the first page of a large organization."""
+        result = self.run_check(
+            code="403",
+            oauth_body="{}",
+            workspace_body=workspace("acme/other", pages=2),
+            later_pages={2: workspace("acme/infra", pages=2)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_the_fallback_stops_when_pagination_is_unreadable(self) -> None:
+        result = self.run_check(
+            code="403",
+            oauth_body="{}",
+            workspace_body='{"data":[],"meta":{"pagination":{"total-pages":"lots"}}}',
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("total-pages", result.stderr)
 
     def test_a_server_error_cannot_be_verified(self) -> None:
         result = self.run_check(code="500", oauth_body="{}")

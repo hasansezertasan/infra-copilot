@@ -38,7 +38,7 @@
 #     export REPO=<managed_repos[0]>
 #     export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
 #     export hcp_api=https://app.terraform.io/api/v2
-#     export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+#     export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
 # Preflight exports TERRAFORM_VERSION from the validated repository pin before any
 # Phase 1 workspace check or run uses it.
 # Never guess or invent these values — if the config file is missing, treat it as a
@@ -309,13 +309,30 @@ steps:
       # same fact anyway -- it is the connection actually being used -- and it is
       # workspace-scoped, so the narrowed credential can read it. Only available once
       # workspaces exist, which on a resume they do.
-      curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100" \
-        -H "Authorization: Bearer $HCP_TOKEN" >"$body" \
-        || { echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code) and the workspace list could not be read either" >&2; exit 2; }
-      jq -e --arg repo "${REPO:-}" \
-        '[.data[] | select(.attributes["vcs-repo"].identifier == $repo)] | length > 0' \
-        "$body" >/dev/null \
-        || { echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code), and no workspace connected to ${REPO:-<REPO unset>} is visible; if the plan-only identity is in use, phase 1 was verified under the user token" >&2; exit 2; }
+      page=1
+      while : ; do
+        curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
+          -H "Authorization: Bearer $HCP_TOKEN" >"$body" \
+          || { echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code) and page $page of the workspace list could not be read either" >&2; exit 2; }
+        # A GitHub App installation id is what makes this evidence GitHub-specific.
+        # An organization can hold a GitLab or Bitbucket workspace with the same
+        # owner/name identifier, and that would satisfy a bare identifier match
+        # while GitHub speculative plans stayed disconnected.
+        if jq -e --arg repo "${REPO:-}" \
+             '[.data[] | select(.attributes["vcs-repo"].identifier == $repo)
+                       | select(.attributes["vcs-repo"]["github-app-installation-id"] != null)]
+              | length > 0' "$body" >/dev/null 2>&1; then
+          exit 0
+        fi
+        pages=$(jq -er '.meta.pagination["total-pages"]
+                        | if type == "number" and . == floor and . > 0
+                          then (floor | tostring) else empty end' "$body" 2>/dev/null) \
+          || { echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code), and the workspace list carried no positive-integer total-pages so later pages could not be reached" >&2; exit 2; }
+        [ "$page" -lt "$pages" ] || break
+        page=$((page + 1))
+      done
+      echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code), and no GitHub-connected workspace for ${REPO:-<REPO unset>} is visible; if the plan-only identity is in use, phase 1 was verified under the user token" >&2
+      exit 2
     produces: GitHub<->HCP OAuth connection
     docs: docs/setup.md#2-hcp-terraform--workspaces
 
@@ -468,7 +485,7 @@ steps:
       `vcs-connect` requires. So this is a one-time handoff after phase 1, not a
       token you swap per command.
 
-`vcs-connect` handles this credential already. Its check reads
+      `vcs-connect` handles this credential already. Its check reads
       /organizations/<org>/oauth-clients, which is organization-scoped and
       unreadable by a team token, so it falls back to looking for a workspace
       connected to $REPO — the connection actually in use. Expect it to stay

@@ -48,7 +48,7 @@ The value is redacted, so the agent verifies presence + `sensitive == true`, the
 the token with a plan:
 
 ```sh
-HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
 WS_ID=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/cloudflare" \
   -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
 

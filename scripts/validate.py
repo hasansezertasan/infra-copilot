@@ -1150,6 +1150,76 @@ def validate_versions(root: Path = ROOT) -> list[str]:
     return errors
 
 
+#: Keys the manifest is allowed to declare at column zero. Anything else there is a
+#: block scalar that lost its indentation, which silently changes what the document
+#: means -- see validate_manifest_shape.
+MANIFEST_TOP_LEVEL_KEYS = ("org", "domain", "hcp_api", "preflight", "steps")
+
+
+#: The credential terraform itself prefers. Every place the shipped guidance
+#: derives HCP_TOKEN has to follow the same order, or a repo using the
+#: environment route gets an empty bearer token -- or worse, a stale
+#: apply-capable one from a file that should no longer matter.
+TOKEN_FILE_DERIVATION = "HCP_TOKEN=$(jq"
+
+
+def validate_token_resolution(root: Path = ROOT) -> list[str]:
+    """No shipped source may derive HCP_TOKEN from the credentials file alone.
+
+    Six documents did, and each was found separately over three review rounds:
+    Step 0, docs/state.md, hcp-verify, then hcp.md twice, cloudflare.md,
+    github.md, docs/hcp-api.md and the manifest's own comment. This makes the
+    seventh a test failure rather than another round.
+    """
+    root = root / ".ai-rulez/skills"
+    return [
+        f"{path.relative_to(root.parent.parent)}:{number}: derives HCP_TOKEN from the "
+        "credentials file alone; use ${TF_TOKEN_app_terraform_io:-...} as config.md does"
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and path.suffix in {".md", ".yaml", ".sh"}
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+        )
+        if TOKEN_FILE_DERIVATION in line.replace(" ", "")
+        and "TF_TOKEN_app_terraform_io" not in line
+    ]
+
+
+def validate_manifest_shape(root: Path = ROOT) -> list[str]:
+    """Reject a column-zero line the manifest does not permit there.
+
+    Nothing in this repository parses steps.yaml as YAML: ai-rulez copies it
+    verbatim and the tests read it as text, so a broken document passed every
+    check. A `run: |` paragraph that lost its leading spaces terminated the
+    scalar and left a bare token at the document root -- the authoritative phase
+    manifest stopped parsing and `make check` stayed green.
+
+    This is a shape check, not a parser. It catches the class that actually
+    happens when editing this file: content escaping a block scalar. Adding a
+    real YAML parser would mean a new runtime dependency for one file.
+    """
+    errors: list[str] = []
+    for relative in (
+        ".ai-rulez/skills/infra-copilot/references/steps.yaml",
+        "skills/infra-copilot/references/steps.yaml",
+    ):
+        text = read_document(root / relative)
+        if text is None:
+            errors.append(f"{relative}: unreadable, cannot check manifest shape")
+            continue
+        for number, line in enumerate(text.splitlines(), start=1):
+            if not line or line[:1].isspace() or line.startswith("#"):
+                continue
+            key = line.split(":", 1)[0]
+            if key in MANIFEST_TOP_LEVEL_KEYS:
+                continue
+            errors.append(
+                f"{relative}:{number}: {line.strip()[:60]!r} starts at column 0 but is "
+                "not a top-level key; a block scalar has lost its indentation"
+            )
+    return errors
+
+
 def validate_layout() -> list[str]:
     required = (
         "Makefile",
@@ -1211,6 +1281,8 @@ def main() -> int:
         *validate_description_budget(),
         *validate_config_fallbacks(),
         *validate_customization_markers(),
+        *validate_manifest_shape(),
+        *validate_token_resolution(),
         *validate_phase_five_rule(),
         *validate_toolchain_contract(),
         *validate_shipped_check_paths(),

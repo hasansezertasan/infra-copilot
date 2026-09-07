@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:b30364e826e354e096deb7d1e25db8e6f87bbb4f8ec6cbfff4a1bd2873ec3664
-Source-Hash: blake3:c0b1d5d73e61f55dafcecaa913e8b46851908a06a80b5f1d7dfef30ec5a77d04
+Content-Hash: blake3:8cd6e4db30b29a45c56e5c7c358bf073ce10df926acd0968e90ad6e4c2886777
+Source-Hash: blake3:e7ca8841c27b64533d4640f170097091079ec705e1d110dafb62dbbd0d57cf21
 Schema-Version: v1
 -->
 
@@ -55,7 +55,7 @@ The value is redacted, so the agent verifies presence + `sensitive == true`, the
 the token with a plan:
 
 ```sh
-HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
 WS_ID=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/cloudflare" \
   -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
 

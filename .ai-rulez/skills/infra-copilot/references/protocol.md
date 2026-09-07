@@ -189,8 +189,15 @@ instead of creating them.
 Then detect the credential the whole flow pivots on:
 
 ```sh
-jq -e '.credentials["app.terraform.io"].token | strings | length > 0' \
-  ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1 \
-  && echo "HCP token present — agent can drive the API" \
-  || echo "No HCP token yet — the first HUMAN step will mint one"
+# Either source, in terraform's precedence order — see config.md Step 0. A
+# file-only test reports "no token" for anyone using TF_TOKEN_app_terraform_io,
+# which is the route hcp-apply-scope's plan-only handoff may leave in place.
+if [ -n "${TF_TOKEN_app_terraform_io:-}" ] \
+  || jq -e '.credentials["app.terraform.io"].token | strings | length > 0' \
+       ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1
+then
+  echo "HCP token present — agent can drive the API"
+else
+  echo "No HCP token yet — the first HUMAN step will mint one"
+fi
 ```

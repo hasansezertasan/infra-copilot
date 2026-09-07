@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:0d664e1fae72eaffbfd2cc007c22d8c387d8c63306a51382e0a1a3761a45260b
-Source-Hash: blake3:c0b1d5d73e61f55dafcecaa913e8b46851908a06a80b5f1d7dfef30ec5a77d04
+Content-Hash: blake3:4943242ee394ca04443214831fbcf11870648898458281e1a9b4e335a68ce21b
+Source-Hash: blake3:e7ca8841c27b64533d4640f170097091079ec705e1d110dafb62dbbd0d57cf21
 Schema-Version: v1
 -->
 
@@ -15,7 +15,7 @@ The HCP REST API is the same surface the UI uses. Everything in this repo's day-
 `terraform login` deposits a user API token at `~/.terraform.d/credentials.tfrc.json`. That token is what authenticates every snippet below.
 
 ```sh
-HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
 H_AUTH="Authorization: Bearer $HCP_TOKEN"
 H_TYPE="Content-Type: application/vnd.api+json"
 ```

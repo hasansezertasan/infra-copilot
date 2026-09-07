@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:f8668211d4a8f26cf18aed1412516c28ed6a737c71e82ff378e44cde4042ebd3
-Source-Hash: blake3:c0b1d5d73e61f55dafcecaa913e8b46851908a06a80b5f1d7dfef30ec5a77d04
+Content-Hash: blake3:07721435f6886146285734e0f05b572fbf91cd1309206a99cee8c97384b0d794
+Source-Hash: blake3:e7ca8841c27b64533d4640f170097091079ec705e1d110dafb62dbbd0d57cf21
 Schema-Version: v1
 -->
 
@@ -196,8 +196,15 @@ instead of creating them.
 Then detect the credential the whole flow pivots on:
 
 ```sh
-jq -e '.credentials["app.terraform.io"].token | strings | length > 0' \
-  ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1 \
-  && echo "HCP token present — agent can drive the API" \
-  || echo "No HCP token yet — the first HUMAN step will mint one"
+# Either source, in terraform's precedence order — see config.md Step 0. A
+# file-only test reports "no token" for anyone using TF_TOKEN_app_terraform_io,
+# which is the route hcp-apply-scope's plan-only handoff may leave in place.
+if [ -n "${TF_TOKEN_app_terraform_io:-}" ] \
+  || jq -e '.credentials["app.terraform.io"].token | strings | length > 0' \
+       ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1
+then
+  echo "HCP token present — agent can drive the API"
+else
+  echo "No HCP token yet — the first HUMAN step will mint one"
+fi
 ```

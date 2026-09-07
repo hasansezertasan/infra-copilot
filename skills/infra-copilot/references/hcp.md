@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:91e14353729f95e844f91db35bd5810f16c56493232af034ccb9569fe059765a
-Source-Hash: blake3:c0b1d5d73e61f55dafcecaa913e8b46851908a06a80b5f1d7dfef30ec5a77d04
+Content-Hash: blake3:c0c406f0381c5f6ac2861b5637d779a2349f18011a869956db0cfb729c8d58fb
+Source-Hash: blake3:e7ca8841c27b64533d4640f170097091079ec705e1d110dafb62dbbd0d57cf21
 Schema-Version: v1
 -->
 
@@ -29,7 +29,7 @@ The only unavoidable cold-start. Produces the HCP token that lets the agent scri
 
   ```sh
   # $ORG sourced from config — see config.md
-  HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+  HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
   curl -sf "https://app.terraform.io/api/v2/organizations/$ORG" \
     -H "Authorization: Bearer $HCP_TOKEN" | jq -e '.data.id' \
     && echo "✓ HCP org reachable"
@@ -58,7 +58,7 @@ GitHub↔HCP OAuth connection (browser).
   HTTP status surfaces as an error instead of a silent `jq` crash:
 
   ```sh
-  export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+  export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
   # $ORG, $REPO sourced from config — see config.md
   : "${ORG:?run Step 0 (read config) first}"
   : "${REPO:?run Step 0 (read config) first}"   # the repo HCP watches via VCS

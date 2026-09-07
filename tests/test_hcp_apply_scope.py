@@ -49,6 +49,7 @@ class HcpApplyScopeTests(unittest.TestCase):
         repo: str = "acme/infra",
         pagination: object = 1,
         fail_after_page: int | None = None,
+        empty_after_page: int | None = None,
         body: str | None = None,
         env: dict[str, str] | None = None,
         curl_fails: bool = False,
@@ -90,35 +91,36 @@ class HcpApplyScopeTests(unittest.TestCase):
 
             bin_dir = Path(directory) / "bin"
             bin_dir.mkdir()
+            # One readable stub: work out the page, then choose a body. Earlier
+            # versions inlined the page arithmetic into nested `for`/`case` one
+            # liners and got it wrong twice -- once reading "-sf" as the page
+            # number, once failing to write the empty-page body at all.
+            empty_body = '{"data":[],"meta":{"pagination":{"total-pages":9}}}'
             stub = [
                 "#!/bin/sh",
-                # -sf makes real curl exit non-zero on HTTP errors; the script keys
-                # off that to report CANNOT VERIFY rather than a verdict.
                 "exit 22" if curl_fails else "",
-                # Fails on a later page when asked, so a mid-scan read failure is
-                # exercised rather than assumed. Per-argument: an earlier version
-                # expanded $* and picked up "-sf" as the page number.
-                (
-                    "for a in \"$@\"; do\n"
-                    "  case \"$a\" in\n"
-                    "    *page%5Bnumber%5D=*)\n"
-                    "      p=${a##*page%5Bnumber%5D=}\n"
-                    "      p=${p%%&*}\n"
-                    f"      [ \"$p\" -le {fail_after_page} ] || exit 22\n"
-                    "      ;;\n"
-                    "  esac\n"
-                    "done"
-                )
+                'out=""; page=1; prev=""',
+                'for a in "$@"; do',
+                '  case "$prev" in -o) out="$a" ;; esac',
+                '  case "$a" in',
+                "    *page%5Bnumber%5D=*)",
+                "      page=${a##*page%5Bnumber%5D=}",
+                "      page=${page%%&*}",
+                "      ;;",
+                # Any URL this stub does not recognise is a bug in the test, not
+                # a pass: an earlier harness in this repo silently stopped
+                # matching and the tests kept passing.
+                '    http*) case "$a" in *organizations/*/workspaces*) : ;; *) echo "unstubbed URL: $a" >&2; exit 99 ;; esac ;;',
+                "  esac",
+                '  prev="$a"',
+                "done",
+                f'if [ "$page" -gt {fail_after_page} ]; then exit 22; fi'
                 if fail_after_page is not None
                 else "",
-                'for arg in "$@"; do case "$arg" in',
-                f"    *organizations/*/workspaces*) printf '%s' {json.dumps(body)!s} ;;",
-                # Any URL the cases do not match is a bug in the test, not a pass.
-                # An earlier harness in this repo silently stopped matching and the
-                # tests kept passing.
-                '    http*) echo "unstubbed URL: $arg" >&2; exit 99 ;;',
-                "esac; done",
-                "exit 0",
+                f'if [ "$page" -gt {empty_after_page} ]; then body={empty_body!r}; else body={body!r}; fi'
+                if empty_after_page is not None
+                else f"body={body!r}",
+                'if [ -n "$out" ]; then printf \'%s\' "$body" > "$out"; else printf \'%s\' "$body"; fi',
             ]
             curl = bin_dir / "curl"
             curl.write_text("\n".join(stub) + "\n", encoding="utf-8")
@@ -484,6 +486,24 @@ class HcpApplyScopeTests(unittest.TestCase):
         result = self.run_check(env={"REPO": ""})
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("REPO", result.stderr)
+
+    def test_an_empty_later_page_is_uncertain(self) -> None:
+        """The set can shift between requests.
+
+        Deleting an early workspace moves an entry back across the page
+        boundary, so an empty later page means something may never have been
+        inspected. Breaking silently would exit 0 on a partial scan.
+        """
+        result = self.run_check(pagination=3, empty_after_page=1)
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("changed mid-scan", result.stderr)
+
+    def test_an_empty_first_page_is_not_a_mid_scan_change(self) -> None:
+        """No workspaces at all is its own message, not a shifting list."""
+        result = self.run_check(workspaces=[], leaves=[])
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("no workspaces", result.stderr)
+        self.assertNotIn("changed mid-scan", result.stderr)
 
     def test_never_posts_an_apply(self) -> None:
         """A dry POST apply would apply if the credential held the rights."""

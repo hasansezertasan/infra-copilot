@@ -64,7 +64,7 @@ is a locked decision — see this repo's `.infra-copilot/decisions.md`.
 ## AGENT — verify
 
 ```sh
-HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
 WS_ID=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/github-org" \
   -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
 

@@ -123,7 +123,14 @@ while : ; do
         note_unknown "page $page of the workspace list for $ORG was not the expected JSON"
         break
     fi
-    [ "$count" -gt 0 ] 2>/dev/null || break
+    if [ "$count" -eq 0 ] 2>/dev/null; then
+        # An empty first page means no workspaces. An empty later page means the
+        # set shifted between requests -- deleting an early workspace moves an
+        # entry back across the boundary -- so something may never have been
+        # inspected. Breaking silently would exit 0 on a partial scan.
+        [ "$page" -eq 1 ] || note_unknown "page $page of $ORG came back empty although earlier pages were full, so the workspace list changed mid-scan and some may not have been inspected"
+        break
+    fi
 
     index=0
     while [ "$index" -lt "$count" ]; do
