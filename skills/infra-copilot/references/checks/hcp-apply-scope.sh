@@ -47,6 +47,12 @@ for required in ORG hcp_api; do
     [ -n "$value" ] || cannot_verify "$required is not set; export it per references/config.md"
 done
 
+# Checked before the credential is resolved, let alone sent. $hcp_api comes from a
+# repo-local config file, so an edited or mistyped value would put a bearer token in
+# a request to an arbitrary host -- over plaintext if the scheme were http.
+[ "$hcp_api" = "https://app.terraform.io/api/v2" ] \
+    || cannot_verify "\$hcp_api is '$hcp_api', not https://app.terraform.io/api/v2; refusing to send an HCP credential to an unexpected endpoint"
+
 broken=""   # definite verdicts
 unknown=""  # evidence that could not be read
 

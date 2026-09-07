@@ -71,7 +71,7 @@ GCP is *not* provisioned today (template only). Before any Terraform:
    `create_ws` is organization-scoped, and the plan-only team token deliberately holds no
    organization permissions, so **the agent's credential cannot create a workspace**. A
    human runs this with the user token — or an organization token — then grants the team
-   `Plan` on it in step 3 below. Do not widen the team's permissions to make the agent able
+   `Plan` on it in step 4 below. Do not widen the team's permissions to make the agent able
    to do it: that hands back the apply rights `hcp-apply-scope` exists to remove.
 3. **Credential** — mint the provider's scoped token/service-account key (`HUMAN`) and
    paste it into the new workspace's variables (`HUMAN`, sensitive). The agent verifies via
@@ -82,8 +82,10 @@ GCP is *not* provisioned today (template only). Before any Terraform:
    `Write`. Until this is done, `hcp-apply-scope` reports `CANNOT VERIFY` for the new leaf
    rather than a false pass, because a workspace the credential cannot see is
    indistinguishable from one that does not exist. `hcp-apply-scope` derives its workspace set
-   from the API, so it reports the gap either way — as `OVER-RESTRICTED` if the grant is
-   missing, or `UNPROTECTED` if someone grants `Write` to work around it.
+   from the API, so it reports the gap either way. Without the grant the workspace is
+   invisible to the credential, which is `CANNOT VERIFY` — not `OVER-RESTRICTED`, which
+   means visible but unable to queue runs, the shape you get from granting `Read`. Granting
+   `Write` to work around it is `UNPROTECTED`.
 5. **First plan** on the new leaf — same proof-of-credentials as setup Phase 4.
 
 Template + rationale for the GCP case: [`../infra-copilot/references/gcp.md`](../infra-copilot/references/gcp.md).

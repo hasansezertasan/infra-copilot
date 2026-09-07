@@ -420,11 +420,18 @@ steps:
       `vcs-connect` requires. So this is a one-time handoff after phase 1, not a
       token you swap per command.
 
-      One read is unverified against a live organization: `hcp-verify` reads
-      /organizations/<org>/oauth-clients, which is org-scoped, and team tokens do
-      not inherit organization permissions the way user tokens do. If that check
-      turns red under the team token, grant the team "Manage version control
-      settings" or re-run phase-0 verification with the user token.
+      Expect `vcs-connect` to read red afterwards. Its check reads
+      /organizations/<org>/oauth-clients, which is organization-scoped, and team
+      tokens do not inherit organization permissions the way user tokens do. That
+      is the handoff working, not a regression: phase 1 is already done, and it is
+      the phase that legitimately needs the user token.
+
+      Do NOT grant the team "Manage version control settings" to turn it green.
+      That is an organization permission, and organization permissions are the
+      self-elevation risk this whole step exists to avoid — a team that can
+      administer VCS settings is a team that can be given more. Re-verify phase 1
+      with the user token if you need to, and leave the team's organization access
+      empty.
     tri_state: true   # exit 2 = could not verify; see protocol.md
     check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
     produces: an agent credential that cannot change infrastructure

@@ -380,6 +380,23 @@ class HcpApplyScopeTests(unittest.TestCase):
         self.assertIn("terraform/cloudflare", result.stderr)
         self.assertIn("acme/infra", result.stderr)
 
+    def test_an_unexpected_api_endpoint_is_refused_before_any_request(self) -> None:
+        """$hcp_api comes from a repo-local file, so it is not trusted input.
+
+        The refusal must happen before the credential is resolved or sent, so the
+        stub curl exits 99 on any URL it does not recognise and would surface a
+        request that slipped through.
+        """
+        for endpoint in (
+            "http://app.terraform.io/api/v2",
+            "https://evil.example/api/v2",
+            "https://app.terraform.io/api/v2/",
+        ):
+            with self.subTest(endpoint=endpoint):
+                result = self.run_check(env={"hcp_api": endpoint})
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertIn("refusing to send", result.stderr)
+
     def test_never_posts_an_apply(self) -> None:
         """A dry POST apply would apply if the credential held the rights."""
         # Comments excluded: the header explains at length why it does not POST,
