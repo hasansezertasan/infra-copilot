@@ -186,9 +186,27 @@ Everything after phase 1 — `status`, plan verification, day-2 work — is wher
 plan-only token belongs. Anyone reading this as "replace the token in phase 0" will find
 the VCS connect fails.
 
-**How the step proves it.** It reads each workspace and inspects the `permissions` block
-HCP returns, which reports the calling token's own effective rights, and requires
-`can-queue-run` true with `can-queue-apply` false.
+**It is the credential terraform uses, not `HCP_TOKEN`.** This distinction sank the first
+version of the step. `terraform` never reads `HCP_TOKEN` — that variable exists only for
+this plugin's own `curl` calls. Terraform reads `TF_TOKEN_app_terraform_io`, or failing
+that `~/.terraform.d/credentials.tfrc.json`, and [the environment variable takes
+precedence](https://developer.hashicorp.com/terraform/cli/config/config-file). So a
+plan-only `HCP_TOKEN` sitting beside an apply-capable credentials file leaves the
+Terraform CLI completely unconstrained — the primary path by which anything here would
+apply. The narrowed token has to replace the one in that credential source. Doing it that
+way also makes it durable: `config.md`'s Step 0 derives `HCP_TOKEN` from the same file, so
+every later run picks up the plan-only token with no per-phase selection logic.
+
+**How the step proves it.** It resolves the credential in terraform's own order, then
+lists the workspaces that credential can see and reads the `permissions` block HCP returns
+for each, requiring `can-queue-run` true with `can-queue-apply` false. Deriving the
+workspace set from the API rather than hardcoding `cloudflare` and `github-org` means
+workspaces the `add` workflow creates later are covered too — and because a team token
+lists only the workspaces its team may access, that set is exactly the right scope.
+
+If `HCP_TOKEN` is set and is *not* the credential terraform would use, the check fails
+with `SPLIT-BRAIN` rather than passing. Two identities means verifying one says nothing
+about the other.
 
 It deliberately does **not** send a dry `POST /runs/<id>/actions/apply` and check for a
 `403`. That probe was the obvious design and it is unsafe: if the token does hold apply

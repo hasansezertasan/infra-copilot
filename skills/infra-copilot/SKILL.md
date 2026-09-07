@@ -6,7 +6,7 @@ description: "Route infrastructure work to the correct infra-copilot workflow: s
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:8c4f82b1a117faa49a14b38a822c11c6c1128e273b76d43dd01f4d62c57c5662
-Source-Hash: blake3:a1c5d4e1dc7a4ef596a313e0af97a27f492152e7f27119f9b020c27cd9fbaae8
+Source-Hash: blake3:701b6aee56416c6a6656b878905af1f46b1aa58ffc02b815abd2d9a312ed738e
 Schema-Version: v1
 -->
 

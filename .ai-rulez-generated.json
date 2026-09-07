@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:a1c5d4e1dc7a4ef596a313e0af97a27f492152e7f27119f9b020c27cd9fbaae8",
+  "source_hash": "blake3:701b6aee56416c6a6656b878905af1f46b1aa58ffc02b815abd2d9a312ed738e",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -24,7 +24,7 @@
       "content_hash": "blake3:49ac5b0da06f1eb0af226bc68306b4cd8e17a1aa9810266ffc31bf78ee4d0889"
     },
     "skills/add/SKILL.md": {
-      "content_hash": "blake3:28e2b2c68044a9b601cf3c591873117c7a9ab1af3f6153c01c297ea40b5a65a2"
+      "content_hash": "blake3:679e4187cef154687ad37f3e9e38038a35c9a5a96622de9f8e841c4b41a1d310"
     },
     "skills/import/SKILL.md": {
       "content_hash": "blake3:4309ffc2ca05c4407237902ad5aa8f640af54052d61b10c54f0d13f1a4ae0c81"
@@ -33,7 +33,7 @@
       "content_hash": "blake3:8c4f82b1a117faa49a14b38a822c11c6c1128e273b76d43dd01f4d62c57c5662"
     },
     "skills/infra-copilot/references/checks/hcp-apply-scope.sh": {
-      "content_hash": "blake3:32a8dff037abfb066e8cfd540a300e059a2edec0bc11b32941941daa907b652d"
+      "content_hash": "blake3:08ab1b9a1d517be79310254a77f10c7c8ee335d2da09a3db2f5be2c079c78b17"
     },
     "skills/infra-copilot/references/checks/status-check-context.sh": {
       "content_hash": "blake3:7b43a11dc33a9af654fac6bf546ea73c9b4ff7d312cef74cd15f2591948de7be"
@@ -84,13 +84,13 @@
       "content_hash": "blake3:f8668211d4a8f26cf18aed1412516c28ed6a737c71e82ff378e44cde4042ebd3"
     },
     "skills/infra-copilot/references/steps.yaml": {
-      "content_hash": "blake3:4502e20801fd74d663e0cf2970137a6f80fa222f27ecf7294c00fa5d7969c43c"
+      "content_hash": "blake3:5968e7ae1f7511f41e68a9f792a8c34ac5e10073b204fe99c85d9aeca75bc86d"
     },
     "skills/setup/SKILL.md": {
       "content_hash": "blake3:fb26470eec39a89de4f1a64a5b8f17d91c8dfa2b756a992a219b421c5d023c8d"
     },
     "skills/status/SKILL.md": {
-      "content_hash": "blake3:77d4af6ac5a9b212b7c4984f3f6d021736e8a0683f53e8a4f24000f8adc59456"
+      "content_hash": "blake3:6ae7e50455e8917a47ec4ed24dedef9560c41b5a984fc156df38d448530520c6"
     }
   }
 }

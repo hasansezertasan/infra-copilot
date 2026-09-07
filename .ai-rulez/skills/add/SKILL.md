@@ -70,7 +70,13 @@ GCP is *not* provisioned today (template only). Before any Terraform:
 3. **Credential** — mint the provider's scoped token/service-account key (`HUMAN`) and
    paste it into the new workspace's variables (`HUMAN`, sensitive). The agent verifies via
    the vars API, never sees the plaintext.
-4. **First plan** on the new leaf — same proof-of-credentials as setup Phase 4.
+4. **Grant the plan-only team access** (`HUMAN`) — if `hcp-apply-scope` has been done,
+   the agent's credential is a team token with `Plan` on the *existing* workspaces only,
+   so it cannot queue a run on this one. Add `Plan` for that team on the new workspace
+   before the first plan, and never `Write`. `hcp-apply-scope` derives its workspace set
+   from the API, so it reports the gap either way — as `OVER-RESTRICTED` if the grant is
+   missing, or `UNPROTECTED` if someone grants `Write` to work around it.
+5. **First plan** on the new leaf — same proof-of-credentials as setup Phase 4.
 
 Template + rationale for the GCP case: [`../infra-copilot/references/gcp.md`](../infra-copilot/references/gcp.md).
 

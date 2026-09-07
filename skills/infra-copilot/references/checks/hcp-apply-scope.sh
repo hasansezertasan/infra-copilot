@@ -1,67 +1,140 @@
 #!/bin/sh
-# Assert that the HCP token in the agent's environment can queue plans but CANNOT
-# apply them. docs/policy.md works through every host-level control and finds that
-# only two things enforce anything; this is the one inside the repository's control.
+# Assert that the HCP credential this repo's tooling would use can queue plans but
+# CANNOT apply them. docs/policy.md works through every host-level control and finds
+# that only two things enforce anything; this is the one inside the repo's control.
 #
-# Read-only. It reads each workspace and inspects the `permissions` block HCP
-# returns, which reports the *calling token's* effective rights on that workspace.
+# It checks the credential TERRAFORM would use, not $HCP_TOKEN. That distinction is
+# the whole point: `terraform` never reads $HCP_TOKEN. It reads
+# TF_TOKEN_app_terraform_io, or failing that ~/.terraform.d/credentials.tfrc.json,
+# and the env var takes precedence. An earlier version of this check verified
+# $HCP_TOKEN alone, which proved nothing about an apply started through the
+# Terraform CLI -- the primary way anything here would apply. If the two differ, that is itself the finding: one of
+# them is unverified, so neither result means anything.
 #
-# Deliberately NOT a dry `POST /runs/<id>/actions/apply`. That was the obvious
-# probe and it is unsafe: if the token turns out to hold apply rights and the run
-# is confirmable, the probe applies production infrastructure — the check would
-# cause the thing it exists to detect. A read of the permissions block is direct
-# evidence of the same fact and cannot change anything.
+# Read-only. It lists the workspaces the credential can see and inspects the
+# `permissions` block HCP returns, which reports the calling token's own effective
+# rights.
 #
-# Requires $ORG, $HCP_TOKEN and $hcp_api exported per references/config.md.
+# Deliberately NOT a dry `POST /runs/<id>/actions/apply`. That probe is unsafe: if
+# the token does hold apply rights and the run is confirmable, it applies production
+# infrastructure -- the check would cause the thing it exists to detect.
+#
+# Requires $ORG and $hcp_api exported per references/config.md.
 #
 # Exit codes:
-#   0  the token can plan and cannot apply, on every workspace checked
+#   0  the credential can plan and cannot apply, on every workspace it can see
 #   1  invariant BROKEN — a real verdict about the credential:
-#        UNPROTECTED    the token can apply, so nothing constrains it
-#        OVER-RESTRICTED the token cannot queue plans, so the plugin cannot work
-#   2  COULD NOT VERIFY — missing config, an API read failed, or HCP returned no
-#      permissions block. Distinct from 1 on purpose: an unreadable check proves
-#      nothing about the credential and must never send anyone into a recovery
-#      flow. The shared resume protocol must not execute this step's `run` on a 2.
+#        UNPROTECTED     it can apply some workspace
+#        OVER-RESTRICTED it cannot queue runs on some workspace
+#        SPLIT-BRAIN     $HCP_TOKEN and terraform's credential are different tokens
+#   2  COULD NOT VERIFY — missing config, no credential found, jq or curl missing,
+#      an API read failed, or HCP returned no usable permissions block. Distinct
+#      from 1 on purpose: an unreadable check proves nothing about the credential
+#      and must never send anyone into a recovery flow. The shared resume protocol
+#      must not execute this step's `run` on a 2.
 set -u
 
 fail() { echo "$1" >&2; exit 1; }
 cannot_verify() { echo "CANNOT VERIFY: $1" >&2; exit 2; }
 
-for required in ORG HCP_TOKEN hcp_api; do
+for tool in curl jq; do
+    command -v "$tool" >/dev/null 2>&1 \
+        || cannot_verify "$tool is not on PATH; preflight installs it"
+done
+
+for required in ORG hcp_api; do
     eval "value=\${$required:-}"
     [ -n "$value" ] || cannot_verify "$required is not set; export it per references/config.md"
 done
 
+# Resolve the credential terraform itself would use, in terraform's own order.
+credentials="${HOME:-}/.terraform.d/credentials.tfrc.json"
+if [ -n "${TF_TOKEN_app_terraform_io:-}" ]; then
+    token=$TF_TOKEN_app_terraform_io
+    source_description="TF_TOKEN_app_terraform_io"
+elif [ -r "$credentials" ]; then
+    token=$(jq -er '.credentials["app.terraform.io"].token' "$credentials" 2>/dev/null) \
+        || cannot_verify "$credentials has no app.terraform.io token; run 'terraform login'"
+    source_description=$credentials
+else
+    cannot_verify "no HCP credential found; set TF_TOKEN_app_terraform_io or run 'terraform login'"
+fi
+
+# A plan-only token here with an apply-capable $HCP_TOKEN (or the reverse) means the
+# API calls in steps.yaml and `terraform` are two different identities, so verifying
+# either one says nothing about the other.
+if [ -n "${HCP_TOKEN:-}" ] && [ "$HCP_TOKEN" != "$token" ]; then
+    fail "SPLIT-BRAIN: \$HCP_TOKEN is not the credential terraform would use ($source_description). The plugin's API calls and terraform would authenticate as different identities, so neither can be verified from the other. Export HCP_TOKEN from that same source per references/config.md."
+fi
+
+api() {  # $1 = path; prints the body, or reports CANNOT VERIFY
+    curl -sf "$hcp_api/$1" -H "Authorization: Bearer $token" \
+        || cannot_verify "could not read $1 as $source_description"
+}
+
+# Every workspace the credential can see, not a fixed pair. A team token lists only
+# the workspaces its team may access, so this set is exactly the right scope -- and
+# it picks up workspaces the `add` workflow creates later, which a hardcoded
+# cloudflare/github-org loop silently ignored.
+page=1
+found=0
 broken=""
 
-for ws in cloudflare github-org; do
-    body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$ws" \
-        -H "Authorization: Bearer $HCP_TOKEN") \
-        || cannot_verify "could not read workspace $ws in organization $ORG"
+while : ; do
+    body=$(api "organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page") || exit 2
 
-    # `tostring`, NOT `// empty`. jq's alternative operator treats `false` as
-    # absent, so `can-queue-apply: false` -- the state this check exists to
-    # confirm -- came back indistinguishable from a missing block and reported
-    # CANNOT VERIFY on a correctly configured token. Absent yields "null" here,
-    # which is a real finding of its own: HCP told us nothing about this token.
-    apply=$(printf '%s' "$body" | jq -r '.data.attributes.permissions["can-queue-apply"] | tostring')
-    plan=$(printf '%s' "$body" | jq -r '.data.attributes.permissions["can-queue-run"] | tostring')
+    count=$(printf '%s' "$body" | jq -e '.data | length' 2>/dev/null) \
+        || cannot_verify "workspace list for $ORG was not the expected JSON"
+    [ "$count" -gt 0 ] 2>/dev/null || break
 
-    [ "$apply" != null ] || cannot_verify "workspace $ws returned no can-queue-apply permission"
+    index=0
+    while [ "$index" -lt "$count" ]; do
+        entry=$(printf '%s' "$body" | jq -e ".data[$index]" 2>/dev/null) \
+            || cannot_verify "could not read workspace $index of $ORG"
+        name=$(printf '%s' "$entry" | jq -er '.attributes.name' 2>/dev/null) \
+            || cannot_verify "a workspace in $ORG has no name"
 
-    if [ "$apply" = true ]; then
-        broken="${broken}UNPROTECTED: the HCP token can apply runs on workspace '$ws'. Nothing else in this plugin constrains it — see docs/policy.md. Provision a plan-only identity and re-export HCP_TOKEN.
+        # `tostring`, NOT `// empty`. jq's alternative operator treats `false` as
+        # absent, so `can-queue-apply: false` -- the state this check exists to
+        # confirm -- came back indistinguishable from a missing block and reported
+        # CANNOT VERIFY on a correctly configured credential.
+        apply=$(printf '%s' "$entry" | jq -er '.attributes.permissions["can-queue-apply"] | tostring' 2>/dev/null) \
+            || cannot_verify "workspace $name returned no readable permissions block"
+        plan=$(printf '%s' "$entry" | jq -er '.attributes.permissions["can-queue-run"] | tostring' 2>/dev/null) \
+            || cannot_verify "workspace $name returned no readable permissions block"
+
+        # Exact booleans only. Anything else -- null, 0, a string, a renamed field --
+        # is absence of evidence, not evidence of absence.
+        case "$apply" in
+            true) broken="${broken}UNPROTECTED: the credential in $source_description can apply runs on workspace '$name'. Nothing else in this plugin constrains it. Provision a plan-only identity per this step's run.
+" ;;
+            false) : ;;
+            *) cannot_verify "workspace $name reported can-queue-apply as '$apply', not a boolean" ;;
+        esac
+        case "$plan" in
+            true|false) : ;;
+            *) cannot_verify "workspace $name reported can-queue-run as '$plan', not a boolean" ;;
+        esac
+        if [ "$apply" = false ] && [ "$plan" = false ]; then
+            broken="${broken}OVER-RESTRICTED: the credential cannot queue runs on workspace '$name', so plan steps cannot work there. Grant the team the workspace 'Plan' permission, not 'Read'.
 "
-        continue
-    fi
+        fi
 
-    # Only meaningful once apply is denied. Reported separately because the fix is
-    # the opposite direction: grant Plan rather than remove Apply.
-    if [ "$plan" != true ]; then
-        broken="${broken}OVER-RESTRICTED: the HCP token cannot queue runs on workspace '$ws', so plan steps cannot work. The team needs the workspace 'Plan' permission, not 'Read'.
-"
-    fi
+        found=$((found + 1))
+        index=$((index + 1))
+    done
+
+    total_pages=$(printf '%s' "$body" | jq -r '.meta.pagination["total-pages"] // 1' 2>/dev/null)
+    case "$total_pages" in
+        ''|*[!0-9]*) total_pages=1 ;;
+    esac
+    [ "$page" -lt "$total_pages" ] || break
+    page=$((page + 1))
 done
+
+# No workspaces at all proves nothing: a team with no access reads as "cannot apply
+# anything" while telling us nothing about the credential's rights.
+[ "$found" -gt 0 ] \
+    || cannot_verify "the credential in $source_description can see no workspaces in $ORG, so its rights cannot be determined"
 
 [ -z "$broken" ] || fail "$(printf '%s' "$broken")"

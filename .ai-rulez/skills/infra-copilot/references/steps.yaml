@@ -365,6 +365,61 @@ steps:
     docs: github.md
 
   # ── Phase 4 — First plan ────────────────────────────────────────────────
+  - id: hcp-apply-scope
+    phase: 4
+    provider: hcp
+    actor: HUMAN
+    title: The HCP credential this repo uses cannot apply
+    why: >-
+      docs/policy.md works through every host-level permission control and finds
+      that none of them constrain this plugin: Bash denies are wrapped by
+      `mise exec --`, Read denies do not govern subprocesses, and a Skill deny is
+      reached around by the command. The credential is the only boundary that
+      holds, and `terraform login` mints a user token that can apply anything the
+      operator can. Nothing here applies — setup stops at speculative plans — but
+      a repo bootstrapped by this plugin leaves its agent apply rights on
+      production until someone narrows them. First step of phase 4, so the plan
+      steps that follow already run under the narrowed credential.
+    run: |
+      Replace the credential this machine offers HCP with a plan-only one. Do not
+      merely export a second token: `terraform` never reads $HCP_TOKEN. It reads
+      TF_TOKEN_app_terraform_io, or failing that
+      ~/.terraform.d/credentials.tfrc.json, and the environment variable wins. A
+      plan-only $HCP_TOKEN beside an apply-capable credentials file leaves the
+      Terraform CLI fully able to apply, which is the path that matters.
+
+      HCP separates the rights: a workspace's Plan permission covers "read, queue,
+      and comment on Terraform plans" and excludes apply. A team token carries its
+      team's workspace permissions, so:
+
+        1. Create a team (Organization Settings -> Teams) with NO organization
+           permissions.
+        2. Grant it the *Plan* permission on every workspace this repo manages —
+           not Write, which includes apply. Repeat this whenever `add` creates a
+           new workspace, or plans there will fail for the plan-only identity.
+        3. Create its token (Organization Settings -> API Tokens -> Team Tokens,
+           or POST /teams/<id>/authentication-token).
+        4. Put that token where terraform will find it — overwrite the token in
+           ~/.terraform.d/credentials.tfrc.json, or export
+           TF_TOKEN_app_terraform_io — and keep the user token off this machine.
+           config.md's Step 0 reads that same file, so HCP_TOKEN then picks up the
+           plan-only token on every later run without any per-phase selection.
+
+      Phases 0 and 1 need the user token: a team token authenticates as a
+      synthetic service account that cannot complete the personal OAuth flow
+      `vcs-connect` requires. So this is a one-time handoff after phase 1, not a
+      token you swap per command.
+
+      One read is unverified against a live organization: `hcp-verify` reads
+      /organizations/<org>/oauth-clients, which is org-scoped, and team tokens do
+      not inherit organization permissions the way user tokens do. If that check
+      turns red under the team token, grant the team "Manage version control
+      settings" or re-run phase-0 verification with the user token.
+    tri_state: true   # exit 2 = could not verify; see protocol.md
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
+    produces: an agent credential that cannot change infrastructure
+    docs: docs/policy.md#a-credential-that-cannot-apply
+
   - id: plan-cloudflare
     phase: 4
     provider: cloudflare
@@ -408,51 +463,6 @@ steps:
     check: sh "$INFRA_COPILOT_REFERENCES/checks/status-check-context.sh"
     produces: proof that branch protection cannot silently block every PR
     docs: docs/ci.md#hcp-status-check-context
-
-  - id: hcp-apply-scope
-    phase: 4
-    provider: hcp
-    actor: HUMAN
-    title: The HCP token in the agent's environment cannot apply
-    why: >-
-      docs/policy.md works through every host-level permission control and finds
-      that none of them constrain this plugin: Bash denies are wrapped by
-      `mise exec --`, Read denies do not govern subprocesses, and a Skill deny is
-      reached around by the command. The credential is the only boundary that
-      holds, and `terraform login` mints a user token that can apply anything the
-      operator can. Nothing here uses it — setup stops at speculative plans — but
-      a repo bootstrapped by this plugin hands its agent apply rights on
-      production until someone narrows them.
-    run: |
-      Provision a plan-only identity and use it for everything after phase 1.
-
-      HCP separates these rights: a workspace's Plan permission covers "read,
-      queue, and comment on Terraform plans" and excludes apply. A team token
-      carries its team's workspace permissions, so:
-
-        1. Create a team (Organization Settings -> Teams) with NO organization
-           permissions.
-        2. Grant it the *Plan* permission on the `cloudflare` and `github-org`
-           workspaces — not Write, which includes apply.
-        3. Create its token (Organization Settings -> API Tokens -> Team Tokens,
-           or POST /teams/<id>/authentication-token).
-        4. Put that token in the agent's environment as HCP_TOKEN, and keep the
-           user token for a human.
-
-      Phase 0 and phase 1 must keep using the user token: a team token
-      authenticates as a synthetic service account that cannot complete the
-      personal OAuth flow `vcs-connect` needs, so the identity is split by phase
-      rather than replaced outright.
-
-      One read is unverified against a live organization: `hcp-verify` reads
-      /organizations/<org>/oauth-clients, which is org-scoped, and team tokens do
-      not inherit organization permissions the way user tokens do. If that check
-      turns red under the team token, grant the team "Manage version control
-      settings" or keep phase-0 verification on the user token.
-    tri_state: true   # exit 2 = could not verify; see protocol.md
-    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
-    produces: an agent credential that cannot change infrastructure
-    docs: docs/policy.md#a-credential-that-cannot-apply
 
   # ── Phase 5 — Migration (only if resources pre-exist) ───────────────────
   - id: migrate-discovery-token

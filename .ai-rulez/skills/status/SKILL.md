@@ -52,10 +52,13 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    on this:
 
    - **Non-mutating checks** (HCP/Cloudflare/GitHub API reads, file existence, tool
-     versions — phases 0–3, plus the phase-4 `status-check-context` step) — run them
-     directly. These only read. `status-check-context` is two `gh api` reads and a
-     comparison in `$TMPDIR`; it touches neither the working tree nor any provider state,
-     so run it even though it sits in phase 4.
+     versions — phases 0–3, plus the phase-4 `status-check-context` and `hcp-apply-scope`
+     steps) — run them directly. These only read. `status-check-context` is two `gh api`
+     reads and a comparison in `$TMPDIR`; `hcp-apply-scope` lists workspaces and reads the
+     permissions HCP reports for the current credential, and deliberately never posts an
+     apply. Neither touches the working tree or any provider state, so run both even
+     though they sit in phase 4. Reporting setup healthy without evaluating
+     `hcp-apply-scope` would hide the one credential boundary this plugin has.
    - **Mutating checks — do NOT run them.** `plan-cloudflare`, `plan-github`, and the
      phase-5 `migrate-import` check run `terraform init`/`plan`,
      which writes `.terraform/` and can create or update `.terraform.lock.hcl` — that would

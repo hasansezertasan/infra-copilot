@@ -5,8 +5,8 @@ description: "Provision something new in an already-bootstrapped infra repo: a m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:28e2b2c68044a9b601cf3c591873117c7a9ab1af3f6153c01c297ea40b5a65a2
-Source-Hash: blake3:a1c5d4e1dc7a4ef596a313e0af97a27f492152e7f27119f9b020c27cd9fbaae8
+Content-Hash: blake3:679e4187cef154687ad37f3e9e38038a35c9a5a96622de9f8e841c4b41a1d310
+Source-Hash: blake3:701b6aee56416c6a6656b878905af1f46b1aa58ffc02b815abd2d9a312ed738e
 Schema-Version: v1
 -->
 
@@ -77,7 +77,13 @@ GCP is *not* provisioned today (template only). Before any Terraform:
 3. **Credential** — mint the provider's scoped token/service-account key (`HUMAN`) and
    paste it into the new workspace's variables (`HUMAN`, sensitive). The agent verifies via
    the vars API, never sees the plaintext.
-4. **First plan** on the new leaf — same proof-of-credentials as setup Phase 4.
+4. **Grant the plan-only team access** (`HUMAN`) — if `hcp-apply-scope` has been done,
+   the agent's credential is a team token with `Plan` on the *existing* workspaces only,
+   so it cannot queue a run on this one. Add `Plan` for that team on the new workspace
+   before the first plan, and never `Write`. `hcp-apply-scope` derives its workspace set
+   from the API, so it reports the gap either way — as `OVER-RESTRICTED` if the grant is
+   missing, or `UNPROTECTED` if someone grants `Write` to work around it.
+5. **First plan** on the new leaf — same proof-of-credentials as setup Phase 4.
 
 Template + rationale for the GCP case: [`../infra-copilot/references/gcp.md`](../infra-copilot/references/gcp.md).
 
