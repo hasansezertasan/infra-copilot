@@ -285,9 +285,17 @@ steps:
         -H "Authorization: Bearer $HCP_TOKEN") || exit 2
       case "$code" in
         200)
+          # jq -e exits 4 on empty input and 5 on invalid JSON, and this step is
+          # tri-state: protocol.md honours 0, 1 and 2 only, so `exit $?` would
+          # surface those as an unexpected code instead of a stated cause.
           jq -e '[.data[] | select(.attributes["service-provider"] | test("github"))] | length > 0' \
-            "$body" >/dev/null
-          exit $?
+            "$body" >/dev/null 2>&1
+          rc=$?
+          case "$rc" in
+            0) exit 0 ;;
+            1) exit 1 ;;
+            *) echo "CANNOT VERIFY: $ORG's oauth-clients response could not be parsed (jq exit $rc)" >&2; exit 2 ;;
+          esac
           ;;
         401|403) ;;   # fall through to the workspace-scoped evidence below
         *) echo "CANNOT VERIFY: reading $ORG's oauth-clients returned $code" >&2; exit 2 ;;

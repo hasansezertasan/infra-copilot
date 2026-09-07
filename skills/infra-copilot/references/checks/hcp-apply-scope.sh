@@ -37,7 +37,9 @@ set -u
 
 cannot_verify() { echo "CANNOT VERIFY: $1" >&2; exit 2; }
 
-for tool in curl jq; do
+# grep included: it detects the CLI-config credentials block below, and an absent
+# grep would exit 127 rather than the tri-state 2 the step contract requires.
+for tool in curl jq grep; do
     command -v "$tool" >/dev/null 2>&1 \
         || cannot_verify "$tool is not on PATH; preflight installs it"
 done

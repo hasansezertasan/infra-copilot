@@ -124,6 +124,18 @@ class VcsConnectCheckTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("CANNOT VERIFY", result.stderr)
 
+    def test_unparseable_json_is_reported_as_a_cause(self) -> None:
+        """jq -e exits 5 on invalid JSON and 4 on empty input.
+
+        The step is tri-state, and protocol.md honours 0, 1 and 2 only, so those
+        codes must not escape as an unexpected exit.
+        """
+        for body, label in (("not json", "invalid"), ("", "empty")):
+            with self.subTest(body=label):
+                result = self.run_check(code="200", oauth_body=body)
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertIn("could not be parsed", result.stderr)
+
     def test_a_server_error_cannot_be_verified(self) -> None:
         result = self.run_check(code="500", oauth_body="{}")
         self.assertEqual(result.returncode, 2, result.stdout)

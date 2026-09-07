@@ -261,13 +261,20 @@ class HcpApplyScopeTests(unittest.TestCase):
         actually missing. An earlier version of this test set PATH to /bin and was
         named for jq while really exercising curl -- /bin has neither.
         """
-        for missing, present in (("curl", "jq"), ("jq", "curl")):
+        for missing, present in (
+            ("curl", "jq"),
+            ("jq", "curl"),
+            # grep detects the CLI-config credentials block; absent, the script
+            # would exit 127 rather than the tri-state 2 the contract requires.
+            ("grep", "curl"),
+        ):
             with self.subTest(missing=missing):
                 with tempfile.TemporaryDirectory() as directory:
                     bin_dir = Path(directory)
-                    stub = bin_dir / present
-                    stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-                    stub.chmod(0o755)
+                    for name in {present, "curl", "jq"} - {missing}:
+                        stub = bin_dir / name
+                        stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                        stub.chmod(0o755)
                     # PATH holds only the tool that should be present. An earlier
                     # version appended /bin, which on Linux supplies both tools --
                     # so the "removal" removed nothing and CI failed while this
