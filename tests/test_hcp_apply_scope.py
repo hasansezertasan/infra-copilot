@@ -25,9 +25,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "skills/infra-copilot/references/checks/hcp-apply-scope.sh"
 
 TOKEN = "plan-only.atlasv1.xxx"
-PLAN_ONLY = {"can-queue-run": True, "can-queue-apply": False}
-CAN_APPLY = {"can-queue-run": True, "can-queue-apply": True}
-READ_ONLY = {"can-queue-run": False, "can-queue-apply": False}
+# Real HCP returns the whole permissions block; the check requires can-update too,
+# because settings include auto-apply and so are an elevation path.
+PLAN_ONLY = {"can-queue-run": True, "can-queue-apply": False, "can-update": False}
+CAN_APPLY = {"can-queue-run": True, "can-queue-apply": True, "can-update": False}
+READ_ONLY = {"can-queue-run": False, "can-queue-apply": False, "can-update": False}
+CAN_UPDATE = {"can-queue-run": True, "can-queue-apply": False, "can-update": True}
 
 # Workspace name to working-directory, as hcp.md's create_ws sets it. `github-org`
 # is the reason the check compares directories rather than names.
@@ -42,11 +45,13 @@ class HcpApplyScopeTests(unittest.TestCase):
         *,
         workspaces: list[tuple[str, dict[str, object] | None]] | None = None,
         leaves: list[str] | None = None,
+        auto_apply: tuple[str, ...] = (),
+        repo: str = "acme/infra",
+        pagination: object = 1,
         body: str | None = None,
         env: dict[str, str] | None = None,
         curl_fails: bool = False,
         credential: str | None = TOKEN,
-        total_pages: int = 1,
     ) -> subprocess.CompletedProcess[str]:
         if workspaces is None:
             workspaces = [("cloudflare", PLAN_ONLY), ("github-org", PLAN_ONLY)]
@@ -64,15 +69,18 @@ class HcpApplyScopeTests(unittest.TestCase):
                 for name, permissions in workspaces:
                     attributes: dict[str, object] = {
                         "name": name,
-                        # Real workspaces carry this; the check compares it against
-                        # the repo's terraform/<leaf>/ directories.
+                        # Real workspaces carry these; the check compares the
+                        # directory against the repo's terraform/<leaf>/ dirs and
+                        # correlates the VCS identifier with $REPO.
                         "working-directory": DIRECTORIES.get(name, f"terraform/{name}"),
+                        "vcs-repo": {"identifier": repo},
+                        "auto-apply": name in auto_apply,
                     }
                     if permissions is not None:
                         attributes["permissions"] = permissions
                     data.append({"id": f"ws-{name}", "attributes": attributes})
                 body = json.dumps(
-                    {"data": data, "meta": {"pagination": {"total-pages": total_pages}}}
+                    {"data": data, "meta": {"pagination": {"total-pages": pagination}}}
                 )
 
             # The check runs with the consuming repo as its working directory.
@@ -105,6 +113,7 @@ class HcpApplyScopeTests(unittest.TestCase):
                 {
                     "HOME": str(home),
                     "ORG": "acme",
+                    "REPO": repo,
                     "hcp_api": "https://app.terraform.io/api/v2",
                 }
             )
@@ -299,6 +308,77 @@ class HcpApplyScopeTests(unittest.TestCase):
         """A repo before phase 1 has no leaves; that must not be a verdict."""
         result = self.run_check(workspaces=[("cloudflare", PLAN_ONLY)], leaves=[])
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_auto_apply_is_a_verdict_even_when_apply_is_denied(self) -> None:
+        """can-queue-apply false does not help if the workspace applies itself.
+
+        A plan-capable credential queues a non-speculative run and HCP applies the
+        successful plan. Phase 1 checks this for the bootstrap pair only, so
+        workspaces `add` creates later are covered here or nowhere.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            auto_apply=("cloudflare",),
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("auto-apply enabled", result.stderr)
+
+    def test_settings_access_is_a_verdict(self) -> None:
+        """Settings include auto-apply, so the boundary would be self-removable."""
+        result = self.run_check(
+            workspaces=[("cloudflare", CAN_UPDATE)], leaves=["terraform/cloudflare"]
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("self-removable", result.stderr)
+
+    def test_a_verdict_outranks_later_unreadable_evidence(self) -> None:
+        """status renders exit 2 as "nothing to fix", which would bury this.
+
+        One workspace definitely allows an apply; a second cannot be read. The
+        exit code must stay 1 and the output must carry both.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", CAN_APPLY), ("github-org", None)],
+            leaves=list(DEFAULT_LEAVES),
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("UNPROTECTED", result.stderr)
+        self.assertIn("could not be read", result.stderr)
+
+    def test_unreadable_pagination_fails_closed(self) -> None:
+        """Assuming one page would silently truncate the inventory."""
+        result = self.run_check(pagination="lots")
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("total-pages", result.stderr)
+
+    def test_a_cli_config_credentials_block_cannot_be_verified(self) -> None:
+        """Terraform's docs do not state which source wins, so refuse to guess."""
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "terraformrc"
+            config.write_text(
+                'credentials "app.terraform.io" {\n  token = "other"\n}\n',
+                encoding="utf-8",
+            )
+            result = self.run_check(env={"TF_CLI_CONFIG_FILE": str(config)})
+            self.assertEqual(result.returncode, 2, result.stdout)
+            self.assertIn("credentials block", result.stderr)
+
+    def test_another_repositorys_workspaces_do_not_satisfy_the_inventory(self) -> None:
+        """working-directory is not unique across an organization.
+
+        Two repos bootstrapped by this plugin both have terraform/cloudflare, so a
+        credential that can only see the other repo's workspaces must not pass.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            repo="acme/other-infra",
+            env={"REPO": "acme/infra"},
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("terraform/cloudflare", result.stderr)
+        self.assertIn("acme/infra", result.stderr)
 
     def test_never_posts_an_apply(self) -> None:
         """A dry POST apply would apply if the credential held the rights."""

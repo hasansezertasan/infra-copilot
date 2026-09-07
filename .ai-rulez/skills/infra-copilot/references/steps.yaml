@@ -212,8 +212,15 @@ steps:
          ~/.terraform.d/credentials.tfrc.json. This is the last interactive HCP CLI
          authentication; later providers still require their own human authorization or credential entry.
       4. Reply `done`; the agent re-exports HCP_TOKEN before checking the next step.
-    check: 'jq -e ".credentials[\"app.terraform.io\"].token | strings | length > 0" ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1'
-    produces: HCP account and user API token at ~/.terraform.d/credentials.tfrc.json
+    # Accepts either credential source, in terraform's own precedence order. A
+    # file-only check marked phase 0 red for anyone following hcp-apply-scope's
+    # environment-variable route, and setup then told them to run `terraform login`
+    # again -- recreating the apply-capable user token that step exists to remove.
+    check: >-
+      test -n "${TF_TOKEN_app_terraform_io:-}"
+      || jq -e ".credentials[\"app.terraform.io\"].token | strings | length > 0"
+      ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1
+    produces: an HCP account and an API token terraform can use
     docs: docs/setup.md#1-hcp-terraform--organization
 
   - id: hcp-signup

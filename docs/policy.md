@@ -198,11 +198,27 @@ way also makes it durable: `config.md`'s Step 0 derives `HCP_TOKEN` from the sam
 every later run picks up the plan-only token with no per-phase selection logic.
 
 **How the step proves it.** It resolves the credential in terraform's own order, then
-lists the workspaces that credential can see and reads the `permissions` block HCP returns
-for each, requiring `can-queue-run` true with `can-queue-apply` false. Deriving the
+lists every workspace that credential can see and requires four things of each:
+`can-queue-run` true, `can-queue-apply` false, `can-update` false — workspace settings
+include `auto-apply`, so settings access makes the boundary self-removable — and
+`auto-apply` itself false, because a credential that may queue a non-speculative run on an
+auto-applying workspace causes an apply without ever holding the apply permission.
+
+A definite verdict outranks uncertainty. If one workspace allows an apply and another
+cannot be read, the check exits 1 and names both, because `status` renders exit 2 as "`?`,
+nothing to fix" — which would bury proof that the boundary is open. Deriving the
 workspace set from the API rather than hardcoding `cloudflare` and `github-org` means
-workspaces the `add` workflow creates later are covered too — and because a team token
-lists only the workspaces its team may access, that set is exactly the right scope.
+workspaces the `add` workflow creates later are covered too.
+
+The visible set alone is *not* sufficient scope, though — it cannot reveal a workspace
+hidden by the very grant being checked. So it is cross-checked against an inventory derived
+from the repository: every `terraform/<leaf>/` directory must be matched by a visible
+workspace whose `working-directory` is that leaf **and** whose `vcs-repo.identifier` is
+`$REPO`. Without the identifier check, another repository's workspaces in the same
+organization would satisfy the comparison, since two repos bootstrapped by this plugin both
+have a `terraform/cloudflare`. An unmatched leaf is `CANNOT VERIFY`, not a verdict: without
+an organization-level read this cannot tell a missing grant from a workspace that does not
+exist yet.
 
 If `HCP_TOKEN` is set and is *not* the credential terraform would use, the check fails
 with `SPLIT-BRAIN` rather than passing. Two identities means verifying one says nothing
@@ -220,6 +236,8 @@ the same fact and cannot change anything.
 |---|---|
 | `hcp-verify` reads `/organizations/<org>/oauth-clients`, which is organization-scoped, and team tokens do not inherit organization permissions the way user tokens do. **Unverified** against a live organization. | If that check turns red under the team token, grant the team "Manage version control settings", or keep phase-0 verification on the user token. |
 | The `discard` and `cancel` recipes in [`docs/hcp-api.md`](../.ai-rulez/skills/infra-copilot/references/docs/hcp-api.md) are operator reference, not manifest checks. `Plan` does not include them. | A plan-only identity cannot discard or cancel a run. Nothing in `steps.yaml` needs it; a human with the user token still can. |
+| **The check cannot prove the team holds no organization permissions.** A team with `Manage Workspaces` or `Manage Teams` shows plan-only workspace rights while being able to grant itself `Write` through organization-scoped APIs. Reading that back needs `GET /organizations/<org>/teams`, which the credential should not be able to call — so the check cannot confirm the absence of a permission whose presence is what would let it look. | Getting step 1 of the procedure right — a team with **no** organization permissions — is not machine-verified. The check does catch the two elevation paths it can see: `can-update` on a workspace (settings include auto-apply) and `auto-apply` already enabled. |
+| Terraform's docs do not state whether a `credentials` block in `~/.terraformrc` or `TF_CLI_CONFIG_FILE` outranks the `credentials.tfrc.json` that `terraform login` writes. | If such a block exists for `app.terraform.io`, the check reports `CANNOT VERIFY` rather than risk verifying a token terraform would not use. Remove the block, or set `TF_TOKEN_app_terraform_io` so the source is unambiguous. |
 
 ## The HCP token: what "the agent never sees secrets" does and does not cover
 
