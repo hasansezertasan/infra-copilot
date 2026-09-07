@@ -19,6 +19,7 @@ from scripts.validate import (
     skill_descriptions,
     validate_config_fallbacks,
     _looks_like_marker,
+    _opens_html_comment,
     fenced_lines,
     frontmatter_bounds,
     frontmatter_keys,
@@ -539,10 +540,44 @@ class LooksLikeMarkerTests(unittest.TestCase):
             _looks_like_marker("# Keep infra-copilot:customization end in place")
         )
 
+    def test_prose_opening_with_the_bare_token_does_not_count(self) -> None:
+        """An edge is required after a bare token, as after a comment prefix.
+
+        Without it, a sentence starting with the token was reported as a
+        malformed marker and blocked the check -- a false positive on a
+        document whose real markers were fine.
+        """
+        self.assertFalse(
+            _looks_like_marker(
+                "infra-copilot:customization comments delimit user values."
+            )
+        )
+
     def test_prose_naming_the_token_without_an_edge_does_not_count(self) -> None:
         self.assertFalse(
             _looks_like_marker("Keep the two `infra-copilot:customization` comments.")
         )
+
+
+class OpensHtmlCommentTests(unittest.TestCase):
+    def test_a_single_line_comment_leaves_nothing_open(self) -> None:
+        """A marker is itself a one-line comment and must not open a block."""
+        self.assertFalse(
+            _opens_html_comment("<!-- infra-copilot:customization start -->")
+        )
+
+    def test_an_unterminated_opener_stays_open(self) -> None:
+        self.assertTrue(_opens_html_comment("<!--"))
+        self.assertTrue(_opens_html_comment("text <!-- more"))
+
+    def test_reopening_after_a_close_stays_open(self) -> None:
+        self.assertTrue(_opens_html_comment("<!-- a --> b <!-- c"))
+
+    def test_closing_after_an_open_is_not_open(self) -> None:
+        self.assertFalse(_opens_html_comment("<!-- a --> b"))
+
+    def test_a_line_with_no_delimiters_is_not_open(self) -> None:
+        self.assertFalse(_opens_html_comment("just prose"))
 
 
 class FencedLinesTests(unittest.TestCase):
@@ -588,6 +623,20 @@ class FencedLinesTests(unittest.TestCase):
 
     def test_unclosed_fence_swallows_the_rest(self) -> None:
         self.assertEqual(fenced_lines(["```", "a", "b"]), {0, 1, 2})
+
+    def test_a_fence_inside_an_html_comment_opens_nothing(self) -> None:
+        """Comment contents are not Markdown.
+
+        Treating the delimiter as a fence made every later line read as code,
+        so a document's real markers were reported as fenced.
+        """
+        self.assertEqual(
+            fenced_lines(["<!--", "```", "-->", "<!-- x -->", "| a |"]), set()
+        )
+
+    def test_comment_delimiters_inside_a_fence_are_only_text(self) -> None:
+        """Inside a fence nothing else is markup, so --> closes nothing."""
+        self.assertEqual(fenced_lines(["```", "<!--", "a", "```"]), {0, 1, 2, 3})
 
     def test_no_fence_means_no_fenced_lines(self) -> None:
         self.assertEqual(fenced_lines(["a", "b"]), set())

@@ -69,7 +69,10 @@ def _looks_like_marker(line: str) -> bool:
     """
     stripped = line.strip()
     if stripped.startswith(CUSTOMIZATION_TOKEN):
-        return True
+        # An edge is required here too. Without it, prose that merely opens with
+        # the token -- "infra-copilot:customization comments delimit user
+        # values." -- was reported as a malformed marker and blocked the check.
+        return MARKER_EDGE.match(stripped) is not None
     for prefix in ("<!--", "#"):
         if stripped.startswith(prefix):
             # Anchored to just after the prefix. Searching the whole comment
@@ -363,6 +366,27 @@ FRONTMATTER_KEY = re.compile(r"^(?P<key>[A-Za-z_][A-Za-z0-9_]*):")
 FENCE = re.compile(r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
 
 
+HTML_COMMENT_OPEN = "<!--"
+HTML_COMMENT_CLOSE = "-->"
+
+
+def _opens_html_comment(line: str) -> bool:
+    """Whether ``line`` leaves an HTML comment open at its end.
+
+    A single-line marker opens and closes on the same line, so it must not put
+    the scan into comment state.
+    """
+    position = 0
+    open_comment = False
+    while True:
+        delimiter = HTML_COMMENT_CLOSE if open_comment else HTML_COMMENT_OPEN
+        found = line.find(delimiter, position)
+        if found == -1:
+            return open_comment
+        open_comment = not open_comment
+        position = found + len(delimiter)
+
+
 def fenced_lines(lines: list[str]) -> set[int]:
     """Indices Markdown renders as a fenced code block, fences included.
 
@@ -377,34 +401,48 @@ def fenced_lines(lines: list[str]) -> set[int]:
     """
     inside: set[int] = set()
     opener: tuple[str, int] | None = None
+    in_comment = False
     for index, line in enumerate(lines):
-        match = FENCE.match(line)
-        if opener is None:
+        if opener is not None:
+            # Inside a fence nothing else is markup, so comment delimiters here
+            # are just text.
+            inside.add(index)
+            match = FENCE.match(line)
             if match is None:
                 continue
             fence = match.group("fence")
+            character, length = opener
+            # A closer must use the same character, be at least as long as the
+            # opener, and carry no info string. Tracking only the character
+            # closed a ```` block on ```, and treated ```python inside an open
+            # block as a terminator -- either way the lines after it stopped
+            # counting as fenced while Markdown still rendered them as code.
+            if (
+                fence[0] == character
+                and len(fence) >= length
+                and not match.group("info").strip()
+            ):
+                opener = None
+            continue
+        if in_comment:
+            # An HTML comment's contents are not Markdown, so a fence-looking
+            # line inside one opens nothing. Treating it as a fence made every
+            # later line read as code and reported the real markers as fenced.
+            #
+            # A fence has to begin the line, so once a comment closes mid-line
+            # nothing after it on that line can open one.
+            if HTML_COMMENT_CLOSE in line:
+                in_comment = False
+            continue
+        match = FENCE.match(line)
+        if match is not None:
+            fence = match.group("fence")
             # A backtick opener's info string may not itself contain a backtick.
-            if fence[0] == "`" and "`" in match.group("info"):
+            if not (fence[0] == "`" and "`" in match.group("info")):
+                opener = (fence[0], len(fence))
+                inside.add(index)
                 continue
-            opener = (fence[0], len(fence))
-            inside.add(index)
-            continue
-        inside.add(index)
-        if match is None:
-            continue
-        fence = match.group("fence")
-        character, length = opener
-        # A closer must use the same character, be at least as long as the
-        # opener, and carry no info string. Tracking only the character closed a
-        # ```` block on ```, and treated ```python inside an open block as a
-        # terminator -- in both cases the lines after it stopped counting as
-        # fenced while Markdown still rendered them as code.
-        if (
-            fence[0] == character
-            and len(fence) >= length
-            and not match.group("info").strip()
-        ):
-            opener = None
+        in_comment = _opens_html_comment(line)
     return inside
 
 
