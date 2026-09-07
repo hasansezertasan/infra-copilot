@@ -48,6 +48,7 @@ class HcpApplyScopeTests(unittest.TestCase):
         auto_apply: tuple[str, ...] = (),
         repo: str = "acme/infra",
         pagination: object = 1,
+        fail_after_page: int | None = None,
         body: str | None = None,
         env: dict[str, str] | None = None,
         curl_fails: bool = False,
@@ -94,6 +95,22 @@ class HcpApplyScopeTests(unittest.TestCase):
                 # -sf makes real curl exit non-zero on HTTP errors; the script keys
                 # off that to report CANNOT VERIFY rather than a verdict.
                 "exit 22" if curl_fails else "",
+                # Fails on a later page when asked, so a mid-scan read failure is
+                # exercised rather than assumed. Per-argument: an earlier version
+                # expanded $* and picked up "-sf" as the page number.
+                (
+                    "for a in \"$@\"; do\n"
+                    "  case \"$a\" in\n"
+                    "    *page%5Bnumber%5D=*)\n"
+                    "      p=${a##*page%5Bnumber%5D=}\n"
+                    "      p=${p%%&*}\n"
+                    f"      [ \"$p\" -le {fail_after_page} ] || exit 22\n"
+                    "      ;;\n"
+                    "  esac\n"
+                    "done"
+                )
+                if fail_after_page is not None
+                else "",
                 'for arg in "$@"; do case "$arg" in',
                 f"    *organizations/*/workspaces*) printf '%s' {json.dumps(body)!s} ;;",
                 # Any URL the cases do not match is a bug in the test, not a pass.
@@ -351,6 +368,59 @@ class HcpApplyScopeTests(unittest.TestCase):
         result = self.run_check(pagination="lots")
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("total-pages", result.stderr)
+
+    def test_a_fractional_page_count_fails_closed(self) -> None:
+        """`numbers` accepts 2.5, which POSIX `test -lt` rejects as an operand.
+
+        The comparison errored and `|| break` read that as "no more pages", so
+        the inventory truncated silently.
+        """
+        result = self.run_check(pagination=2.5)
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("positive-integer", result.stderr)
+
+    def test_an_integral_float_page_count_is_usable(self) -> None:
+        """2.0 is two pages, but this jq renders it "2.0", which breaks `test`.
+
+        It must be accepted and handed to the shell through floor, not rejected
+        and not passed through verbatim.
+        """
+        result = self.run_check(pagination=2.0, fail_after_page=1)
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("page 2", result.stderr)
+
+    def test_a_zero_page_count_fails_closed(self) -> None:
+        result = self.run_check(pagination=0)
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("positive-integer", result.stderr)
+
+    def test_a_verdict_survives_unreadable_pagination(self) -> None:
+        """The inversion, on the page-level path this time.
+
+        An earlier fix converted the per-workspace paths to accumulate and left
+        every page-level path exiting straight out, so a proven apply capability
+        was still discarded by unrelated pagination trouble.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", CAN_APPLY)],
+            leaves=["terraform/cloudflare"],
+            pagination="lots",
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("UNPROTECTED", result.stderr)
+        self.assertIn("could not be read", result.stderr)
+
+    def test_a_verdict_survives_an_unreadable_page(self) -> None:
+        """Same for a page that cannot be fetched at all."""
+        result = self.run_check(
+            workspaces=[("cloudflare", CAN_APPLY)],
+            leaves=["terraform/cloudflare"],
+            pagination=3,
+            fail_after_page=1,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("UNPROTECTED", result.stderr)
+        self.assertIn("page 2", result.stderr)
 
     def test_a_cli_config_credentials_block_cannot_be_verified(self) -> None:
         """Terraform's docs do not state which source wins, so refuse to guess."""

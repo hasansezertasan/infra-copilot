@@ -104,21 +104,37 @@ page=1
 found=0
 seen_repo_directories=""
 
+# Nothing inside this loop exits directly. Once a page has been processed the
+# script may already hold a definite verdict, and `status` renders exit 2 as "?,
+# nothing to fix" -- so an unrelated read failure here would hide proof that the
+# credential can apply. Uncertainty is recorded and the final selection below
+# decides. The first version fixed this for per-workspace values only and left
+# every page-level path exiting straight out.
 while : ; do
-    body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
-        -H "Authorization: Bearer $token") \
-        || cannot_verify "could not list workspaces in $ORG as $source_description"
+    if ! body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
+        -H "Authorization: Bearer $token"); then
+        note_unknown "page $page of the workspace list for $ORG could not be read as $source_description"
+        break
+    fi
 
-    count=$(printf '%s' "$body" | jq -e '.data | length' 2>/dev/null) \
-        || cannot_verify "the workspace list for $ORG was not the expected JSON"
+    if ! count=$(printf '%s' "$body" | jq -e '.data | length' 2>/dev/null); then
+        note_unknown "page $page of the workspace list for $ORG was not the expected JSON"
+        break
+    fi
     [ "$count" -gt 0 ] 2>/dev/null || break
 
     index=0
     while [ "$index" -lt "$count" ]; do
-        entry=$(printf '%s' "$body" | jq -e ".data[$index]" 2>/dev/null) \
-            || cannot_verify "could not read workspace $index of $ORG"
-        name=$(printf '%s' "$entry" | jq -er '.attributes.name' 2>/dev/null) \
-            || cannot_verify "a workspace in $ORG has no name"
+        if ! entry=$(printf '%s' "$body" | jq -e ".data[$index]" 2>/dev/null); then
+            note_unknown "workspace $index on page $page of $ORG could not be read"
+            index=$((index + 1))
+            continue
+        fi
+        if ! name=$(printf '%s' "$entry" | jq -er '.attributes.name' 2>/dev/null); then
+            note_unknown "a workspace on page $page of $ORG has no name"
+            index=$((index + 1))
+            continue
+        fi
         index=$((index + 1))
         found=$((found + 1))
 
@@ -166,10 +182,20 @@ while : ; do
         fi
     done
 
-    # Fail closed. Assuming one page truncated the inventory silently, so a
-    # later page holding an apply-capable workspace was never inspected.
-    total_pages=$(printf '%s' "$body" | jq -er '.meta.pagination["total-pages"] | numbers' 2>/dev/null) \
-        || cannot_verify "the workspace list for $ORG carried no numeric meta.pagination.total-pages, so it cannot be paged safely"
+    # Fail closed, and hand the shell a plain integer. `numbers` accepts 2.0 and
+    # 1e3, and this jq does not normalise them -- `tostring` yields "2.0" and
+    # "1E+3", both of which POSIX `test -lt` rejects as operands. The comparison
+    # then errored and `|| break` read that as "no more pages", truncating the
+    # inventory silently. Integral values are accepted and rendered through
+    # `floor`; genuinely fractional ones are rejected.
+    if ! total_pages=$(printf '%s' "$body" | jq -er '
+            .meta.pagination["total-pages"]
+            | if type == "number" and . == floor and . > 0
+              then (floor | tostring) else empty end
+        ' 2>/dev/null); then
+        note_unknown "page $page of $ORG carried no positive-integer meta.pagination.total-pages, so later pages could not be reached"
+        break
+    fi
     [ "$page" -lt "$total_pages" ] || break
     page=$((page + 1))
 done
