@@ -19,8 +19,6 @@ from scripts.validate import (
     skill_descriptions,
     validate_config_fallbacks,
     _looks_like_marker,
-    _opens_html_comment,
-    fenced_lines,
     frontmatter_bounds,
     frontmatter_keys,
     validate_customization_markers,
@@ -198,11 +196,12 @@ class CustomizationMarkerTests(unittest.TestCase):
                 ],
             )
 
-    def test_rejects_markers_inside_a_fenced_code_block(self) -> None:
-        """A column-zero fence neutralises the region without any indentation.
+    def test_rejects_any_fenced_block_in_the_template(self) -> None:
+        """The document is refused rather than interpreted.
 
-        Markdown renders the markers as text and does not render the table, so
-        the indentation rule cannot catch this shape.
+        Deciding whether a fence neutralises the markers, the required content,
+        or neither means implementing Markdown; five review rounds found five
+        defects in trying. These templates have never needed a fence.
         """
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = self._repository(
@@ -219,16 +218,64 @@ class CustomizationMarkerTests(unittest.TestCase):
             self.assertEqual(
                 validate_customization_markers(repository),
                 [
-                    f"{self.REFERENCES}/decisions.md.example: "
-                    "infra-copilot:customization marker on line 2 is inside a "
-                    "fenced code block, so Markdown renders it as text rather "
-                    "than a comment",
-                    f"{self.REFERENCES}/decisions.md.example: "
-                    "infra-copilot:customization marker on line 4 is inside a "
-                    "fenced code block, so Markdown renders it as text rather "
-                    "than a comment",
+                    f"{self.REFERENCES}/decisions.md.example: line 1 opens or "
+                    "closes a code fence; this template may not contain fenced "
+                    "blocks, because whether a fence neutralises the markers "
+                    "cannot be decided without a Markdown parser",
+                    f"{self.REFERENCES}/decisions.md.example: line 5 opens or "
+                    "closes a code fence; this template may not contain fenced "
+                    "blocks, because whether a fence neutralises the markers "
+                    "cannot be decided without a Markdown parser",
                 ],
             )
+
+    def test_rejects_a_fence_around_only_the_required_content(self) -> None:
+        """Both markers valid and unfenced; the table alone inside a fence.
+
+        The substring check on the region found the header regardless, so this
+        shape passed while Markdown rendered the table as code.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "decisions.md.example": (
+                        "<!-- infra-copilot:customization start -->\n```\n"
+                        "| Decision | Choice | Status | Rationale |\n```\n"
+                        "<!-- infra-copilot:customization end -->\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                len(validate_customization_markers(repository)),
+                2,
+                "both fence delimiters should be reported",
+            )
+
+    def test_rejects_indented_required_content(self) -> None:
+        """An indented field is a nested YAML key, not the field itself."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = self._repository(
+                temporary_directory,
+                **{
+                    "config.md.example": (
+                        "---\n# infra-copilot:customization start\n"
+                        "hcp_org: x\n  hcp_status_check_id: \"\"\n"
+                        "# infra-copilot:customization end\n---\n"
+                    )
+                },
+            )
+
+            self.assertEqual(
+                validate_customization_markers(repository),
+                [
+                    f"{self.REFERENCES}/config.md.example: 'hcp_status_check_id:' "
+                    "is outside the infra-copilot:customization region a "
+                    "re-scaffold preserves"
+                ],
+            )
+
 
     def test_rejects_indented_markers(self) -> None:
         """Indented four spaces, Markdown reads the region as a code block.
@@ -559,87 +606,6 @@ class LooksLikeMarkerTests(unittest.TestCase):
         )
 
 
-class OpensHtmlCommentTests(unittest.TestCase):
-    def test_a_single_line_comment_leaves_nothing_open(self) -> None:
-        """A marker is itself a one-line comment and must not open a block."""
-        self.assertFalse(
-            _opens_html_comment("<!-- infra-copilot:customization start -->")
-        )
-
-    def test_an_unterminated_opener_stays_open(self) -> None:
-        self.assertTrue(_opens_html_comment("<!--"))
-        self.assertTrue(_opens_html_comment("text <!-- more"))
-
-    def test_reopening_after_a_close_stays_open(self) -> None:
-        self.assertTrue(_opens_html_comment("<!-- a --> b <!-- c"))
-
-    def test_closing_after_an_open_is_not_open(self) -> None:
-        self.assertFalse(_opens_html_comment("<!-- a --> b"))
-
-    def test_a_line_with_no_delimiters_is_not_open(self) -> None:
-        self.assertFalse(_opens_html_comment("just prose"))
-
-
-class FencedLinesTests(unittest.TestCase):
-    def test_tracks_a_backtick_fence(self) -> None:
-        self.assertEqual(fenced_lines(["a", "```", "b", "```", "c"]), {1, 2, 3})
-
-    def test_an_info_string_still_opens_a_fence(self) -> None:
-        self.assertEqual(fenced_lines(["```yaml", "b", "```"]), {0, 1, 2})
-
-    def test_a_shorter_run_does_not_close_a_longer_fence(self) -> None:
-        """CommonMark requires a closer at least as long as its opener.
-
-        Tracking only the fence character closed a ```` block on ```, which put
-        the lines after it outside the fenced set while Markdown still rendered
-        them as code.
-        """
-        self.assertEqual(
-            fenced_lines(["````", "```", "a", "````"]), {0, 1, 2, 3}
-        )
-
-    def test_a_closer_may_be_longer_than_its_opener(self) -> None:
-        self.assertEqual(fenced_lines(["```", "a", "`````"]), {0, 1, 2})
-
-    def test_a_line_with_an_info_string_is_not_a_closer(self) -> None:
-        """```python inside an open block is content, not a terminator."""
-        self.assertEqual(
-            fenced_lines(["```", "```python", "a", "```"]), {0, 1, 2, 3}
-        )
-
-    def test_a_backtick_opener_may_not_carry_a_backtick_info_string(self) -> None:
-        self.assertEqual(fenced_lines(["``` a ` b", "x"]), set())
-
-    def test_four_space_indent_opens_no_fence(self) -> None:
-        """At four spaces it is an indented code block, not a fence."""
-        self.assertEqual(fenced_lines(["    ```", "a", "    ```"]), set())
-
-    def test_up_to_three_spaces_still_opens_a_fence(self) -> None:
-        self.assertEqual(fenced_lines(["   ```", "a", "   ```"]), {0, 1, 2})
-
-    def test_a_different_fence_character_does_not_close(self) -> None:
-        """Only the same character terminates, so ``` inside ~~~ is content."""
-        self.assertEqual(fenced_lines(["~~~", "```", "b", "~~~"]), {0, 1, 2, 3})
-
-    def test_unclosed_fence_swallows_the_rest(self) -> None:
-        self.assertEqual(fenced_lines(["```", "a", "b"]), {0, 1, 2})
-
-    def test_a_fence_inside_an_html_comment_opens_nothing(self) -> None:
-        """Comment contents are not Markdown.
-
-        Treating the delimiter as a fence made every later line read as code,
-        so a document's real markers were reported as fenced.
-        """
-        self.assertEqual(
-            fenced_lines(["<!--", "```", "-->", "<!-- x -->", "| a |"]), set()
-        )
-
-    def test_comment_delimiters_inside_a_fence_are_only_text(self) -> None:
-        """Inside a fence nothing else is markup, so --> closes nothing."""
-        self.assertEqual(fenced_lines(["```", "<!--", "a", "```"]), {0, 1, 2, 3})
-
-    def test_no_fence_means_no_fenced_lines(self) -> None:
-        self.assertEqual(fenced_lines(["a", "b"]), set())
 
 
 class FrontmatterBoundsTests(unittest.TestCase):

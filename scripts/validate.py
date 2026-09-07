@@ -363,87 +363,17 @@ FRONTMATTER_KEY = re.compile(r"^(?P<key>[A-Za-z_][A-Za-z0-9_]*):")
 
 # CommonMark: a fence opens on three or more backticks or tildes indented at most
 # three spaces. Four spaces makes it an indented code block, not a fence.
-FENCE = re.compile(r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
-
-
-HTML_COMMENT_OPEN = "<!--"
-HTML_COMMENT_CLOSE = "-->"
-
-
-def _opens_html_comment(line: str) -> bool:
-    """Whether ``line`` leaves an HTML comment open at its end.
-
-    A single-line marker opens and closes on the same line, so it must not put
-    the scan into comment state.
-    """
-    position = 0
-    open_comment = False
-    while True:
-        delimiter = HTML_COMMENT_CLOSE if open_comment else HTML_COMMENT_OPEN
-        found = line.find(delimiter, position)
-        if found == -1:
-            return open_comment
-        open_comment = not open_comment
-        position = found + len(delimiter)
-
-
-def fenced_lines(lines: list[str]) -> set[int]:
-    """Indices Markdown renders as a fenced code block, fences included.
-
-    A marker inside a fence is displayed text, not an HTML comment, and the
-    region it claims to delimit does not render at all. The indentation rule
-    cannot see this: a column-zero fence needs no indentation to neutralise
-    everything between its delimiters.
-
-    Tracked rather than parsed. A full Markdown parse is a dependency these
-    templates do not otherwise need, and the fence is the one piece of block
-    context that can silently void a marker.
-    """
-    inside: set[int] = set()
-    opener: tuple[str, int] | None = None
-    in_comment = False
-    for index, line in enumerate(lines):
-        if opener is not None:
-            # Inside a fence nothing else is markup, so comment delimiters here
-            # are just text.
-            inside.add(index)
-            match = FENCE.match(line)
-            if match is None:
-                continue
-            fence = match.group("fence")
-            character, length = opener
-            # A closer must use the same character, be at least as long as the
-            # opener, and carry no info string. Tracking only the character
-            # closed a ```` block on ```, and treated ```python inside an open
-            # block as a terminator -- either way the lines after it stopped
-            # counting as fenced while Markdown still rendered them as code.
-            if (
-                fence[0] == character
-                and len(fence) >= length
-                and not match.group("info").strip()
-            ):
-                opener = None
-            continue
-        if in_comment:
-            # An HTML comment's contents are not Markdown, so a fence-looking
-            # line inside one opens nothing. Treating it as a fence made every
-            # later line read as code and reported the real markers as fenced.
-            #
-            # A fence has to begin the line, so once a comment closes mid-line
-            # nothing after it on that line can open one.
-            if HTML_COMMENT_CLOSE in line:
-                in_comment = False
-            continue
-        match = FENCE.match(line)
-        if match is not None:
-            fence = match.group("fence")
-            # A backtick opener's info string may not itself contain a backtick.
-            if not (fence[0] == "`" and "`" in match.group("info")):
-                opener = (fence[0], len(fence))
-                inside.add(index)
-                continue
-        in_comment = _opens_html_comment(line)
-    return inside
+# A line whose first non-space characters open a code fence. Detected, never
+# interpreted: these two templates are forbidden from containing one.
+#
+# Earlier versions tracked fence and HTML-comment state to decide whether a
+# marker was inside a code block. Five rounds of review found five defects in
+# that tracking -- fence length, info strings, comment delimiters, close-and-
+# reopen, inline code -- because deciding it correctly means implementing
+# Markdown. These are two short templates that have never needed a fenced
+# block, so the ambiguity is banned rather than resolved. A contributor who
+# genuinely needs one gets a clear message instead of a wrong answer.
+FENCE_DELIMITER = re.compile(r"^\s*(?:`{3,}|~{3,})")
 
 
 def frontmatter_bounds(lines: list[str]) -> tuple[int, int] | None:
@@ -503,17 +433,30 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
         edges: dict[str, list[int]] = {"start": [], "end": []}
         malformed: list[int] = []
         indented: list[int] = []
-        fenced: list[int] = []
-        in_fence = fenced_lines(lines)
+        # Refuse the whole document rather than guess what a fence encloses.
+        # A fence anywhere can neutralise the markers, the required content, or
+        # both, and telling which needs a Markdown parser.
+        fences = [
+            index
+            for index, line in enumerate(lines)
+            if FENCE_DELIMITER.match(line)
+        ]
+        if fences:
+            errors.extend(
+                f"{relative}: line {index + 1} opens or closes a code fence; "
+                "this template may not contain fenced blocks, because whether "
+                "a fence neutralises the markers cannot be decided without a "
+                "Markdown parser"
+                for index in fences
+            )
+            continue
         for index, line in enumerate(lines):
             # rstrip only. Leading whitespace is significant: indented four
             # spaces, Markdown reads the region as a code block, so the markers
             # become displayed text and the config block stops being
             # frontmatter -- both of which passed while strip() hid the indent.
             match = rules.marker.match(line.rstrip())
-            if match and index in in_fence:
-                fenced.append(index)
-            elif match:
+            if match:
                 edges[match.group("edge")].append(index)
             elif rules.marker.match(line.strip()):
                 indented.append(index)
@@ -526,14 +469,6 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
                 # prose that names the token in backticks, and matching the
                 # bare token flagged those sentences.
                 malformed.append(index)
-        if fenced:
-            errors.extend(
-                f"{relative}: {CUSTOMIZATION_TOKEN} marker on line {index + 1} "
-                "is inside a fenced code block, so Markdown renders it as text "
-                "rather than a comment"
-                for index in fenced
-            )
-            continue
         if indented:
             # Reported apart from malformed: the marker is correct, only its
             # column is wrong, and "not a well-formed comment marker" would
@@ -587,13 +522,21 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
                     for index in outside
                 )
                 continue
-        region = "\n".join(lines[starts[0] + 1 : ends[0]])
+        # Matched per line at column 0, not as a substring of the joined
+        # region. An indented `hcp_status_check_id:` is a nested YAML key rather
+        # than the field, so finding the text somewhere in the region is not
+        # evidence that the field is there.
+        region = [
+            line.rstrip()
+            for line in lines[starts[0] + 1 : ends[0]]
+            if line[:1] not in (" ", "\t")
+        ]
         required = (*rules.enclosed, *(f"{key}:" for key in frontmatter_keys(lines)))
         errors.extend(
             f"{relative}: {phrase!r} is outside the "
             f"{CUSTOMIZATION_TOKEN} region a re-scaffold preserves"
             for phrase in dict.fromkeys(required)
-            if phrase not in region
+            if not any(phrase in line for line in region)
         )
     # Collapse whitespace: the rule is prose and re-wraps on edit, so matching the
     # raw text reports a phrase as missing purely because a line break moved.
