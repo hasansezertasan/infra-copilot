@@ -41,12 +41,14 @@ Variable values live in HCP, not in the repo. The repo declares `variable "x" {}
 
 - **Read state**: workspace members in HCP.
 - **Trigger speculative plan**: anyone who can push a branch (own-repo) or open a PR with the `safe-to-plan` label (fork).
-- **Confirm apply**: workspace admins, or an authenticated `POST /api/v2/runs/<id>/actions/apply` with a personal HCP API token.
+- **Confirm apply**: workspace admins, or an authenticated `POST /api/v2/runs/<id>/actions/apply` with a token that holds apply rights on the workspace. A personal token from `terraform login` does; a team token granted only the workspace `Plan` permission does not, which is the point of the `hcp-apply-scope` step.
 - **Manage workspace settings**: org admins.
 
 ## API access
 
-A `terraform login` writes an HCP user API token to `~/.terraform.d/credentials.tfrc.json`. The same token authenticates every HCP REST endpoint, so anything you can do in the UI you can script via:
+A `terraform login` writes an HCP **user** API token to `~/.terraform.d/credentials.tfrc.json`. The same token authenticates every HCP REST endpoint, so anything you can do in the UI you can script — including applying. That is the default, not the target state: it is what makes the agent's credential the only real boundary, and why `hcp-apply-scope` asks for a plan-only team token for everything after phase 1. That step's `run` in [`steps.yaml`](../steps.yaml) carries the procedure and its two limits.
+
+Read an endpoint with whichever token is in the environment:
 
 ```sh
 HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)

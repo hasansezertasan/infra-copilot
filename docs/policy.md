@@ -148,9 +148,11 @@ production.
   `curl` cannot reach an endpoint regardless of which command wraps it. This is the only
   boundary for the **filesystem and unrestricted-network** cases — secret files, and any
   request the plugin can compose. It is outside the plugin's control.
-- **A lower-privilege identity**: the durable answer for apply. A principal without apply
-  permission on those workspaces cannot apply, whatever command is used. Note this is not
-  the token phase 0 mints — see [the HCP token section](#the-hcp-token-what-the-agent-never-sees-secrets-does-and-does-not-cover).
+- **A lower-privilege identity**: the durable answer for apply, and the only enforcing
+  control inside this repository's reach. A principal without apply permission on those
+  workspaces cannot apply, whatever command wraps the request. This is not the token phase
+  0 mints — see [the HCP token section](#the-hcp-token-what-the-agent-never-sees-secrets-does-and-does-not-cover)
+  — so it has to be provisioned deliberately: [A credential that cannot apply](#a-credential-that-cannot-apply).
 
 **And what only narrows.** A read-only subagent (#19) is worth building — it isolates the
 scan's context and removes `Edit` and `Write` — but it does **not** enforce
@@ -159,6 +161,47 @@ runs 21 shell checks: manifest checks, API reads, and a shipped script. It needs
 and bypass 3 above establishes that `Bash` writes files. Remove `Bash` and the scan cannot
 run at all. So the subagent reduces the surface for an accident; only a sandboxed
 command runner turns it into a boundary.
+
+## A credential that cannot apply
+
+The `hcp-apply-scope` step in [`steps.yaml`](../.ai-rulez/skills/infra-copilot/references/steps.yaml)
+owns this. It is a `HUMAN` step, and it stays red until someone does the work — like
+`gcp-decision`, a red here is a standing to-do rather than a fault.
+
+**The rights are separable.** HCP's workspace permissions distinguish them explicitly: the
+`Plan` permission is "read, queue, and comment on Terraform plans" and excludes apply,
+while `Write` includes it. The custom run levels are `Read`, `Plan` and `Apply` for the
+same reason. So plan-only is a supported configuration, not a workaround.
+
+**A team token carries its team's workspace permissions.** HashiCorp's wording: "if a team
+has permission to apply runs on a workspace, the team's token can create runs and
+configuration versions for that workspace via the API." A team granted `Plan` on the two
+workspaces therefore yields a token that plans and cannot apply. Organization tokens are
+not the answer — they are for managing workspaces and teams, and cannot start runs at all.
+
+**The identity is split by phase, not replaced.** Phases 0 and 1 must keep the user token,
+because a team or organization token "authenticates as a synthetic service account that
+cannot complete a personal GitHub OAuth flow", which is exactly what `vcs-connect` needs.
+Everything after phase 1 — `status`, plan verification, day-2 work — is where the
+plan-only token belongs. Anyone reading this as "replace the token in phase 0" will find
+the VCS connect fails.
+
+**How the step proves it.** It reads each workspace and inspects the `permissions` block
+HCP returns, which reports the calling token's own effective rights, and requires
+`can-queue-run` true with `can-queue-apply` false.
+
+It deliberately does **not** send a dry `POST /runs/<id>/actions/apply` and check for a
+`403`. That probe was the obvious design and it is unsafe: if the token does hold apply
+rights and the run is confirmable, the probe applies production infrastructure. The check
+would cause the exact thing it exists to detect. The permissions read is direct evidence of
+the same fact and cannot change anything.
+
+**Two limits worth knowing before you rely on this.**
+
+| Limit | Consequence |
+|---|---|
+| `hcp-verify` reads `/organizations/<org>/oauth-clients`, which is organization-scoped, and team tokens do not inherit organization permissions the way user tokens do. **Unverified** against a live organization. | If that check turns red under the team token, grant the team "Manage version control settings", or keep phase-0 verification on the user token. |
+| The `discard` and `cancel` recipes in [`docs/hcp-api.md`](../.ai-rulez/skills/infra-copilot/references/docs/hcp-api.md) are operator reference, not manifest checks. `Plan` does not include them. | A plan-only identity cannot discard or cancel a run. Nothing in `steps.yaml` needs it; a human with the user token still can. |
 
 ## The HCP token: what "the agent never sees secrets" does and does not cover
 
