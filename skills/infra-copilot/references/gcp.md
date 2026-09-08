@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:3cfcd0e5af59aa9b3f26602cbe27948080718ab073550cb7ab5fa303879987e8
-Source-Hash: blake3:0afdfb327b880c49da766c82a5b247c7166734a8941266a39eb013927bf2548c
+Content-Hash: blake3:d6f3f35c71275603aa5c423d00854f301256afd32d79eaecf2c99cce1f07c000
+Source-Hash: blake3:0661a569f192d81912eca5914e45fb2cadce5bf491c5ac8f9a8967e03ba90d5d
 Schema-Version: v1
 -->
 
@@ -103,11 +103,16 @@ filter `terraform/gcp/**`, remote execution, and auto-apply **off** using a priv
 token yourself, then restore the plan-only agent credential. If using a SA key instead
 of WIF, paste it only during the later HUMAN credential handoff.
 
-### AGENT — first plan
+### AGENT — first commit-correlated plan (Phase 6)
 
 ```sh
-cd terraform/gcp && terraform init && terraform plan
+sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh" queue
 ```
+
+First ensure the committed branch is pushed and has an open pull request, as the
+provider-neutral `new-provider-plan` action requires. Wait for HCP to finish, then use
+the same helper without `queue` to verify the newest run for the exact commit and its
+structured plan; a local CLI plan is not durable Phase 6 evidence.
 
 ## Migrating existing GCP resources
 

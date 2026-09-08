@@ -39,7 +39,7 @@ page=1
 truncated=false
 while : ; do
     body=$(curl -sf \
-      "$hcp_api/workspaces/$ws_id/runs?page%5Bsize%5D=100&page%5Bnumber%5D=$page&filter%5Boperation%5D=plan_only,plan_and_apply,save_plan,refresh_only,destroy,empty_apply,action_only&include=configuration_version.ingress_attributes" \
+      "$hcp_api/workspaces/$ws_id/runs?page%5Bsize%5D=100&page%5Bnumber%5D=$page&filter%5Boperation%5D=plan_only,plan_and_apply,save_plan&include=configuration_version.ingress_attributes" \
       -H "Authorization: Bearer $HCP_TOKEN") \
       || cannot_verify "run page $page could not be read"
     printf '%s' "$body" | jq -e '

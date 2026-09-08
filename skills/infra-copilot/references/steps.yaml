@@ -827,10 +827,12 @@ steps:
     title: Create the workspace and make it visible to the plan-only team
     why: A missing or invisible workspace is expected setup work, not an unverifiable terminal state.
     run: |
-      Using a user or organization token yourself, run hcp.md's create_ws and
-      set_workspace_config helpers, then grant the plan-only team `Plan` (never
-      `Write`) on the workspace:
+      Using a user or organization token yourself, load hcp.md's helpers, resolve the
+      repository-specific OAuth token, create/configure the workspace, and grant the
+      plan-only team `Plan` (never `Write`):
 
+        load_tf_version
+        resolve_oauth_token_id
         create_ws "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
         set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
 
@@ -991,9 +993,11 @@ steps:
     title: Run the first plan on the new leaf
     why: This proves the leaf, workspace access, and provider credentials end to end.
     run: |
-      Push the current committed branch to its configured upstream so HCP can ingest
-      `git rev-parse HEAD`; never push a dirty or detached checkout. Wait until the
-      workspace's VCS run list contains that exact ingress commit, then run
+      Ensure the current non-main branch has an open pull request (a draft is enough;
+      create one with `gh pr create --draft` when absent), then push the current
+      committed branch to its configured upstream so HCP can ingest `git rev-parse
+      HEAD`; never push a dirty or detached checkout. Wait until the workspace's VCS
+      run list contains that exact ingress commit, then run
       `sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh" queue` to queue a
       plan-only retry using that configuration version. The helper explicitly includes
       the configuration-version relationship in POST /runs; a CLI-driven or

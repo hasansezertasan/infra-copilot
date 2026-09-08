@@ -418,6 +418,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("404) exit 1", bootstrap)
         self.assertIn("*) exit 2", bootstrap)
         self.assertIn("create_ws", bootstrap)
+        self.assertIn("resolve_oauth_token_id", bootstrap)
 
     def test_plan_access_reuses_repository_derived_inventory(self) -> None:
         access = self.steps["new-provider-plan-access"]
@@ -454,6 +455,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("hcp-current-plan.sh", plan)
         self.assertIn("configuration-version relationship", plan)
         self.assertIn("configured upstream", plan)
+        self.assertIn("gh pr create --draft", plan)
         self.assertIn("    tri_state: true", plan)
         helper = HCP_CURRENT_PLAN.read_text(encoding="utf-8")
         self.assertIn('attributes["commit-sha"] == $sha', helper)
@@ -465,6 +467,8 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("truncated=true", helper)
         self.assertIn("bounded 500-run scan", helper)
         self.assertIn("still in flight", helper)
+        self.assertIn("plan_only,plan_and_apply,save_plan&", helper)
+        self.assertNotIn("refresh_only", helper)
 
     def test_router_and_status_use_the_durable_inventory(self) -> None:
         for path in (CONFIG, STATUS):
