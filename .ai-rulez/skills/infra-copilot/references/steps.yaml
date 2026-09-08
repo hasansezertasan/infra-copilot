@@ -991,12 +991,14 @@ steps:
     title: Run the first plan on the new leaf
     why: This proves the leaf, workspace access, and provider credentials end to end.
     run: |
-      Run `sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh" queue` to queue a
-      plan-only HCP run for the newest VCS configuration version whose ingress commit
-      SHA exactly equals `git rev-parse HEAD`. The helper explicitly includes that
-      configuration-version relationship in POST /runs; a CLI-driven or
-      latest-configuration fallback run has no trustworthy commit correlation. Wait
-      for the run to finish, then re-run this check.
+      Push the current committed branch to its configured upstream so HCP can ingest
+      `git rev-parse HEAD`; never push a dirty or detached checkout. Wait until the
+      workspace's VCS run list contains that exact ingress commit, then run
+      `sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh" queue` to queue a
+      plan-only retry using that configuration version. The helper explicitly includes
+      the configuration-version relationship in POST /runs; a CLI-driven or
+      latest-configuration fallback run has no trustworthy commit correlation. Wait for
+      the run to finish, then re-run this check.
     tri_state: true
     check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh"
     produces: safe green plan, or a safe no-create plan after the adoption has applied resources

@@ -453,6 +453,7 @@ class NewProviderFlowTests(unittest.TestCase):
         plan = self.steps["new-provider-plan"]
         self.assertIn("hcp-current-plan.sh", plan)
         self.assertIn("configuration-version relationship", plan)
+        self.assertIn("configured upstream", plan)
         self.assertIn("    tri_state: true", plan)
         helper = HCP_CURRENT_PLAN.read_text(encoding="utf-8")
         self.assertIn('attributes["commit-sha"] == $sha', helper)
@@ -461,6 +462,9 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("json-output-redacted", helper)
         self.assertIn('index("delete")', helper)
         self.assertIn('index("create")', helper)
+        self.assertIn("truncated=true", helper)
+        self.assertIn("bounded 500-run scan", helper)
+        self.assertIn("still in flight", helper)
 
     def test_router_and_status_use_the_durable_inventory(self) -> None:
         for path in (CONFIG, STATUS):

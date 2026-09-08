@@ -36,6 +36,7 @@ pages=$(mktemp) || cannot_verify "could not create a private run-list file"
 trap 'rm -f "$pages"' EXIT
 : >"$pages"
 page=1
+truncated=false
 while : ; do
     body=$(curl -sf \
       "$hcp_api/workspaces/$ws_id/runs?page%5Bsize%5D=100&page%5Bnumber%5D=$page&filter%5Boperation%5D=plan_only,plan_and_apply,save_plan,refresh_only,destroy,empty_apply,action_only&include=configuration_version.ingress_attributes" \
@@ -55,12 +56,14 @@ while : ; do
     [ -n "$next_page" ] || break
     [ "$next_page" -eq $((page + 1)) ] \
       || cannot_verify "run pagination was not monotonic"
-    [ "$page" -lt 5 ] \
-      || cannot_verify "current commit was not proven within the bounded 500-run scan"
+    if [ "$page" -ge 5 ]; then
+      truncated=true
+      break
+    fi
     page=$next_page
 done
 
-latest=$(jq -ser --arg sha "$commit_sha" '
+if ! latest=$(jq -ser --arg sha "$commit_sha" '
   [.[].included[]?
     | select(.type == "ingress-attributes" and .attributes["commit-sha"] == $sha)
     | .id] as $ingress
@@ -74,7 +77,11 @@ latest=$(jq -ser --arg sha "$commit_sha" '
           | $configs | index($id))]
   | sort_by(.attributes["created-at"])
   | reverse
-  | .[0] // empty' "$pages" 2>/dev/null) || exit 1
+  | .[0] // empty' "$pages" 2>/dev/null); then
+    [ "$truncated" = false ] || cannot_verify \
+      "HEAD was absent from the bounded 500-run scan and older pages remain"
+    exit 1
+fi
 
 if [ "$mode" = queue ]; then
     cv_id=$(printf '%s' "$latest" | jq -er '
@@ -107,7 +114,13 @@ fi
 
 status=$(printf '%s' "$latest" | jq -er '.attributes.status') \
     || cannot_verify "matched run has no status"
-case "$status" in planned_and_finished|applied) : ;; *) exit 1 ;; esac
+case "$status" in
+  planned_and_finished|applied) : ;;
+  errored|canceled|discarded|force_canceled) exit 1 ;;
+  pending|fetching|fetching_completed|pre_plan_running|pre_plan_completed|queuing|plan_queued|planning|planned|cost_estimating|cost_estimated|policy_checking|policy_override|policy_soft_failed|policy_checked|confirmed|post_plan_running|post_plan_completed|planned_and_saved|applying) \
+    cannot_verify "the newest commit-correlated run is still in flight ($status); wait" ;;
+  *) cannot_verify "the newest commit-correlated run has unknown status '$status'" ;;
+esac
 plan_id=$(printf '%s' "$latest" | jq -er \
     '.relationships.plan.data.id | select(type == "string" and length > 0)') \
     || cannot_verify "matched run has no plan id"
