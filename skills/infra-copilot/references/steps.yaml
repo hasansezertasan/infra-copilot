@@ -814,23 +814,6 @@ steps:
         "terraform/$NEW_PROVIDER/*.tf.json" | grep -q . || exit 1
       git ls-files --error-unmatch \
         "terraform/$NEW_PROVIDER/.terraform.lock.hcl" >/dev/null 2>&1 || exit 1
-      required_providers=$(terraform -chdir="terraform/$NEW_PROVIDER" providers 2>/dev/null \
-        | sed -n 's/.*provider\[\([^]]*\)\].*/\1/p' | sort -u) || exit 1
-      test -n "$required_providers" || exit 1
-      printf '%s\n' "$required_providers" | while IFS= read -r provider; do
-        case "$provider" in terraform.io/builtin/*) continue ;; esac
-        awk -v target="$provider" '
-          $1 == "provider" {
-            address=$2; gsub(/^"|"$/, "", address)
-            selected=(address == target); version=0; in_hashes=0; checksum=0
-          }
-          selected && $1 == "version" && $2 == "=" && $3 ~ /^"[^"]+"$/ { version=1 }
-          selected && $1 == "hashes" && $2 == "=" && $3 == "[" { in_hashes=1 }
-          selected && in_hashes && $1 ~ /^"(h1:|zh:)[^"]+",?$/ { checksum=1 }
-          selected && /^}/ { complete=(version && checksum); selected=0 }
-          END { exit !complete }
-        ' "terraform/$NEW_PROVIDER/.terraform.lock.hcl" || exit 1
-      done || exit 1
       test -z "$(git --no-optional-locks status --porcelain -- "terraform/$NEW_PROVIDER")"
     produces: terraform/$NEW_PROVIDER leaf targeting $NEW_PROVIDER_WORKSPACE
     docs: gcp.md
@@ -877,6 +860,38 @@ steps:
       done
     produces: human-reviewed, trusted, locked provider toolchain; complete preflight green
     docs: docs/setup.md#6-local-development
+
+  - id: new-provider-lock
+    phase: 6
+    provider: repo
+    actor: AGENT
+    title: Verify committed selections for every required provider
+    why: The trust gate must activate Terraform before lock validation, while HCP must not invent missing selections remotely.
+    run: |
+      After new-provider-toolchain and the complete preflight are green, inspect the
+      committed dependency lock. If a required provider selection is missing, run
+      `terraform init -backend=false` in terraform/$NEW_PROVIDER and commit the reviewed
+      `.terraform.lock.hcl` before re-running this check.
+    check: |
+      required_providers=$(terraform -chdir="terraform/$NEW_PROVIDER" providers 2>/dev/null \
+        | sed -n 's/.*provider\[\([^]]*\)\].*/\1/p' | sort -u) || exit 1
+      test -n "$required_providers" || exit 1
+      printf '%s\n' "$required_providers" | while IFS= read -r provider; do
+        case "$provider" in terraform.io/builtin/*) continue ;; esac
+        awk -v target="$provider" '
+          $1 == "provider" {
+            address=$2; gsub(/^"|"$/, "", address)
+            selected=(address == target); version=0; in_hashes=0; checksum=0
+          }
+          selected && $1 == "version" && $2 == "=" && $3 ~ /^"[^"]+"$/ { version=1 }
+          selected && $1 == "hashes" && $2 == "=" && $3 == "[" { in_hashes=1 }
+          selected && in_hashes && $1 ~ /^"(h1:|zh:)[^"]+",?$/ { checksum=1 }
+          selected && /^}/ { complete=(version && checksum); selected=0 }
+          END { exit !complete }
+        ' "terraform/$NEW_PROVIDER/.terraform.lock.hcl" || exit 1
+      done
+    produces: committed lock selections and checksums for every required provider
+    docs: gcp.md
 
   - id: new-provider-workspace-bootstrap
     phase: 6

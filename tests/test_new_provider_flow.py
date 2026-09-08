@@ -58,6 +58,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 "new-provider-decision",
                 "new-provider-leaf",
                 "new-provider-toolchain",
+                "new-provider-lock",
                 "new-provider-workspace-bootstrap",
                 "new-provider-workspace",
                 "new-provider-plan-access",
@@ -536,17 +537,19 @@ terraform {
 
     def test_leaf_must_be_tracked_and_clean(self) -> None:
         leaf = self.steps["new-provider-leaf"]
+        lock = self.steps["new-provider-lock"]
         self.assertIn("git ls-files --error-unmatch", leaf)
         self.assertIn(".terraform.lock.hcl", leaf)
         self.assertIn("terraform init -backend=false", leaf)
-        self.assertIn('terraform -chdir="terraform/$NEW_PROVIDER" providers', leaf)
-        self.assertIn('provider\\[\\([^]]*\\)\\]', leaf)
-        self.assertIn("version && checksum", leaf)
         self.assertIn("git --no-optional-locks status --porcelain", leaf)
+        self.assertIn('terraform -chdir="terraform/$NEW_PROVIDER" providers', lock)
+        self.assertIn('provider\\[\\([^]]*\\)\\]', lock)
+        self.assertIn("version && checksum", lock)
+        self.assertNotIn('terraform -chdir="terraform/$NEW_PROVIDER" providers', leaf)
 
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
     def test_leaf_rejects_a_lock_without_required_provider_selection(self) -> None:
-        leaf = self.steps["new-provider-leaf"]
+        lock_check = self.steps["new-provider-lock"]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             provider_dir = root / "terraform/gcp"
@@ -590,7 +593,7 @@ terraform {
                 "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
             valid = subprocess.run(
-                ["/bin/sh", "-c", literal_check(leaf)], cwd=root, env=env,
+                ["/bin/sh", "-c", literal_check(lock_check)], cwd=root, env=env,
                 capture_output=True, text=True,
             )
             lock.write_text("# empty lock\n", encoding="utf-8")
@@ -601,7 +604,7 @@ terraform {
                 cwd=root, env=git_env, check=True,
             )
             empty = subprocess.run(
-                ["/bin/sh", "-c", literal_check(leaf)], cwd=root, env=env,
+                ["/bin/sh", "-c", literal_check(lock_check)], cwd=root, env=env,
                 capture_output=True, text=True,
             )
         self.assertEqual(valid.returncode, 0, valid.stderr)
