@@ -687,6 +687,76 @@ class HcpApplyScopeTests(unittest.TestCase):
         # The malformed entry is still reported, alongside the verdict.
         self.assertIn("has no name", result.stderr)
 
+    def test_a_leaf_on_another_terraform_host_cannot_be_verified(self) -> None:
+        """Terraform authenticates per host.
+
+        A leaf on tfe.example.com uses TF_TOKEN_tfe_example_com against a
+        different API, so every permission read here describes a different
+        identity -- and a same-named SaaS workspace would have passed.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            leaf_hcl={
+                "terraform/cloudflare": (
+                    "terraform {\n  cloud {\n"
+                    '    hostname     = "tfe.example.com"\n'
+                    '    organization = "acme"\n'
+                    '    workspaces { name = "cloudflare" }\n'
+                    "  }\n}\n"
+                )
+            },
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("tfe.example.com", result.stderr)
+        self.assertIn("TF_TOKEN_tfe_example_com", result.stderr)
+
+    def test_a_hyphenated_host_encodes_dashes_as_double_underscores(self) -> None:
+        """Terraform's rule: periods become _, hyphens become __.
+
+        A single underscore for the hyphen would name a variable that does not
+        exist, which is a hint pointing at nothing.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            env={"TF_CLOUD_HOSTNAME": "my-tfe.corp.internal"},
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("TF_TOKEN_my__tfe_corp_internal", result.stderr)
+
+    def test_a_cloud_hostname_override_cannot_be_verified(self) -> None:
+        """TF_CLOUD_HOSTNAME disqualifies too.
+
+        Terraform's docs do not state which wins when both are set, so neither
+        is assumed to override the other.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            env={"TF_CLOUD_HOSTNAME": "tfe.example.com"},
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("tfe.example.com", result.stderr)
+
+    def test_the_default_host_stated_explicitly_still_passes(self) -> None:
+        """Declaring app.terraform.io is not a mismatch."""
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            leaf_hcl={
+                "terraform/cloudflare": (
+                    "terraform {\n  cloud {\n"
+                    '    hostname     = "app.terraform.io"\n'
+                    '    organization = "acme"\n'
+                    '    workspaces { name = "cloudflare" }\n'
+                    "  }\n}\n"
+                )
+            },
+            env={"TF_CLOUD_HOSTNAME": "app.terraform.io"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_a_leaf_targeting_another_organization_cannot_be_verified(self) -> None:
         """Every permission read is scoped to $ORG.
 

@@ -360,6 +360,28 @@ for leaf in terraform/*/; do
     # another organization proves nothing: a same-named plan-only workspace in
     # $ORG would satisfy the comparison while Terraform targeted an organization
     # whose permissions were never inspected.
+    # Host first. Terraform authenticates per service host -- a leaf on
+    # tfe.example.com uses TF_TOKEN_tfe_example_com, not the app.terraform.io
+    # credential resolved above -- so for a non-default host every permission
+    # read here describes a different identity against a different API. A
+    # same-named SaaS workspace would otherwise make this exit 0 while the
+    # credential Terraform really uses can apply.
+    #
+    # Both the leaf's `hostname` and TF_CLOUD_HOSTNAME disqualify. Terraform's
+    # docs do not state which wins when both are set, so neither is assumed to
+    # override the other.
+    leaf_host=$(leaf_cloud_attribute "$directory" hostname)
+    for host in "$leaf_host" "${TF_CLOUD_HOSTNAME:-}"; do
+        [ -n "$host" ] || continue
+        [ "$host" != "app.terraform.io" ] || continue
+        note_unknown "$directory targets Terraform host '$host', not app.terraform.io, so it authenticates with a different credential (TF_TOKEN_$(printf '%s' "$host" | sed 's/-/__/g; s/\./_/g')) against a different API than the one checked here"
+        host_mismatch=yes
+    done
+    if [ "${host_mismatch:-}" = yes ]; then
+        host_mismatch=
+        continue
+    fi
+
     leaf_org=$(leaf_cloud_attribute "$directory" organization)
     if [ -n "$leaf_org" ] && [ "$leaf_org" != "$ORG" ]; then
         note_unknown "$directory targets HCP organization '$leaf_org', not '$ORG', so the permissions checked here say nothing about the workspace it uses"
