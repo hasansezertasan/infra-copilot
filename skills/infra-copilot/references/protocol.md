@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:51e954f264c808f92daef2761fb2bd713a54c8994a108d27f9a29f3ddc09a7c6
-Source-Hash: blake3:f0b8cb18a507c79ca49910239291851f2e146c165127c4810a9fb81bd3c670fb
+Content-Hash: blake3:7817b4bb49a546fb61c26a543e11a3d70325285bff68a2e8d1f23deb457d4c02
+Source-Hash: blake3:0fde7730e58afab76ae6aae7a6b7cc2b541b224334cad719ed22d7f57dc51798
 Schema-Version: v1
 -->
 
@@ -88,7 +88,10 @@ no durable adoption record and an actual provider tool omitted from the declarat
 Scaffold and verify the decision and leaf for every entry, run every applicable provider
 toolchain trust gate, and only then walk each entry's remaining `new-provider-*` steps.
 This ordering prevents a provider CLI declared under a later entry from being executed
-before its HUMAN review. An
+before its HUMAN review. The initial preflight leaves conditional provider entries
+inactive because no per-entry `NEW_PROVIDER_MISE_TOOLS` is exported yet. After all
+toolchain gates are green, export each entry in turn and run the complete preflight so
+every reviewed provider CLI is version-checked before its runbook commands. An
 empty list means the optional phase is not applicable only when the inventory check is
 green. When `add` was explicitly invoked to adopt a provider that has no matching entry,
 retain the validated requested provider slug as `NEW_PROVIDER` and instantiate
@@ -107,8 +110,8 @@ workspace. Its bootstrap check treats only a 404 as expected HUMAN work and keep
 authentication, and API failures unverifiable. After the workspace is visible, the next
 check independently re-derives its detailed settings, and the separate plan-access check
 proves the restored restricted credential can plan but cannot apply or update workspaces.
-The access check scopes the repository-derived visibility requirement to the current
-provider while still auditing every visible workspace for apply/update capability. This
+The access check scopes both repository-derived visibility and Plan requirements to the
+current provider while still auditing every visible workspace for apply/update capability. This
 lets a later provider reach its own bootstrap handoff without weakening the global
 negative-permission audit.
 

@@ -17,11 +17,10 @@ done
 [ "$hcp_api" = "https://app.terraform.io/api/v2" ] \
     || cannot_verify "refusing to send the HCP token to unexpected endpoint '$hcp_api'"
 
-commit_sha=$(git log -1 --format=%H -- "terraform/$NEW_PROVIDER" \
-    .infra-copilot/config.md 2>/dev/null) \
-    || cannot_verify "the provider leaf and config have no relevant commit"
-[ -n "$commit_sha" ] \
-    || cannot_verify "the provider leaf and config have no relevant commit"
+git diff --quiet HEAD -- "terraform/$NEW_PROVIDER" .infra-copilot/config.md \
+    || cannot_verify "the provider leaf or config has uncommitted changes"
+git diff --cached --quiet HEAD -- "terraform/$NEW_PROVIDER" .infra-copilot/config.md \
+    || cannot_verify "the provider leaf or config has staged changes"
 workspace_body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
     -H "Authorization: Bearer $HCP_TOKEN") || cannot_verify "workspace could not be read"
 ws_id=$(printf '%s' "$workspace_body" | jq -er \
@@ -67,9 +66,49 @@ while : ; do
     page=$next_page
 done
 
-if ! latest=$(jq -ser --arg sha "$commit_sha" '
+first_page_ids=$(jq -scer '.[0].data | map(.id)' "$pages" 2>/dev/null) \
+    || cannot_verify "the original run-list head could not be read"
+head_body=$(curl -sf \
+  "$hcp_api/workspaces/$ws_id/runs?page%5Bsize%5D=100&page%5Bnumber%5D=1&filter%5Boperation%5D=plan_only,plan_and_apply,save_plan&include=configuration_version.ingress_attributes" \
+  -H "Authorization: Bearer $HCP_TOKEN") \
+  || cannot_verify "the run-list head could not be re-read"
+head_ids=$(printf '%s' "$head_body" | jq -cer '.data | map(.id)' 2>/dev/null) \
+    || cannot_verify "the re-read run-list head was malformed"
+[ "$first_page_ids" = "$head_ids" ] \
+    || cannot_verify "the run-list head changed during pagination; retry against a stable snapshot"
+
+# HCP records the ingested branch tip, not necessarily the last commit that
+# touched this leaf. Accept an ingested SHA only when its relevant-path tree is
+# byte-for-byte the current committed tree. This handles both a later unrelated
+# tip and a prior relevant run when path triggers skipped an unrelated commit.
+matching_shas='[]'
+missing_commit=false
+for sha in $(jq -sr '[.[].included[]?
+    | select(.type == "ingress-attributes")
+    | .attributes["commit-sha"]
+    | select(type == "string" and length > 0)] | unique | .[]' "$pages" 2>/dev/null); do
+    if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
+        missing_commit=true
+        continue
+    fi
+    if git diff --quiet "$sha" HEAD -- "terraform/$NEW_PROVIDER" \
+        .infra-copilot/config.md; then
+        matching_shas=$(jq -cn --argjson shas "$matching_shas" --arg sha "$sha" \
+          '$shas + [$sha]') || cannot_verify "matching ingress SHAs could not be encoded"
+    fi
+done
+if ! printf '%s' "$matching_shas" | jq -e 'length > 0' >/dev/null; then
+    [ "$missing_commit" = false ] \
+        || cannot_verify "an ingested commit is unavailable locally, so its relevant tree cannot be compared"
+    [ "$truncated" = false ] || cannot_verify \
+      "the current relevant tree was absent from the bounded 500-run scan and older pages remain"
+    exit 1
+fi
+
+if ! latest=$(jq -ser --argjson shas "$matching_shas" '
   [.[].included[]?
-    | select(.type == "ingress-attributes" and .attributes["commit-sha"] == $sha)
+    | select(.type == "ingress-attributes")
+    | select(.attributes["commit-sha"] as $sha | $shas | index($sha))
     | .id] as $ingress
   | [.[].included[]?
       | select(.type == "configuration-versions")
@@ -83,7 +122,7 @@ if ! latest=$(jq -ser --arg sha "$commit_sha" '
   | reverse
   | .[0] // empty' "$pages" 2>/dev/null); then
     [ "$truncated" = false ] || cannot_verify \
-      "HEAD was absent from the bounded 500-run scan and older pages remain"
+      "the current relevant tree was absent from the bounded 500-run scan and older pages remain"
     exit 1
 fi
 
@@ -97,9 +136,9 @@ fi
 
 if [ "$mode" = queue ]; then
     case "$status" in
-      pending|fetching|fetching_completed|pre_plan_running|pre_plan_completed|queuing|plan_queued|planning|planned|cost_estimating|cost_estimated|policy_checking|policy_override|policy_checked|confirmed|post_plan_running|post_plan_completed|planned_and_saved|applying) \
+      pending|fetching|fetching_completed|pre_plan_running|pre_plan_completed|queuing|plan_queued|planning|planned|cost_estimating|cost_estimated|policy_checking|policy_override|policy_checked|confirmed|post_plan_running|post_plan_completed|applying) \
         cannot_verify "the newest commit-correlated run is still in flight ($status); refusing to queue a duplicate" ;;
-      planned_and_finished|applied)
+      planned_and_finished|planned_and_saved|applied)
         echo "the newest commit-correlated run is already complete; no retry queued"
         exit 0 ;;
       errored|canceled|discarded|force_canceled) : ;;
@@ -134,9 +173,9 @@ if [ "$mode" = queue ]; then
 fi
 
 case "$status" in
-  planned_and_finished|applied) : ;;
+  planned_and_finished|planned_and_saved|applied) : ;;
   errored|canceled|discarded|force_canceled) exit 1 ;;
-  pending|fetching|fetching_completed|pre_plan_running|pre_plan_completed|queuing|plan_queued|planning|planned|cost_estimating|cost_estimated|policy_checking|policy_override|policy_checked|confirmed|post_plan_running|post_plan_completed|planned_and_saved|applying) \
+  pending|fetching|fetching_completed|pre_plan_running|pre_plan_completed|queuing|plan_queued|planning|planned|cost_estimating|cost_estimated|policy_checking|policy_override|policy_checked|confirmed|post_plan_running|post_plan_completed|applying) \
     cannot_verify "the newest commit-correlated run is still in flight ($status); wait" ;;
   *) cannot_verify "the newest commit-correlated run has unknown status '$status'" ;;
 esac

@@ -239,7 +239,9 @@ while : ; do
         # a conclusive verdict, so the script exited 2 and `status` reported
         # nothing to fix while the credential provably could not queue the plans
         # this repository needs.
-        if [ "$ours" = true ] && [ "$plan" = false ]; then
+        if [ "$ours" = true ] && [ "$plan" = false ] \
+            && { [ -z "${HCP_SCOPE_WORKSPACE:-}" ] \
+                || [ "$name" = "$HCP_SCOPE_WORKSPACE" ]; }; then
             broken="${broken}OVER-RESTRICTED: the credential cannot queue runs on workspace '$name', which belongs to $REPO, so plan steps cannot work there. Grant the team the workspace 'Plan' permission, not 'Read'.
 "
         fi

@@ -86,7 +86,10 @@ no durable adoption record and an actual provider tool omitted from the declarat
 Scaffold and verify the decision and leaf for every entry, run every applicable provider
 toolchain trust gate, and only then walk each entry's remaining `new-provider-*` steps.
 This ordering prevents a provider CLI declared under a later entry from being executed
-before its HUMAN review. An
+before its HUMAN review. The initial preflight leaves conditional provider entries
+inactive because no per-entry `NEW_PROVIDER_MISE_TOOLS` is exported yet. After all
+toolchain gates are green, export each entry in turn and run the complete preflight so
+every reviewed provider CLI is version-checked before its runbook commands. An
 empty list means the optional phase is not applicable only when the inventory check is
 green. When `add` was explicitly invoked to adopt a provider that has no matching entry,
 retain the validated requested provider slug as `NEW_PROVIDER` and instantiate
@@ -105,8 +108,8 @@ workspace. Its bootstrap check treats only a 404 as expected HUMAN work and keep
 authentication, and API failures unverifiable. After the workspace is visible, the next
 check independently re-derives its detailed settings, and the separate plan-access check
 proves the restored restricted credential can plan but cannot apply or update workspaces.
-The access check scopes the repository-derived visibility requirement to the current
-provider while still auditing every visible workspace for apply/update capability. This
+The access check scopes both repository-derived visibility and Plan requirements to the
+current provider while still auditing every visible workspace for apply/update capability. This
 lets a later provider reach its own bootstrap handoff without weakening the global
 negative-permission audit.
 

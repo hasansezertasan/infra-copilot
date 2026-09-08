@@ -2053,28 +2053,31 @@ exit 0
                 executable.chmod(0o755)
             (binaries / "jq").symlink_to(jq)
 
-            def run(pin: str) -> int:
+            def run(pin: str, provider_tools: str = "[]") -> int:
                 return subprocess.run(
                     ["/bin/sh", "-c", check],
                     cwd=repository,
                     env=os.environ
-                    | {"PATH": f"{binaries}:/usr/bin:/bin", "PIN": pin},
+                    | {
+                        "PATH": f"{binaries}:/usr/bin:/bin",
+                        "PIN": pin,
+                        "NEW_PROVIDER_MISE_TOOLS": provider_tools,
+                    },
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     check=False,
                 ).returncode
 
-            # Without terraform/gcp the pin is not yet required.
+            # Before the provider's HUMAN toolchain gate, its CLI is not executed.
             self.assertEqual(run("551.0.0"), 0)
 
-            (repository / "terraform/gcp").mkdir(parents=True)
             # The regression: matching pin and installed SDK must agree. Reading
             # `core.version` yielded an empty string and kept this red.
-            self.assertEqual(run("551.0.0"), 0)
+            self.assertEqual(run("551.0.0", '["gcloud"]'), 0)
             # Drift, the release date mistaken for a version, and non-exact
             # selectors all have to fail.
             for pin in ("550.0.0", "2026.01.02", "latest", ">=551", "551"):
-                self.assertNotEqual(run(pin), 0, pin)
+                self.assertNotEqual(run(pin, '["gcloud"]'), 0, pin)
 
 
 if __name__ == "__main__":

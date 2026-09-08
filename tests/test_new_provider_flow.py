@@ -466,7 +466,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("gh pr create --draft", plan)
         self.assertIn("    tri_state: true", plan)
         helper = HCP_CURRENT_PLAN.read_text(encoding="utf-8")
-        self.assertIn('attributes["commit-sha"] == $sha', helper)
+        self.assertIn('attributes["commit-sha"] as $sha', helper)
         self.assertIn('"plan-only":true', helper)
         self.assertIn('"configuration-version":{data:', helper)
         self.assertIn("json-output-redacted", helper)
@@ -477,10 +477,13 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("truncated=true", helper)
         self.assertIn("bounded 500-run scan", helper)
         self.assertIn("still in flight", helper)
+        self.assertIn("planned_and_saved|applied", helper)
+        self.assertIn("the run-list head changed during pagination", helper)
+        self.assertIn('git diff --quiet "$sha" HEAD', helper)
         self.assertIn('[ "$status" = policy_soft_failed ]', helper)
         self.assertIn("POLICY INTERVENTION", helper)
         self.assertLess(helper.index("status=$("), helper.index('if [ "$mode" = queue ]'))
-        self.assertIn('git log -1 --format=%H -- "terraform/$NEW_PROVIDER"', helper)
+        self.assertNotIn('git log -1 --format=%H -- "terraform/$NEW_PROVIDER"', helper)
         self.assertIn("plan_only,plan_and_apply,save_plan&", helper)
         self.assertNotIn("refresh_only", helper)
 
@@ -525,7 +528,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("ADDITIONAL_PROVIDER_MISE_TOOLS", inventory)
         self.assertIn("mise config get --file ./mise.toml tools", inventory)
         self.assertIn("github:cloudflare/cf-terraforming", inventory)
-        self.assertIn("($declared | sort) == ($actual | sort)", inventory)
+        self.assertIn("($actual - $declared | length) == 0", inventory)
 
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
     def test_inventory_rejects_an_undeclared_provider_tool(self) -> None:
@@ -546,7 +549,8 @@ class NewProviderFlowTests(unittest.TestCase):
                 "echo 'terraform = \"1.14.0\"'\n"
                 "echo 'gh = \"2.80.0\"'\n"
                 "echo 'jq = \"1.8.1\"'\n"
-                "echo 'gcloud = \"551.0.0\"'\n",
+                "if [ -z \"${OMIT_GCLOUD:-}\" ]; then "
+                "echo 'gcloud = \"551.0.0\"'; fi\n",
                 encoding="utf-8",
             )
             fake_mise.chmod(0o755)
@@ -571,8 +575,28 @@ class NewProviderFlowTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+            before_scaffolding = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={
+                    **env,
+                    "OMIT_GCLOUD": "1",
+                    "ADDITIONAL_PROVIDER_MISE_TOOLS": '["gcloud"]',
+                },
+                capture_output=True,
+                text=True,
+            )
         self.assertNotEqual(omitted.returncode, 0)
         self.assertEqual(declared.returncode, 0, declared.stderr)
+        self.assertEqual(before_scaffolding.returncode, 0, before_scaffolding.stderr)
+
+    def test_provider_preflight_is_activated_by_the_reviewed_entry(self) -> None:
+        manifest = STEPS.read_text(encoding="utf-8")
+        gcloud = manifest.split("  - tool: gcloud\n", 1)[1].split(
+            "  - tool: infra-copilot-references\n", 1
+        )[0]
+        self.assertIn("NEW_PROVIDER_MISE_TOOLS", gcloud)
+        self.assertNotIn("test -d terraform/gcp", gcloud)
 
     def test_router_and_status_use_the_durable_inventory(self) -> None:
         for path in (CONFIG, STATUS):

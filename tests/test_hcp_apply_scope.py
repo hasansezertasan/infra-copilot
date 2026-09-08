@@ -262,6 +262,13 @@ class HcpApplyScopeTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_scoped_plan_check_ignores_a_later_read_only_workspace(self) -> None:
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY), ("github-org", READ_ONLY)],
+            env={"HCP_SCOPE_WORKSPACE": "cloudflare"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_another_repositorys_appliable_workspace_is_still_unprotected(self) -> None:
         """The security assertion stays global: it must not apply anything."""
         result = self.run_check(
