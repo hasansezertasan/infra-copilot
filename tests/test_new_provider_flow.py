@@ -174,6 +174,10 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertNotIn('check: "test -d terraform/gcp"', decision)
         self.assertIn("git diff --quiet HEAD", decision)
         self.assertIn("git diff --cached --quiet HEAD", decision)
+        self.assertIn(
+            'grep -Fq "terraform/$NEW_PROVIDER" terraform/README.md || exit 1',
+            decision,
+        )
 
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
     def test_decision_requires_the_standardized_affirmative_row(self) -> None:
@@ -473,7 +477,9 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("truncated=true", helper)
         self.assertIn("bounded 500-run scan", helper)
         self.assertIn("still in flight", helper)
-        self.assertIn("policy_soft_failed) exit 1", helper)
+        self.assertIn('[ "$status" = policy_soft_failed ]', helper)
+        self.assertIn("POLICY INTERVENTION", helper)
+        self.assertLess(helper.index("status=$("), helper.index('if [ "$mode" = queue ]'))
         self.assertIn('git log -1 --format=%H -- "terraform/$NEW_PROVIDER"', helper)
         self.assertIn("plan_only,plan_and_apply,save_plan&", helper)
         self.assertNotIn("refresh_only", helper)
@@ -497,6 +503,76 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("hostname=app.terraform.io", result.stdout)
         self.assertIn("organization=acme", result.stdout)
         self.assertIn("workspaces.name=gcp", result.stdout)
+
+    @unittest.skipUnless(os.name == "posix", "the parser is a POSIX shell script")
+    def test_leaf_parser_does_not_invent_a_json_cloud_block(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            leaf = Path(directory)
+            (leaf / "main.tf.json").write_text(
+                '{"resource":{"example":{"fixture":{"name":"test"}}}}',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(leaf), "all"],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("cloud=present", result.stdout)
+
+    def test_inventory_covers_actual_provider_tool_keys(self) -> None:
+        inventory = self.steps["new-provider-inventory"]
+        self.assertIn("ADDITIONAL_PROVIDER_MISE_TOOLS", inventory)
+        self.assertIn("mise config get --file ./mise.toml tools", inventory)
+        self.assertIn("github:cloudflare/cf-terraforming", inventory)
+        self.assertIn("($declared | sort) == ($actual | sort)", inventory)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_inventory_rejects_an_undeclared_provider_tool(self) -> None:
+        inventory = self.steps["new-provider-inventory"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            (root / "terraform").mkdir()
+            (root / "mise.toml").write_text(
+                '[tools]\nterraform = "1.14.0"\ngh = "2.80.0"\n'
+                'jq = "1.8.1"\ngcloud = "551.0.0"\n',
+                encoding="utf-8",
+            )
+            fake_mise = bin_dir / "mise"
+            fake_mise.write_text(
+                "#!/bin/sh\n"
+                "echo 'terraform = \"1.14.0\"'\n"
+                "echo 'gh = \"2.80.0\"'\n"
+                "echo 'jq = \"1.8.1\"'\n"
+                "echo 'gcloud = \"551.0.0\"'\n",
+                encoding="utf-8",
+            )
+            fake_mise.chmod(0o755)
+            env = {
+                **os.environ,
+                "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                "ADDITIONAL_PROVIDER_NAMES": "[]",
+                "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
+                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+            }
+            omitted = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={**env, "ADDITIONAL_PROVIDER_MISE_TOOLS": "[]"},
+                capture_output=True,
+                text=True,
+            )
+            declared = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={**env, "ADDITIONAL_PROVIDER_MISE_TOOLS": '["gcloud"]'},
+                capture_output=True,
+                text=True,
+            )
+        self.assertNotEqual(omitted.returncode, 0)
+        self.assertEqual(declared.returncode, 0, declared.stderr)
 
     def test_router_and_status_use_the_durable_inventory(self) -> None:
         for path in (CONFIG, STATUS):

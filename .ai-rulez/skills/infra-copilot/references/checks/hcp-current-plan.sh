@@ -87,7 +87,24 @@ if ! latest=$(jq -ser --arg sha "$commit_sha" '
     exit 1
 fi
 
+status=$(printf '%s' "$latest" | jq -er '.attributes.status') \
+    || cannot_verify "matched run has no status"
+
+if [ "$status" = policy_soft_failed ]; then
+    echo "POLICY INTERVENTION: the newest commit-correlated run needs human review; refusing to queue a retry" >&2
+    exit 1
+fi
+
 if [ "$mode" = queue ]; then
+    case "$status" in
+      pending|fetching|fetching_completed|pre_plan_running|pre_plan_completed|queuing|plan_queued|planning|planned|cost_estimating|cost_estimated|policy_checking|policy_override|policy_checked|confirmed|post_plan_running|post_plan_completed|planned_and_saved|applying) \
+        cannot_verify "the newest commit-correlated run is still in flight ($status); refusing to queue a duplicate" ;;
+      planned_and_finished|applied)
+        echo "the newest commit-correlated run is already complete; no retry queued"
+        exit 0 ;;
+      errored|canceled|discarded|force_canceled) : ;;
+      *) cannot_verify "the newest commit-correlated run has unknown status '$status'" ;;
+    esac
     cv_id=$(printf '%s' "$latest" | jq -er '
       .relationships["configuration-version"].data.id
       | select(type == "string" and length > 0)') \
@@ -116,11 +133,9 @@ if [ "$mode" = queue ]; then
     exit 0
 fi
 
-status=$(printf '%s' "$latest" | jq -er '.attributes.status') \
-    || cannot_verify "matched run has no status"
 case "$status" in
   planned_and_finished|applied) : ;;
-  errored|canceled|discarded|force_canceled|policy_soft_failed) exit 1 ;;
+  errored|canceled|discarded|force_canceled) exit 1 ;;
   pending|fetching|fetching_completed|pre_plan_running|pre_plan_completed|queuing|plan_queued|planning|planned|cost_estimating|cost_estimated|policy_checking|policy_override|policy_checked|confirmed|post_plan_running|post_plan_completed|planned_and_saved|applying) \
     cannot_verify "the newest commit-correlated run is still in flight ($status); wait" ;;
   *) cannot_verify "the newest commit-correlated run has unknown status '$status'" ;;

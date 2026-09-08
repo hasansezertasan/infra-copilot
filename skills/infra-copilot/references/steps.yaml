@@ -45,6 +45,8 @@
 #     export NEW_PROVIDER=<entry.name>
 #     export NEW_PROVIDER_WORKSPACE=<entry.workspace>
 #     export NEW_PROVIDER_MISE_TOOLS='<entry.mise_tools as compact JSON>'
+# The once-per-phase inventory also receives every declared provider tool:
+#     export ADDITIONAL_PROVIDER_MISE_TOOLS='<all entry.mise_tools flattened as compact JSON>'
 #     export NEW_PROVIDER_FORK_PLANS_DISABLED=<entry.fork_speculative_plans_disabled>
 #     export NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID=<entry.fork_speculative_plans_workspace_id>
 #     export NEW_PROVIDER_CREDENTIALS='<entry.credential_variables as compact JSON>'
@@ -693,6 +695,21 @@ steps:
             and index("cloudflare") == null
             and index("github-org") == null)
           and ($names | length) == ($workspaces | length)' >/dev/null || exit 1
+      declared_tools=$(printf '%s' "${ADDITIONAL_PROVIDER_MISE_TOOLS:-[]}" | jq -ce '
+        select(type == "array")
+        | select(all(.[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:/+-]*$")))
+        | unique') || exit 1
+      if test -f mise.toml; then
+        tools=$(mise config get --file ./mise.toml tools 2>/dev/null) || exit 1
+        pinned=$(printf '%s\n' "$tools" |
+          sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p')
+        provider_tools=$(printf '%s\n' "$pinned" |
+          grep -Ev '^(terraform|gh|jq|github:cloudflare/cf-terraforming)$' || :)
+        actual_tools=$(printf '%s\n' "$provider_tools" |
+          jq -Rsc 'split("\n") | map(select(length > 0)) | unique') || exit 1
+        jq -ne --argjson declared "$declared_tools" --argjson actual "$actual_tools" \
+          '($declared | sort) == ($actual | sort)' >/dev/null || exit 1
+      fi
       for leaf in terraform/*/; do
         test -d "$leaf" || continue
         name=${leaf%/}; name=${name##*/}
@@ -751,7 +768,7 @@ steps:
         clean($2) == expected && clean($3) == "adopt" && clean($4) == "locked" { found=1 }
         END { exit !found }
       ' .infra-copilot/decisions.md || exit 1
-      grep -Fq "terraform/$NEW_PROVIDER" terraform/README.md
+      grep -Fq "terraform/$NEW_PROVIDER" terraform/README.md || exit 1
       git ls-files --error-unmatch .infra-copilot/config.md \
         .infra-copilot/decisions.md terraform/README.md >/dev/null 2>&1 || exit 1
       git diff --quiet HEAD -- .infra-copilot/config.md \

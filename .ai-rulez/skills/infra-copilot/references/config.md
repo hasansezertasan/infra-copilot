@@ -47,8 +47,10 @@ additional_providers:
 
 Workspace names must be unique across this list and must not be `cloudflare` or
 `github-org`; resume must never repoint an existing bootstrap workspace. Record every
-provider CLI added to `mise.toml` in `mise_tools`. The list may be empty, in which case
-the post-scaffold toolchain trust step is not applicable. Before credentials are added, a
+provider CLI added to `mise.toml` in `mise_tools`. The phase inventory compares the
+flattened declarations to every actual mise key except the setup tools (`terraform`,
+`gh`, `jq`) and the Phase 5 migration tool (`github:cloudflare/cf-terraforming`), so an
+empty list is valid only when no provider tool was added. Before credentials are added, a
 human must confirm the workspace UI's separate fork speculative-plan toggle is off,
 change `fork_speculative_plans_disabled` from `false` to `true`, and record the verified
 workspace's immutable `ws-...` ID in `fork_speculative_plans_workspace_id`; the HCP API
@@ -86,6 +88,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
    export ADDITIONAL_PROVIDER_NAMES='<additional_providers names as compact JSON>'
    export ADDITIONAL_PROVIDER_WORKSPACES='<additional_providers workspaces as compact JSON>'
+   export ADDITIONAL_PROVIDER_MISE_TOOLS='<all additional_providers mise_tools flattened as compact JSON>'
    export hcp_api=https://app.terraform.io/api/v2
    export INFRA_COPILOT_REFERENCES=<absolute path to this references/ directory>
    # Terraform's own precedence: TF_TOKEN_app_terraform_io wins over the credentials
@@ -99,7 +102,10 @@ Before running ANY step's `check` or `run`, the agent MUST:
    value into an empty list. `ADDITIONAL_PROVIDER_NAMES` is therefore always a JSON array,
    including `[]`; the always-run
    `new-provider-inventory` manifest step uses it to catch a Terraform leaf whose durable
-   adoption record was never added or was deleted. Then, for each
+   adoption record was never added or was deleted. `ADDITIONAL_PROVIDER_MISE_TOOLS` is
+   likewise always a JSON array and is derived by flattening every entry's `mise_tools`;
+   the inventory compares it with the actual non-bootstrap provider keys in `mise.toml`.
+   Then, for each
    `additional_providers` entry, instantiate the remaining Phase 6 steps and export:
 
    ```sh

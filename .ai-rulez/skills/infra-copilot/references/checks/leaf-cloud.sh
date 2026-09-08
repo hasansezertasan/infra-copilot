@@ -103,6 +103,7 @@ for json_file in "$leaf"/*.tf.json; do
     jq -r --arg want "$want" '
       def clouds:
         .terraform.cloud?
+        | select(. != null)
         | if type == "array" then .[] else . end;
       clouds as $cloud
       | if $want == "all" then

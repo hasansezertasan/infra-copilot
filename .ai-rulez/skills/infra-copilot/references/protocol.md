@@ -80,10 +80,13 @@ each step's `check` to discover where things already stand. Resume at the first 
 check is red. An all-green scope means "already done, nothing to do."
 
 Phase 6 is parameterized rather than GCP-specific. Export
-`ADDITIONAL_PROVIDER_NAMES` and run `new-provider-inventory` once; that manifest check
-catches an extra Terraform leaf with no durable adoption record. Then, for every entry in
-config.md's `additional_providers`, export its `NEW_PROVIDER*` values and walk the
-remaining `new-provider-*` steps in order. Finish one entry before starting the next. An
+`ADDITIONAL_PROVIDER_NAMES` and the flattened `ADDITIONAL_PROVIDER_MISE_TOOLS`, then run
+`new-provider-inventory` once; that manifest check catches an extra Terraform leaf with
+no durable adoption record and an actual provider tool omitted from the declarations.
+Scaffold and verify the decision and leaf for every entry, run every applicable provider
+toolchain trust gate, and only then walk each entry's remaining `new-provider-*` steps.
+This ordering prevents a provider CLI declared under a later entry from being executed
+before its HUMAN review. An
 empty list means the optional phase is not applicable only when the inventory check is
 green. When `add` was explicitly invoked to adopt a provider that has no matching entry,
 retain the validated requested provider slug as `NEW_PROVIDER` and instantiate
@@ -93,9 +96,10 @@ reload config and continue the normal per-entry scan. The empty-list shortcut mu
 discard an explicit adoption request.
 
 For each entry, `new-provider-toolchain` is applicable only when its `mise_tools` list is
-non-empty. The decision records the list before scaffolding, and the HUMAN trust gate
-verifies each declared pin is installed before any provider CLI command runs. An empty
-list skips that gate without inventing a provider tool. The workspace-access step precedes
+non-empty. The decision records the list before scaffolding, the inventory rejects an
+actual provider pin omitted from all entries, and all applicable HUMAN trust gates verify
+their declared pins before any provider CLI command runs. An empty list skips that gate
+only when the actual tool inventory confirms no provider pin needs it. The workspace-access step precedes
 detailed workspace verification because the plan-only credential cannot read an ungranted
 workspace. Its bootstrap check treats only a 404 as expected HUMAN work and keeps network,
 authentication, and API failures unverifiable. After the workspace is visible, the next
