@@ -667,6 +667,36 @@ class HcpApplyScopeTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_commented_out_names_are_ignored(self) -> None:
+        """HCL allows #, // and /* */, and a commented previous value was read.
+
+        `# name = "old"` above the active `name = "new"` returned `old`, so a
+        stale workspace still visible under that name satisfied the inventory
+        while the workspace Terraform targets did not.
+        """
+        for label, block in (
+            ("hash", '      # name = "old"\n      name = "cloudflare"\n'),
+            ("slash", '      // name = "old"\n      name = "cloudflare"\n'),
+            ("inline block", '      /* name = "old" */ name = "cloudflare"\n'),
+            (
+                "multiline block",
+                '      /* name = "old"\n         still comment */\n      name = "cloudflare"\n',
+            ),
+        ):
+            with self.subTest(comment=label):
+                result = self.run_check(
+                    workspaces=[("cloudflare", PLAN_ONLY)],
+                    leaves=["terraform/cloudflare"],
+                    leaf_hcl={
+                        "terraform/cloudflare": (
+                            "terraform {\n  cloud {\n"
+                            '    organization = "acme"\n'
+                            "    workspaces {\n" + block + "    }\n  }\n}\n"
+                        )
+                    },
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_a_tags_based_leaf_is_reported_as_undeterminable(self) -> None:
         """`tags` is mutually exclusive with `name` and selects a set.
 

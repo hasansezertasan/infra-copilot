@@ -128,17 +128,38 @@ leaf_workspace_name () {  # $1 = leaf dir; prints its name, or TAGS, or nothing
     # `name` and selects a set rather than one workspace, and its map form can
     # itself contain a `name` key, so it is reported as TAGS rather than guessed.
     awk '
-        /(^|[^[:alnum:]_])cloud[[:space:]]*{/ { incloud = 1; next }
-        incloud && /(^|[^[:alnum:]_])workspaces[[:space:]]*{/ { inws = 1 }
-        inws && /(^|[^[:alnum:]_])tags[[:space:]]*=/ { print "TAGS"; exit }
-        inws && match($0, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/) {
-            value = substr($0, RSTART, RLENGTH)
+        # Comments first. HCL allows #, // and /* */, and a commented previous
+        # value -- `# name = "old"` above the active `name = "new"` -- was read as
+        # the workspace name, so a stale workspace still visible under that name
+        # satisfied the inventory while the one Terraform targets did not.
+        {
+            line = $0
+            while (inblock) {
+                end = index(line, "*/")
+                if (end == 0) { line = ""; break }
+                line = substr(line, end + 2)
+                inblock = 0
+            }
+            while ((start = index(line, "/*")) > 0) {
+                rest = substr(line, start + 2)
+                end = index(rest, "*/")
+                if (end == 0) { line = substr(line, 1, start - 1); inblock = 1; break }
+                line = substr(line, 1, start - 1) substr(rest, end + 2)
+            }
+            sub(/#.*/, "", line)
+            sub(/\/\/.*/, "", line)
+        }
+        line ~ /(^|[^[:alnum:]_])cloud[[:space:]]*{/ { incloud = 1; next }
+        incloud && line ~ /(^|[^[:alnum:]_])workspaces[[:space:]]*{/ { inws = 1 }
+        inws && line ~ /(^|[^[:alnum:]_])tags[[:space:]]*=/ { print "TAGS"; exit }
+        inws && match(line, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/) {
+            value = substr(line, RSTART, RLENGTH)
             sub(/^[^"]*"/, "", value)
             sub(/"$/, "", value)
             print value
             exit
         }
-        inws && /}/ { inws = 0 }
+        inws && line ~ /}/ { inws = 0 }
     ' "$1"/*.tf 2>/dev/null
 }
 
