@@ -473,6 +473,28 @@ terraform {
         self.assertNotIn("wrong-org", all_settings)
         self.assertNotIn("wrong-workspace", all_settings)
 
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
+    def test_leaf_parser_ignores_comment_delimiters_inside_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "a-route.tf").write_text(
+                'resource "example_route" "all" { route_pattern = "/*" }\n',
+                encoding="utf-8",
+            )
+            (root / "versions.tf").write_text(
+                'terraform {\n  cloud {\n    organization = "acme"\n'
+                '    workspaces { name = "gcp" }\n  }\n}\n',
+                encoding="utf-8",
+            )
+            all_settings = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(root), "all"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        self.assertIn("organization=acme", all_settings)
+        self.assertIn("workspaces.name=gcp", all_settings)
+
     def test_toolchain_retrusts_after_the_leaf_before_provider_commands(self) -> None:
         leaf = self.steps["new-provider-leaf"]
         toolchain = self.steps["new-provider-toolchain"]
@@ -494,7 +516,73 @@ terraform {
         self.assertIn("git ls-files --error-unmatch", leaf)
         self.assertIn(".terraform.lock.hcl", leaf)
         self.assertIn("terraform init -backend=false", leaf)
+        self.assertIn('terraform -chdir="terraform/$NEW_PROVIDER" providers', leaf)
+        self.assertIn('provider\\[\\([^]]*\\)\\]', leaf)
+        self.assertIn("version && checksum", leaf)
         self.assertIn("git --no-optional-locks status --porcelain", leaf)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_leaf_rejects_a_lock_without_required_provider_selection(self) -> None:
+        leaf = self.steps["new-provider-leaf"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            provider_dir = root / "terraform/gcp"
+            provider_dir.mkdir(parents=True)
+            (provider_dir / "versions.tf").write_text(
+                'terraform {\n  cloud {\n    organization = "acme"\n'
+                '    workspaces { name = "gcp" }\n  }\n}\n',
+                encoding="utf-8",
+            )
+            lock = provider_dir / ".terraform.lock.hcl"
+            lock.write_text(
+                'provider "registry.terraform.io/hashicorp/google" {\n'
+                '  version = "6.0.0"\n  hashes = [\n    "h1:fixture",\n  ]\n}\n',
+                encoding="utf-8",
+            )
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            terraform = bin_dir / "terraform"
+            terraform.write_text(
+                "#!/bin/sh\necho 'Providers required by configuration:'\n"
+                "echo 'provider[registry.terraform.io/hashicorp/google] 6.0.0'\n",
+                encoding="utf-8",
+            )
+            terraform.chmod(0o755)
+            git_env = os.environ | {
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_SYSTEM": os.devnull,
+            }
+            subprocess.run(["git", "init", "-q"], cwd=root, env=git_env, check=True)
+            subprocess.run(["git", "add", "."], cwd=root, env=git_env, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qm", "valid lock"],
+                cwd=root, env=git_env, check=True,
+            )
+            env = os.environ | {
+                "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                "NEW_PROVIDER": "gcp",
+                "NEW_PROVIDER_WORKSPACE": "gcp",
+                "ORG": "acme",
+                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+            }
+            valid = subprocess.run(
+                ["/bin/sh", "-c", literal_check(leaf)], cwd=root, env=env,
+                capture_output=True, text=True,
+            )
+            lock.write_text("# empty lock\n", encoding="utf-8")
+            subprocess.run(["git", "add", str(lock)], cwd=root, env=git_env, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qm", "empty lock"],
+                cwd=root, env=git_env, check=True,
+            )
+            empty = subprocess.run(
+                ["/bin/sh", "-c", literal_check(leaf)], cwd=root, env=env,
+                capture_output=True, text=True,
+            )
+        self.assertEqual(valid.returncode, 0, valid.stderr)
+        self.assertNotEqual(empty.returncode, 0)
 
     def test_workspace_bootstrap_makes_the_creation_handoff_reachable(self) -> None:
         bootstrap = self.steps["new-provider-workspace-bootstrap"]
@@ -569,6 +657,7 @@ terraform {
         self.assertIn("terraform/modules", helper)
         self.assertIn("git --no-optional-locks status --porcelain", helper)
         self.assertIn("candidate run has a malformed created-at timestamp", helper)
+        self.assertIn('// error("timestamp does not match RFC3339 UTC")', helper)
         self.assertIn("$epoch <= now", helper)
         self.assertIn("pre_plan_errored", helper)
         self.assertIn("cost_estimation_errored", helper)

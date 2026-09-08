@@ -27,6 +27,29 @@ awk -v want="$want" '
         copy = substr(text, 1, RSTART + RLENGTH - 1)
         return depth + structural_depth_delta(copy)
     }
+    function strip_comments(text, out, i, ch, pair, in_string, escaped) {
+        out = ""
+        for (i = 1; i <= length(text); i++) {
+            ch = substr(text, i, 1)
+            pair = substr(text, i, 2)
+            if (incomment) {
+                if (pair == "*/") { incomment = 0; i++ }
+                continue
+            }
+            if (in_string) {
+                out = out ch
+                if (escaped) escaped = 0
+                else if (ch == "\\") escaped = 1
+                else if (ch == "\"") in_string = 0
+                continue
+            }
+            if (ch == "\"") { in_string = 1; out = out ch; continue }
+            if (pair == "/*") { incomment = 1; i++; continue }
+            if (ch == "#" || pair == "//") break
+            out = out ch
+        }
+        return out
+    }
     function emit(key, value) {
         if (want == "all") print key "=" value
         else if (want == key || (want == "workspace" && key == "workspaces.name")) {
@@ -43,19 +66,7 @@ awk -v want="$want" '
         }
         opened_cloud = 0
         opened_workspace = 0
-        line = $0
-        while (incomment) {
-            end = index(line, "*/")
-            if (end == 0) { line = ""; break }
-            line = substr(line, end + 2); incomment = 0
-        }
-        while ((start = index(line, "/*")) > 0) {
-            rest = substr(line, start + 2)
-            end = index(rest, "*/")
-            if (end == 0) { line = substr(line, 1, start - 1); incomment = 1; break }
-            line = substr(line, 1, start - 1) substr(rest, end + 2)
-        }
-        sub(/#.*/, "", line); sub(/\/\/.*/, "", line)
+        line = strip_comments($0)
         if (match(line, /<<-?[[:space:]]*[A-Za-z_][A-Za-z0-9_]*/)) {
             heredoc_start = RSTART
             heredoc = substr(line, RSTART, RLENGTH)

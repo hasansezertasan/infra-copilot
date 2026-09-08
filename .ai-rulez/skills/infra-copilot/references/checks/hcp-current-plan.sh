@@ -117,7 +117,8 @@ candidates=$(jq -scer '
     || cannot_verify "run-to-ingress relationships were malformed"
 candidates=$(printf '%s' "$candidates" | jq -cer '
   def timestamp_key:
-    capture("^(?<whole>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\\.(?<fraction>[0-9]{1,9}))?Z$")
+    (capture("^(?<whole>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\\.(?<fraction>[0-9]{1,9}))?Z$")
+      // error("timestamp does not match RFC3339 UTC"))
     | select((.whole + "Z" | fromdateiso8601 | type) == "number")
     | .whole + "." + (((.fraction // "") + "000000000")[0:9]) + "Z";
   map(. + {"_created_key": (.attributes["created-at"] | timestamp_key)})') \
