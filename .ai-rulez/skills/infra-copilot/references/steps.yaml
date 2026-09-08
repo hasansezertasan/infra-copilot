@@ -707,8 +707,15 @@ steps:
         tools=$(mise config get --file ./mise.toml tools 2>/dev/null) || exit 1
         pinned=$(printf '%s\n' "$tools" |
           sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p')
-        provider_tools=$(printf '%s\n' "$pinned" |
-          grep -Ev '^(terraform|gh|jq|github:cloudflare/cf-terraforming)$' || :)
+        provider_tools=$(sed -n \
+          's/^[[:space:]]*#[[:space:]]*infra-copilot:provider-cli[[:space:]]\{1,\}\([A-Za-z0-9][A-Za-z0-9_-]*\)[[:space:]]*$/\1/p' \
+          mise.toml)
+        test "$(printf '%s\n' "$provider_tools" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')" \
+          = "$(printf '%s\n' "$provider_tools" | sed '/^$/d' | wc -l | tr -d ' ')" || exit 1
+        printf '%s\n' "$provider_tools" | while IFS= read -r tool; do
+          test -z "$tool" && continue
+          printf '%s\n' "$pinned" | grep -Fx "$tool" >/dev/null || exit 1
+        done || exit 1
         actual_tools=$(printf '%s\n' "$provider_tools" |
           jq -Rsc 'split("\n") | map(select(length > 0)) | unique') || exit 1
         jq -ne --argjson declared "$declared_tools" --argjson actual "$actual_tools" \
@@ -751,7 +758,7 @@ steps:
       printf '%s' "$NEW_PROVIDER_WORKSPACE" | grep -Eq '^[a-z0-9][a-z0-9-]*$' || exit 1
       printf '%s' "$NEW_PROVIDER_MISE_TOOLS" | jq -e '
         type == "array"
-        and all(.[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:/+-]*$"))
+        and all(.[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9_-]*$"))
         and length == (unique | length)' >/dev/null || exit 1
       case "$NEW_PROVIDER_FORK_PLANS_DISABLED" in true|false) : ;; *) exit 1 ;; esac
       if test -n "$NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID"; then
@@ -799,7 +806,8 @@ steps:
       versions, provider, and initial resource configuration. Its cloud block must
       select workspace $NEW_PROVIDER_WORKSPACE by name. Do not create resources
       before new-provider-decision is green. If the provider runbook requires a new
-      CLI, add its exact mise pin and refreshed lock, but do not execute the CLI or
+      CLI, add `# infra-copilot:provider-cli <key>` immediately before its exact
+      same-name mise pin and refresh the lock, but do not execute the CLI or
       any later runbook commands until new-provider-toolchain is green. Commit the
       completed leaf, including the provider selections written to
       `.terraform.lock.hcl` by `terraform init -backend=false`, before re-running
@@ -852,6 +860,12 @@ steps:
       [ -z "$tool" ] && continue;
       printf '%s\n' "$pinned" | grep -Fx "$tool" >/dev/null || exit 1;
       MISE_LOCKED=1 mise install --dry-run-code "$tool" >/dev/null 2>&1 || exit 1;
+      pin=$(mise config get --file ./mise.toml "tools.$tool" 2>/dev/null | tr -d '[:space:]');
+      active=$(MISE_LOCKED=1 mise which "$tool" --version 2>/dev/null | tr -d '[:space:]');
+      resolved=$(MISE_LOCKED=1 mise which "$tool" 2>/dev/null) || exit 1;
+      [ -n "$pin" ] && [ "$active" = "$pin" ] && [ -x "$resolved" ] || exit 1;
+      MISE_LOCKED=1 mise exec "$tool" -- sh -c
+      '[ "$(command -v "$1")" = "$2" ]' sh "$tool" "$resolved" || exit 1;
       done
     produces: human-reviewed, trusted, locked provider toolchain; complete preflight green
     docs: docs/setup.md#6-local-development

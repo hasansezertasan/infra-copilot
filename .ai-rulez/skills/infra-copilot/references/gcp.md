@@ -64,7 +64,8 @@ so you get version parity rather than artifact identity; that is enough for the 
 discovering. On macOS its post-install step tries to `sudo`-install a system Python and
 fails; that is harmless, since the SDK ships its own.
 
-Pin it under the plain `gcloud` key — `gcloud = "551.0.0"` — not the backend string.
+Mark and pin it under the plain `gcloud` key —
+`# infra-copilot:provider-cli gcloud` followed by `gcloud = "551.0.0"` — not the backend string.
 mise's registry aliases `gcloud` to that vfox backend, so the short name resolves to it;
 the backend is named above so you know what you are getting, not as the key to write.
 This is the opposite of `cf-terraforming`, which is absent from the registry and therefore

@@ -82,7 +82,9 @@ check is red. An all-green scope means "already done, nothing to do."
 Phase 6 is parameterized rather than GCP-specific. Export
 `ADDITIONAL_PROVIDER_NAMES` and the flattened `ADDITIONAL_PROVIDER_MISE_TOOLS`, then run
 `new-provider-inventory` once; that manifest check catches an extra Terraform leaf with
-no durable adoption record and an actual provider tool omitted from the declarations.
+no durable adoption record and an explicitly marked provider tool omitted from the
+declarations. Provider pins use `# infra-copilot:provider-cli <key>` in `mise.toml`, so
+unrelated repository tools never enter the provider inventory.
 Scaffold and verify the decision and leaf for every entry, run every applicable provider
 toolchain trust gate, and only then walk each entry's remaining `new-provider-*` steps.
 This ordering prevents a provider CLI declared under a later entry from being executed
@@ -101,7 +103,8 @@ discard an explicit adoption request.
 For each entry, `new-provider-toolchain` is applicable only when its `mise_tools` list is
 non-empty. The decision records the list before scaffolding, the inventory rejects an
 actual provider pin omitted from all entries, and all applicable HUMAN trust gates verify
-their declared pins before any provider CLI command runs. An empty list skips that gate
+their declared pins, resolved executable paths, and active mise versions before any
+provider CLI command runs. An empty list skips that gate
 only when the actual tool inventory confirms no provider pin needs it. The workspace-access step precedes
 detailed workspace verification because the plan-only credential cannot read an ungranted
 workspace. Its bootstrap check treats only a 404 as expected HUMAN work and keeps network,

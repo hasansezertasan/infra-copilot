@@ -101,9 +101,9 @@ for sha in $(jq -sr '[.[].included[]?
           '$shas + [$sha]') || cannot_verify "matching ingress SHAs could not be encoded"
     fi
 done
+[ "$missing_commit" = false ] \
+    || cannot_verify "an ingested commit is unavailable locally, so the newest relevant run cannot be selected safely"
 if ! printf '%s' "$matching_shas" | jq -e 'length > 0' >/dev/null; then
-    [ "$missing_commit" = false ] \
-        || cannot_verify "an ingested commit is unavailable locally, so its relevant tree cannot be compared"
     [ "$truncated" = false ] || cannot_verify \
       "the current relevant tree was absent from the bounded 500-run scan and older pages remain"
     exit 1
@@ -134,7 +134,7 @@ status=$(printf '%s' "$latest" | jq -er '.attributes.status') \
     || cannot_verify "matched run has no status"
 fresh=$(printf '%s' "$latest" | jq -er \
     --arg verified "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" '
-      try (((.attributes["created-at"] | fromdateiso8601)
+      try (((.attributes["created-at"] | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)
         >= ($verified | fromdateiso8601)) | tostring) catch empty') \
     || cannot_verify "matched run has no comparable created-at timestamp"
 
@@ -145,16 +145,17 @@ fi
 
 if [ "$mode" = queue ]; then
     if [ "$fresh" = true ]; then
+        evaluate_existing=false
         case "$status" in
           pending|fetching|fetching_completed|pre_plan_running|pre_plan_completed|queuing|plan_queued|planning|planned|cost_estimating|cost_estimated|policy_checking|policy_override|policy_checked|confirmed|post_plan_running|post_plan_completed|applying) \
             cannot_verify "the newest post-credential run is still in flight ($status); refusing to queue a duplicate" ;;
           planned_and_finished|planned_and_saved|applied)
-            echo "the newest post-credential run is already complete; no retry queued"
-            exit 0 ;;
-          errored|canceled|discarded|force_canceled) : ;;
+            evaluate_existing=true ;;
+          errored|canceled|discarded|force_canceled|pre_plan_errored|cost_estimation_errored|policy_errored|post_plan_errored|policy_hard_failed) : ;;
           *) cannot_verify "the newest post-credential run has unknown status '$status'" ;;
         esac
     fi
+    if [ "${evaluate_existing:-false}" = false ]; then
     cv_id=$(printf '%s' "$latest" | jq -er '
       .relationships["configuration-version"].data.id
       | select(type == "string" and length > 0)') \
@@ -181,12 +182,13 @@ if [ "$mode" = queue ]; then
     rm -f "$response"
     echo "Queued commit-correlated plan ${run_id:-successfully}; wait for it to finish."
     exit 0
+    fi
 fi
 
 [ "$fresh" = true ] || exit 1
 case "$status" in
   planned_and_finished|planned_and_saved|applied) : ;;
-  errored|canceled|discarded|force_canceled) exit 1 ;;
+  errored|canceled|discarded|force_canceled|pre_plan_errored|cost_estimation_errored|policy_errored|post_plan_errored|policy_hard_failed) exit 1 ;;
   pending|fetching|fetching_completed|pre_plan_running|pre_plan_completed|queuing|plan_queued|planning|planned|cost_estimating|cost_estimated|policy_checking|policy_override|policy_checked|confirmed|post_plan_running|post_plan_completed|applying) \
     cannot_verify "the newest commit-correlated run is still in flight ($status); wait" ;;
   *) cannot_verify "the newest commit-correlated run has unknown status '$status'" ;;
@@ -213,5 +215,11 @@ summary=$(printf '%s' "$plan_json" | jq -ec '
   || cannot_verify "matched run's structured plan was malformed"
 creates=$(printf '%s' "$summary" | jq -r '.creates')
 destroys=$(printf '%s' "$summary" | jq -r '.destroys')
-[ "$destroys" -eq 0 ] || exit 1
-[ "$creates" -gt 0 ] || [ "$resource_count" -gt 0 ]
+if [ "$destroys" -ne 0 ]; then
+    echo "UNSAFE PLAN: the newest post-credential plan contains $destroys destroy action(s)" >&2
+    exit 1
+fi
+if [ "$creates" -eq 0 ] && [ "$resource_count" -eq 0 ]; then
+    echo "INCOMPLETE PLAN: the empty workspace plan creates no resources" >&2
+    exit 1
+fi

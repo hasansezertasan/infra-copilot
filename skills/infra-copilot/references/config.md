@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:523799688b022a6a0af2e0475007de3b9dfd19b03e27c6d0c6f11ebd57fbede9
-Source-Hash: blake3:b876e61f2cd2881d13ac7f4e3171b45c069470d4132db325ef23ff63dd40d6b8
+Content-Hash: blake3:8c773a9919d816fd9373adf9e1834363d809e5a9c8787d79f98f8703ca15108e
+Source-Hash: blake3:abaf16de38b1d1360cade2d2c52e9e8c3072f790a52fd5368a25ec7ec44d5cd5
 Schema-Version: v1
 -->
 
@@ -55,10 +55,12 @@ additional_providers:
 
 Workspace names must be unique across this list and must not be `cloudflare` or
 `github-org`; resume must never repoint an existing bootstrap workspace. Record every
-provider CLI added to `mise.toml` in `mise_tools`. The phase inventory compares the
-flattened declarations to every actual mise key except the setup tools (`terraform`,
-`gh`, `jq`) and the Phase 5 migration tool (`github:cloudflare/cf-terraforming`), so an
-empty list is valid only when no provider tool was added. Before credentials are added, a
+provider CLI added to `mise.toml` in `mise_tools`; keys must be the same simple name as
+the executable. Mark each corresponding pin with an immediately preceding
+`# infra-copilot:provider-cli <key>` comment. The phase inventory compares the flattened
+declarations only to those explicit markers, so general-purpose repository tools are not
+misclassified while an undeclared marked provider CLI is rejected. An empty list is
+valid only when no marked provider tool was added. Before credentials are added, a
 human must confirm the workspace UI's separate fork speculative-plan toggle is off,
 change `fork_speculative_plans_disabled` from `false` to `true`, and record the verified
 workspace's immutable `ws-...` ID in `fork_speculative_plans_workspace_id`; the HCP API
@@ -118,7 +120,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    `new-provider-inventory` manifest step uses it to catch a Terraform leaf whose durable
    adoption record was never added or was deleted. `ADDITIONAL_PROVIDER_MISE_TOOLS` is
    likewise always a JSON array and is derived by flattening every entry's `mise_tools`;
-   the inventory compares it with the actual non-bootstrap provider keys in `mise.toml`.
+   the inventory compares it with the explicitly marked provider keys in `mise.toml`.
    Then, for each
    `additional_providers` entry, instantiate the remaining Phase 6 steps and export:
 

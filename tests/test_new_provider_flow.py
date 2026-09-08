@@ -424,6 +424,8 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("MISE_LOCKED=1", toolchain)
         self.assertIn("NEW_PROVIDER_MISE_TOOLS", toolchain)
         self.assertIn("--dry-run-code", toolchain)
+        self.assertIn('mise which "$tool" --version', toolchain)
+        self.assertIn('mise exec "$tool"', toolchain)
         self.assertIn("complete preflight", toolchain)
 
     def test_leaf_must_be_tracked_and_clean(self) -> None:
@@ -495,8 +497,13 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("bounded 500-run scan", helper)
         self.assertIn("still in flight", helper)
         self.assertIn("planned_and_saved|applied", helper)
-        self.assertIn('attributes["created-at"] | fromdateiso8601', helper)
+        self.assertIn('attributes["created-at"]', helper)
+        self.assertIn('sub("\\\\.[0-9]+Z$"; "Z")', helper)
         self.assertIn("NEW_PROVIDER_CREDENTIALS_VERIFIED_AT", helper)
+        self.assertIn("pre_plan_errored", helper)
+        self.assertIn("cost_estimation_errored", helper)
+        self.assertIn("UNSAFE PLAN", helper)
+        self.assertIn("newest relevant run cannot be selected safely", helper)
         self.assertIn("the run-list head changed during pagination", helper)
         self.assertIn('git diff --quiet "$sha" HEAD', helper)
         self.assertIn('[ "$status" = policy_soft_failed ]', helper)
@@ -580,7 +587,8 @@ terraform {
         inventory = self.steps["new-provider-inventory"]
         self.assertIn("ADDITIONAL_PROVIDER_MISE_TOOLS", inventory)
         self.assertIn("mise config get --file ./mise.toml tools", inventory)
-        self.assertIn("github:cloudflare/cf-terraforming", inventory)
+        self.assertIn("infra-copilot:provider-cli", inventory)
+        self.assertNotIn("github:cloudflare/cf-terraforming", inventory)
         self.assertIn("($actual - $declared | length) == 0", inventory)
 
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
@@ -593,7 +601,8 @@ terraform {
             (root / "terraform").mkdir()
             (root / "mise.toml").write_text(
                 '[tools]\nterraform = "1.14.0"\ngh = "2.80.0"\n'
-                'jq = "1.8.1"\ngcloud = "551.0.0"\n',
+                'jq = "1.8.1"\nnode = "24.0.0"\n'
+                '# infra-copilot:provider-cli gcloud\ngcloud = "551.0.0"\n',
                 encoding="utf-8",
             )
             fake_mise = bin_dir / "mise"
@@ -602,6 +611,7 @@ terraform {
                 "echo 'terraform = \"1.14.0\"'\n"
                 "echo 'gh = \"2.80.0\"'\n"
                 "echo 'jq = \"1.8.1\"'\n"
+                "echo 'node = \"24.0.0\"'\n"
                 "if [ -z \"${OMIT_GCLOUD:-}\" ]; then "
                 "echo 'gcloud = \"551.0.0\"'; fi\n",
                 encoding="utf-8",
@@ -627,6 +637,11 @@ terraform {
                 env={**env, "ADDITIONAL_PROVIDER_MISE_TOOLS": '["gcloud"]'},
                 capture_output=True,
                 text=True,
+            )
+            (root / "mise.toml").write_text(
+                '[tools]\nterraform = "1.14.0"\ngh = "2.80.0"\n'
+                'jq = "1.8.1"\nnode = "24.0.0"\n',
+                encoding="utf-8",
             )
             before_scaffolding = subprocess.run(
                 ["/bin/sh", "-c", literal_check(inventory)],
