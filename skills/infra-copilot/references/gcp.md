@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:865097b896cb6785f5f162752bbd763a8e2a6a98b032b9ab8199ec0032fa4663
-Source-Hash: blake3:896ef9db538ace58885a179226753b31f986820ac2c138991bb0856cc2208fcd
+Content-Hash: blake3:e303a03b16e6319c5842f2c8f331e1d405d07c743e30deeaf02145acf4465f04
+Source-Hash: blake3:61406bc33a279080fdccbea308400bf021cf79635d7a3981c5f287ccca8598f8
 Schema-Version: v1
 -->
 
@@ -22,7 +22,8 @@ Schema-Version: v1
 The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml) stays
 **red** until GCP is intentionally adopted. Before writing provider code:
 
-1. Add a row to `.infra-copilot/decisions.md` (what GCP is for, auth method, state).
+1. Add a locked row to `.infra-copilot/decisions.md` with decision `Provider: gcp` and
+   choice `adopt` (put purpose and auth rationale in the context column).
 2. Note the new leaf in `terraform/README.md`.
 3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
    variable used for authentication.

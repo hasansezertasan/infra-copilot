@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:c99372aef4fe2181bb9085f5bb61be78f0c769c81223b235d82affa0bcf89db0
-Source-Hash: blake3:896ef9db538ace58885a179226753b31f986820ac2c138991bb0856cc2208fcd
+Content-Hash: blake3:028e4ea0a7cb04fc9e0618036ec6b23d9a07d01c05c7948f6d34cc5c6cfdb0db
+Source-Hash: blake3:61406bc33a279080fdccbea308400bf021cf79635d7a3981c5f287ccca8598f8
 Schema-Version: v1
 -->
 
@@ -87,7 +87,12 @@ catches an extra Terraform leaf with no durable adoption record. Then, for every
 config.md's `additional_providers`, export its `NEW_PROVIDER*` values and walk the
 remaining `new-provider-*` steps in order. Finish one entry before starting the next. An
 empty list means the optional phase is not applicable only when the inventory check is
-green.
+green. When `add` was explicitly invoked to adopt a provider that has no matching entry,
+retain the validated requested provider slug as `NEW_PROVIDER` and instantiate
+`new-provider-decision` once in bootstrap mode. Leave the other `NEW_PROVIDER*` values
+empty so its check stays red. After the HUMAN records the decision and config entry,
+reload config and continue the normal per-entry scan. The empty-list shortcut must never
+discard an explicit adoption request.
 
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the

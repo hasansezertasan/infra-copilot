@@ -697,7 +697,8 @@ steps:
     title: Record the new-provider decision and its verification inventory
     why: A provider changes a locked design decision, and later runs need durable names for every check.
     run: |
-      1. Add a locked row naming the provider to .infra-copilot/decisions.md.
+      1. Add a row to .infra-copilot/decisions.md whose decision is exactly
+         `Provider: <provider>`, choice is `adopt`, and status is `locked`.
       2. Add terraform/<provider> to terraform/README.md.
       3. Add an `additional_providers` entry to .infra-copilot/config.md with its
          lowercase name, HCP workspace, and every authentication variable's key,
@@ -714,8 +715,12 @@ steps:
           and (.category == "env" or .category == "terraform")
           and (.sensitive | type == "boolean"))' >/dev/null || exit 1
       awk -F '|' -v provider="$NEW_PROVIDER" '
-        BEGIN { found=0 }
-        tolower($0) ~ tolower(provider) && tolower($4) ~ /^[[:space:]]*locked[[:space:]]*$/ { found=1 }
+        function clean(value) {
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+          return tolower(value)
+        }
+        BEGIN { found=0; expected="provider: " tolower(provider) }
+        clean($2) == expected && clean($3) == "adopt" && clean($4) == "locked" { found=1 }
         END { exit !found }
       ' .infra-copilot/decisions.md || exit 1
       grep -Fq "terraform/$NEW_PROVIDER" terraform/README.md
@@ -729,10 +734,12 @@ steps:
     title: Create the new Terraform leaf
     why: The workspace and plan need committed provider configuration to target.
     run: |
-      Follow the provider runbook and create terraform/$NEW_PROVIDER with its
+      Create terraform/$NEW_PROVIDER with its
       versions, provider, and initial resource configuration. Its cloud block must
       select workspace $NEW_PROVIDER_WORKSPACE by name. Do not create resources
-      before new-provider-decision is green.
+      before new-provider-decision is green. If the provider runbook requires a new
+      CLI, add its exact mise pin and refreshed lock, but do not execute the CLI or
+      any later runbook commands until new-provider-toolchain is green.
     check: |
       test -d "terraform/$NEW_PROVIDER" || exit 1
       actual=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" \
@@ -740,6 +747,38 @@ steps:
       test "$actual" = "$NEW_PROVIDER_WORKSPACE"
     produces: terraform/$NEW_PROVIDER leaf targeting $NEW_PROVIDER_WORKSPACE
     docs: gcp.md
+
+  - id: new-provider-toolchain
+    phase: 6
+    provider: repo
+    actor: HUMAN
+    title: Review and trust the provider's changed executable toolchain
+    why: A newly pinned provider CLI changes executable configuration after the initial setup trust gate.
+    run: |
+      Review the complete mise.toml diff and mise.lock URLs. If they are expected,
+      run `mise trust mise.toml`, then install every configured tool with
+      `MISE_LOCKED=1` as documented in docs/setup.md. Reply `done`; the agent re-runs
+      this check and then the complete preflight, including conditional provider CLIs.
+    check: >-
+      mise --version >/dev/null &&
+      git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- mise.toml mise.lock &&
+      git diff --cached --quiet HEAD -- mise.toml mise.lock &&
+      tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
+      [ -n "$tools" ] &&
+      pinned=$(printf '%s\n' "$tools" |
+      sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
+      [ -n "$pinned" ] &&
+      ! printf '%s\n' "$tools" |
+      sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
+      grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      printf '%s\n' "$pinned" |
+      while IFS= read -r tool; do
+      [ -z "$tool" ] && continue;
+      MISE_LOCKED=1 mise install --dry-run "$tool" >/dev/null 2>&1 || exit 1;
+      done
+    produces: human-reviewed, trusted, locked provider toolchain; complete preflight green
+    docs: docs/setup.md#6-local-development
 
   - id: new-provider-workspace
     phase: 6
@@ -750,7 +789,8 @@ steps:
     run: |
       The plan-only credential cannot create an organization workspace. Using a user
       or organization token yourself, run hcp.md's create_ws and
-      set_workspace_config helpers for:
+      set_workspace_config helpers for (the latter reconciles every asserted setting,
+      including an already-existing workspace):
 
         create_ws "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
         set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
@@ -827,6 +867,12 @@ steps:
     title: Run the first plan on the new leaf
     why: This proves the leaf, workspace access, and provider credentials end to end.
     run: 'cd "terraform/$NEW_PROVIDER" && terraform init && terraform plan'
-    check: 'cd "terraform/$NEW_PROVIDER" && terraform init -input=false >/dev/null && terraform plan -input=false >/dev/null'
-    produces: green speculative plan for $NEW_PROVIDER_WORKSPACE
+    check: |
+      cd "terraform/$NEW_PROVIDER"
+      terraform init -input=false >/dev/null || exit 1
+      p=$(mktemp)
+      trap 'rm -f "$p"' EXIT
+      terraform plan -input=false -no-color >"$p" 2>&1 \
+        && grep -Eq 'Plan: [1-9][0-9]* to add, [0-9]+ to change, 0 to destroy\.' "$p"
+    produces: green speculative plan creating at least one resource and destroying none in $NEW_PROVIDER_WORKSPACE
     docs: docs/hcp-api.md

@@ -96,21 +96,26 @@ GitHub↔HCP OAuth connection (browser).
     esac
   }
 
-  # POST cannot update an existing workspace. Reconcile the committed Terraform pin and
-  # trigger patterns after either response so resume runs fix all declared drift.
+  # POST cannot update an existing workspace. Reconcile every setting asserted by the
+  # verification below after either response so a 422 resume repairs partial drift.
   set_workspace_config () { # $1 = workspace name   $2 = working directory
     local ws_id payload
     ws_id=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$1" \
       -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id // empty') || return 1
     [ -n "$ws_id" ] || { echo "✗ $1: workspace id not found" >&2; return 1; }
-    payload=$(jq -n --arg id "$ws_id" --arg dir "$2" --arg tf_version "$TERRAFORM_VERSION" \
+    payload=$(jq -n --arg id "$ws_id" --arg dir "$2" --arg repo "$REPO" \
+      --arg tok "$OAUTH_TOKEN_ID" --arg tf_version "$TERRAFORM_VERSION" \
       '{data:{id:$id,type:"workspaces",attributes:{
-        "terraform-version":$tf_version, "file-triggers-enabled":true,
-        "trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]}}}')
+        "working-directory":$dir, "execution-mode":"remote",
+        "terraform-version":$tf_version,
+        "auto-apply":false, "speculative-enabled":true, "file-triggers-enabled":true,
+        "trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"], "queue-all-runs":false,
+        "global-remote-state":false,
+        "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}')
     curl -sf -X PATCH "https://app.terraform.io/api/v2/workspaces/$ws_id" \
       -H "Authorization: Bearer $HCP_TOKEN" \
       -H "Content-Type: application/vnd.api+json" -d "$payload" >/dev/null \
-      && echo "✓ $1 Terraform $TERRAFORM_VERSION and trigger patterns"
+      && echo "✓ $1 safety, VCS, Terraform $TERRAFORM_VERSION, and trigger settings"
   }
 
   # Gate with if/else, NOT `return`/`exit`: this block is run as a script by the agent,

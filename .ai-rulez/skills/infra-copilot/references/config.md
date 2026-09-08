@@ -79,7 +79,10 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
    ```
 
-   `ADDITIONAL_PROVIDER_NAMES` is always a JSON array, including `[]`; the always-run
+   If `additional_providers` is absent (legacy config), default it to `[]`. If the key is
+   present, reject it unless its value is an array; never turn an explicitly malformed
+   value into an empty list. `ADDITIONAL_PROVIDER_NAMES` is therefore always a JSON array,
+   including `[]`; the always-run
    `new-provider-inventory` manifest step uses it to catch a Terraform leaf whose durable
    adoption record was never added or was deleted. Then, for each
    `additional_providers` entry, instantiate the remaining Phase 6 steps and export:
@@ -93,7 +96,10 @@ Before running ANY step's `check` or `run`, the agent MUST:
    Validate `name` and `workspace` against `^[a-z0-9][a-z0-9-]*$` before putting them
    into a path or URL. `NEW_PROVIDER_CREDENTIALS` is a JSON array because the manifest's
    vars-API check compares all three declared properties with `jq`; do not flatten it
-   into shell words. If `additional_providers` is empty, Phase 6 is not applicable.
+   into shell words. If `additional_providers` is empty and `add` was invoked for a new
+   provider, preserve the requested lowercase provider slug as `NEW_PROVIDER` and run the
+   decision step once in bootstrap mode; that HUMAN step creates the first durable entry.
+   Otherwise an empty list means Phase 6 is not applicable only after inventory is green.
 
    Do not export `TERRAFORM_VERSION` here. A greenfield repo may not have `mise` or
    `mise.toml` yet. Preflight bootstraps and validates the toolchain first, then exports
