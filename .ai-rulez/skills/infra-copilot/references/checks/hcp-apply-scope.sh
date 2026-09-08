@@ -293,7 +293,12 @@ while : ; do
         # elsewhere in the organization is not this repo's business, and telling
         # the operator to grant Plan on it would widen access to that workspace's
         # plans, state and variables for nothing.
-        if [ "$ours" = true ] && [ "$apply" = false ] && [ "$plan" = false ]; then
+        # Rests on the run permission alone. Requiring apply == false as well
+        # meant a malformed apply field -- recorded as uncertainty -- suppressed
+        # a conclusive verdict, so the script exited 2 and `status` reported
+        # nothing to fix while the credential provably could not queue the plans
+        # this repository needs.
+        if [ "$ours" = true ] && [ "$plan" = false ]; then
             broken="${broken}OVER-RESTRICTED: the credential cannot queue runs on workspace '$name', which belongs to $REPO, so plan steps cannot work there. Grant the team the workspace 'Plan' permission, not 'Read'.
 "
         fi
@@ -382,11 +387,24 @@ for leaf in terraform/*/; do
         continue
     fi
 
+    # The literal argument is optional: a leaf may rely on TF_CLOUD_ORGANIZATION
+    # instead, and accepting an absent argument let a leaf pointed at another
+    # organization pass. As with hostname, the docs do not state which wins when
+    # both are set, so either disqualifies -- and if neither names an
+    # organization, the effective target cannot be proven at all.
     leaf_org=$(leaf_cloud_attribute "$directory" organization)
-    if [ -n "$leaf_org" ] && [ "$leaf_org" != "$ORG" ]; then
-        note_unknown "$directory targets HCP organization '$leaf_org', not '$ORG', so the permissions checked here say nothing about the workspace it uses"
+    if [ -z "$leaf_org" ] && [ -z "${TF_CLOUD_ORGANIZATION:-}" ]; then
+        note_unknown "$directory names no HCP organization, in its cloud block or TF_CLOUD_ORGANIZATION, so the organization it targets cannot be proven to be '$ORG'"
         continue
     fi
+    org_mismatch=
+    for candidate in "$leaf_org" "${TF_CLOUD_ORGANIZATION:-}"; do
+        [ -n "$candidate" ] || continue
+        [ "$candidate" != "$ORG" ] || continue
+        note_unknown "$directory targets HCP organization '$candidate', not '$ORG', so the permissions checked here say nothing about the workspace it uses"
+        org_mismatch=yes
+    done
+    [ -z "$org_mismatch" ] || continue
 
     expected=$(leaf_workspace_name "$directory")
     if [ "$expected" = TAGS ]; then

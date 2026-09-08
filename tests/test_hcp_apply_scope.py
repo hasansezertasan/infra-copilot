@@ -601,14 +601,78 @@ class HcpApplyScopeTests(unittest.TestCase):
         self.assertIn("'cloudflare'", result.stderr)
         self.assertIn("terraform/cloudflare targets", result.stderr)
 
-    def test_a_leaf_with_no_cloud_block_cannot_be_verified(self) -> None:
-        """Without a declared name there is nothing to compare against."""
+    def test_a_leaf_with_no_workspace_name_cannot_be_verified(self) -> None:
+        """Without a declared name there is nothing to compare against.
+
+        The organization is declared here so this isolates the name path; a leaf
+        with no cloud block at all is covered by the organization test below.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare", "terraform/mystery"],
+            leaf_hcl={
+                "terraform/mystery": (
+                    'terraform {\n  cloud {\n    organization = "acme"\n  }\n}\n'
+                )
+            },
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("declares no cloud workspace name", result.stderr)
+
+    def test_a_leaf_naming_no_organization_cannot_be_verified(self) -> None:
+        """The literal argument is optional, so absence is not agreement.
+
+        A leaf may rely on TF_CLOUD_ORGANIZATION; accepting an absent argument
+        let a leaf pointed at another organization pass.
+        """
         result = self.run_check(
             workspaces=[("cloudflare", PLAN_ONLY)],
             leaves=["terraform/cloudflare", "terraform/mystery"],
         )
         self.assertEqual(result.returncode, 2, result.stdout)
-        self.assertIn("declares no cloud workspace name", result.stderr)
+        self.assertIn("names no HCP organization", result.stderr)
+
+    def test_a_conflicting_cloud_organization_cannot_be_verified(self) -> None:
+        """TF_CLOUD_ORGANIZATION disqualifies, as TF_CLOUD_HOSTNAME does."""
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            env={"TF_CLOUD_ORGANIZATION": "other-org"},
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("other-org", result.stderr)
+
+    def test_an_env_organization_matching_org_passes(self) -> None:
+        """A leaf relying on the environment variable is fine when it agrees."""
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            leaf_hcl={
+                "terraform/cloudflare": (
+                    'terraform {\n  cloud {\n'
+                    '    workspaces { name = "cloudflare" }\n  }\n}\n'
+                )
+            },
+            env={"TF_CLOUD_ORGANIZATION": "acme"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_denied_run_access_is_a_verdict_without_apply_evidence(self) -> None:
+        """A malformed apply field must not suppress a conclusive finding.
+
+        The credential provably cannot queue this repository's plans; requiring
+        apply == false too meant exit 2 and "nothing to fix".
+        """
+        result = self.run_check(
+            workspaces=[
+                ("cloudflare", {"can-queue-run": False, "can-update": False}),
+            ],
+            leaves=["terraform/cloudflare"],
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("OVER-RESTRICTED", result.stderr)
+        # The malformed apply field is still reported alongside the verdict.
+        self.assertIn("could not be read", result.stderr)
 
     def test_auto_apply_on_an_unqueueable_workspace_is_not_a_verdict(self) -> None:
         """Auto-apply this credential cannot trigger is not its problem.
