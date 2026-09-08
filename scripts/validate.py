@@ -1166,16 +1166,19 @@ TOKEN_FILE_DERIVATION = "HCP_TOKEN=$(jq"
 def validate_token_resolution(root: Path = ROOT) -> list[str]:
     """No shipped source may derive HCP_TOKEN from the credentials file alone.
 
-    Six documents did, and each was found separately over three review rounds:
-    Step 0, docs/state.md, hcp-verify, then hcp.md twice, cloudflare.md,
-    github.md, docs/hcp-api.md and the manifest's own comment. This makes the
-    seventh a test failure rather than another round.
+    Nine documents did, found separately across four review rounds: Step 0,
+    docs/state.md, hcp-verify, then hcp.md twice, cloudflare.md, github.md,
+    docs/hcp-api.md, the manifest's own comment, and finally docs/policy.md --
+    which the first version of this validator missed because it scanned only
+    .ai-rulez/skills. Hand-authored guidance ships too: an operator following a
+    snippet in docs/ replaces a plan-only token just as effectively.
     """
-    root = root / ".ai-rulez/skills"
+    roots = (root / ".ai-rulez/skills", root / "docs")
     return [
-        f"{path.relative_to(root.parent.parent)}:{number}: derives HCP_TOKEN from the "
+        f"{path.relative_to(root)}:{number}: derives HCP_TOKEN from the "
         "credentials file alone; use ${TF_TOKEN_app_terraform_io:-...} as config.md does"
-        for path in sorted(root.rglob("*"))
+        for scan_root in roots
+        for path in sorted(scan_root.rglob("*"))
         if path.is_file() and path.suffix in {".md", ".yaml", ".sh"}
         for number, line in enumerate(
             path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1

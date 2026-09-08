@@ -120,11 +120,17 @@ found=0
 # the inventory: a stale `cloudflare-copy` connected to the same repo with the
 # same working directory passed, while the plan the leaf actually runs could not
 # be queued.
-leaf_cloud_attribute () {  # $1 = leaf dir, $2 = attribute; prints its value
-    # Same comment handling as the workspace-name reader, at the cloud-block
-    # level. `organization` matters because a leaf may target a different HCP
-    # organization than $ORG, and every permission read here is scoped to $ORG.
-    awk -v want="$2" '
+# One parser for the whole `cloud` block, emitting `key=value` lines:
+#   hostname, organization, token, workspaces.name, workspaces.tags
+#
+# Previously two near-identical readers, and each grew its own bugs -- an
+# unanchored `name` matched `hostname`, comments were scanned as code, and
+# `incloud` was never cleared at the closing brace, so an `organization`
+# attribute in a later provider or resource block was read as the cloud one and
+# blocked a correctly configured leaf. Brace depth is tracked now, and the
+# comment handling exists once.
+leaf_cloud_settings () {  # $1 = leaf directory
+    awk '
         {
             line = $0
             while (inblock) {
@@ -139,58 +145,59 @@ leaf_cloud_attribute () {  # $1 = leaf dir, $2 = attribute; prints its value
                 line = substr(line, 1, start - 1) substr(rest, end + 2)
             }
             sub(/#.*/, "", line); sub(/\/\/.*/, "", line)
+            opens = gsub(/{/, "{", line)
+            closes = gsub(/}/, "}", line)
         }
-        line ~ /(^|[^[:alnum:]_])cloud[[:space:]]*{/ { incloud = 1; next }
-        incloud && match(line, "(^|[^[:alnum:]_])" want "[[:space:]]*=[[:space:]]*\"[^\"]*\"") {
-            value = substr(line, RSTART, RLENGTH)
-            sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
-            print value
-            exit
+        !incloud && line ~ /(^|[^[:alnum:]_])cloud[[:space:]]*{/ {
+            incloud = 1; depth = opens - closes
+            next
+        }
+        incloud {
+            # Nested blocks are tracked so the cloud block ends where it really
+            # ends, not at the first closing brace.
+            if (inws) {
+                if (match(line, /(^|[^[:alnum:]_])tags[[:space:]]*=/)) print "workspaces.tags=present"
+                else if (match(line, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/)) {
+                    value = substr(line, RSTART, RLENGTH)
+                    sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
+                    print "workspaces.name=" value
+                }
+            } else if (line ~ /(^|[^[:alnum:]_])workspaces[[:space:]]*{/) {
+                inws = 1; wsdepth = opens - closes
+                # A single-line `workspaces { name = "x" }` opens and closes at
+                # once, so its attributes are read from this same line.
+                if (match(line, /(^|[^[:alnum:]_])tags[[:space:]]*=/)) print "workspaces.tags=present"
+                else if (match(line, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/)) {
+                    value = substr(line, RSTART, RLENGTH)
+                    sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
+                    print "workspaces.name=" value
+                }
+            } else {
+                # token is reported as present, never by value: there is no
+                # reason to carry a credential in a shell variable, and the only
+                # question asked of it is whether the leaf has one.
+                if (match(line, /(^|[^[:alnum:]_])token[[:space:]]*=/)) print "token=present"
+                for (key = 1; key <= 2; key++) {
+                    want = (key == 1 ? "hostname" : "organization")
+                    if (match(line, "(^|[^[:alnum:]_])" want "[[:space:]]*=[[:space:]]*\"[^\"]*\"")) {
+                        value = substr(line, RSTART, RLENGTH)
+                        sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
+                        print want "=" value
+                    }
+                }
+            }
+            if (inws) {
+                wsdepth += (line ~ /(^|[^[:alnum:]_])workspaces[[:space:]]*{/ ? 0 : opens - closes)
+                if (wsdepth <= 0) inws = 0
+            }
+            depth += (line ~ /(^|[^[:alnum:]_])cloud[[:space:]]*{/ ? 0 : opens - closes)
+            if (depth <= 0) incloud = 0
         }
     ' "$1"/*.tf 2>/dev/null
 }
 
-leaf_workspace_name () {  # $1 = leaf dir; prints its name, or TAGS, or nothing
-    # Scoped to the `workspaces` block, and `name` must be a whole attribute key.
-    # An unanchored match read `hostname = "app.terraform.io"` -- legal in a cloud
-    # block for Terraform Enterprise -- as the workspace name, which reported a
-    # correctly configured leaf as unverifiable. `tags` is mutually exclusive with
-    # `name` and selects a set rather than one workspace, and its map form can
-    # itself contain a `name` key, so it is reported as TAGS rather than guessed.
-    awk '
-        # Comments first. HCL allows #, // and /* */, and a commented previous
-        # value -- `# name = "old"` above the active `name = "new"` -- was read as
-        # the workspace name, so a stale workspace still visible under that name
-        # satisfied the inventory while the one Terraform targets did not.
-        {
-            line = $0
-            while (inblock) {
-                end = index(line, "*/")
-                if (end == 0) { line = ""; break }
-                line = substr(line, end + 2)
-                inblock = 0
-            }
-            while ((start = index(line, "/*")) > 0) {
-                rest = substr(line, start + 2)
-                end = index(rest, "*/")
-                if (end == 0) { line = substr(line, 1, start - 1); inblock = 1; break }
-                line = substr(line, 1, start - 1) substr(rest, end + 2)
-            }
-            sub(/#.*/, "", line)
-            sub(/\/\/.*/, "", line)
-        }
-        line ~ /(^|[^[:alnum:]_])cloud[[:space:]]*{/ { incloud = 1; next }
-        incloud && line ~ /(^|[^[:alnum:]_])workspaces[[:space:]]*{/ { inws = 1 }
-        inws && line ~ /(^|[^[:alnum:]_])tags[[:space:]]*=/ { print "TAGS"; exit }
-        inws && match(line, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/) {
-            value = substr(line, RSTART, RLENGTH)
-            sub(/^[^"]*"/, "", value)
-            sub(/"$/, "", value)
-            print value
-            exit
-        }
-        inws && line ~ /}/ { inws = 0 }
-    ' "$1"/*.tf 2>/dev/null
+leaf_setting () {  # $1 = settings text, $2 = key; prints the first value
+    printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -1
 }
 
 seen_repo_names=""
@@ -375,7 +382,17 @@ for leaf in terraform/*/; do
     # Both the leaf's `hostname` and TF_CLOUD_HOSTNAME disqualify. Terraform's
     # docs do not state which wins when both are set, so neither is assumed to
     # override the other.
-    leaf_host=$(leaf_cloud_attribute "$directory" hostname)
+    settings=$(leaf_cloud_settings "$directory")
+
+    # A leaf may carry its own credential inline. That token is what Terraform
+    # would use for this leaf, and nothing here can read it, so no permission
+    # this check gathered describes it.
+    if [ -n "$(leaf_setting "$settings" token)" ]; then
+        note_unknown "$directory sets a token in its cloud block, so it authenticates with a credential this check cannot see"
+        continue
+    fi
+
+    leaf_host=$(leaf_setting "$settings" hostname)
     for host in "$leaf_host" "${TF_CLOUD_HOSTNAME:-}"; do
         [ -n "$host" ] || continue
         [ "$host" != "app.terraform.io" ] || continue
@@ -392,7 +409,7 @@ for leaf in terraform/*/; do
     # organization pass. As with hostname, the docs do not state which wins when
     # both are set, so either disqualifies -- and if neither names an
     # organization, the effective target cannot be proven at all.
-    leaf_org=$(leaf_cloud_attribute "$directory" organization)
+    leaf_org=$(leaf_setting "$settings" organization)
     if [ -z "$leaf_org" ] && [ -z "${TF_CLOUD_ORGANIZATION:-}" ]; then
         note_unknown "$directory names no HCP organization, in its cloud block or TF_CLOUD_ORGANIZATION, so the organization it targets cannot be proven to be '$ORG'"
         continue
@@ -406,8 +423,8 @@ for leaf in terraform/*/; do
     done
     [ -z "$org_mismatch" ] || continue
 
-    expected=$(leaf_workspace_name "$directory")
-    if [ "$expected" = TAGS ]; then
+    expected=$(leaf_setting "$settings" workspaces.name)
+    if [ -n "$(leaf_setting "$settings" workspaces.tags)" ]; then
         note_unknown "$directory selects its workspaces by tags rather than a name, so which workspace it targets cannot be determined from the repository"
         continue
     fi

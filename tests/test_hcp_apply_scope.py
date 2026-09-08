@@ -632,6 +632,60 @@ class HcpApplyScopeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("names no HCP organization", result.stderr)
 
+    def test_an_organization_outside_the_cloud_block_is_ignored(self) -> None:
+        """The cloud block ends at its closing brace.
+
+        `incloud` was set and never cleared, so an `organization` attribute in a
+        later provider or resource block was read as the cloud organization and
+        blocked a correctly configured leaf.
+        """
+        # The cloud block deliberately omits `organization` and relies on the
+        # environment variable, so the later attribute is the ONLY match -- with
+        # the block left open it becomes the answer. An earlier version of this
+        # test declared the organization in-block, where first-match-wins masked
+        # the bug and the test passed either way.
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            env={"TF_CLOUD_ORGANIZATION": "acme"},
+            leaf_hcl={
+                "terraform/cloudflare": (
+                    "terraform {\n  cloud {\n"
+                    '    workspaces { name = "cloudflare" }\n'
+                    "  }\n}\n"
+                    "\n"
+                    'resource "some_thing" "x" {\n'
+                    '  organization = "other-org"\n'
+                    "}\n"
+                )
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_token_in_the_cloud_block_cannot_be_verified(self) -> None:
+        """A leaf may carry its own credential, which this check cannot read.
+
+        No permission gathered here describes that token, so the leaf cannot be
+        pronounced safe.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            leaf_hcl={
+                "terraform/cloudflare": (
+                    "terraform {\n  cloud {\n"
+                    '    organization = "acme"\n'
+                    '    token        = "inline-secret"\n'
+                    '    workspaces { name = "cloudflare" }\n'
+                    "  }\n}\n"
+                )
+            },
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("sets a token in its cloud block", result.stderr)
+        # The value must never appear in output.
+        self.assertNotIn("inline-secret", result.stderr + result.stdout)
+
     def test_a_conflicting_cloud_organization_cannot_be_verified(self) -> None:
         """TF_CLOUD_ORGANIZATION disqualifies, as TF_CLOUD_HOSTNAME does."""
         result = self.run_check(

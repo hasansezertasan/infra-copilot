@@ -282,8 +282,9 @@ It does **not** hold for the HCP token either. Phase 0 has the human run `terraf
 every later step reads the result:
 
 ```sh
-export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' \
-  ~/.terraform.d/credentials.tfrc.json)
+# Same precedence as config.md Step 0; omit if HCP_TOKEN is already exported.
+export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r \
+  '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
 ```
 
 That token is in the agent's environment by design — the pivot the workflow turns on. Do

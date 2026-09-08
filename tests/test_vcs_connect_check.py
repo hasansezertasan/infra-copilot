@@ -28,6 +28,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
 
 GITHUB_CLIENT = '{"data":[{"attributes":{"service-provider":"github_app"}}]}'
+
+
+def oauth_page(*providers: str, total_pages: int = 1, fill: bool = False) -> str:
+    """An oauth-clients page. `fill` pads it to the 100-entry page size.
+
+    A short page is treated as the last one, so a multi-page test has to make
+    the earlier page genuinely full.
+    """
+    entries = [f'{{"attributes":{{"service-provider":"{p}"}}}}' for p in providers]
+    if fill:
+        pad = '{"attributes":{"service-provider":"gitlab"}}'
+        entries += [pad] * (100 - len(entries))
+    return (
+        '{"data":[%s],"meta":{"pagination":{"total-pages":%d}}}'
+        % (",".join(entries), total_pages)
+    )
 NO_CLIENT = '{"data":[]}'
 GITLAB_ONLY = '{"data":[{"attributes":{"service-provider":"gitlab"}}]}'
 def workspace(identifier: str, *, connection: str = "oauth", pages: int = 1) -> str:
@@ -70,6 +86,7 @@ class VcsConnectCheckTests(unittest.TestCase):
         workspace_body: str = "{}",
         repo: str = "acme/infra",
         later_pages: dict[int, str] | None = None,
+        later_oauth_pages: dict[int, str] | None = None,
         transport_fails: bool = False,
         hcp_api: str = "https://app.terraform.io/api/v2",
     ) -> subprocess.CompletedProcess[str]:
@@ -88,7 +105,15 @@ class VcsConnectCheckTests(unittest.TestCase):
                 "done\n"
                 'printf "%s\\n" "$url" >> "$CALLS"\n'
                 'case "$url" in\n'
-                f'  https://app.terraform.io/api/v2/organizations/*/oauth-clients*) body={oauth_body!r}; printf "%s" "$body" > "${{out:-/dev/stdout}}"; printf "%s" {code!r} ;;\n'
+                f'  https://app.terraform.io/api/v2/organizations/*/oauth-clients*)\n'
+                f'    page=1\n'
+                f'    for a in "$@"; do case "$a" in *page%5Bnumber%5D=*) page=${{a##*page%5Bnumber%5D=}}; page=${{page%%&*}} ;; esac; done\n'
+                + "".join(
+                    f'    [ "$page" != {number} ] || body={page_body!r}\n'
+                    for number, page_body in (later_oauth_pages or {}).items()
+                )
+                + f'    [ "${{body:-}}" != "" ] || body={oauth_body!r}\n'
+                f'    printf "%s" "$body" > "${{out:-/dev/stdout}}"; printf "%s" {code!r} ;;\n'
                 f'  https://app.terraform.io/api/v2/organizations/*/workspaces*)\n'
                 f'    page=1\n'
                 f'    for a in "$@"; do case "$a" in *page%5Bnumber%5D=*) page=${{a##*page%5Bnumber%5D=}}; page=${{page%%&*}} ;; esac; done\n'
@@ -138,6 +163,39 @@ class VcsConnectCheckTests(unittest.TestCase):
         """A readable answer of "not connected" is a verdict, not uncertainty."""
         result = self.run_check(code="200", oauth_body=NO_CLIENT)
         self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_a_github_client_on_a_later_page_is_found(self) -> None:
+        """Reading only the first page concluded "no GitHub client".
+
+        The resume protocol then re-emitted the OAuth handoff for a connection
+        that exists. The first page is padded to the page size, since a short
+        page is treated as the last one.
+        """
+        result = self.run_check(
+            code="200",
+            oauth_body=oauth_page(total_pages=2, fill=True),
+            later_oauth_pages={2: oauth_page("github_app", total_pages=2)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_full_page_without_pagination_metadata_cannot_be_verified(self) -> None:
+        """A full page might have a successor; a short one cannot."""
+        result = self.run_check(
+            code="200", oauth_body='{"data":[%s]}' % ",".join(
+                ['{"attributes":{"service-provider":"gitlab"}}'] * 100
+            )
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("filled a page", result.stderr)
+
+    def test_a_short_page_without_pagination_metadata_is_conclusive(self) -> None:
+        """meta.pagination is not required in HCP's schema.
+
+        Demanding it unconditionally would report CANNOT VERIFY for every
+        organization whose response omits it.
+        """
+        result = self.run_check(code="200", oauth_body='{"data":[]}')
+        self.assertEqual(result.returncode, 1, result.stdout)
 
     def test_a_non_github_client_is_red(self) -> None:
         result = self.run_check(code="200", oauth_body=GITLAB_ONLY)
