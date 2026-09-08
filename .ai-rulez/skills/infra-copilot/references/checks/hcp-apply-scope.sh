@@ -369,6 +369,16 @@ for leaf in terraform/*/; do
         note_unknown "$directory declares no cloud workspace name, so the workspace it targets cannot be identified"
         continue
     fi
+    # Phase 6 checks one provider at a time. A later recorded leaf may be ready
+    # locally while its workspace has not reached its bootstrap handoff yet; do
+    # not let that future workspace deadlock the current provider's Plan audit.
+    # The global unprotected-permission scan above still covers every workspace
+    # visible to the credential, and each provider becomes the required target
+    # when its own access step runs.
+    if [ -n "${HCP_SCOPE_WORKSPACE:-}" ] \
+        && [ "$expected" != "$HCP_SCOPE_WORKSPACE" ]; then
+        continue
+    fi
     case " $seen_repo_names " in
         *" $expected "*) continue ;;
     esac

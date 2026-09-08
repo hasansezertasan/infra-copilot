@@ -53,8 +53,8 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    on this:
 
    - **Non-mutating checks** (API reads, file existence, tool versions — phases 0–3;
-     phase 4's `status-check-context` and `hcp-apply-scope`; and every Phase 6 step except
-     `new-provider-plan`) — run them directly. These only read.
+     phase 4's `status-check-context` and `hcp-apply-scope`; and every Phase 6 step,
+     including the read-only `new-provider-plan` evidence check) — run them directly.
      `status-check-context` is two `gh api` reads and a comparison in `$TMPDIR`;
      `hcp-apply-scope` lists workspaces and reads the permissions HCP reports for the
      current credential, and deliberately never posts an apply. Neither touches the
@@ -62,7 +62,7 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      `hcp-apply-scope`, or an adoption healthy without evaluating its workspace and
      credential metadata, would hide the state these checks exist to recover.
    - **Mutating checks — do NOT run them.** `plan-cloudflare`, `plan-github`,
-     `new-provider-plan`, and the phase-5 `migrate-import` check run `terraform init`/`plan`,
+     and the phase-5 `migrate-import` check run `terraform init`/`plan`,
      which writes `.terraform/` and can create or update `.terraform.lock.hcl` — that would
      dirty the checkout, and this command promises to change nothing. Instead, read the
      **run status per workspace via the HCP API** (non-mutating — see

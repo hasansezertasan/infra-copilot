@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:f482b8228c10a4dc8e20f22cc03ef3c2175c8048cf31d6e16473ae355714bb55
-Source-Hash: blake3:1b5cc49163541b6667f01a3731f2b01326ce8992bf15f0eede9b9d28c27bc1eb
+Content-Hash: blake3:3cfcd0e5af59aa9b3f26602cbe27948080718ab073550cb7ab5fa303879987e8
+Source-Hash: blake3:12e3e64abd787feb261f86cbeabf14ce31b3b6c5c433ee1ef6033a421e20f2d5
 Schema-Version: v1
 -->
 
@@ -95,11 +95,13 @@ mise exec -- gcloud iam workload-identity-pools create hcp-pool --location=globa
 Provider block goes in `terraform/gcp/providers.tf`, using `google`/`google-beta`, with
 impersonation rather than a key file.
 
-### AGENT — HCP workspace
+### HUMAN — HCP workspace bootstrap (Phase 6)
 
-Create a `gcp` workspace (working dir `terraform/gcp`, path filter `terraform/gcp/**`,
-remote execution, auto-apply **off**) exactly like Phase 1. If using a SA key instead of
-WIF, that's where the sensitive var lives.
+Follow the provider-neutral `new-provider-workspace-bootstrap`, workspace verification,
+and plan-access handoffs in Phase 6. Create `gcp` with working dir `terraform/gcp`, path
+filter `terraform/gcp/**`, remote execution, and auto-apply **off** using a privileged
+token yourself, then restore the plan-only agent credential. If using a SA key instead
+of WIF, paste it only during the later HUMAN credential handoff.
 
 ### AGENT — first plan
 

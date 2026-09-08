@@ -19,6 +19,10 @@ LEAF_CLOUD = (
 ADD = REPO_ROOT / ".ai-rulez/skills/add/SKILL.md"
 CONFIG = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/config.md"
 HCP = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/hcp.md"
+HCP_CURRENT_PLAN = (
+    REPO_ROOT
+    / ".ai-rulez/skills/infra-copilot/references/checks/hcp-current-plan.sh"
+)
 STATUS = REPO_ROOT / ".ai-rulez/skills/status/SKILL.md"
 
 
@@ -168,6 +172,8 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn('clean($2) == expected', decision)
         self.assertIn('clean($3) == "adopt"', decision)
         self.assertNotIn('check: "test -d terraform/gcp"', decision)
+        self.assertIn("git diff --quiet HEAD", decision)
+        self.assertIn("git diff --cached --quiet HEAD", decision)
 
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
     def test_decision_requires_the_standardized_affirmative_row(self) -> None:
@@ -190,6 +196,9 @@ class NewProviderFlowTests(unittest.TestCase):
             (root / "terraform/README.md").write_text(
                 "terraform/gcp\n", encoding="utf-8"
             )
+            (root / ".infra-copilot/config.md").write_text(
+                "additional_providers:\n  - name: gcp\n", encoding="utf-8"
+            )
             decisions = root / ".infra-copilot/decisions.md"
             decisions.write_text(
                 "| Decision | Choice | Status |\n"
@@ -207,6 +216,20 @@ class NewProviderFlowTests(unittest.TestCase):
                 "| Decision | Choice | Status |\n"
                 "| Provider: gcp | adopt | locked |\n",
                 encoding="utf-8",
+            )
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "add", ".infra-copilot/config.md", ".infra-copilot/decisions.md",
+                 "terraform/README.md"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qm", "test fixture"],
+                cwd=root,
+                check=True,
             )
             positive = subprocess.run(
                 ["/bin/sh", "-c", literal_check(decision)],
@@ -284,6 +307,12 @@ class NewProviderFlowTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
+
+    def test_leaf_check_validates_the_complete_cloud_target(self) -> None:
+        leaf = self.steps["new-provider-leaf"]
+        self.assertIn('grep -Fx "organization=$ORG"', leaf)
+        self.assertIn("app.terraform.io", leaf)
+        self.assertIn("workspaces.name=$NEW_PROVIDER_WORKSPACE", leaf)
 
     @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
     def test_leaf_parser_keeps_reading_cloud_after_workspaces_closes(self) -> None:
@@ -393,6 +422,7 @@ class NewProviderFlowTests(unittest.TestCase):
     def test_plan_access_reuses_repository_derived_inventory(self) -> None:
         access = self.steps["new-provider-plan-access"]
         self.assertIn("hcp-apply-scope.sh", access)
+        self.assertIn('HCP_SCOPE_WORKSPACE="$NEW_PROVIDER_WORKSPACE"', access)
         self.assertIn("    tri_state: true", access)
         self.assertIn("`Plan`", access)
         self.assertIn("`Write`", access)
@@ -404,6 +434,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("NEW_PROVIDER_FORK_PLANS_DISABLED", safety)
         self.assertIn("Version Control", safety)
         self.assertIn("fork", safety.lower())
+        self.assertIn("git diff --quiet HEAD -- .infra-copilot/config.md", safety)
 
     def test_credentials_check_matches_declared_metadata(self) -> None:
         credentials = self.steps["new-provider-credentials"]
@@ -420,66 +451,16 @@ class NewProviderFlowTests(unittest.TestCase):
 
     def test_first_plan_targets_the_parameterized_leaf(self) -> None:
         plan = self.steps["new-provider-plan"]
-        self.assertIn('terraform/$NEW_PROVIDER', plan)
-        self.assertIn("terraform init -input=false", plan)
-        self.assertIn("terraform plan -input=false", plan)
-        self.assertIn("[1-9][0-9]* to add", plan)
-        self.assertIn("0 to destroy", plan)
-        self.assertIn("mktemp", plan)
-        self.assertIn('"resource-count"] > 0', plan)
-        self.assertIn("No changes", plan)
-        self.assertIn("git diff --quiet HEAD -- .terraform.lock.hcl", plan)
-
-    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
-    def test_first_plan_distinguishes_pending_applied_and_unsafe_states(self) -> None:
-        plan = literal_check(self.steps["new-provider-plan"])
-        cases = (
-            ("Plan: 1 to add, 0 to change, 0 to destroy.", "0", 0),
-            ("Plan: 0 to add, 0 to change, 1 to destroy.", "2", 1),
-            ("No changes. Your infrastructure matches the configuration.", "0", 1),
-            ("No changes. Your infrastructure matches the configuration.", "2", 0),
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "terraform/gcp").mkdir(parents=True)
-            bin_dir = root / "bin"
-            bin_dir.mkdir()
-            terraform = bin_dir / "terraform"
-            terraform.write_text(
-                '#!/bin/sh\n[ "$1" = init ] && exit 0\nprintf "%s\\n" "$PLAN_OUTPUT"\n',
-                encoding="utf-8",
-            )
-            curl = bin_dir / "curl"
-            curl.write_text(
-                '#!/bin/sh\nprintf \'{"data":{"attributes":{"resource-count":%s}}}\\n\' '
-                '"$RESOURCE_COUNT"\n',
-                encoding="utf-8",
-            )
-            terraform.chmod(0o755)
-            curl.chmod(0o755)
-            git = bin_dir / "git"
-            git.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            git.chmod(0o755)
-            for output, count, expected in cases:
-                result = subprocess.run(
-                    ["/bin/sh", "-c", plan],
-                    cwd=root,
-                    env={
-                        **os.environ,
-                        "PATH": f"{bin_dir}:{os.environ['PATH']}",
-                        "PLAN_OUTPUT": output,
-                        "RESOURCE_COUNT": count,
-                        "hcp_api": "https://app.terraform.io/api/v2",
-                        "ORG": "acme",
-                        "NEW_PROVIDER": "gcp",
-                        "NEW_PROVIDER_WORKSPACE": "gcp",
-                        "HCP_TOKEN": "test-token",
-                    },
-                    capture_output=True,
-                    text=True,
-                )
-                with self.subTest(output=output, count=count):
-                    self.assertEqual(result.returncode, expected, result.stderr)
+        self.assertIn("hcp-current-plan.sh", plan)
+        self.assertIn("configuration-version relationship", plan)
+        self.assertIn("    tri_state: true", plan)
+        helper = HCP_CURRENT_PLAN.read_text(encoding="utf-8")
+        self.assertIn('attributes["commit-sha"] == $sha', helper)
+        self.assertIn('"plan-only":true', helper)
+        self.assertIn('"configuration-version":{data:', helper)
+        self.assertIn("json-output-redacted", helper)
+        self.assertIn('index("delete")', helper)
+        self.assertIn('index("create")', helper)
 
     def test_router_and_status_use_the_durable_inventory(self) -> None:
         for path in (CONFIG, STATUS):
@@ -490,7 +471,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("shared resume protocol", add)
         self.assertNotIn("Workspace creation remains", add)
         status = STATUS.read_text(encoding="utf-8")
-        self.assertRegex(status, r"every Phase 6 step except\s+`new-provider-plan`")
+        self.assertIn("every Phase 6 step", status)
         self.assertIn("Phase 6 plan contents and durable completion", status)
         self.assertIn("resource-count", status)
         self.assertIn("destroys are\n   zero", status)

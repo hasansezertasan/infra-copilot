@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:1b5cc49163541b6667f01a3731f2b01326ce8992bf15f0eede9b9d28c27bc1eb",
+  "source_hash": "blake3:12e3e64abd787feb261f86cbeabf14ce31b3b6c5c433ee1ef6033a421e20f2d5",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -33,7 +33,10 @@
       "content_hash": "blake3:8c4f82b1a117faa49a14b38a822c11c6c1128e273b76d43dd01f4d62c57c5662"
     },
     "skills/infra-copilot/references/checks/hcp-apply-scope.sh": {
-      "content_hash": "blake3:ff536adf27e8599baaaf1937f6b5447ea66245142ab8de09870445bfee9ce287"
+      "content_hash": "blake3:09d00fc78489399db16b19d6d35a56990c909121d94f4c9a77adc1927d75727c"
+    },
+    "skills/infra-copilot/references/checks/hcp-current-plan.sh": {
+      "content_hash": "blake3:5e9101bd6d7f502bc30cfac881103f9617c07126ddb21d693c23113fdfb8374e"
     },
     "skills/infra-copilot/references/checks/leaf-cloud.sh": {
       "content_hash": "blake3:5642d7ff51a09654d5d1eb6b8de18b67156c5a421a727ee1d230593aa48ef8b8"
@@ -72,7 +75,7 @@
       "content_hash": "blake3:2611875f8f5ea68be0ed4d286d663b4c62cba2e3a20b713a1d5856a0b7e6bb57"
     },
     "skills/infra-copilot/references/gcp.md": {
-      "content_hash": "blake3:f482b8228c10a4dc8e20f22cc03ef3c2175c8048cf31d6e16473ae355714bb55"
+      "content_hash": "blake3:3cfcd0e5af59aa9b3f26602cbe27948080718ab073550cb7ab5fa303879987e8"
     },
     "skills/infra-copilot/references/github.md": {
       "content_hash": "blake3:640fd8d42f71f8cadf54c76361e4ffb2f77af2b804a7f95cf3366bb9240a59f9"
@@ -84,16 +87,16 @@
       "content_hash": "blake3:3c15bf5e9dae060bc08a0f9d08ac7e125f6b7fdd06eaa7660563274899c1c6ca"
     },
     "skills/infra-copilot/references/protocol.md": {
-      "content_hash": "blake3:3834fb318a1389052f2de2ca0ea58398628c3df5d4c2348a4810785cbb55f670"
+      "content_hash": "blake3:c32f1b9147ad4ebdd476dff86e18b75debe1a3aae30f976d4446e4827beedf9e"
     },
     "skills/infra-copilot/references/steps.yaml": {
-      "content_hash": "blake3:e9a890bf402a8fc81523280390955e9122bb5669f926e1ad4e6441477bc5108b"
+      "content_hash": "blake3:1c9936bf0a8422f2cf914ec174c1aa3e6c34ae6cd944b472df1ba43a8d8d9a5b"
     },
     "skills/setup/SKILL.md": {
       "content_hash": "blake3:18457295b83bc8c402513e0214aff6e1bf498004a52f66c9da44692e025af634"
     },
     "skills/status/SKILL.md": {
-      "content_hash": "blake3:f02eefb49e918b184568599d2d3a2b48494dd0fc90fb788299925c1f035aa17c"
+      "content_hash": "blake3:042b5ad3d2036b62fdaea46b59910b2d14a27186a614fdb4916b8f2c19cf74c4"
     }
   }
 }

@@ -5,8 +5,8 @@ description: "Read-only health check: runs every step's check across the whole m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:f02eefb49e918b184568599d2d3a2b48494dd0fc90fb788299925c1f035aa17c
-Source-Hash: blake3:1b5cc49163541b6667f01a3731f2b01326ce8992bf15f0eede9b9d28c27bc1eb
+Content-Hash: blake3:042b5ad3d2036b62fdaea46b59910b2d14a27186a614fdb4916b8f2c19cf74c4
+Source-Hash: blake3:12e3e64abd787feb261f86cbeabf14ce31b3b6c5c433ee1ef6033a421e20f2d5
 Schema-Version: v1
 -->
 
@@ -60,8 +60,8 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    on this:
 
    - **Non-mutating checks** (API reads, file existence, tool versions — phases 0–3;
-     phase 4's `status-check-context` and `hcp-apply-scope`; and every Phase 6 step except
-     `new-provider-plan`) — run them directly. These only read.
+     phase 4's `status-check-context` and `hcp-apply-scope`; and every Phase 6 step,
+     including the read-only `new-provider-plan` evidence check) — run them directly.
      `status-check-context` is two `gh api` reads and a comparison in `$TMPDIR`;
      `hcp-apply-scope` lists workspaces and reads the permissions HCP reports for the
      current credential, and deliberately never posts an apply. Neither touches the
@@ -69,7 +69,7 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      `hcp-apply-scope`, or an adoption healthy without evaluating its workspace and
      credential metadata, would hide the state these checks exist to recover.
    - **Mutating checks — do NOT run them.** `plan-cloudflare`, `plan-github`,
-     `new-provider-plan`, and the phase-5 `migrate-import` check run `terraform init`/`plan`,
+     and the phase-5 `migrate-import` check run `terraform init`/`plan`,
      which writes `.terraform/` and can create or update `.terraform.lock.hcl` — that would
      dirty the checkout, and this command promises to change nothing. Instead, read the
      **run status per workspace via the HCP API** (non-mutating — see

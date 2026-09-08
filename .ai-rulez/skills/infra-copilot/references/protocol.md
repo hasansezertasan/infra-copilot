@@ -101,6 +101,10 @@ workspace. Its bootstrap check treats only a 404 as expected HUMAN work and keep
 authentication, and API failures unverifiable. After the workspace is visible, the next
 check independently re-derives its detailed settings, and the separate plan-access check
 proves the restored restricted credential can plan but cannot apply or update workspaces.
+The access check scopes the repository-derived visibility requirement to the current
+provider while still auditing every visible workspace for apply/update capability. This
+lets a later provider reach its own bootstrap handoff without weakening the global
+negative-permission audit.
 
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the

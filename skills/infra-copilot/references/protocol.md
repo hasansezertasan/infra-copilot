@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:3834fb318a1389052f2de2ca0ea58398628c3df5d4c2348a4810785cbb55f670
-Source-Hash: blake3:1b5cc49163541b6667f01a3731f2b01326ce8992bf15f0eede9b9d28c27bc1eb
+Content-Hash: blake3:c32f1b9147ad4ebdd476dff86e18b75debe1a3aae30f976d4446e4827beedf9e
+Source-Hash: blake3:12e3e64abd787feb261f86cbeabf14ce31b3b6c5c433ee1ef6033a421e20f2d5
 Schema-Version: v1
 -->
 
@@ -103,6 +103,10 @@ workspace. Its bootstrap check treats only a 404 as expected HUMAN work and keep
 authentication, and API failures unverifiable. After the workspace is visible, the next
 check independently re-derives its detailed settings, and the separate plan-access check
 proves the restored restricted credential can plan but cannot apply or update workspaces.
+The access check scopes the repository-derived visibility requirement to the current
+provider while still auditing every visible workspace for apply/update capability. This
+lets a later provider reach its own bootstrap handoff without weakening the global
+negative-permission audit.
 
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the

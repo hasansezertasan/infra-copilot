@@ -745,6 +745,12 @@ steps:
         END { exit !found }
       ' .infra-copilot/decisions.md || exit 1
       grep -Fq "terraform/$NEW_PROVIDER" terraform/README.md
+      git ls-files --error-unmatch .infra-copilot/config.md \
+        .infra-copilot/decisions.md terraform/README.md >/dev/null 2>&1 || exit 1
+      git diff --quiet HEAD -- .infra-copilot/config.md \
+        .infra-copilot/decisions.md terraform/README.md || exit 1
+      git diff --cached --quiet HEAD -- .infra-copilot/config.md \
+        .infra-copilot/decisions.md terraform/README.md
     produces: locked provider decision plus a non-secret verification inventory
     docs: config.md
 
@@ -766,9 +772,13 @@ steps:
       this check; untracked or dirty leaf files are red.
     check: |
       test -d "terraform/$NEW_PROVIDER" || exit 1
-      actual=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" \
-        "terraform/$NEW_PROVIDER" workspace)
-      test "$actual" = "$NEW_PROVIDER_WORKSPACE" || exit 1
+      settings=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" \
+        "terraform/$NEW_PROVIDER" all)
+      printf '%s\n' "$settings" | grep -Fx "workspaces.name=$NEW_PROVIDER_WORKSPACE" >/dev/null \
+        || exit 1
+      printf '%s\n' "$settings" | grep -Fx "organization=$ORG" >/dev/null || exit 1
+      hostname=$(printf '%s\n' "$settings" | sed -n 's/^hostname=//p' | head -1)
+      case "$hostname" in ""|app.terraform.io) : ;; *) exit 1 ;; esac
       git ls-files --error-unmatch "terraform/$NEW_PROVIDER/*.tf" >/dev/null 2>&1 || exit 1
       git ls-files --error-unmatch \
         "terraform/$NEW_PROVIDER/.terraform.lock.hcl" >/dev/null 2>&1 || exit 1
@@ -896,7 +906,7 @@ steps:
       before replying `done`; the repository-derived inventory then verifies that it
       can plan but cannot apply or update any workspace.
     tri_state: true
-    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
+    check: HCP_SCOPE_WORKSPACE="$NEW_PROVIDER_WORKSPACE" sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
     produces: Plan access with no apply or workspace-update permission
     docs: docs/policy.md#a-credential-that-cannot-apply
 
@@ -912,7 +922,11 @@ steps:
       `speculative-enabled` attribute. Then set this provider entry's
       `fork_speculative_plans_disabled` value to `true`, commit config.md, reload it, and
       reply `done` so the agent re-runs this durable attestation check.
-    check: 'test "$NEW_PROVIDER_FORK_PLANS_DISABLED" = "true"'
+    check: >-
+      test "$NEW_PROVIDER_FORK_PLANS_DISABLED" = "true" &&
+      git ls-files --error-unmatch .infra-copilot/config.md >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- .infra-copilot/config.md &&
+      git diff --cached --quiet HEAD -- .infra-copilot/config.md
     produces: durable human attestation that fork plans cannot receive provider credentials
     docs: docs/setup.md#2-hcp-terraform--workspaces
 
@@ -976,22 +990,14 @@ steps:
     actor: AGENT
     title: Run the first plan on the new leaf
     why: This proves the leaf, workspace access, and provider credentials end to end.
-    run: 'cd "terraform/$NEW_PROVIDER" && terraform init && git diff --exit-code -- .terraform.lock.hcl && terraform plan'
-    check: |
-      cd "terraform/$NEW_PROVIDER"
-      terraform init -input=false >/dev/null || exit 1
-      git diff --quiet HEAD -- .terraform.lock.hcl || exit 1
-      git diff --cached --quiet HEAD -- .terraform.lock.hcl || exit 1
-      p=$(mktemp)
-      trap 'rm -f "$p"' EXIT
-      terraform plan -input=false -no-color >"$p" 2>&1 || exit 1
-      if grep -Eq 'Plan: [1-9][0-9]* to add, [0-9]+ to change, 0 to destroy\.' "$p"; then
-        exit 0
-      fi
-      grep -Eq 'No changes\.|Plan: 0 to add, [0-9]+ to change, 0 to destroy\.' "$p" || exit 1
-      test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 1
-      curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
-        -H "Authorization: Bearer $HCP_TOKEN" \
-        | jq -e '.data.attributes["resource-count"] > 0' >/dev/null
+    run: |
+      Run `sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh" queue` to queue a
+      plan-only HCP run for the newest VCS configuration version whose ingress commit
+      SHA exactly equals `git rev-parse HEAD`. The helper explicitly includes that
+      configuration-version relationship in POST /runs; a CLI-driven or
+      latest-configuration fallback run has no trustworthy commit correlation. Wait
+      for the run to finish, then re-run this check.
+    tri_state: true
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh"
     produces: safe green plan, or a safe no-create plan after the adoption has applied resources
     docs: docs/hcp-api.md

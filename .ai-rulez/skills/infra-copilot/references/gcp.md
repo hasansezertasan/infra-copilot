@@ -88,11 +88,13 @@ mise exec -- gcloud iam workload-identity-pools create hcp-pool --location=globa
 Provider block goes in `terraform/gcp/providers.tf`, using `google`/`google-beta`, with
 impersonation rather than a key file.
 
-### AGENT — HCP workspace
+### HUMAN — HCP workspace bootstrap (Phase 6)
 
-Create a `gcp` workspace (working dir `terraform/gcp`, path filter `terraform/gcp/**`,
-remote execution, auto-apply **off**) exactly like Phase 1. If using a SA key instead of
-WIF, that's where the sensitive var lives.
+Follow the provider-neutral `new-provider-workspace-bootstrap`, workspace verification,
+and plan-access handoffs in Phase 6. Create `gcp` with working dir `terraform/gcp`, path
+filter `terraform/gcp/**`, remote execution, and auto-apply **off** using a privileged
+token yourself, then restore the plan-only agent credential. If using a SA key instead
+of WIF, paste it only during the later HUMAN credential handoff.
 
 ### AGENT — first plan
 
