@@ -282,6 +282,12 @@ steps:
     # nothing about whether the VCS connection exists, which is exactly a 2.
     tri_state: true   # exit 2 = could not verify; see protocol.md
     check: |
+      # Checked before any credential is sent. $hcp_api is exported by Step 0, so
+      # a mistyped or edited value would put a bearer token in a request to an
+      # arbitrary host -- in plaintext if the scheme were http. hcp-apply-scope
+      # guards this for its own requests; these are separate ones.
+      [ "$hcp_api" = "https://app.terraform.io/api/v2" ] \
+        || { echo "CANNOT VERIFY: \$hcp_api is '$hcp_api', not https://app.terraform.io/api/v2; refusing to send an HCP credential to an unexpected endpoint" >&2; exit 2; }
       body=$(mktemp); trap 'rm -f "$body"' EXIT
       code=$(curl -s -o "$body" -w '%{http_code}' \
         "$hcp_api/organizations/$ORG/oauth-clients" \

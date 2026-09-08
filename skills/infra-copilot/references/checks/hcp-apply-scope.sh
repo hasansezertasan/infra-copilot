@@ -82,8 +82,14 @@ credentials="${HOME:-}/.terraform.d/credentials.tfrc.json"
 if [ -n "${TF_TOKEN_app_terraform_io:-}" ]; then
     token=$TF_TOKEN_app_terraform_io
     source_description="TF_TOKEN_app_terraform_io"
-elif [ -r "$cli_config" ] && grep -q 'credentials[[:space:]]*"app\.terraform\.io"' "$cli_config" 2>/dev/null; then
-    cannot_verify "$cli_config declares a credentials block for app.terraform.io. Terraform's docs do not state whether that or $credentials wins, so which token terraform uses cannot be determined here. Remove the block, or set TF_TOKEN_app_terraform_io so the source is unambiguous."
+elif [ -r "$cli_config" ] && grep -q 'credentials' "$cli_config" 2>/dev/null; then
+    # Deliberately coarse: any `credentials` keyword in the CLI config refuses. A
+    # same-line regex for the hostname missed valid HCL -- comments count as
+    # whitespace, so `credentials /* managed */ "app.terraform.io"` is legal and
+    # slipped past, leaving an apply-capable CLI-config token unexamined. Parsing
+    # HCL is out of scope for a POSIX check, so anything that might declare a
+    # credential is undeterminable rather than assumed irrelevant.
+    cannot_verify "$cli_config contains a credentials declaration. Terraform's docs do not state whether it or $credentials wins, and this check does not parse HCL, so which token terraform uses cannot be determined. Remove it, or set TF_TOKEN_app_terraform_io so the source is unambiguous."
 elif [ -r "$credentials" ]; then
     token=$(jq -er '.credentials["app.terraform.io"].token' "$credentials" 2>/dev/null) \
         || cannot_verify "$credentials has no app.terraform.io token; run 'terraform login'"
@@ -109,7 +115,26 @@ boolean () {  # $1 = json object, $2 = key path expression; prints true/false
 
 page=1
 found=0
-seen_repo_directories=""
+# Terraform targets a workspace by NAME, declared in each leaf's `cloud` block.
+# Matching on repository plus working-directory let the wrong workspace satisfy
+# the inventory: a stale `cloudflare-copy` connected to the same repo with the
+# same working directory passed, while the plan the leaf actually runs could not
+# be queued.
+leaf_workspace_name () {  # $1 = leaf directory; prints its cloud workspace name
+    awk '
+        /cloud[[:space:]]*{/ { incloud = 1 }
+        incloud && match($0, /name[[:space:]]*=[[:space:]]*"[^"]*"/) {
+            value = substr($0, RSTART, RLENGTH)
+            sub(/^[^"]*"/, "", value)
+            sub(/"$/, "", value)
+            print value
+            exit
+        }
+    ' "$1"/*.tf 2>/dev/null
+}
+
+seen_repo_names=""
+ids=""      # workspace ids seen, to detect the list changing mid-scan
 
 # Nothing inside this loop exits directly. Once a page has been processed the
 # script may already hold a definite verdict, and `status` renders exit 2 as "?,
@@ -128,6 +153,7 @@ while : ; do
         note_unknown "page $page of the workspace list for $ORG was not the expected JSON"
         break
     fi
+    ids="$ids $(printf '%s' "$body" | jq -r '.data[].id' 2>/dev/null | tr '\n' ' ')"
     if [ "$count" -eq 0 ] 2>/dev/null; then
         # An empty first page means no workspaces. An empty later page means the
         # set shifted between requests -- deleting an early workspace moves an
@@ -175,8 +201,13 @@ while : ; do
         # a plan-capable credential queues a non-speculative run and HCP applies the
         # successful plan. Phase 1 checks this for the bootstrap pair only, so
         # workspaces `add` creates later are covered here or nowhere.
-        [ "$auto" != true ] || broken="${broken}UNPROTECTED: workspace '$name' has auto-apply enabled, so a run this credential queues is applied without confirmation.
+        # Requires can-queue-run too. Auto-apply on a workspace this credential
+        # cannot queue is not reachable by it, and reporting it sent the operator
+        # to change an unrelated workspace's policy.
+        if [ "$auto" = true ] && [ "$plan" = true ]; then
+            broken="${broken}UNPROTECTED: workspace '$name' has auto-apply enabled and this credential can queue runs there, so a run it starts is applied without confirmation.
 "
+        fi
         # Settings include auto-apply itself, so this is an elevation path even when
         # the apply permission is denied.
         [ "$update" != true ] || broken="${broken}UNPROTECTED: the credential can update settings on workspace '$name', including auto-apply, so the boundary is self-removable.
@@ -190,7 +221,7 @@ while : ; do
         ours=false
         if [ "$identifier" = "$REPO" ]; then
             ours=true
-            [ -z "$directory" ] || seen_repo_directories="$seen_repo_directories $directory"
+            seen_repo_names="$seen_repo_names $name"
         fi
 
         # Scoped to this repository, unlike the assertions above. The step needs
@@ -227,13 +258,38 @@ done
 # The visible set cannot reveal a workspace hidden by the very grant being checked:
 # omit Plan on one leaf and it vanishes from the list, leaving every visible entry
 # correct. So compare against an inventory derived from the repository instead.
+# A workspace deleted mid-scan shifts later entries onto pages already read, and
+# the skipped one is never inspected. An empty final page is only the visible
+# symptom; the usual outcome is a full page with a hole earlier. The API offers no
+# snapshot, so the id set is re-listed and compared -- but only when the scan
+# needed more than one page, since a single page cannot shift.
+if [ "$page" -gt 1 ]; then
+    recheck=""
+    verify_page=1
+    while [ "$verify_page" -le "$page" ]; do
+        again=$(curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$verify_page" \
+            -H "Authorization: Bearer $token") || { recheck="unreadable"; break; }
+        recheck="$recheck $(printf '%s' "$again" | jq -r '.data[].id' 2>/dev/null | tr '\n' ' ')"
+        verify_page=$((verify_page + 1))
+    done
+    first_set=$(printf '%s' "$ids" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ')
+    again_set=$(printf '%s' "$recheck" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ')
+    [ "$first_set" = "$again_set" ] \
+        || note_unknown "the workspace list in $ORG changed while it was being read, so an entry may have shifted between pages and never been inspected; re-run when the organization is not being modified"
+fi
+
 for leaf in terraform/*/; do
     [ -d "$leaf" ] || continue    # no terraform/ yet: nothing to compare
     directory=${leaf%/}
-    case " $seen_repo_directories " in
-        *" $directory "*) continue ;;
+    expected=$(leaf_workspace_name "$directory")
+    if [ -z "$expected" ]; then
+        note_unknown "$directory declares no cloud workspace name, so the workspace it targets cannot be identified"
+        continue
+    fi
+    case " $seen_repo_names " in
+        *" $expected "*) continue ;;
     esac
-    note_unknown "no workspace for $directory is visible to this credential and connected to $REPO: either it has no workspace yet, or the credential lacks the Plan grant on it"
+    note_unknown "workspace '$expected', which $directory targets, is not visible to this credential and connected to $REPO: either it does not exist, or the credential lacks the Plan grant on it"
 done
 
 if [ -n "$broken" ]; then

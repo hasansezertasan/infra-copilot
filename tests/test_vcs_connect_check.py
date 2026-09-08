@@ -71,6 +71,7 @@ class VcsConnectCheckTests(unittest.TestCase):
         repo: str = "acme/infra",
         later_pages: dict[int, str] | None = None,
         transport_fails: bool = False,
+        hcp_api: str = "https://app.terraform.io/api/v2",
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
             # Two URLs, two bodies. The stub writes to whatever -o names, which is
@@ -110,7 +111,7 @@ class VcsConnectCheckTests(unittest.TestCase):
                     "ORG": "acme",
                     "REPO": repo,
                     "HCP_TOKEN": "token",
-                    "hcp_api": "https://app.terraform.io/api/v2",
+                    "hcp_api": hcp_api,
                 }
             )
             return subprocess.run(
@@ -228,6 +229,23 @@ class VcsConnectCheckTests(unittest.TestCase):
         result = self.run_check(code="500", oauth_body="{}")
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("500", result.stderr)
+
+    def test_an_unexpected_api_endpoint_is_refused_before_any_request(self) -> None:
+        """These requests are separate from hcp-apply-scope's own guard.
+
+        The stub exits 99 on an unrecognised URL, so a request that slipped
+        through the guard would surface rather than pass quietly.
+        """
+        for endpoint in (
+            "http://app.terraform.io/api/v2",
+            "https://evil.example/api/v2",
+        ):
+            with self.subTest(endpoint=endpoint):
+                result = self.run_check(
+                    code="200", oauth_body=GITHUB_CLIENT, hcp_api=endpoint
+                )
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertIn("refusing to send", result.stderr)
 
     def test_the_step_is_declared_tri_state(self) -> None:
         """Exit 2 is only honoured for steps carrying the flag."""

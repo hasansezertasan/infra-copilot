@@ -36,6 +36,9 @@ CAN_UPDATE = {"can-queue-run": True, "can-queue-apply": False, "can-update": Tru
 # is the reason the check compares directories rather than names.
 DIRECTORIES = {"cloudflare": "terraform/cloudflare", "github-org": "terraform/github"}
 DEFAULT_LEAVES = ("terraform/cloudflare", "terraform/github")
+#: Directory to the workspace name its `cloud` block targets -- what Terraform
+#: actually addresses, and what the inventory compares against.
+LEAF_WORKSPACE = {value: key for key, value in DIRECTORIES.items()}
 
 
 @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
@@ -48,6 +51,8 @@ class HcpApplyScopeTests(unittest.TestCase):
         auto_apply: tuple[str, ...] = (),
         repo: str = "acme/infra",
         foreign: tuple[str, ...] = (),
+        leaf_names: dict[str, str] | None = None,
+        shift_on_recheck: bool = False,
         pagination: object = 1,
         fail_after_page: int | None = None,
         empty_after_page: int | None = None,
@@ -88,9 +93,20 @@ class HcpApplyScopeTests(unittest.TestCase):
                     {"data": data, "meta": {"pagination": {"total-pages": pagination}}}
                 )
 
-            # The check runs with the consuming repo as its working directory.
+            # The check runs with the consuming repo as its working directory, and
+            # reads each leaf's `cloud` block for the workspace name it targets.
             for leaf in leaves if leaves is not None else DEFAULT_LEAVES:
-                (Path(directory) / leaf).mkdir(parents=True)
+                path = Path(directory) / leaf
+                path.mkdir(parents=True)
+                if leaf in (leaf_names or {}) or leaf in LEAF_WORKSPACE:
+                    name = (leaf_names or {}).get(leaf) or LEAF_WORKSPACE[leaf]
+                    (path / "versions.tf").write_text(
+                        "terraform {\n  cloud {\n"
+                        '    organization = "acme"\n'
+                        f'    workspaces {{ name = "{name}" }}\n'
+                        "  }\n}\n",
+                        encoding="utf-8",
+                    )
 
             bin_dir = Path(directory) / "bin"
             bin_dir.mkdir()
@@ -123,6 +139,16 @@ class HcpApplyScopeTests(unittest.TestCase):
                 f'if [ "$page" -gt {empty_after_page} ]; then body={empty_body!r}; else body={body!r}; fi'
                 if empty_after_page is not None
                 else f"body={body!r}",
+                # Count calls so the re-list can return a different id set, which
+                # is what a workspace deleted mid-scan looks like.
+                (
+                    'n=$(cat "$TMPCOUNT" 2>/dev/null || echo 0); n=$((n + 1)); '
+                    'printf "%s" "$n" > "$TMPCOUNT"\n'
+                    f'if [ "$n" -gt {"1" if True else ""} ] && [ "$page" = 1 ]; then '
+                    'body=$(printf "%s" "$body" | sed \'s/"ws-/"shifted-/\'); fi'
+                )
+                if shift_on_recheck
+                else "",
                 'if [ -n "$out" ]; then printf \'%s\' "$body" > "$out"; else printf \'%s\' "$body"; fi',
             ]
             curl = bin_dir / "curl"
@@ -131,6 +157,7 @@ class HcpApplyScopeTests(unittest.TestCase):
 
             environment = dict(os.environ)
             environment["PATH"] = f"{bin_dir}:{environment['PATH']}"
+            environment["TMPCOUNT"] = str(Path(directory) / "calls")
             environment.update(
                 {
                     "HOME": str(home),
@@ -324,6 +351,7 @@ class HcpApplyScopeTests(unittest.TestCase):
                 ("gcp", CAN_APPLY),
             ],
             leaves=[*DEFAULT_LEAVES, "terraform/gcp"],
+            leaf_names={"terraform/gcp": "gcp"},
         )
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("gcp", result.stderr)
@@ -459,17 +487,25 @@ class HcpApplyScopeTests(unittest.TestCase):
         self.assertIn("UNPROTECTED", result.stderr)
         self.assertIn("page 2", result.stderr)
 
-    def test_a_cli_config_credentials_block_cannot_be_verified(self) -> None:
-        """Terraform's docs do not state which source wins, so refuse to guess."""
-        with tempfile.TemporaryDirectory() as directory:
-            config = Path(directory) / "terraformrc"
-            config.write_text(
-                'credentials "app.terraform.io" {\n  token = "other"\n}\n',
-                encoding="utf-8",
-            )
-            result = self.run_check(env={"TF_CLI_CONFIG_FILE": str(config)})
-            self.assertEqual(result.returncode, 2, result.stdout)
-            self.assertIn("credentials block", result.stderr)
+    def test_a_cli_config_credentials_declaration_cannot_be_verified(self) -> None:
+        """Terraform's docs do not state which source wins, so refuse to guess.
+
+        Every form must refuse, including ones a same-line hostname regex missed:
+        HCL treats comments as whitespace, so `credentials /* x */ "host"` is
+        valid and slipped past, leaving an apply-capable token unexamined.
+        """
+        for body, label in (
+            ('credentials "app.terraform.io" {\n  token = "other"\n}\n', "plain"),
+            ('credentials /* managed */ "app.terraform.io" {\n  token = "x"\n}\n', "inline comment"),
+            ('credentials\n  "app.terraform.io" {\n  token = "x"\n}\n', "wrapped"),
+        ):
+            with self.subTest(form=label):
+                with tempfile.TemporaryDirectory() as directory:
+                    config = Path(directory) / "terraformrc"
+                    config.write_text(body, encoding="utf-8")
+                    result = self.run_check(env={"TF_CLI_CONFIG_FILE": str(config)})
+                    self.assertEqual(result.returncode, 2, result.stdout)
+                    self.assertIn("credentials declaration", result.stderr)
 
     def test_another_repositorys_workspaces_do_not_satisfy_the_inventory(self) -> None:
         """working-directory is not unique across an organization.
@@ -532,6 +568,68 @@ class HcpApplyScopeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("no workspaces", result.stderr)
         self.assertNotIn("changed mid-scan", result.stderr)
+
+    def test_a_similar_workspace_does_not_satisfy_the_inventory(self) -> None:
+        """Terraform targets a workspace by name, not by working directory.
+
+        A stale `cloudflare-copy` connected to the same repo with the same
+        working directory satisfied a repo-plus-directory match, while the plan
+        the leaf actually runs could not be queued.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare-copy", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("'cloudflare'", result.stderr)
+        self.assertIn("terraform/cloudflare targets", result.stderr)
+
+    def test_a_leaf_with_no_cloud_block_cannot_be_verified(self) -> None:
+        """Without a declared name there is nothing to compare against."""
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare", "terraform/mystery"],
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("declares no cloud workspace name", result.stderr)
+
+    def test_auto_apply_on_an_unqueueable_workspace_is_not_a_verdict(self) -> None:
+        """Auto-apply this credential cannot trigger is not its problem.
+
+        Reporting it sent the operator to change an unrelated workspace's policy.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY), ("theirs", READ_ONLY)],
+            leaves=["terraform/cloudflare"],
+            foreign=("theirs",),
+            auto_apply=("theirs",),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_list_that_changes_mid_scan_is_uncertain(self) -> None:
+        """A deleted workspace shifts later entries onto pages already read.
+
+        The skipped entry is never inspected and the final page usually stays
+        non-empty, so emptiness cannot be the signal. The id set is re-listed and
+        compared instead.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            pagination=2,
+            shift_on_recheck=True,
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("changed while it was being read", result.stderr)
+
+    def test_a_stable_list_over_two_pages_passes(self) -> None:
+        """The re-list must not report a change when nothing changed."""
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            pagination=2,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_never_posts_an_apply(self) -> None:
         """A dry POST apply would apply if the credential held the rights."""
