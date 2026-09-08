@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:25b96171c2d7494787d37b7bf30d102b4340328db9edf234401e0446f32656f7
-Source-Hash: blake3:6a85e947e5b1460762120c5f8a3464d8751814b5e0023568157f95380e97602c
+Content-Hash: blake3:aa28db2cdeff61fb4192755b19524b6dd274d005916feb9a1163304524a6fc26
+Source-Hash: blake3:7a3e4496069d1cd4ebb262172dde032b02151411f05a1dff9b901c7420e0e426
 Schema-Version: v1
 -->
 
@@ -45,6 +45,7 @@ additional_providers:
     mise_tools:               # exact mise keys added for this provider; [] if none
       - gcloud
     fork_speculative_plans_disabled: false # set true only after the HUMAN verifies the UI
+    fork_speculative_plans_workspace_id: "" # immutable ws-... identity for that attestation
     credential_variables:
       - key: TFC_GCP_PROVIDER_AUTH
         category: env         # env or terraform
@@ -55,9 +56,11 @@ Workspace names must be unique across this list and must not be `cloudflare` or
 `github-org`; resume must never repoint an existing bootstrap workspace. Record every
 provider CLI added to `mise.toml` in `mise_tools`. The list may be empty, in which case
 the post-scaffold toolchain trust step is not applicable. Before credentials are added, a
-human must confirm the workspace UI's separate fork speculative-plan toggle is off and
-change `fork_speculative_plans_disabled` from `false` to `true`; the HCP API does not
-expose that toggle.
+human must confirm the workspace UI's separate fork speculative-plan toggle is off,
+change `fork_speculative_plans_disabled` from `false` to `true`, and record the verified
+workspace's immutable `ws-...` ID in `fork_speculative_plans_workspace_id`; the HCP API
+does not expose the toggle itself. A renamed or recreated workspace therefore invalidates
+the attestation instead of inheriting it by name.
 
 Record every variable required to authenticate the provider. A flag such as
 `TFC_GCP_PROVIDER_AUTH=true` is credential configuration even when it is intentionally
@@ -111,8 +114,13 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export NEW_PROVIDER_WORKSPACE=<entry.workspace>
    export NEW_PROVIDER_MISE_TOOLS='<entry.mise_tools as compact JSON>'
    export NEW_PROVIDER_FORK_PLANS_DISABLED=<entry.fork_speculative_plans_disabled>
+   export NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID=<entry.fork_speculative_plans_workspace_id>
    export NEW_PROVIDER_CREDENTIALS='<entry.credential_variables as compact JSON>'
    ```
+
+   For an entry written before `fork_speculative_plans_workspace_id` existed, export it
+   as the empty string. That deliberately makes the fork-safety step red until the human
+   binds the prior attestation to the current immutable workspace ID.
 
    Validate `name` and `workspace` against `^[a-z0-9][a-z0-9-]*$` before putting them
    into a path or URL. `NEW_PROVIDER_MISE_TOOLS` and `NEW_PROVIDER_CREDENTIALS` are JSON

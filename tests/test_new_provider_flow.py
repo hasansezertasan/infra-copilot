@@ -184,6 +184,7 @@ class NewProviderFlowTests(unittest.TestCase):
             "NEW_PROVIDER_WORKSPACE": "gcp",
             "NEW_PROVIDER_MISE_TOOLS": '["gcloud"]',
             "NEW_PROVIDER_FORK_PLANS_DISABLED": "false",
+            "NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID": "",
             "NEW_PROVIDER_CREDENTIALS": (
                 '[{"key":"TFC_GCP_PROVIDER_AUTH","category":"env",'
                 '"sensitive":false}]'
@@ -434,9 +435,11 @@ class NewProviderFlowTests(unittest.TestCase):
         safety = self.steps["new-provider-fork-safety"]
         self.assertIn("    actor: HUMAN", safety)
         self.assertIn("NEW_PROVIDER_FORK_PLANS_DISABLED", safety)
+        self.assertIn("NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID", safety)
         self.assertIn("Version Control", safety)
         self.assertIn("fork", safety.lower())
         self.assertIn("git diff --quiet HEAD -- .infra-copilot/config.md", safety)
+        self.assertIn("actual_id", safety)
 
     def test_credentials_check_matches_declared_metadata(self) -> None:
         credentials = self.steps["new-provider-credentials"]
@@ -470,6 +473,8 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("truncated=true", helper)
         self.assertIn("bounded 500-run scan", helper)
         self.assertIn("still in flight", helper)
+        self.assertIn("policy_soft_failed) exit 1", helper)
+        self.assertIn('git log -1 --format=%H -- "terraform/$NEW_PROVIDER"', helper)
         self.assertIn("plan_only,plan_and_apply,save_plan&", helper)
         self.assertNotIn("refresh_only", helper)
 
@@ -518,6 +523,7 @@ class NewProviderFlowTests(unittest.TestCase):
             "ADDITIONAL_PROVIDER_WORKSPACES",
             "NEW_PROVIDER_MISE_TOOLS",
             "NEW_PROVIDER_FORK_PLANS_DISABLED",
+            "NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID",
         ):
             self.assertIn(marker, config)
 

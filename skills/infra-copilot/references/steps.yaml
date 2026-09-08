@@ -46,6 +46,7 @@
 #     export NEW_PROVIDER_WORKSPACE=<entry.workspace>
 #     export NEW_PROVIDER_MISE_TOOLS='<entry.mise_tools as compact JSON>'
 #     export NEW_PROVIDER_FORK_PLANS_DISABLED=<entry.fork_speculative_plans_disabled>
+#     export NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID=<entry.fork_speculative_plans_workspace_id>
 #     export NEW_PROVIDER_CREDENTIALS='<entry.credential_variables as compact JSON>'
 # Preflight exports TERRAFORM_VERSION from the validated repository pin before any
 # Phase 1 workspace check or run uses it.
@@ -718,6 +719,8 @@ steps:
          lowercase name, HCP workspace, and every authentication variable's key,
          category, and sensitive flag. Record provider mise tools (or `[]`) and set
          `fork_speculative_plans_disabled: false` until that HUMAN check is performed.
+         Set `fork_speculative_plans_workspace_id: ""` until the same check binds the
+         attestation to the immutable HCP workspace identity.
          Never put a credential value in the repo.
       4. Reply `done`; the agent reloads config, exports NEW_PROVIDER,
          NEW_PROVIDER_WORKSPACE, and NEW_PROVIDER_CREDENTIALS, then re-runs this check.
@@ -729,6 +732,10 @@ steps:
         and all(.[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:/+-]*$"))
         and length == (unique | length)' >/dev/null || exit 1
       case "$NEW_PROVIDER_FORK_PLANS_DISABLED" in true|false) : ;; *) exit 1 ;; esac
+      if test -n "$NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID"; then
+        printf '%s\n' "$NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID" \
+          | grep -Eq '^ws-[A-Za-z0-9]+$' || exit 1
+      fi
       printf '%s' "$NEW_PROVIDER_CREDENTIALS" | jq -e '
         type == "array" and length > 0
         and all(.[];
@@ -779,7 +786,8 @@ steps:
       printf '%s\n' "$settings" | grep -Fx "organization=$ORG" >/dev/null || exit 1
       hostname=$(printf '%s\n' "$settings" | sed -n 's/^hostname=//p' | head -1)
       case "$hostname" in ""|app.terraform.io) : ;; *) exit 1 ;; esac
-      git ls-files --error-unmatch "terraform/$NEW_PROVIDER/*.tf" >/dev/null 2>&1 || exit 1
+      git ls-files "terraform/$NEW_PROVIDER/*.tf" \
+        "terraform/$NEW_PROVIDER/*.tf.json" | grep -q . || exit 1
       git ls-files --error-unmatch \
         "terraform/$NEW_PROVIDER/.terraform.lock.hcl" >/dev/null 2>&1 || exit 1
       test -z "$(git --no-optional-locks status --porcelain -- "terraform/$NEW_PROVIDER")"
@@ -927,13 +935,22 @@ steps:
       In HCP workspace $NEW_PROVIDER_WORKSPACE, open Settings -> Version Control and
       confirm speculative plans from forks are disabled. This is separate from the API's
       `speculative-enabled` attribute. Then set this provider entry's
-      `fork_speculative_plans_disabled` value to `true`, commit config.md, reload it, and
-      reply `done` so the agent re-runs this durable attestation check.
-    check: >-
-      test "$NEW_PROVIDER_FORK_PLANS_DISABLED" = "true" &&
-      git ls-files --error-unmatch .infra-copilot/config.md >/dev/null 2>&1 &&
-      git diff --quiet HEAD -- .infra-copilot/config.md &&
-      git diff --cached --quiet HEAD -- .infra-copilot/config.md
+      `fork_speculative_plans_disabled` value to `true` and record the workspace's
+      immutable `ws-...` ID as `fork_speculative_plans_workspace_id`. Commit config.md,
+      reload it, and reply `done` so the agent re-runs this durable attestation check.
+    check: |
+      test "$NEW_PROVIDER_FORK_PLANS_DISABLED" = "true" || exit 1
+      git ls-files --error-unmatch .infra-copilot/config.md >/dev/null 2>&1 || exit 1
+      git diff --quiet HEAD -- .infra-copilot/config.md || exit 1
+      git diff --cached --quiet HEAD -- .infra-copilot/config.md || exit 1
+      test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
+      body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+      actual_id=$(printf '%s' "$body" \
+        | jq -er '.data.id | select(type == "string" and test("^ws-[A-Za-z0-9]+$"))' \
+          2>/dev/null) || exit 2
+      test "$NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID" = "$actual_id"
+    tri_state: true
     produces: durable human attestation that fork plans cannot receive provider credentials
     docs: docs/setup.md#2-hcp-terraform--workspaces
 
@@ -998,11 +1015,15 @@ steps:
     title: Run the first plan on the new leaf
     why: This proves the leaf, workspace access, and provider credentials end to end.
     run: |
+      If the newest matching HCP run is `policy_soft_failed`, stop and emit a HUMAN
+      handoff to review the policy result and either fix the configuration or explicitly
+      override/discard it; do not queue another run while that decision is pending.
       Ensure the current non-main branch has an open pull request (a draft is enough;
       create one with `gh pr create --draft` when absent), then push the current
-      committed branch to its configured upstream so HCP can ingest `git rev-parse
-      HEAD`; never push a dirty or detached checkout. Wait until the workspace's VCS
-      run list contains that exact ingress commit, then run
+      committed branch to its configured upstream so HCP can ingest the newest commit
+      that changed `terraform/$NEW_PROVIDER` or `.infra-copilot/config.md`; never push a
+      dirty or detached checkout. Wait until the workspace's VCS run list contains that
+      exact relevant ingress commit, then run
       `sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh" queue` to queue a
       plan-only retry using that configuration version. The helper explicitly includes
       the configuration-version relationship in POST /runs; a CLI-driven or

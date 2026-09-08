@@ -17,7 +17,11 @@ done
 [ "$hcp_api" = "https://app.terraform.io/api/v2" ] \
     || cannot_verify "refusing to send the HCP token to unexpected endpoint '$hcp_api'"
 
-commit_sha=$(git rev-parse HEAD 2>/dev/null) || cannot_verify "HEAD is not a commit"
+commit_sha=$(git log -1 --format=%H -- "terraform/$NEW_PROVIDER" \
+    .infra-copilot/config.md 2>/dev/null) \
+    || cannot_verify "the provider leaf and config have no relevant commit"
+[ -n "$commit_sha" ] \
+    || cannot_verify "the provider leaf and config have no relevant commit"
 workspace_body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
     -H "Authorization: Bearer $HCP_TOKEN") || cannot_verify "workspace could not be read"
 ws_id=$(printf '%s' "$workspace_body" | jq -er \
@@ -116,8 +120,8 @@ status=$(printf '%s' "$latest" | jq -er '.attributes.status') \
     || cannot_verify "matched run has no status"
 case "$status" in
   planned_and_finished|applied) : ;;
-  errored|canceled|discarded|force_canceled) exit 1 ;;
-  pending|fetching|fetching_completed|pre_plan_running|pre_plan_completed|queuing|plan_queued|planning|planned|cost_estimating|cost_estimated|policy_checking|policy_override|policy_soft_failed|policy_checked|confirmed|post_plan_running|post_plan_completed|planned_and_saved|applying) \
+  errored|canceled|discarded|force_canceled|policy_soft_failed) exit 1 ;;
+  pending|fetching|fetching_completed|pre_plan_running|pre_plan_completed|queuing|plan_queued|planning|planned|cost_estimating|cost_estimated|policy_checking|policy_override|policy_checked|confirmed|post_plan_running|post_plan_completed|planned_and_saved|applying) \
     cannot_verify "the newest commit-correlated run is still in flight ($status); wait" ;;
   *) cannot_verify "the newest commit-correlated run has unknown status '$status'" ;;
 esac

@@ -38,6 +38,7 @@ additional_providers:
     mise_tools:               # exact mise keys added for this provider; [] if none
       - gcloud
     fork_speculative_plans_disabled: false # set true only after the HUMAN verifies the UI
+    fork_speculative_plans_workspace_id: "" # immutable ws-... identity for that attestation
     credential_variables:
       - key: TFC_GCP_PROVIDER_AUTH
         category: env         # env or terraform
@@ -48,9 +49,11 @@ Workspace names must be unique across this list and must not be `cloudflare` or
 `github-org`; resume must never repoint an existing bootstrap workspace. Record every
 provider CLI added to `mise.toml` in `mise_tools`. The list may be empty, in which case
 the post-scaffold toolchain trust step is not applicable. Before credentials are added, a
-human must confirm the workspace UI's separate fork speculative-plan toggle is off and
-change `fork_speculative_plans_disabled` from `false` to `true`; the HCP API does not
-expose that toggle.
+human must confirm the workspace UI's separate fork speculative-plan toggle is off,
+change `fork_speculative_plans_disabled` from `false` to `true`, and record the verified
+workspace's immutable `ws-...` ID in `fork_speculative_plans_workspace_id`; the HCP API
+does not expose the toggle itself. A renamed or recreated workspace therefore invalidates
+the attestation instead of inheriting it by name.
 
 Record every variable required to authenticate the provider. A flag such as
 `TFC_GCP_PROVIDER_AUTH=true` is credential configuration even when it is intentionally
@@ -104,8 +107,13 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export NEW_PROVIDER_WORKSPACE=<entry.workspace>
    export NEW_PROVIDER_MISE_TOOLS='<entry.mise_tools as compact JSON>'
    export NEW_PROVIDER_FORK_PLANS_DISABLED=<entry.fork_speculative_plans_disabled>
+   export NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID=<entry.fork_speculative_plans_workspace_id>
    export NEW_PROVIDER_CREDENTIALS='<entry.credential_variables as compact JSON>'
    ```
+
+   For an entry written before `fork_speculative_plans_workspace_id` existed, export it
+   as the empty string. That deliberately makes the fork-safety step red until the human
+   binds the prior attestation to the current immutable workspace ID.
 
    Validate `name` and `workspace` against `^[a-z0-9][a-z0-9-]*$` before putting them
    into a path or URL. `NEW_PROVIDER_MISE_TOOLS` and `NEW_PROVIDER_CREDENTIALS` are JSON

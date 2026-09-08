@@ -5,8 +5,8 @@ description: "Read-only health check: runs every step's check across the whole m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:042b5ad3d2036b62fdaea46b59910b2d14a27186a614fdb4916b8f2c19cf74c4
-Source-Hash: blake3:6a85e947e5b1460762120c5f8a3464d8751814b5e0023568157f95380e97602c
+Content-Hash: blake3:e954d7c98fb40ea47708c79d82b1d995c65ff63a609ae3dc608e518905435827
+Source-Hash: blake3:7a3e4496069d1cd4ebb262172dde032b02151411f05a1dff9b901c7420e0e426
 Schema-Version: v1
 -->
 
@@ -105,8 +105,10 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      handoff block — nothing is being unblocked here.
 
    **Phase 6 plan contents and durable completion.** For `new-provider-plan`, a terminal
-   green HCP run is necessary but not sufficient. Read its structured plan summary using
-   the helper in
+   green HCP run is necessary but not sufficient. Its manifest helper correlates on the
+   newest commit that changed that provider leaf or `.infra-copilot/config.md`, because
+   the path-filtered workspace correctly has no run for unrelated later commits. Read its
+   structured plan summary using the helper in
    [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)
    and read the workspace's `resource-count`. Mark the step `✓` only when destroys are
    zero and either the plan creates at least one resource (the safe first plan) or the

@@ -98,8 +98,10 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      handoff block — nothing is being unblocked here.
 
    **Phase 6 plan contents and durable completion.** For `new-provider-plan`, a terminal
-   green HCP run is necessary but not sufficient. Read its structured plan summary using
-   the helper in
+   green HCP run is necessary but not sufficient. Its manifest helper correlates on the
+   newest commit that changed that provider leaf or `.infra-copilot/config.md`, because
+   the path-filtered workspace correctly has no run for unrelated later commits. Read its
+   structured plan summary using the helper in
    [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)
    and read the workspace's `resource-count`. Mark the step `✓` only when destroys are
    zero and either the plan creates at least one resource (the safe first plan) or the

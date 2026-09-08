@@ -16,6 +16,7 @@ additional_providers: []
 #     mise_tools:
 #       - gcloud
 #     fork_speculative_plans_disabled: false
+#     fork_speculative_plans_workspace_id: ""
 #     credential_variables:
 #       - key: TFC_GCP_PROVIDER_AUTH
 #         category: env

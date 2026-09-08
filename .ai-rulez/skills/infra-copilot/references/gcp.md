@@ -20,7 +20,7 @@ The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml)
 2. Note the new leaf in `terraform/README.md`.
 3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
    variable used for authentication, `mise_tools: [gcloud]`, and an initially false fork
-   speculative-plan attestation.
+   speculative-plan attestation with an empty workspace-ID binding.
 4. Then, and only then, follow the parameterized Phase 6 steps.
 
 ## Recommended auth: Workload Identity Federation (keyless)
