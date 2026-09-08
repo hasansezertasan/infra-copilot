@@ -1860,6 +1860,7 @@ else cat >/dev/null; printf '%s\n' '1.15.9'; fi
         fixture_mise = """#!/bin/sh
 case "$1" in
   --version) exit 0 ;;
+  trust) printf '%s: trusted\n' "$(pwd -P)" ;;
   config) sed -n '/^\\[tools\\]/,$p' ./mise.toml | sed '1d' ;;
   install)
     shift 2

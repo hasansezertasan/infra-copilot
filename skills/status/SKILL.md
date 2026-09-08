@@ -5,8 +5,8 @@ description: "Read-only health check: runs every step's check across the whole m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:aa4f25863f40ae281838fae2765d8ac948f2772d5374b629bb1d45074c18a616
-Source-Hash: blake3:7c80a6a6a9dc5177b19254ac9efac3b9d6eed5c1008558797f89f2e78d9e6c4c
+Content-Hash: blake3:0939f897dbf670d01e999f2f32bf4013f1764b894feb36aa6043ec4a5604c85e
+Source-Hash: blake3:97695f9624e9ab081c4b80a6cac2f7c5faaf0586cef8551e30c58b228e8b66f3
 Schema-Version: v1
 -->
 
@@ -80,8 +80,9 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      first by asking whether the checkout corresponds to a commit at all. `git rev-parse
      HEAD` names the last *commit*, not what is on disk, so uncommitted changes under a
      leaf's directory mean the files you are auditing were never sent to HCP. Test each
-     leaf on its own — `git --no-optional-locks status --porcelain -- terraform/cloudflare`,
-     and the same for `terraform/github` or `terraform/$NEW_PROVIDER` — and if the output is non-empty, that leaf's plan
+     leaf together with shared modules — `git --no-optional-locks status --porcelain --
+     terraform/cloudflare terraform/modules`, and the same leaf substitution for
+     `terraform/github` or `terraform/$NEW_PROVIDER` — and if the output is non-empty, that leaf's plan
      check is `?` (working tree differs from the last tested revision). Stop there for that
      leaf; a green run for HEAD says nothing about edited files. `--no-optional-locks` keeps
      this read from touching git's index, preserving the change-nothing promise.
@@ -109,7 +110,8 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
 
    **Phase 6 plan contents and durable completion.** For `new-provider-plan`, a terminal
    green HCP run is necessary but not sufficient. Its manifest helper correlates on the
-   newest commit that changed that provider leaf or `.infra-copilot/config.md`, because
+   newest commit whose provider leaf, shared `terraform/modules`, and
+   `.infra-copilot/config.md` trees match, because
    the path-filtered workspace correctly has no run for unrelated later commits. Read its
    structured plan summary using the helper in
    [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)

@@ -70,7 +70,12 @@ awk -v want="$want" '
         structure = line
         gsub(/"[^"]*"/, "", structure)
     }
-    !incloud && match(structure, /(^|[^[:alnum:]_])cloud[[:space:]]*{/) {
+    !interraform && match(structure, /(^|[^[:alnum:]_])terraform[[:space:]]*{/) {
+        interraform = 1
+        terraform_depth = depth_through_match(structure)
+    }
+    interraform && !incloud && depth == terraform_depth &&
+        match(structure, /(^|[^[:alnum:]_])cloud[[:space:]]*{/) {
         incloud = 1
         opened_cloud = 1
         cloud_depth = depth_through_match(structure)
@@ -111,6 +116,7 @@ awk -v want="$want" '
         depth += structural_depth_delta(structure)
         if (inws && depth < workspace_depth) inws = 0
         if (incloud && depth < cloud_depth) incloud = 0
+        if (interraform && depth < terraform_depth) interraform = 0
         if (starts_heredoc) inheredoc = 1
     }
 ' "$@" >>"$output" 2>/dev/null || exit 2

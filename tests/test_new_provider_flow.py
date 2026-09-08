@@ -418,6 +418,37 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertNotIn("attacker.example", all_settings)
         self.assertNotIn("wrong-org", all_settings)
 
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
+    def test_leaf_parser_ignores_cloud_blocks_outside_terraform(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "versions.tf").write_text(
+                '''resource "example_service" "decoy" {
+  cloud {
+    organization = "wrong-org"
+    workspaces { name = "wrong-workspace" }
+  }
+}
+terraform {
+  cloud {
+    organization = "acme"
+    workspaces { name = "gcp" }
+  }
+}
+''',
+                encoding="utf-8",
+            )
+            all_settings = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(root), "all"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        self.assertIn("organization=acme", all_settings)
+        self.assertIn("workspaces.name=gcp", all_settings)
+        self.assertNotIn("wrong-org", all_settings)
+        self.assertNotIn("wrong-workspace", all_settings)
+
     def test_toolchain_retrusts_after_the_leaf_before_provider_commands(self) -> None:
         leaf = self.steps["new-provider-leaf"]
         toolchain = self.steps["new-provider-toolchain"]
@@ -425,6 +456,8 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("    actor: HUMAN", toolchain)
         self.assertIn("commit both reviewed files", toolchain)
         self.assertIn("mise trust mise.toml", toolchain)
+        self.assertIn("mise trust --show", toolchain)
+        self.assertIn('$repo_dir: trusted', toolchain)
         self.assertIn("MISE_LOCKED=1", toolchain)
         self.assertIn("NEW_PROVIDER_MISE_TOOLS", toolchain)
         self.assertIn("--dry-run-code", toolchain)
@@ -492,7 +525,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("gh pr create --draft", plan)
         self.assertIn("    tri_state: true", plan)
         helper = HCP_CURRENT_PLAN.read_text(encoding="utf-8")
-        self.assertIn('attributes["commit-sha"] as $sha', helper)
+        self.assertIn('sha: .attributes["commit-sha"]', helper)
         self.assertIn('"plan-only":true', helper)
         self.assertIn('"configuration-version":{data:', helper)
         self.assertIn("json-output-redacted", helper)
@@ -508,11 +541,12 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn('sub("\\\\.[0-9]+Z$"; "Z")', helper)
         self.assertIn("NEW_PROVIDER_CREDENTIALS_VERIFIED_AT", helper)
         self.assertIn("terraform/modules", helper)
+        self.assertIn("candidate run has a malformed created-at timestamp", helper)
         self.assertIn("$epoch <= now", helper)
         self.assertIn("pre_plan_errored", helper)
         self.assertIn("cost_estimation_errored", helper)
         self.assertIn("UNSAFE PLAN", helper)
-        self.assertIn("newest relevant run cannot be selected safely", helper)
+        self.assertIn("could supersede the selected matching run", helper)
         self.assertIn("the run-list head changed during pagination", helper)
         self.assertIn('git diff --quiet "$sha" HEAD', helper)
         self.assertIn('[ "$status" = policy_soft_failed ]', helper)
@@ -728,6 +762,7 @@ terraform {
         self.assertIn("resource-count", status)
         self.assertIn("destroys are\n   zero", status)
         self.assertIn("If that HUMAN trust gate is red", status)
+        self.assertIn("terraform/cloudflare terraform/modules", status)
 
     def test_legacy_config_defaults_only_a_missing_provider_list(self) -> None:
         config = CONFIG.read_text(encoding="utf-8")

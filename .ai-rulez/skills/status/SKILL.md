@@ -73,8 +73,9 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      first by asking whether the checkout corresponds to a commit at all. `git rev-parse
      HEAD` names the last *commit*, not what is on disk, so uncommitted changes under a
      leaf's directory mean the files you are auditing were never sent to HCP. Test each
-     leaf on its own — `git --no-optional-locks status --porcelain -- terraform/cloudflare`,
-     and the same for `terraform/github` or `terraform/$NEW_PROVIDER` — and if the output is non-empty, that leaf's plan
+     leaf together with shared modules — `git --no-optional-locks status --porcelain --
+     terraform/cloudflare terraform/modules`, and the same leaf substitution for
+     `terraform/github` or `terraform/$NEW_PROVIDER` — and if the output is non-empty, that leaf's plan
      check is `?` (working tree differs from the last tested revision). Stop there for that
      leaf; a green run for HEAD says nothing about edited files. `--no-optional-locks` keeps
      this read from touching git's index, preserving the change-nothing promise.
@@ -102,7 +103,8 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
 
    **Phase 6 plan contents and durable completion.** For `new-provider-plan`, a terminal
    green HCP run is necessary but not sufficient. Its manifest helper correlates on the
-   newest commit that changed that provider leaf or `.infra-copilot/config.md`, because
+   newest commit whose provider leaf, shared `terraform/modules`, and
+   `.infra-copilot/config.md` trees match, because
    the path-filtered workspace correctly has no run for unrelated later commits. Read its
    structured plan summary using the helper in
    [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)

@@ -89,6 +89,8 @@ preflight:
       git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
       git diff --quiet HEAD -- mise.toml mise.lock &&
       git diff --cached --quiet HEAD -- mise.toml mise.lock &&
+      repo_dir=$(pwd -P) &&
+      mise trust --show 2>/dev/null | grep -Fx "$repo_dir: trusted" >/dev/null &&
       tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
       [ -n "$tools" ] &&
       pinned=$(printf '%s\n' "$tools" |
@@ -174,6 +176,8 @@ steps:
       git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
       git diff --quiet HEAD -- mise.toml mise.lock &&
       git diff --cached --quiet HEAD -- mise.toml mise.lock &&
+      repo_dir=$(pwd -P) &&
+      mise trust --show 2>/dev/null | grep -Fx "$repo_dir: trusted" >/dev/null &&
       tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
       [ -n "$tools" ] &&
       pinned=$(printf '%s\n' "$tools" |
@@ -832,6 +836,8 @@ steps:
       git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
       git diff --quiet HEAD -- mise.toml mise.lock &&
       git diff --cached --quiet HEAD -- mise.toml mise.lock &&
+      repo_dir=$(pwd -P) &&
+      mise trust --show 2>/dev/null | grep -Fx "$repo_dir: trusted" >/dev/null &&
       tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
       [ -n "$tools" ] &&
       pinned=$(printf '%s\n' "$tools" |

@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:7c80a6a6a9dc5177b19254ac9efac3b9d6eed5c1008558797f89f2e78d9e6c4c",
+  "source_hash": "blake3:97695f9624e9ab081c4b80a6cac2f7c5faaf0586cef8551e30c58b228e8b66f3",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -36,10 +36,10 @@
       "content_hash": "blake3:87ca2929ab55cd54b90ddb1bb1c5f56882f31ccbb06848fb2e3989ff4c6635c3"
     },
     "skills/infra-copilot/references/checks/hcp-current-plan.sh": {
-      "content_hash": "blake3:552f5a0f6fd16ca19aad9fb8377ff10acbd9d228c8e31b175b413aca6da35c42"
+      "content_hash": "blake3:a0a15816cc23c20be341f0ac0de3a01400c8401bdaf09a449d79b3e303c725e7"
     },
     "skills/infra-copilot/references/checks/leaf-cloud.sh": {
-      "content_hash": "blake3:9192d549df201572dd363ec2da217acf2dd93b343c9d464ea17739aff192c87a"
+      "content_hash": "blake3:a63ff461da397e4efd5558947837b3da1c75b45bddb95d95a6c45b59d8e8de61"
     },
     "skills/infra-copilot/references/checks/status-check-context.sh": {
       "content_hash": "blake3:7b43a11dc33a9af654fac6bf546ea73c9b4ff7d312cef74cd15f2591948de7be"
@@ -90,13 +90,13 @@
       "content_hash": "blake3:6499922178b5f46e338afe2a95054641d065e1517e05aa9924f84db5622ca35b"
     },
     "skills/infra-copilot/references/steps.yaml": {
-      "content_hash": "blake3:9cb1d677cb17c3a492bc5e6f7bca4400d41157a083b1de3eee22aa4a37618e5f"
+      "content_hash": "blake3:5a6bc1b4ffbe3c32a5c658637dac0a296cac347fb34394a0f3b5945754eb66f0"
     },
     "skills/setup/SKILL.md": {
       "content_hash": "blake3:18457295b83bc8c402513e0214aff6e1bf498004a52f66c9da44692e025af634"
     },
     "skills/status/SKILL.md": {
-      "content_hash": "blake3:aa4f25863f40ae281838fae2765d8ac948f2772d5374b629bb1d45074c18a616"
+      "content_hash": "blake3:0939f897dbf670d01e999f2f32bf4013f1764b894feb36aa6043ec4a5604c85e"
     }
   }
 }

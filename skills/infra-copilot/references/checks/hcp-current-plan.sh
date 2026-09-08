@@ -88,18 +88,41 @@ head_ids=$(printf '%s' "$head_body" | jq -cer '.data | map(.id)' 2>/dev/null) \
 [ "$first_page_ids" = "$head_ids" ] \
     || cannot_verify "the run-list head changed during pagination; retry against a stable snapshot"
 
+# Join each run to its ingress commit first. Every candidate timestamp must be
+# parseable before selection; otherwise malformed newer evidence could be hidden
+# by an older valid run during sorting.
+candidates=$(jq -scer '
+  [.[].included[]?
+    | select(.type == "ingress-attributes")
+    | {id, sha: .attributes["commit-sha"]}
+    | select(.sha | type == "string" and length > 0)] as $ingress
+  | [.[].included[]?
+      | select(.type == "configuration-versions")
+      | {id, ingress_id: .relationships["ingress-attributes"].data.id}] as $configs
+  | [.[].data[]
+      | . as $run
+      | (.relationships["configuration-version"].data.id // "") as $config_id
+      | ($configs[] | select(.id == $config_id) | .ingress_id) as $ingress_id
+      | ($ingress[] | select(.id == $ingress_id) | .sha) as $sha
+      | $run + {"_commit_sha": $sha}]' "$pages" 2>/dev/null) \
+    || cannot_verify "run-to-ingress relationships were malformed"
+printf '%s' "$candidates" | jq -e '
+  all(.[];
+    (.attributes["created-at"] | type) == "string"
+    and (try (.attributes["created-at"]
+      | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | type == "number") catch false))' \
+    >/dev/null || cannot_verify "a candidate run has a malformed created-at timestamp"
+
 # HCP records the ingested branch tip, not necessarily the last commit that
 # touched this leaf. Accept an ingested SHA only when its relevant-path tree is
 # byte-for-byte the current committed tree. This handles both a later unrelated
 # tip and a prior relevant run when path triggers skipped an unrelated commit.
 matching_shas='[]'
-missing_commit=false
-for sha in $(jq -sr '[.[].included[]?
-    | select(.type == "ingress-attributes")
-    | .attributes["commit-sha"]
-    | select(type == "string" and length > 0)] | unique | .[]' "$pages" 2>/dev/null); do
+missing_shas='[]'
+for sha in $(printf '%s' "$candidates" | jq -r '[.[]._commit_sha] | unique | .[]'); do
     if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
-        missing_commit=true
+        missing_shas=$(jq -cn --argjson shas "$missing_shas" --arg sha "$sha" \
+          '$shas + [$sha]') || cannot_verify "missing ingress SHAs could not be encoded"
         continue
     fi
     if git diff --quiet "$sha" HEAD -- "terraform/$NEW_PROVIDER" \
@@ -108,33 +131,28 @@ for sha in $(jq -sr '[.[].included[]?
           '$shas + [$sha]') || cannot_verify "matching ingress SHAs could not be encoded"
     fi
 done
-[ "$missing_commit" = false ] \
-    || cannot_verify "an ingested commit is unavailable locally, so the newest relevant run cannot be selected safely"
 if ! printf '%s' "$matching_shas" | jq -e 'length > 0' >/dev/null; then
+    printf '%s' "$missing_shas" | jq -e 'length == 0' >/dev/null \
+      || cannot_verify "only unavailable ingress commits could contain the current relevant tree"
     [ "$truncated" = false ] || cannot_verify \
       "the current relevant tree was absent from the bounded 500-run scan and older pages remain"
     exit 1
 fi
 
-if ! latest=$(jq -ser --argjson shas "$matching_shas" '
-  [.[].included[]?
-    | select(.type == "ingress-attributes")
-    | select(.attributes["commit-sha"] as $sha | $shas | index($sha))
-    | .id] as $ingress
-  | [.[].included[]?
-      | select(.type == "configuration-versions")
-      | select((.relationships["ingress-attributes"].data.id // "") as $id
-          | $ingress | index($id))
-      | .id] as $configs
-  | [.[].data[]
-      | select((.relationships["configuration-version"].data.id // "") as $id
-          | $configs | index($id))]
-  | sort_by(.attributes["created-at"])
-  | reverse
-  | .[0] // empty' "$pages" 2>/dev/null); then
-    [ "$truncated" = false ] || cannot_verify \
-      "the current relevant tree was absent from the bounded 500-run scan and older pages remain"
-    exit 1
+latest=$(printf '%s' "$candidates" | jq -cer --argjson shas "$matching_shas" '
+  map(select(._commit_sha as $sha | $shas | index($sha)))
+  | max_by(.attributes["created-at"] | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)') \
+  || cannot_verify "the newest run for the current relevant tree could not be selected"
+selected_epoch=$(printf '%s' "$latest" | jq -er '
+  .attributes["created-at"] | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601') \
+  || cannot_verify "the selected run timestamp could not be parsed"
+if printf '%s' "$candidates" | jq -e --argjson shas "$missing_shas" \
+    --argjson selected "$selected_epoch" '
+      any(.[];
+        (._commit_sha as $sha | $shas | index($sha))
+        and ((.attributes["created-at"]
+          | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $selected))' >/dev/null; then
+    cannot_verify "an unavailable ingress commit could supersede the selected matching run"
 fi
 
 status=$(printf '%s' "$latest" | jq -er '.attributes.status') \
