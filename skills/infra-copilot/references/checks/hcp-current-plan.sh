@@ -253,19 +253,19 @@ plan_json=$(curl -sfL "$hcp_api/plans/$plan_id/json-output-redacted" \
     -H "Authorization: Bearer $HCP_TOKEN") \
     || cannot_verify "matched run's structured plan could not be read"
 summary=$(printf '%s' "$plan_json" | jq -ec '
-  select((.format_version | type) == "string")
+  select((.format_version | type) == "string" and (.format_version | test("^1\\.[0-9]+$")))
   | select((.terraform_version | type) == "string")
-  | select((.complete // true) == true)
-  | select(((.deferred_changes // []) | type) == "array")
-  | select((.deferred_changes // [] | length) == 0)
-  | select(((.resource_changes // []) | type) == "array")
-  | select(all((.resource_changes // [])[];
+  | select((has("complete") | not) or .complete == true)
+  | select((has("deferred_changes") | not) or (.deferred_changes | type) == "array")
+  | select((has("deferred_changes") | not) or (.deferred_changes | length) == 0)
+  | select((.resource_changes | type) == "array")
+  | select(all(.resource_changes[];
       (.change.actions | type) == "array"
       and (.change.actions | length) > 0
       and all(.change.actions[];
         . == "no-op" or . == "create" or . == "read" or . == "update"
         or . == "delete" or . == "forget")))
-  | [(.resource_changes // [])[]?.change.actions] as $actions
+  | [.resource_changes[]?.change.actions] as $actions
   | {creates: ([$actions[] | select(index("create"))] | length),
      destroys: ([$actions[] | select(index("delete"))] | length),
      forgets: ([$actions[] | select(index("forget"))] | length)}' 2>/dev/null) \

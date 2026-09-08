@@ -178,7 +178,7 @@ class NewProviderFlowTests(unittest.TestCase):
             "ADDITIONAL_PROVIDER_WORKSPACES": '["extra"]',
             "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
         }
-        for name in ("cloudflare", "github"):
+        for name in ("cloudflare", "github", "modules"):
             result = subprocess.run(
                 ["/bin/sh", "-c", literal_check(inventory)],
                 env={**env, "ADDITIONAL_PROVIDER_NAMES": f'["{name}"]'},
@@ -699,8 +699,10 @@ terraform {
             helper,
         )
         self.assertIn("UNSAFE RUN", helper)
-        self.assertIn("(.complete // true) == true", helper)
+        self.assertIn('(has("complete") | not) or .complete == true', helper)
         self.assertIn(".deferred_changes", helper)
+        self.assertIn('test("^1\\\\.[0-9]+$")', helper)
+        self.assertIn('(.resource_changes | type) == "array"', helper)
 
     @unittest.skipUnless(os.name == "posix", "the parser is a POSIX shell script")
     def test_leaf_parser_reads_terraform_json_cloud_blocks(self) -> None:

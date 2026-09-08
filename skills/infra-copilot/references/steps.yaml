@@ -663,7 +663,8 @@ steps:
             and all(.[]; type == "string" and test("^[a-z0-9][a-z0-9-]*$"))
             and length == (unique | length)
             and index("cloudflare") == null
-            and index("github") == null)
+            and index("github") == null
+            and index("modules") == null)
           and ($workspaces | type == "array"
             and all(.[]; type == "string" and test("^[a-z0-9][a-z0-9-]*$"))
             and length == (unique | length)
