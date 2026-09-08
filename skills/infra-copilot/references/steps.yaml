@@ -468,7 +468,9 @@ steps:
       deliberate steps. Nothing here applies — setup stops at speculative plans — but
       a repo bootstrapped by this plugin leaves its agent apply rights on
       production until someone narrows them. First step of phase 4, so the plan
-      steps that follow already run under the narrowed credential.
+      steps that follow already run under the narrowed credential — and, like
+      every other HUMAN step, the scan stops here and hands off rather than
+      continuing past it.
     run: |
       Replace the credential this machine offers HCP with a plan-only one. Do not
       merely export a second token: `terraform` never reads $HCP_TOKEN. It reads

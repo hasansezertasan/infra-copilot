@@ -120,6 +120,36 @@ found=0
 # the inventory: a stale `cloudflare-copy` connected to the same repo with the
 # same working directory passed, while the plan the leaf actually runs could not
 # be queued.
+leaf_cloud_attribute () {  # $1 = leaf dir, $2 = attribute; prints its value
+    # Same comment handling as the workspace-name reader, at the cloud-block
+    # level. `organization` matters because a leaf may target a different HCP
+    # organization than $ORG, and every permission read here is scoped to $ORG.
+    awk -v want="$2" '
+        {
+            line = $0
+            while (inblock) {
+                end = index(line, "*/")
+                if (end == 0) { line = ""; break }
+                line = substr(line, end + 2); inblock = 0
+            }
+            while ((start = index(line, "/*")) > 0) {
+                rest = substr(line, start + 2)
+                end = index(rest, "*/")
+                if (end == 0) { line = substr(line, 1, start - 1); inblock = 1; break }
+                line = substr(line, 1, start - 1) substr(rest, end + 2)
+            }
+            sub(/#.*/, "", line); sub(/\/\/.*/, "", line)
+        }
+        line ~ /(^|[^[:alnum:]_])cloud[[:space:]]*{/ { incloud = 1; next }
+        incloud && match(line, "(^|[^[:alnum:]_])" want "[[:space:]]*=[[:space:]]*\"[^\"]*\"") {
+            value = substr(line, RSTART, RLENGTH)
+            sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
+            print value
+            exit
+        }
+    ' "$1"/*.tf 2>/dev/null
+}
+
 leaf_workspace_name () {  # $1 = leaf dir; prints its name, or TAGS, or nothing
     # Scoped to the `workspaces` block, and `name` must be a whole attribute key.
     # An unanchored match read `hostname = "app.terraform.io"` -- legal in a cloud
@@ -200,10 +230,14 @@ while : ; do
             index=$((index + 1))
             continue
         fi
+        # A missing name is recorded but does not skip the entry: its permissions
+        # may still be perfectly readable, and skipping them turned a definite
+        # UNPROTECTED into exit 2 -- which `status` renders as "?, nothing to
+        # fix", hiding known apply access. The id labels the diagnostics instead.
         if ! name=$(printf '%s' "$entry" | jq -er '.attributes.name' 2>/dev/null); then
-            note_unknown "a workspace on page $page of $ORG has no name"
-            index=$((index + 1))
-            continue
+            identity=$(printf '%s' "$entry" | jq -r '.id // empty' 2>/dev/null)
+            name="<unnamed${identity:+ $identity}>"
+            note_unknown "a workspace on page $page of $ORG has no name; its permissions were still checked as $name"
         fi
         index=$((index + 1))
         found=$((found + 1))
@@ -322,6 +356,16 @@ fi
 for leaf in terraform/*/; do
     [ -d "$leaf" ] || continue    # no terraform/ yet: nothing to compare
     directory=${leaf%/}
+    # Every permission read above was scoped to $ORG, so a leaf pointed at
+    # another organization proves nothing: a same-named plan-only workspace in
+    # $ORG would satisfy the comparison while Terraform targeted an organization
+    # whose permissions were never inspected.
+    leaf_org=$(leaf_cloud_attribute "$directory" organization)
+    if [ -n "$leaf_org" ] && [ "$leaf_org" != "$ORG" ]; then
+        note_unknown "$directory targets HCP organization '$leaf_org', not '$ORG', so the permissions checked here say nothing about the workspace it uses"
+        continue
+    fi
+
     expected=$(leaf_workspace_name "$directory")
     if [ "$expected" = TAGS ]; then
         note_unknown "$directory selects its workspaces by tags rather than a name, so which workspace it targets cannot be determined from the repository"

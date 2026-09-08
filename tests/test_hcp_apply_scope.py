@@ -53,6 +53,7 @@ class HcpApplyScopeTests(unittest.TestCase):
         foreign: tuple[str, ...] = (),
         leaf_names: dict[str, str] | None = None,
         leaf_hcl: dict[str, str] | None = None,
+        nameless: tuple[str, ...] = (),
         shift_on_recheck: bool = False,
         pages_on_recheck: int | None = None,
         pagination: object = 1,
@@ -90,7 +91,9 @@ class HcpApplyScopeTests(unittest.TestCase):
                     }
                     if permissions is not None:
                         attributes["permissions"] = permissions
-                    data.append({"id": f"ws-{name}", "attributes": attributes})
+                    if name in nameless:
+                        attributes.pop("name", None)
+                    data.append({"id": f"ws-{name or 'anon'}", "attributes": attributes})
                 body = json.dumps(
                     {"data": data, "meta": {"pagination": {"total-pages": pagination}}}
                 )
@@ -659,6 +662,61 @@ class HcpApplyScopeTests(unittest.TestCase):
                 "terraform/cloudflare": (
                     "terraform {\n  cloud {\n"
                     '    hostname     = "app.terraform.io"\n'
+                    '    organization = "acme"\n'
+                    '    workspaces { name = "cloudflare" }\n'
+                    "  }\n}\n"
+                )
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_nameless_workspace_still_has_its_permissions_read(self) -> None:
+        """A missing name must not hide a definite verdict.
+
+        Skipping the entry turned a readable can-queue-apply: true into exit 2,
+        which status renders as "?, nothing to fix".
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY), ("", CAN_APPLY)],
+            leaves=["terraform/cloudflare"],
+            nameless=("",),
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("UNPROTECTED", result.stderr)
+        self.assertIn("<unnamed", result.stderr)
+        # The malformed entry is still reported, alongside the verdict.
+        self.assertIn("has no name", result.stderr)
+
+    def test_a_leaf_targeting_another_organization_cannot_be_verified(self) -> None:
+        """Every permission read is scoped to $ORG.
+
+        A same-named plan-only workspace in $ORG would otherwise satisfy the
+        comparison while Terraform targeted an organization whose permissions
+        were never inspected.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            leaf_hcl={
+                "terraform/cloudflare": (
+                    "terraform {\n  cloud {\n"
+                    '    organization = "someone-else"\n'
+                    '    workspaces { name = "cloudflare" }\n'
+                    "  }\n}\n"
+                )
+            },
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("someone-else", result.stderr)
+
+    def test_a_leaf_naming_this_organization_passes(self) -> None:
+        """Guards the check above: the matching case must not also fail."""
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            leaf_hcl={
+                "terraform/cloudflare": (
+                    "terraform {\n  cloud {\n"
                     '    organization = "acme"\n'
                     '    workspaces { name = "cloudflare" }\n'
                     "  }\n}\n"

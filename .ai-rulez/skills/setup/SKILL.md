@@ -93,10 +93,10 @@ Setup is complete when you can report:
 - ✓ Both workspaces use the exact Terraform version committed in `mise.toml`.
 - ✓ All sensitive vars present (`cloudflare_api_token`; `github_app_id`, `github_app_installation_id`, `github_app_pem`).
 - ✓ `terraform plan` green on both leaves.
-- ✓ `hcp-apply-scope` green, or explicitly reported as outstanding. It is a `HUMAN`
-  step and stays red until someone provisions the plan-only identity, so setup may
-  finish with it red — but never silently. Say which: narrowed, or still running as
-  the apply-capable user token from `terraform login`.
+- ✓ `hcp-apply-scope` green — the credential in use cannot apply. It is a `HUMAN`
+  step like `cf-token` and `gh-app`: stop there, hand off, and continue when it turns
+  green. Setup is not complete while the agent still holds the apply-capable user
+  token from `terraform login`.
 
 If the domain/repos already exist, continue with **infra-copilot:import** to adopt them
 (plan should then show imports, not creates). Otherwise day-to-day work follows your
