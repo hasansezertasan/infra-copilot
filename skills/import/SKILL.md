@@ -6,7 +6,7 @@ description: "Adopt infrastructure that already exists at a provider into Terraf
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:4309ffc2ca05c4407237902ad5aa8f640af54052d61b10c54f0d13f1a4ae0c81
-Source-Hash: blake3:b0108977418ff3fd1dcc7bb5fb1c15de970fb50e31d6f33f7f70445dd5e293f4
+Source-Hash: blake3:d704668d760ca732ff0b0a0bc6bb153d44b9aabc8d931a8ad1b6952dd532dcaf
 Schema-Version: v1
 -->
 

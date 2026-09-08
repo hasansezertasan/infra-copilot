@@ -86,9 +86,10 @@ class VcsConnectCheckTests(unittest.TestCase):
                 '  case "$a" in http*) url="$a" ;; esac\n'
                 '  prev="$a"\n'
                 "done\n"
+                'printf "%s\\n" "$url" >> "$CALLS"\n'
                 'case "$url" in\n'
-                f'  *oauth-clients*) body={oauth_body!r}; printf "%s" "$body" > "${{out:-/dev/stdout}}"; printf "%s" {code!r} ;;\n'
-                f'  *workspaces*)\n'
+                f'  https://app.terraform.io/api/v2/organizations/*/oauth-clients*) body={oauth_body!r}; printf "%s" "$body" > "${{out:-/dev/stdout}}"; printf "%s" {code!r} ;;\n'
+                f'  https://app.terraform.io/api/v2/organizations/*/workspaces*)\n'
                 f'    page=1\n'
                 f'    for a in "$@"; do case "$a" in *page%5Bnumber%5D=*) page=${{a##*page%5Bnumber%5D=}}; page=${{page%%&*}} ;; esac; done\n'
                 + "".join(
@@ -106,6 +107,8 @@ class VcsConnectCheckTests(unittest.TestCase):
             stub.chmod(0o755)
             environment = dict(os.environ)
             environment["PATH"] = f"{directory}:{environment['PATH']}"
+            calls = Path(directory) / "calls"
+            environment["CALLS"] = str(calls)
             environment.update(
                 {
                     "ORG": "acme",
@@ -114,13 +117,18 @@ class VcsConnectCheckTests(unittest.TestCase):
                     "hcp_api": hcp_api,
                 }
             )
-            return subprocess.run(
+            result = subprocess.run(
                 ["/bin/sh", "-c", extract_check()],
                 capture_output=True,
                 text=True,
                 env=environment,
                 cwd=directory,
             )
+            # Attached so a test can assert no request was attempted at all.
+            result.requests = (  # type: ignore[attr-defined]
+                calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
+            )
+            return result
 
     def test_a_github_client_is_green(self) -> None:
         result = self.run_check(code="200", oauth_body=GITHUB_CLIENT)
@@ -246,6 +254,16 @@ class VcsConnectCheckTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 2, result.stdout)
                 self.assertIn("refusing to send", result.stderr)
+                # The point is that the credential never leaves the machine, so
+                # assert no request was attempted rather than only that the exit
+                # code is right.
+                self.assertEqual(result.requests, [], result.requests)
+
+    def test_the_allowed_endpoint_does_reach_the_stub(self) -> None:
+        """Guards the assertion above: it must fail for a real reason."""
+        result = self.run_check(code="200", oauth_body=GITHUB_CLIENT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.requests, "no request was recorded at all")
 
     def test_the_step_is_declared_tri_state(self) -> None:
         """Exit 2 is only honoured for steps carrying the flag."""

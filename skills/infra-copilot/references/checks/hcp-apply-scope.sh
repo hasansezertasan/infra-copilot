@@ -120,16 +120,25 @@ found=0
 # the inventory: a stale `cloudflare-copy` connected to the same repo with the
 # same working directory passed, while the plan the leaf actually runs could not
 # be queued.
-leaf_workspace_name () {  # $1 = leaf directory; prints its cloud workspace name
+leaf_workspace_name () {  # $1 = leaf dir; prints its name, or TAGS, or nothing
+    # Scoped to the `workspaces` block, and `name` must be a whole attribute key.
+    # An unanchored match read `hostname = "app.terraform.io"` -- legal in a cloud
+    # block for Terraform Enterprise -- as the workspace name, which reported a
+    # correctly configured leaf as unverifiable. `tags` is mutually exclusive with
+    # `name` and selects a set rather than one workspace, and its map form can
+    # itself contain a `name` key, so it is reported as TAGS rather than guessed.
     awk '
-        /cloud[[:space:]]*{/ { incloud = 1 }
-        incloud && match($0, /name[[:space:]]*=[[:space:]]*"[^"]*"/) {
+        /(^|[^[:alnum:]_])cloud[[:space:]]*{/ { incloud = 1; next }
+        incloud && /(^|[^[:alnum:]_])workspaces[[:space:]]*{/ { inws = 1 }
+        inws && /(^|[^[:alnum:]_])tags[[:space:]]*=/ { print "TAGS"; exit }
+        inws && match($0, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/) {
             value = substr($0, RSTART, RLENGTH)
             sub(/^[^"]*"/, "", value)
             sub(/"$/, "", value)
             print value
             exit
         }
+        inws && /}/ { inws = 0 }
     ' "$1"/*.tf 2>/dev/null
 }
 
@@ -259,29 +268,44 @@ done
 # omit Plan on one leaf and it vanishes from the list, leaving every visible entry
 # correct. So compare against an inventory derived from the repository instead.
 # A workspace deleted mid-scan shifts later entries onto pages already read, and
-# the skipped one is never inspected. An empty final page is only the visible
-# symptom; the usual outcome is a full page with a hole earlier. The API offers no
-# snapshot, so the id set is re-listed and compared -- but only when the scan
-# needed more than one page, since a single page cannot shift.
-if [ "$page" -gt 1 ]; then
-    recheck=""
-    verify_page=1
-    while [ "$verify_page" -le "$page" ]; do
-        again=$(curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$verify_page" \
-            -H "Authorization: Bearer $token") || { recheck="unreadable"; break; }
-        recheck="$recheck $(printf '%s' "$again" | jq -r '.data[].id' 2>/dev/null | tr '\n' ' ')"
-        verify_page=$((verify_page + 1))
-    done
-    first_set=$(printf '%s' "$ids" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ')
-    again_set=$(printf '%s' "$recheck" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ')
-    [ "$first_set" = "$again_set" ] \
-        || note_unknown "the workspace list in $ORG changed while it was being read, so an entry may have shifted between pages and never been inspected; re-run when the organization is not being modified"
+# the skipped one is never inspected; one added after its page was read lands on a
+# page the first scan never requested. Neither shows up as an empty page, and the
+# API offers no snapshot -- so the whole list is read a second time, following
+# pagination afresh, and both the id set and the page count are compared. Running
+# it unconditionally costs one extra request for the handful of workspaces this
+# plugin creates, and an earlier `page > 1` guard meant a single full page that
+# gained a second page was never re-read at all.
+recheck=""
+verify_page=1
+verify_pages=1
+while : ; do
+    again=$(curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$verify_page" \
+        -H "Authorization: Bearer $token") || { recheck="unreadable"; break; }
+    recheck="$recheck $(printf '%s' "$again" | jq -r '.data[].id' 2>/dev/null | tr '\n' ' ')"
+    verify_pages=$(printf '%s' "$again" | jq -er '.meta.pagination["total-pages"]
+                    | if type == "number" and . == floor and . > 0
+                      then (floor | tostring) else empty end' 2>/dev/null) \
+        || { recheck="unreadable"; break; }
+    [ "$verify_page" -lt "$verify_pages" ] || break
+    verify_page=$((verify_page + 1))
+done
+first_set=$(printf '%s' "$ids" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ')
+again_set=$(printf '%s' "$recheck" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ')
+# Comparing page counts as well was redundant -- a workspace added on a new page
+# changes the id set too -- and `pages_seen` goes stale when the scan breaks
+# early, which would have reported a change that never happened.
+if [ "$first_set" != "$again_set" ]; then
+    note_unknown "the workspace list in $ORG changed while it was being read, so an entry may have shifted between pages or landed on a page this scan never requested; re-run when the organization is not being modified"
 fi
 
 for leaf in terraform/*/; do
     [ -d "$leaf" ] || continue    # no terraform/ yet: nothing to compare
     directory=${leaf%/}
     expected=$(leaf_workspace_name "$directory")
+    if [ "$expected" = TAGS ]; then
+        note_unknown "$directory selects its workspaces by tags rather than a name, so which workspace it targets cannot be determined from the repository"
+        continue
+    fi
     if [ -z "$expected" ]; then
         note_unknown "$directory declares no cloud workspace name, so the workspace it targets cannot be identified"
         continue

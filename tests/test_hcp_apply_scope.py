@@ -52,7 +52,9 @@ class HcpApplyScopeTests(unittest.TestCase):
         repo: str = "acme/infra",
         foreign: tuple[str, ...] = (),
         leaf_names: dict[str, str] | None = None,
+        leaf_hcl: dict[str, str] | None = None,
         shift_on_recheck: bool = False,
+        pages_on_recheck: int | None = None,
         pagination: object = 1,
         fail_after_page: int | None = None,
         empty_after_page: int | None = None,
@@ -98,7 +100,9 @@ class HcpApplyScopeTests(unittest.TestCase):
             for leaf in leaves if leaves is not None else DEFAULT_LEAVES:
                 path = Path(directory) / leaf
                 path.mkdir(parents=True)
-                if leaf in (leaf_names or {}) or leaf in LEAF_WORKSPACE:
+                if leaf in (leaf_hcl or {}):
+                    (path / "versions.tf").write_text(leaf_hcl[leaf], encoding="utf-8")
+                elif leaf in (leaf_names or {}) or leaf in LEAF_WORKSPACE:
                     name = (leaf_names or {}).get(leaf) or LEAF_WORKSPACE[leaf]
                     (path / "versions.tf").write_text(
                         "terraform {\n  cloud {\n"
@@ -144,10 +148,20 @@ class HcpApplyScopeTests(unittest.TestCase):
                 (
                     'n=$(cat "$TMPCOUNT" 2>/dev/null || echo 0); n=$((n + 1)); '
                     'printf "%s" "$n" > "$TMPCOUNT"\n'
-                    f'if [ "$n" -gt {"1" if True else ""} ] && [ "$page" = 1 ]; then '
+                    'if [ "$n" -gt 1 ] && [ "$page" = 1 ]; then '
                     'body=$(printf "%s" "$body" | sed \'s/"ws-/"shifted-/\'); fi'
                 )
                 if shift_on_recheck
+                else "",
+                # The re-scan sees a larger page count than the first scan did,
+                # which is what a workspace added on a new final page looks like.
+                (
+                    'n=$(cat "$TMPCOUNT" 2>/dev/null || echo 0); n=$((n + 1)); '
+                    'printf "%s" "$n" > "$TMPCOUNT"\n'
+                    f'if [ "$n" -gt 1 ]; then body=$(printf "%s" "$body" '
+                    f'| sed \'s/"total-pages":[0-9]*/"total-pages":{pages_on_recheck}/\'); fi'
+                )
+                if pages_on_recheck is not None
                 else "",
                 'if [ -n "$out" ]; then printf \'%s\' "$body" > "$out"; else printf \'%s\' "$body"; fi',
             ]
@@ -630,6 +644,65 @@ class HcpApplyScopeTests(unittest.TestCase):
             pagination=2,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_hostname_in_the_cloud_block_is_not_the_workspace_name(self) -> None:
+        """`hostname` is legal in a cloud block and ends in "name".
+
+        An unanchored match read `hostname = "app.terraform.io"` as the workspace
+        name, so a correctly configured leaf reported CANNOT VERIFY and the
+        resume scan stopped.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            leaf_hcl={
+                "terraform/cloudflare": (
+                    "terraform {\n  cloud {\n"
+                    '    hostname     = "app.terraform.io"\n'
+                    '    organization = "acme"\n'
+                    '    workspaces { name = "cloudflare" }\n'
+                    "  }\n}\n"
+                )
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_tags_based_leaf_is_reported_as_undeterminable(self) -> None:
+        """`tags` is mutually exclusive with `name` and selects a set.
+
+        Its map form can itself contain a `name` key, so guessing would pick a
+        tag value and compare it against workspace names.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            leaf_hcl={
+                "terraform/cloudflare": (
+                    "terraform {\n  cloud {\n"
+                    '    organization = "acme"\n'
+                    '    workspaces { tags = { name = "cloudflare", env = "prod" } }\n'
+                    "  }\n}\n"
+                )
+            },
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("by tags rather than a name", result.stderr)
+
+    def test_a_workspace_added_on_a_new_page_is_detected(self) -> None:
+        """A single full page that gains a second page must not pass.
+
+        The earlier `page > 1` guard skipped the re-scan entirely for a
+        one-page organization, so a workspace added afterwards -- possibly
+        apply-capable -- was never inspected.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            pagination=1,
+            pages_on_recheck=2,
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("changed while it was being read", result.stderr)
 
     def test_never_posts_an_apply(self) -> None:
         """A dry POST apply would apply if the credential held the rights."""
