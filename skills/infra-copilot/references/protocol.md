@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6499922178b5f46e338afe2a95054641d065e1517e05aa9924f84db5622ca35b
-Source-Hash: blake3:97695f9624e9ab081c4b80a6cac2f7c5faaf0586cef8551e30c58b228e8b66f3
+Content-Hash: blake3:b930505d36ec93c88057077363dfd59538108bee43f59fee48bbe6eeb2675a31
+Source-Hash: blake3:1ba8222666286b69afd96225001dbdef73a0bd24b8f35ca23418e15fec6c1466
 Schema-Version: v1
 -->
 
@@ -122,7 +122,7 @@ negative-permission audit.
 
 The credential handoff records a real, non-future UTC `credentials_verified_at` in committed config only after
 the HUMAN installs every declared variable. `new-provider-plan` accepts or reuses only a
-run created at or after that UTC timestamp, so a prior workspace run cannot prove the
+run created after the entire recorded UTC second, so a prior workspace run cannot prove the
 new least-privilege credential works.
 
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is

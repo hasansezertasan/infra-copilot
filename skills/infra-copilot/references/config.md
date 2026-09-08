@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:81983f54eab852991427e3ebe6c985190944a67e837ba09a7ee3e21262c83a50
-Source-Hash: blake3:97695f9624e9ab081c4b80a6cac2f7c5faaf0586cef8551e30c58b228e8b66f3
+Content-Hash: blake3:2dc1d289c150507c1c70864511a4f0ca45e20947d3e096d500df6362866b2dd0
+Source-Hash: blake3:1ba8222666286b69afd96225001dbdef73a0bd24b8f35ca23418e15fec6c1466
 Schema-Version: v1
 -->
 
@@ -72,7 +72,7 @@ the attestation instead of inheriting it by name.
 Leave `credentials_verified_at` empty until the HUMAN has installed or replaced every
 declared workspace variable, then record that moment as a real, non-future strict UTC
 `YYYY-MM-DDTHH:MM:SSZ` and commit the config. The first-plan check accepts only an HCP run
-created at or after that durable handoff, so an older run cannot stand in for the current
+created after the entire recorded handoff second, so an older run cannot stand in for the current
 least-privilege credentials.
 
 Record every variable required to authenticate the provider. A flag such as

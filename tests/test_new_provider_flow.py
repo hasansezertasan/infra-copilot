@@ -147,6 +147,30 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertNotEqual(collision.returncode, 0)
 
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_inventory_tracks_provider_directory_before_cloud_exists(self) -> None:
+        inventory = self.steps["new-provider-inventory"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "terraform/gcp").mkdir(parents=True)
+            (root / "terraform/gcp/versions.tf").write_text(
+                'terraform { required_version = ">= 1.0" }\n', encoding="utf-8"
+            )
+            env = {
+                **os.environ,
+                "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
+                "ADDITIONAL_PROVIDER_MISE_TOOLS": "[]",
+                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+            }
+            missing = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={**env, "ADDITIONAL_PROVIDER_NAMES": "[]"},
+                capture_output=True,
+                text=True,
+            )
+        self.assertNotEqual(missing.returncode, 0)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
     def test_inventory_rejects_reserved_bootstrap_leaf_names(self) -> None:
         inventory = self.steps["new-provider-inventory"]
         env = {
@@ -538,9 +562,12 @@ terraform {
         self.assertIn("still in flight", helper)
         self.assertIn("planned_and_saved|applied", helper)
         self.assertIn('attributes["created-at"]', helper)
+        self.assertIn('"_created_key"', helper)
+        self.assertIn("did not join one-to-one to ingress data", helper)
         self.assertIn('sub("\\\\.[0-9]+Z$"; "Z")', helper)
         self.assertIn("NEW_PROVIDER_CREDENTIALS_VERIFIED_AT", helper)
         self.assertIn("terraform/modules", helper)
+        self.assertIn("git --no-optional-locks status --porcelain", helper)
         self.assertIn("candidate run has a malformed created-at timestamp", helper)
         self.assertIn("$epoch <= now", helper)
         self.assertIn("pre_plan_errored", helper)
@@ -625,6 +652,8 @@ terraform {
         helper = HCP_CURRENT_PLAN.read_text(encoding="utf-8")
         self.assertIn('(.change.actions | type) == "array"', helper)
         self.assertIn('. == "forget"', helper)
+        self.assertIn('select(index("forget"))', helper)
+        self.assertIn('[ "$forgets" -ne 0 ]', helper)
 
     def test_inventory_covers_actual_provider_tool_keys(self) -> None:
         inventory = self.steps["new-provider-inventory"]

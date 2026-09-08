@@ -65,7 +65,7 @@ the attestation instead of inheriting it by name.
 Leave `credentials_verified_at` empty until the HUMAN has installed or replaced every
 declared workspace variable, then record that moment as a real, non-future strict UTC
 `YYYY-MM-DDTHH:MM:SSZ` and commit the config. The first-plan check accepts only an HCP run
-created at or after that durable handoff, so an older run cannot stand in for the current
+created after the entire recorded handoff second, so an older run cannot stand in for the current
 least-privilege credentials.
 
 Record every variable required to authenticate the provider. A flag such as

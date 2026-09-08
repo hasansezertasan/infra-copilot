@@ -28,10 +28,9 @@ printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" | jq -Re '
 [ "$hcp_api" = "https://app.terraform.io/api/v2" ] \
     || cannot_verify "refusing to send the HCP token to unexpected endpoint '$hcp_api'"
 
-git diff --quiet HEAD -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md \
-    || cannot_verify "the provider leaf or config has uncommitted changes"
-git diff --cached --quiet HEAD -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md \
-    || cannot_verify "the provider leaf or config has staged changes"
+[ -z "$(git --no-optional-locks status --porcelain -- \
+    "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md)" ] \
+    || cannot_verify "the provider leaf, shared modules, or config has uncommitted changes"
 workspace_body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
     -H "Authorization: Bearer $HCP_TOKEN") || cannot_verify "workspace could not be read"
 ws_id=$(printf '%s' "$workspace_body" | jq -er \
@@ -95,23 +94,34 @@ candidates=$(jq -scer '
   [.[].included[]?
     | select(.type == "ingress-attributes")
     | {id, sha: .attributes["commit-sha"]}
-    | select(.sha | type == "string" and length > 0)] as $ingress
+    | select(.sha | type == "string" and length > 0)] | unique_by(.id) as $ingress
   | [.[].included[]?
       | select(.type == "configuration-versions")
-      | {id, ingress_id: .relationships["ingress-attributes"].data.id}] as $configs
-  | [.[].data[]
+      | {id, ingress_id: (.relationships["ingress-attributes"].data.id // null)}]
+      | unique_by(.id) as $configs
+  | [.[].data[]] as $runs
+  | if all($runs[];
+      (.relationships["configuration-version"].data.id // null) as $config_id
+      | ([$configs[] | select(.id == $config_id)]) as $config_matches
+      | ($config_matches | length) == 1
+        and ($config_matches[0].ingress_id | type == "string" and length > 0)
+        and (([$ingress[] | select(.id == $config_matches[0].ingress_id)] | length) == 1))
+    then [$runs[]
       | . as $run
-      | (.relationships["configuration-version"].data.id // "") as $config_id
+      | .relationships["configuration-version"].data.id as $config_id
       | ($configs[] | select(.id == $config_id) | .ingress_id) as $ingress_id
       | ($ingress[] | select(.id == $ingress_id) | .sha) as $sha
-      | $run + {"_commit_sha": $sha}]' "$pages" 2>/dev/null) \
+      | $run + {"_commit_sha": $sha}]
+    else error("a run did not join one-to-one to ingress data")
+    end' "$pages" 2>/dev/null) \
     || cannot_verify "run-to-ingress relationships were malformed"
-printf '%s' "$candidates" | jq -e '
-  all(.[];
-    (.attributes["created-at"] | type) == "string"
-    and (try (.attributes["created-at"]
-      | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | type == "number") catch false))' \
-    >/dev/null || cannot_verify "a candidate run has a malformed created-at timestamp"
+candidates=$(printf '%s' "$candidates" | jq -cer '
+  def timestamp_key:
+    capture("^(?<whole>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\\.(?<fraction>[0-9]{1,9}))?Z$")
+    | select((.whole + "Z" | fromdateiso8601 | type) == "number")
+    | .whole + "." + (((.fraction // "") + "000000000")[0:9]) + "Z";
+  map(. + {"_created_key": (.attributes["created-at"] | timestamp_key)})') \
+    || cannot_verify "a candidate run has a malformed created-at timestamp"
 
 # HCP records the ingested branch tip, not necessarily the last commit that
 # touched this leaf. Accept an ingested SHA only when its relevant-path tree is
@@ -141,17 +151,15 @@ fi
 
 latest=$(printf '%s' "$candidates" | jq -cer --argjson shas "$matching_shas" '
   map(select(._commit_sha as $sha | $shas | index($sha)))
-  | max_by(.attributes["created-at"] | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)') \
+  | max_by(._created_key)') \
   || cannot_verify "the newest run for the current relevant tree could not be selected"
-selected_epoch=$(printf '%s' "$latest" | jq -er '
-  .attributes["created-at"] | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601') \
-  || cannot_verify "the selected run timestamp could not be parsed"
+selected_key=$(printf '%s' "$latest" | jq -er '._created_key') \
+  || cannot_verify "the selected run timestamp key could not be read"
 if printf '%s' "$candidates" | jq -e --argjson shas "$missing_shas" \
-    --argjson selected "$selected_epoch" '
+    --arg selected "$selected_key" '
       any(.[];
         (._commit_sha as $sha | $shas | index($sha))
-        and ((.attributes["created-at"]
-          | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $selected))' >/dev/null; then
+        and (._created_key >= $selected))' >/dev/null; then
     cannot_verify "an unavailable ingress commit could supersede the selected matching run"
 fi
 
@@ -160,7 +168,7 @@ status=$(printf '%s' "$latest" | jq -er '.attributes.status') \
 fresh=$(printf '%s' "$latest" | jq -er \
     --arg verified "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" '
       try (((.attributes["created-at"] | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)
-        >= ($verified | fromdateiso8601)) | tostring) catch empty') \
+        > ($verified | fromdateiso8601)) | tostring) catch empty') \
     || cannot_verify "matched run has no comparable created-at timestamp"
 
 if [ "$fresh" = true ] && [ "$status" = policy_soft_failed ]; then
@@ -236,12 +244,14 @@ summary=$(printf '%s' "$plan_json" | jq -ec '
         or . == "delete" or . == "forget")))
   | [(.resource_changes // [])[]?.change.actions] as $actions
   | {creates: ([$actions[] | select(index("create"))] | length),
-     destroys: ([$actions[] | select(index("delete"))] | length)}' 2>/dev/null) \
+     destroys: ([$actions[] | select(index("delete"))] | length),
+     forgets: ([$actions[] | select(index("forget"))] | length)}' 2>/dev/null) \
   || cannot_verify "matched run's structured plan was malformed"
 creates=$(printf '%s' "$summary" | jq -r '.creates')
 destroys=$(printf '%s' "$summary" | jq -r '.destroys')
-if [ "$destroys" -ne 0 ]; then
-    echo "UNSAFE PLAN: the newest post-credential plan contains $destroys destroy action(s)" >&2
+forgets=$(printf '%s' "$summary" | jq -r '.forgets')
+if [ "$destroys" -ne 0 ] || [ "$forgets" -ne 0 ]; then
+    echo "UNSAFE PLAN: the newest post-credential plan contains $destroys destroy and $forgets forget action(s)" >&2
     exit 1
 fi
 if [ "$creates" -eq 0 ] && [ "$resource_count" -eq 0 ]; then
