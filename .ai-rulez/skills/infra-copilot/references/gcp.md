@@ -19,7 +19,8 @@ The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml)
    choice `adopt` (put purpose and auth rationale in the context column).
 2. Note the new leaf in `terraform/README.md`.
 3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
-   variable used for authentication.
+   variable used for authentication, `mise_tools: [gcloud]`, and an initially false fork
+   speculative-plan attestation.
 4. Then, and only then, follow the parameterized Phase 6 steps.
 
 ## Recommended auth: Workload Identity Federation (keyless)
@@ -38,7 +39,7 @@ the rotation burden that implies.
 | Enable APIs, create SA / WIF pool | **AGENT** | `gcloud` / GCP API, once auth exists. |
 | Approve the WIF trust / OAuth consent | **HUMAN** | One browser consent for the federation trust. |
 | Paste SA key into HCP *(only if not using WIF)* | **HUMAN** | Agent must never see the key. |
-| Create the `gcp` HCP workspace | **HUMAN** | Post-handoff HCP mutation needs a temporary user/org token intentionally withheld from the agent. |
+| Create the `gcp` HCP workspace | **HUMAN** | The plan-only agent credential cannot create organization workspaces. |
 | First `plan` | **AGENT** | Speculative run in HCP. |
 
 ## Phases (projected)
@@ -76,27 +77,22 @@ compares it against the installed SDK version — the `Google Cloud SDK` field o
 Status reports missing or drifted pins.
 
 ```sh
-gcloud config set project <PROJECT_ID>
-gcloud services enable cloudresourcemanager.googleapis.com iam.googleapis.com <needed-apis>
+mise exec -- gcloud config set project <PROJECT_ID>
+mise exec -- gcloud services enable cloudresourcemanager.googleapis.com iam.googleapis.com <needed-apis>
 
 # WIF (preferred): create a workload identity pool + provider trusting HCP's OIDC issuer,
 # and a service account with least-privilege roles that HCP may impersonate.
-gcloud iam workload-identity-pools create hcp-pool --location=global ...
+mise exec -- gcloud iam workload-identity-pools create hcp-pool --location=global ...
 ```
 
 Provider block goes in `terraform/gcp/providers.tf`, using `google`/`google-beta`, with
 impersonation rather than a key file.
 
-### HUMAN — HCP workspace
+### AGENT — HCP workspace
 
 Create a `gcp` workspace (working dir `terraform/gcp`, path filter `terraform/gcp/**`,
-remote execution, auto-apply **off**) with the canonical `create_ws` helper from
-[`hcp.md`](hcp.md), using a temporary user or organization token. This differs from
-bootstrap Phase 1: `hcp-apply-scope` has already narrowed the agent to a team token with
-no organization permissions, and that credential must not be widened or replaced for
-this mutation. After creation, grant the plan-only team `Plan` on the workspace and drop
-the temporary token. If using a SA key instead of WIF, that is where the sensitive var
-lives.
+remote execution, auto-apply **off**) exactly like Phase 1. If using a SA key instead of
+WIF, that's where the sensitive var lives.
 
 ### AGENT — first plan
 
@@ -109,7 +105,7 @@ cd terraform/gcp && terraform init && terraform plan
 Same pattern as every other provider: **import, don't recreate**. GCP resources are
 adopted with Terraform 1.5+ `import` blocks and either handwritten HCL or
 `terraform plan -generate-config-out`. There is no first-party equivalent to
-`cf-terraforming`; `gcloud ... list` + import blocks is the path. See
+`cf-terraforming`; `mise exec -- gcloud ... list` + import blocks is the path. See
 [`migration.md`](./migration.md#gcp).
 
 ## Leaf skeleton (for when it lands)

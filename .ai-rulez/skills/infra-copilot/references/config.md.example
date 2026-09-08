@@ -13,6 +13,9 @@ additional_providers: []
 # additional_providers:
 #   - name: gcp
 #     workspace: gcp
+#     mise_tools:
+#       - gcloud
+#     fork_speculative_plans_disabled: false
 #     credential_variables:
 #       - key: TFC_GCP_PROVIDER_AUTH
 #         category: env

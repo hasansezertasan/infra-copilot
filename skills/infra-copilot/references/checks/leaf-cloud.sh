@@ -1,14 +1,14 @@
 #!/bin/sh
-# Read one value from a Terraform leaf's cloud block without mistaking comments,
-# hostname, or an unrelated name attribute for the selected workspace.
-# Usage: leaf-cloud.sh <terraform/leaf> hostname|organization|workspace
+# Read Terraform cloud settings without mistaking comments or nested attributes
+# for direct cloud members. `all` emits the settings consumed by hcp-apply-scope.
+# Usage: leaf-cloud.sh <terraform/leaf> hostname|organization|workspace|token|all
 set -u
 
-[ "$#" -eq 2 ] || { echo "usage: leaf-cloud.sh <leaf> hostname|organization|workspace" >&2; exit 2; }
+[ "$#" -eq 2 ] || { echo "usage: leaf-cloud.sh <leaf> hostname|organization|workspace|token|all" >&2; exit 2; }
 leaf=$1
 want=$2
 [ -d "$leaf" ] || exit 1
-case "$want" in hostname|organization|workspace) : ;; *) exit 2 ;; esac
+case "$want" in hostname|organization|workspace|token|all) : ;; *) exit 2 ;; esac
 
 awk -v want="$want" '
     function structural_depth_delta(text, copy, opens, closes) {
@@ -22,7 +22,16 @@ awk -v want="$want" '
         copy = substr(text, 1, RSTART + RLENGTH - 1)
         return depth + structural_depth_delta(copy)
     }
+    function emit(key, value) {
+        if (want == "all") print key "=" value
+        else if (want == key || (want == "workspace" && key == "workspaces.name")) {
+            print value
+            exit
+        }
+    }
     {
+        opened_cloud = 0
+        opened_workspace = 0
         line = $0
         while (incomment) {
             end = index(line, "*/")
@@ -41,26 +50,40 @@ awk -v want="$want" '
     }
     !incloud && match(structure, /(^|[^[:alnum:]_])cloud[[:space:]]*{/) {
         incloud = 1
+        opened_cloud = 1
         cloud_depth = depth_through_match(structure)
-    }
-    incloud && (want == "hostname" || want == "organization") &&
-        match(line, "(^|[^[:alnum:]_])" want "[[:space:]]*=[[:space:]]*\"[^\"]*\"") {
-        value = substr(line, RSTART, RLENGTH)
-        sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
-        print value; exit
+        if (want == "all") print "cloud=present"
     }
     incloud && !inws && match(structure, /(^|[^[:alnum:]_])workspaces[[:space:]]*{/) {
         inws = 1
+        opened_workspace = 1
         workspace_depth = depth_through_match(structure)
     }
-    inws && want == "workspace" && line ~ /(^|[^[:alnum:]_])tags[[:space:]]*=/ {
-        print "TAGS"; exit
+    incloud && !inws && (depth == cloud_depth || opened_cloud) {
+        for (key = 1; key <= 2; key++) {
+            attribute = (key == 1 ? "hostname" : "organization")
+            if ((want == "all" || want == attribute) &&
+                match(line, "(^|[^[:alnum:]_])" attribute "[[:space:]]*=[[:space:]]*\"[^\"]*\"")) {
+                value = substr(line, RSTART, RLENGTH)
+                sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
+                emit(attribute, value)
+            }
+        }
     }
-    inws && want == "workspace" &&
+    incloud && !inws && (depth == cloud_depth || opened_cloud) &&
+        match(structure, /(^|[^[:alnum:]_])token[[:space:]]*=/) {
+        emit("token", "present")
+    }
+    inws && (depth == workspace_depth || opened_workspace) &&
+        line ~ /(^|[^[:alnum:]_])tags[[:space:]]*=/ {
+        if (want == "workspace") { print "TAGS"; exit }
+        if (want == "all") print "workspaces.tags=present"
+    }
+    inws && (depth == workspace_depth || opened_workspace) &&
         match(line, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/) {
         value = substr(line, RSTART, RLENGTH)
         sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
-        print value; exit
+        emit("workspaces.name", value)
     }
     {
         depth += structural_depth_delta(structure)

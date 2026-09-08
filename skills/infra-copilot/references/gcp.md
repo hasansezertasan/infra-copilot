@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e303a03b16e6319c5842f2c8f331e1d405d07c743e30deeaf02145acf4465f04
-Source-Hash: blake3:9c965cf967f99a49dbb22a97da355d97fd998105b8e52bae9e35263ffff26a97
+Content-Hash: blake3:f482b8228c10a4dc8e20f22cc03ef3c2175c8048cf31d6e16473ae355714bb55
+Source-Hash: blake3:160d9632bed6bc2e2d7581d81ee2021936dc126f90b9da88f2fee7f19366f01f
 Schema-Version: v1
 -->
 
@@ -26,7 +26,8 @@ The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml)
    choice `adopt` (put purpose and auth rationale in the context column).
 2. Note the new leaf in `terraform/README.md`.
 3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
-   variable used for authentication.
+   variable used for authentication, `mise_tools: [gcloud]`, and an initially false fork
+   speculative-plan attestation.
 4. Then, and only then, follow the parameterized Phase 6 steps.
 
 ## Recommended auth: Workload Identity Federation (keyless)
@@ -45,7 +46,7 @@ the rotation burden that implies.
 | Enable APIs, create SA / WIF pool | **AGENT** | `gcloud` / GCP API, once auth exists. |
 | Approve the WIF trust / OAuth consent | **HUMAN** | One browser consent for the federation trust. |
 | Paste SA key into HCP *(only if not using WIF)* | **HUMAN** | Agent must never see the key. |
-| Create the `gcp` HCP workspace | **AGENT** | HCP API (same as Phase 1). |
+| Create the `gcp` HCP workspace | **HUMAN** | The plan-only agent credential cannot create organization workspaces. |
 | First `plan` | **AGENT** | Speculative run in HCP. |
 
 ## Phases (projected)
@@ -83,12 +84,12 @@ compares it against the installed SDK version — the `Google Cloud SDK` field o
 Status reports missing or drifted pins.
 
 ```sh
-gcloud config set project <PROJECT_ID>
-gcloud services enable cloudresourcemanager.googleapis.com iam.googleapis.com <needed-apis>
+mise exec -- gcloud config set project <PROJECT_ID>
+mise exec -- gcloud services enable cloudresourcemanager.googleapis.com iam.googleapis.com <needed-apis>
 
 # WIF (preferred): create a workload identity pool + provider trusting HCP's OIDC issuer,
 # and a service account with least-privilege roles that HCP may impersonate.
-gcloud iam workload-identity-pools create hcp-pool --location=global ...
+mise exec -- gcloud iam workload-identity-pools create hcp-pool --location=global ...
 ```
 
 Provider block goes in `terraform/gcp/providers.tf`, using `google`/`google-beta`, with
@@ -111,7 +112,7 @@ cd terraform/gcp && terraform init && terraform plan
 Same pattern as every other provider: **import, don't recreate**. GCP resources are
 adopted with Terraform 1.5+ `import` blocks and either handwritten HCL or
 `terraform plan -generate-config-out`. There is no first-party equivalent to
-`cf-terraforming`; `gcloud ... list` + import blocks is the path. See
+`cf-terraforming`; `mise exec -- gcloud ... list` + import blocks is the path. See
 [`migration.md`](./migration.md#gcp).
 
 ## Leaf skeleton (for when it lands)

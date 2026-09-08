@@ -54,8 +54,9 @@ class NewProviderFlowTests(unittest.TestCase):
                 "new-provider-decision",
                 "new-provider-leaf",
                 "new-provider-toolchain",
-                "new-provider-workspace",
                 "new-provider-plan-access",
+                "new-provider-workspace",
+                "new-provider-fork-safety",
                 "new-provider-credentials",
                 "new-provider-plan",
             ],
@@ -76,22 +77,69 @@ class NewProviderFlowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "terraform/gcp").mkdir(parents=True)
+            (root / "terraform/gcp/versions.tf").write_text(
+                'terraform { cloud { workspaces { name = "gcp" } } }\n',
+                encoding="utf-8",
+            )
+            common_env = {
+                **os.environ,
+                "ADDITIONAL_PROVIDER_WORKSPACES": '["gcp"]',
+                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+            }
             untracked = subprocess.run(
                 ["/bin/sh", "-c", literal_check(inventory)],
                 cwd=root,
-                env={**os.environ, "ADDITIONAL_PROVIDER_NAMES": "[]"},
+                env={**common_env, "ADDITIONAL_PROVIDER_NAMES": "[]"},
                 capture_output=True,
                 text=True,
             )
             tracked = subprocess.run(
                 ["/bin/sh", "-c", literal_check(inventory)],
                 cwd=root,
-                env={**os.environ, "ADDITIONAL_PROVIDER_NAMES": '["gcp"]'},
+                env={**common_env, "ADDITIONAL_PROVIDER_NAMES": '["gcp"]'},
                 capture_output=True,
                 text=True,
             )
         self.assertEqual(untracked.returncode, 1)
         self.assertEqual(tracked.returncode, 0, tracked.stderr)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_inventory_skips_modules_and_rejects_workspace_collisions(self) -> None:
+        inventory = self.steps["new-provider-inventory"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "terraform/modules/network").mkdir(parents=True)
+            (root / "terraform/modules/network/main.tf").write_text(
+                'variable "name" {}\n', encoding="utf-8"
+            )
+            base_env = {
+                **os.environ,
+                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+            }
+            module_only = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={
+                    **base_env,
+                    "ADDITIONAL_PROVIDER_NAMES": "[]",
+                    "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
+                },
+                capture_output=True,
+                text=True,
+            )
+            collision = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={
+                    **base_env,
+                    "ADDITIONAL_PROVIDER_NAMES": '["gcp"]',
+                    "ADDITIONAL_PROVIDER_WORKSPACES": '["cloudflare"]',
+                },
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(module_only.returncode, 0, module_only.stderr)
+        self.assertNotEqual(collision.returncode, 0)
 
     def test_decision_is_not_inferred_from_the_leaf_directory(self) -> None:
         decision = self.steps["new-provider-decision"]
@@ -109,6 +157,8 @@ class NewProviderFlowTests(unittest.TestCase):
             **os.environ,
             "NEW_PROVIDER": "gcp",
             "NEW_PROVIDER_WORKSPACE": "gcp",
+            "NEW_PROVIDER_MISE_TOOLS": '["gcloud"]',
+            "NEW_PROVIDER_FORK_PLANS_DISABLED": "false",
             "NEW_PROVIDER_CREDENTIALS": (
                 '[{"key":"TFC_GCP_PROVIDER_AUTH","category":"env",'
                 '"sensitive":false}]'
@@ -167,6 +217,7 @@ class NewProviderFlowTests(unittest.TestCase):
             '"speculative-enabled"',
             '"file-triggers-enabled"',
             '"queue-all-runs"',
+            '"global-remote-state"',
             '"trigger-patterns"',
             '"vcs-repo"',
             '".infra-copilot/config.md"',
@@ -175,6 +226,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 self.assertIn(marker, workspace)
         self.assertIn('== ([$dir + "/**", ".infra-copilot/config.md"] | sort)', workspace)
         self.assertIn('($a["queue-all-runs"] == false)', workspace)
+        self.assertIn('test "$hcp_api" = "https://app.terraform.io/api/v2"', workspace)
 
         helper = HCP.read_text(encoding="utf-8").split(
             "  set_workspace_config () {", 1
@@ -245,6 +297,50 @@ class NewProviderFlowTests(unittest.TestCase):
             },
         )
 
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
+    def test_leaf_parser_ignores_nested_host_and_organization_tags(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "versions.tf").write_text(
+                """terraform {
+  cloud {
+    workspaces {
+      tags = {
+        hostname = "attacker.example"
+        organization = "wrong-org"
+      }
+    }
+    hostname = "app.terraform.io"
+    organization = "acme"
+  }
+}
+""",
+                encoding="utf-8",
+            )
+            values = {
+                key: subprocess.run(
+                    ["/bin/sh", str(LEAF_CLOUD), str(root), key],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip()
+                for key in ("hostname", "organization")
+            }
+            all_settings = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(root), "all"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        self.assertEqual(
+            values,
+            {"hostname": "app.terraform.io", "organization": "acme"},
+        )
+        self.assertIn("hostname=app.terraform.io", all_settings)
+        self.assertIn("organization=acme", all_settings)
+        self.assertNotIn("attacker.example", all_settings)
+        self.assertNotIn("wrong-org", all_settings)
+
     def test_toolchain_retrusts_after_the_leaf_before_provider_commands(self) -> None:
         leaf = self.steps["new-provider-leaf"]
         toolchain = self.steps["new-provider-toolchain"]
@@ -253,7 +349,14 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("commit both reviewed files", toolchain)
         self.assertIn("mise trust mise.toml", toolchain)
         self.assertIn("MISE_LOCKED=1", toolchain)
+        self.assertIn("NEW_PROVIDER_MISE_TOOLS", toolchain)
+        self.assertIn("--dry-run-code", toolchain)
         self.assertIn("complete preflight", toolchain)
+
+    def test_leaf_must_be_tracked_and_clean(self) -> None:
+        leaf = self.steps["new-provider-leaf"]
+        self.assertIn("git ls-files --error-unmatch", leaf)
+        self.assertIn("git --no-optional-locks status --porcelain", leaf)
 
     def test_plan_access_reuses_repository_derived_inventory(self) -> None:
         access = self.steps["new-provider-plan-access"]
@@ -261,6 +364,14 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("    tri_state: true", access)
         self.assertIn("`Plan`", access)
         self.assertIn("`Write`", access)
+        self.assertIn("create_ws", access)
+
+    def test_fork_plan_safety_is_durable_and_precedes_credentials(self) -> None:
+        safety = self.steps["new-provider-fork-safety"]
+        self.assertIn("    actor: HUMAN", safety)
+        self.assertIn("NEW_PROVIDER_FORK_PLANS_DISABLED", safety)
+        self.assertIn("Version Control", safety)
+        self.assertIn("fork", safety.lower())
 
     def test_credentials_check_matches_declared_metadata(self) -> None:
         credentials = self.steps["new-provider-credentials"]
@@ -270,6 +381,7 @@ class NewProviderFlowTests(unittest.TestCase):
             with self.subTest(attribute=attribute):
                 self.assertIn(attribute, credentials)
         self.assertNotIn(".attributes.value", credentials)
+        self.assertIn('test "$hcp_api" = "https://app.terraform.io/api/v2"', credentials)
 
     def test_first_plan_targets_the_parameterized_leaf(self) -> None:
         plan = self.steps["new-provider-plan"]
@@ -279,6 +391,56 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("[1-9][0-9]* to add", plan)
         self.assertIn("0 to destroy", plan)
         self.assertIn("mktemp", plan)
+        self.assertIn('"resource-count"] > 0', plan)
+        self.assertIn("No changes", plan)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_first_plan_distinguishes_pending_applied_and_unsafe_states(self) -> None:
+        plan = literal_check(self.steps["new-provider-plan"])
+        cases = (
+            ("Plan: 1 to add, 0 to change, 0 to destroy.", "0", 0),
+            ("Plan: 0 to add, 0 to change, 1 to destroy.", "2", 1),
+            ("No changes. Your infrastructure matches the configuration.", "0", 1),
+            ("No changes. Your infrastructure matches the configuration.", "2", 0),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "terraform/gcp").mkdir(parents=True)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            terraform = bin_dir / "terraform"
+            terraform.write_text(
+                '#!/bin/sh\n[ "$1" = init ] && exit 0\nprintf "%s\\n" "$PLAN_OUTPUT"\n',
+                encoding="utf-8",
+            )
+            curl = bin_dir / "curl"
+            curl.write_text(
+                '#!/bin/sh\nprintf \'{"data":{"attributes":{"resource-count":%s}}}\\n\' '
+                '"$RESOURCE_COUNT"\n',
+                encoding="utf-8",
+            )
+            terraform.chmod(0o755)
+            curl.chmod(0o755)
+            for output, count, expected in cases:
+                result = subprocess.run(
+                    ["/bin/sh", "-c", plan],
+                    cwd=root,
+                    env={
+                        **os.environ,
+                        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                        "PLAN_OUTPUT": output,
+                        "RESOURCE_COUNT": count,
+                        "hcp_api": "https://app.terraform.io/api/v2",
+                        "ORG": "acme",
+                        "NEW_PROVIDER": "gcp",
+                        "NEW_PROVIDER_WORKSPACE": "gcp",
+                        "HCP_TOKEN": "test-token",
+                    },
+                    capture_output=True,
+                    text=True,
+                )
+                with self.subTest(output=output, count=count):
+                    self.assertEqual(result.returncode, expected, result.stderr)
 
     def test_router_and_status_use_the_durable_inventory(self) -> None:
         for path in (CONFIG, STATUS):
@@ -290,6 +452,9 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertNotIn("Workspace creation remains", add)
         status = STATUS.read_text(encoding="utf-8")
         self.assertRegex(status, r"every Phase 6 step except\s+`new-provider-plan`")
+        self.assertIn("Phase 6 plan contents and durable completion", status)
+        self.assertIn("resource-count", status)
+        self.assertIn("destroys are\n   zero", status)
 
     def test_legacy_config_defaults_only_a_missing_provider_list(self) -> None:
         config = CONFIG.read_text(encoding="utf-8")
@@ -298,6 +463,12 @@ class NewProviderFlowTests(unittest.TestCase):
             config,
         )
         self.assertIn("reject it unless its value is an array", config)
+        for marker in (
+            "ADDITIONAL_PROVIDER_WORKSPACES",
+            "NEW_PROVIDER_MISE_TOOLS",
+            "NEW_PROVIDER_FORK_PLANS_DISABLED",
+        ):
+            self.assertIn(marker, config)
 
 
 if __name__ == "__main__":

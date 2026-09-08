@@ -5,8 +5,8 @@ description: "Read-only health check: runs every step's check across the whole m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:235c3cc4ffafbf1d34670257384acaacf28d23f545bac1a99f648f3bb447e754
-Source-Hash: blake3:9c965cf967f99a49dbb22a97da355d97fd998105b8e52bae9e35263ffff26a97
+Content-Hash: blake3:f02eefb49e918b184568599d2d3a2b48494dd0fc90fb788299925c1f035aa17c
+Source-Hash: blake3:160d9632bed6bc2e2d7581d81ee2021936dc126f90b9da88f2fee7f19366f01f
 Schema-Version: v1
 -->
 
@@ -51,8 +51,9 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    [`../infra-copilot/references/docs/setup.md#6`](../infra-copilot/references/docs/setup.md#6-local-development) and
    [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example).
    Report the HCP token pivot: present or not.
-   If `terraform/gcp` exists, also report `gcloud` as pinned/matching, drifted, or missing;
-   omit it while the optional GCP provider has not been adopted.
+   For each additional provider, report every tool declared by its `mise_tools` inventory
+   as pinned and installed, drifted, or missing; omit provider-tool output when that list
+   is empty. GCP declares `gcloud`, but this reporting is provider-neutral.
 3. **Full scan — but only with checks that don't touch the working tree.** Walk **every**
    step in [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml) (all phases, 0–6). Never run a
    step's `run`. Classify each `check` before running it — the read-only guarantee depends
@@ -88,7 +89,7 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      *speculative* plan is visible at all. Judge only the lookup's `latest`, the newest run
      for that revision, and keep failure distinct from ignorance:
 
-     - `"green": true` → `✓`.
+     - `"green": true` → `✓`, subject to the Phase 5 and Phase 6 content checks below.
      - `latest` in a terminal failure (`errored`, `canceled`, `discarded`,
        `force_canceled`) → `✗`. That is definitive evidence the revision does not plan, so
        the step is **red** and eligible to be the first red step that routes the user to a
@@ -102,6 +103,17 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      run. Report them as `·` (human-gated / ephemeral), never attempt to execute the null.
    - For `HUMAN` steps, apply the same classification to their `check`; never emit the
      handoff block — nothing is being unblocked here.
+
+   **Phase 6 plan contents and durable completion.** For `new-provider-plan`, a terminal
+   green HCP run is necessary but not sufficient. Read its structured plan summary using
+   the helper in
+   [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md)
+   and read the workspace's `resource-count`. Mark the step `✓` only when destroys are
+   zero and either the plan creates at least one resource (the safe first plan) or the
+   workspace already has a positive resource count (the adoption was applied and the
+   current safe plan is now no-op or update-only). A no-create plan with zero resources,
+   or any plan containing a destroy, is `✗`. This content predicate applies to both
+   `planned_and_finished` and `applied` runs; never substitute the generic `green` flag.
 
    **Completion vs. not-started (phase 5).** The `migrate-import` check only goes green while
    a plan still shows `will be imported`; once imports are **applied**, the plan is a no-op

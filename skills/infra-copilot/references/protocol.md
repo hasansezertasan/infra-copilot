@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:028e4ea0a7cb04fc9e0618036ec6b23d9a07d01c05c7948f6d34cc5c6cfdb0db
-Source-Hash: blake3:9c965cf967f99a49dbb22a97da355d97fd998105b8e52bae9e35263ffff26a97
+Content-Hash: blake3:8f03d6c76c83ccfda51078f920e04a8cd3ad7140ffe096dd5a362b5a40b43b9e
+Source-Hash: blake3:160d9632bed6bc2e2d7581d81ee2021936dc126f90b9da88f2fee7f19366f01f
 Schema-Version: v1
 -->
 
@@ -93,6 +93,14 @@ retain the validated requested provider slug as `NEW_PROVIDER` and instantiate
 empty so its check stays red. After the HUMAN records the decision and config entry,
 reload config and continue the normal per-entry scan. The empty-list shortcut must never
 discard an explicit adoption request.
+
+For each entry, `new-provider-toolchain` is applicable only when its `mise_tools` list is
+non-empty. The decision records the list before scaffolding, and the HUMAN trust gate
+verifies each declared pin is installed before any provider CLI command runs. An empty
+list skips that gate without inventing a provider tool. The workspace-access step precedes
+detailed workspace verification because the plan-only credential cannot read an ungranted
+workspace; its HUMAN action creates/configures the workspace and grants Plan, after which
+the following check can independently re-derive detailed settings.
 
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the

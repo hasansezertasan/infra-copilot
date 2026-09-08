@@ -220,6 +220,10 @@ class HcpApplyScopeTests(unittest.TestCase):
         result = self.run_check()
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_shared_module_directory_is_not_treated_as_an_hcp_leaf(self) -> None:
+        result = self.run_check(leaves=[*DEFAULT_LEAVES, "terraform/modules"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_a_credential_that_can_apply_is_a_verdict(self) -> None:
         result = self.run_check(
             workspaces=[("cloudflare", CAN_APPLY), ("github-org", PLAN_ONLY)]
@@ -647,6 +651,13 @@ class HcpApplyScopeTests(unittest.TestCase):
         result = self.run_check(
             workspaces=[("cloudflare", PLAN_ONLY)],
             leaves=["terraform/cloudflare", "terraform/mystery"],
+            leaf_hcl={
+                "terraform/mystery": (
+                    'terraform {\n  cloud {\n'
+                    '    workspaces { name = "mystery" }\n'
+                    "  }\n}\n"
+                )
+            },
         )
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("names no HCP organization", result.stderr)

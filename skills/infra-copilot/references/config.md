@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:675e7d558ba7c64c04bcb4e3bbd1e332446cab6fb0d75ba73ab38a7ec5746e6e
-Source-Hash: blake3:9c965cf967f99a49dbb22a97da355d97fd998105b8e52bae9e35263ffff26a97
+Content-Hash: blake3:25b96171c2d7494787d37b7bf30d102b4340328db9edf234401e0446f32656f7
+Source-Hash: blake3:160d9632bed6bc2e2d7581d81ee2021936dc126f90b9da88f2fee7f19366f01f
 Schema-Version: v1
 -->
 
@@ -42,11 +42,22 @@ never their values:
 additional_providers:
   - name: gcp                 # lowercase leaf name: terraform/gcp
     workspace: gcp           # HCP workspace selected by the leaf's cloud block
+    mise_tools:               # exact mise keys added for this provider; [] if none
+      - gcloud
+    fork_speculative_plans_disabled: false # set true only after the HUMAN verifies the UI
     credential_variables:
       - key: TFC_GCP_PROVIDER_AUTH
         category: env         # env or terraform
         sensitive: false
 ```
+
+Workspace names must be unique across this list and must not be `cloudflare` or
+`github-org`; resume must never repoint an existing bootstrap workspace. Record every
+provider CLI added to `mise.toml` in `mise_tools`. The list may be empty, in which case
+the post-scaffold toolchain trust step is not applicable. Before credentials are added, a
+human must confirm the workspace UI's separate fork speculative-plan toggle is off and
+change `fork_speculative_plans_disabled` from `false` to `true`; the HCP API does not
+expose that toggle.
 
 Record every variable required to authenticate the provider. A flag such as
 `TFC_GCP_PROVIDER_AUTH=true` is credential configuration even when it is intentionally
@@ -78,6 +89,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export REPO=<managed_repos[0]>
    export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
    export ADDITIONAL_PROVIDER_NAMES='<additional_providers names as compact JSON>'
+   export ADDITIONAL_PROVIDER_WORKSPACES='<additional_providers workspaces as compact JSON>'
    export hcp_api=https://app.terraform.io/api/v2
    export INFRA_COPILOT_REFERENCES=<absolute path to this references/ directory>
    # Terraform's own precedence: TF_TOKEN_app_terraform_io wins over the credentials
@@ -97,13 +109,15 @@ Before running ANY step's `check` or `run`, the agent MUST:
    ```sh
    export NEW_PROVIDER=<entry.name>
    export NEW_PROVIDER_WORKSPACE=<entry.workspace>
+   export NEW_PROVIDER_MISE_TOOLS='<entry.mise_tools as compact JSON>'
+   export NEW_PROVIDER_FORK_PLANS_DISABLED=<entry.fork_speculative_plans_disabled>
    export NEW_PROVIDER_CREDENTIALS='<entry.credential_variables as compact JSON>'
    ```
 
    Validate `name` and `workspace` against `^[a-z0-9][a-z0-9-]*$` before putting them
-   into a path or URL. `NEW_PROVIDER_CREDENTIALS` is a JSON array because the manifest's
-   vars-API check compares all three declared properties with `jq`; do not flatten it
-   into shell words. If `additional_providers` is empty and `add` was invoked for a new
+   into a path or URL. `NEW_PROVIDER_MISE_TOOLS` and `NEW_PROVIDER_CREDENTIALS` are JSON
+   arrays because the manifest checks compare their structured contents with `jq`; do
+   not flatten either into shell words. If `additional_providers` is empty and `add` was invoked for a new
    provider, preserve the requested lowercase provider slug as `NEW_PROVIDER` and run the
    decision step once in bootstrap mode; that HUMAN step creates the first durable entry.
    Otherwise an empty list means Phase 6 is not applicable only after inventory is green.

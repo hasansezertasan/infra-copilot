@@ -92,6 +92,14 @@ empty so its check stays red. After the HUMAN records the decision and config en
 reload config and continue the normal per-entry scan. The empty-list shortcut must never
 discard an explicit adoption request.
 
+For each entry, `new-provider-toolchain` is applicable only when its `mise_tools` list is
+non-empty. The decision records the list before scaffolding, and the HUMAN trust gate
+verifies each declared pin is installed before any provider CLI command runs. An empty
+list skips that gate without inventing a provider tool. The workspace-access step precedes
+detailed workspace verification because the plan-only credential cannot read an ungranted
+workspace; its HUMAN action creates/configures the workspace and grants Plan, after which
+the following check can independently re-derive detailed settings.
+
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
 pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool
