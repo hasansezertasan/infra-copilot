@@ -40,18 +40,28 @@ ws_id=$(printf '%s' "$workspace_body" | jq -er \
       | select(.attributes["working-directory"] == $dir)
       | .id | select(type == "string" and length > 0)' 2>/dev/null) \
     || cannot_verify "workspace identity does not match the configured repository and leaf"
-resource_count=$(printf '%s' "$workspace_body" | jq -er '
+resource_exists=$(printf '%s' "$workspace_body" | jq -er '
     .data.attributes["resource-count"]
-    | select(type == "number" and . == floor and . >= 0)' 2>/dev/null) \
+    | select(type == "number" and . == floor and . >= 0)
+    | if . > 0 then "true" else "false" end' 2>/dev/null) \
     || cannot_verify "workspace resource-count is not a non-negative integer"
 workspace_updated_at=$(printf '%s' "$workspace_body" | jq -er '
     .data.attributes["updated-at"]
     | select(type == "string" and length > 0)' 2>/dev/null) \
     || cannot_verify "workspace updated-at is missing"
+printf '%s\n' "$workspace_updated_at" | jq -Re '
+  . as $raw
+  | (try capture("^(?<whole>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\\.(?<fraction>[0-9]{1,9}))?Z$") catch null) as $parts
+  | select($parts != null)
+  | (try ($parts.whole + "Z" | fromdateiso8601) catch null) as $epoch
+  | ($epoch != null)
+    and (($epoch | strftime("%Y-%m-%dT%H:%M:%SZ")) == ($parts.whole + "Z"))
+    and (($epoch + (("0." + ($parts.fraction // "0")) | tonumber)) <= now)' \
+  >/dev/null || cannot_verify "workspace updated-at is invalid or in the future"
 
 pages=$(mktemp) || cannot_verify "could not create a private run-list file"
 trap 'rm -f "$pages"' EXIT
-: >"$pages"
+: >"$pages" || cannot_verify "could not initialize the private run-list file"
 page=1
 truncated=false
 while : ; do
@@ -98,7 +108,7 @@ candidates=$(jq -scer '
   [.[].included[]?
     | select(.type == "ingress-attributes")
     | {id, sha: .attributes["commit-sha"]}
-    | select(.sha | type == "string" and length > 0)] | unique_by(.id) as $ingress
+    | select(.sha | type == "string" and test("^[0-9a-f]{40}$"))] | unique_by(.id) as $ingress
   | [.[].included[]?
       | select(.type == "configuration-versions")
       | {id, ingress_id: (.relationships["ingress-attributes"].data.id // null)}]
@@ -123,8 +133,12 @@ candidates=$(printf '%s' "$candidates" | jq -cer '
   def timestamp_key:
     (capture("^(?<whole>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\\.(?<fraction>[0-9]{1,9}))?Z$")
       // error("timestamp does not match RFC3339 UTC"))
-    | select((.whole + "Z" | fromdateiso8601 | type) == "number")
-    | .whole + "." + (((.fraction // "") + "000000000")[0:9]) + "Z";
+    | (try (.whole + "Z" | fromdateiso8601) catch null) as $epoch
+    | if $epoch != null
+        and (($epoch | strftime("%Y-%m-%dT%H:%M:%SZ")) == (.whole + "Z"))
+        and (($epoch + (("0." + (.fraction // "0")) | tonumber)) <= now)
+      then .whole + "." + (((.fraction // "") + "000000000")[0:9]) + "Z"
+      else error("timestamp is noncanonical or in the future") end;
   map(. + {"_created_key": (.attributes["created-at"] | timestamp_key)})') \
     || cannot_verify "a candidate run has a malformed created-at timestamp"
 
@@ -172,13 +186,6 @@ status=$(printf '%s' "$latest" | jq -er '.attributes.status') \
     || cannot_verify "matched run has no status"
 operation=$(printf '%s' "$latest" | jq -er '.attributes.operation') \
     || cannot_verify "matched run has no operation"
-case "$operation" in
-  plan_only|plan_and_apply|save_plan) : ;;
-  destroy) echo "UNSAFE RUN: the newest correlated operation is destroy" >&2; exit 1 ;;
-  refresh_only|empty_apply|action_only) \
-    cannot_verify "the newest correlated operation '$operation' is not plan evidence" ;;
-  *) cannot_verify "the newest correlated run has unknown operation '$operation'" ;;
-esac
 fresh=$(printf '%s' "$latest" | jq -er \
     --arg verified "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \
     --arg workspace_updated "$workspace_updated_at" '
@@ -190,6 +197,16 @@ fresh=$(printf '%s' "$latest" | jq -er \
         ($verified | sub("Z$"; ".999999999Z") | timestamp_key),
         ($workspace_updated | timestamp_key)] | max)) | tostring) catch empty') \
     || cannot_verify "matched run has no comparable created-at timestamp"
+
+if [ "$fresh" = true ]; then
+    case "$operation" in
+      plan_only|plan_and_apply|save_plan) : ;;
+      destroy) echo "UNSAFE RUN: the newest correlated operation is destroy" >&2; exit 1 ;;
+      refresh_only|empty_apply|action_only) \
+        cannot_verify "the newest correlated operation '$operation' is not plan evidence" ;;
+      *) cannot_verify "the newest correlated run has unknown operation '$operation'" ;;
+    esac
+fi
 
 if [ "$fresh" = true ] && [ "$status" = policy_soft_failed ]; then
     echo "POLICY INTERVENTION: the newest commit-correlated run needs human review; refusing to queue a retry" >&2
@@ -277,7 +294,7 @@ if [ "$destroys" -ne 0 ] || [ "$forgets" -ne 0 ]; then
     echo "UNSAFE PLAN: the newest post-credential plan contains $destroys destroy and $forgets forget action(s)" >&2
     exit 1
 fi
-if [ "$creates" -eq 0 ] && [ "$resource_count" -eq 0 ]; then
+if [ "$creates" -eq 0 ] && [ "$resource_exists" = false ]; then
     echo "INCOMPLETE PLAN: the empty workspace plan creates no resources" >&2
     exit 1
 fi

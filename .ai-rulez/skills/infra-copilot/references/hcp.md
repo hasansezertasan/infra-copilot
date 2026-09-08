@@ -91,7 +91,7 @@ GitHub↔HCP OAuth connection (browser).
     done
 
     pages=$(mktemp) || return 1
-    : >"$pages"
+    : >"$pages" || { rm -f "$pages"; return 1; }
     page=1
     while : ; do
       body=$(curl -sf \
@@ -128,7 +128,8 @@ GitHub↔HCP OAuth connection (browser).
       {data:{type:"workspaces",attributes:{
         name:$name, "working-directory":$dir, "execution-mode":"remote",
         "terraform-version":$tf_version,
-        "auto-apply":false, "speculative-enabled":true, "file-triggers-enabled":true,
+        "auto-apply":false, "auto-destroy-at":null, "auto-destroy-activity-duration":null,
+        "speculative-enabled":true, "file-triggers-enabled":true,
         "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"], "queue-all-runs":false, "global-remote-state":false,
         "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}' \
       | curl -s -w '\n%{http_code}' -X POST "https://app.terraform.io/api/v2/organizations/$ORG/workspaces" \
@@ -170,7 +171,8 @@ GitHub↔HCP OAuth connection (browser).
       '{data:{id:$id,type:"workspaces",attributes:{
         "working-directory":$dir, "execution-mode":"remote",
         "terraform-version":$tf_version,
-        "auto-apply":false, "speculative-enabled":true, "file-triggers-enabled":true,
+        "auto-apply":false, "auto-destroy-at":null, "auto-destroy-activity-duration":null,
+        "speculative-enabled":true, "file-triggers-enabled":true,
         "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"], "queue-all-runs":false,
         "global-remote-state":false,
         "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}')
@@ -216,6 +218,8 @@ GitHub↔HCP OAuth connection (browser).
             and ($a["execution-mode"] == "remote")
             and ($a["terraform-version"] == $tf_version)
             and ($a["auto-apply"] == false)
+            and ($a["auto-destroy-at"] == null)
+            and ($a["auto-destroy-activity-duration"] == null)
             and ($a["speculative-enabled"] == true)
             and ($a["file-triggers-enabled"] == true)
             and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)

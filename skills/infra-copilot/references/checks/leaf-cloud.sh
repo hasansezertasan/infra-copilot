@@ -83,7 +83,7 @@ awk -v want="$want" '
         opened_workspace = 0
         line = strip_comments($0)
         heredoc_scan = mask_strings(line)
-        if (match(heredoc_scan, /<<-?[[:space:]]*[A-Za-z_][A-Za-z0-9_]*/)) {
+        if (match(heredoc_scan, /<<-?[[:space:]]*[A-Za-z_][A-Za-z0-9_-]*/)) {
             heredoc_start = RSTART
             heredoc = substr(line, RSTART, RLENGTH)
             heredoc_indent = (heredoc ~ /^<<-/)

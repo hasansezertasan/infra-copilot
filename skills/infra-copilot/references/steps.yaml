@@ -408,6 +408,8 @@ steps:
         execution-mode:      remote
         terraform-version:   $TERRAFORM_VERSION  # exact committed mise.toml pin
         auto-apply:          false
+        auto-destroy-at:     null
+        auto-destroy-activity-duration: null
         speculative-enabled: true       # plans on PRs
         vcs-repo:            identifier $REPO, oauth-token-id from vcs-connect, branch main
       Then in each workspace's UI -> Version Control, confirm FORK speculative plans are OFF
@@ -425,6 +427,8 @@ steps:
                 and ($a["execution-mode"] == "remote")
                 and ($a["terraform-version"] == $tf_version)
                 and ($a["auto-apply"] == false)
+                and ($a["auto-destroy-at"] == null)
+                and ($a["auto-destroy-activity-duration"] == null)
                 and ($a["speculative-enabled"] == true)
                 and ($a["file-triggers-enabled"] == true)
                 and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
@@ -873,8 +877,12 @@ steps:
       `terraform init -backend=false` in terraform/$NEW_PROVIDER and commit the reviewed
       `.terraform.lock.hcl` before re-running this check.
     check: |
-      required_providers=$(terraform -chdir="terraform/$NEW_PROVIDER" providers 2>/dev/null \
-        | sed -n 's/.*provider\[\([^]]*\)\].*/\1/p' | sort -u) || exit 1
+      provider_output=$(mktemp) || exit 1
+      trap 'rm -f "$provider_output"' EXIT
+      terraform -chdir="terraform/$NEW_PROVIDER" providers \
+        >"$provider_output" 2>/dev/null || exit 1
+      required_providers=$(sed -n 's/.*provider\[\([^]]*\)\].*/\1/p' \
+        "$provider_output" | sort -u) || exit 1
       test -n "$required_providers" || exit 1
       printf '%s\n' "$required_providers" | while IFS= read -r provider; do
         case "$provider" in terraform.io/builtin/*) continue ;; esac
@@ -956,6 +964,8 @@ steps:
               and ($a["execution-mode"] == "remote")
               and ($a["terraform-version"] == $tf_version)
               and ($a["auto-apply"] == false)
+              and ($a["auto-destroy-at"] == null)
+              and ($a["auto-destroy-activity-duration"] == null)
               and ($a["speculative-enabled"] == true)
               and ($a["file-triggers-enabled"] == true)
               and ($a["queue-all-runs"] == false)
@@ -1041,9 +1051,9 @@ steps:
       WS_ID=$(printf '%s' "$workspace_body" \
         | jq -er '.data.id | select(type == "string" and length > 0)' 2>/dev/null) \
         || exit 2
-      pages=$(mktemp)
+      pages=$(mktemp) || exit 2
       trap 'rm -f "$pages"' EXIT
-      : >"$pages"
+      : >"$pages" || exit 2
       page=1
       while : ; do
         body=$(curl -sf \

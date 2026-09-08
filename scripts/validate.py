@@ -752,6 +752,8 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             marker in reconciliation.group("body")
             for marker in (
                 '"file-triggers-enabled":true',
+                '"auto-destroy-at":null',
+                '"auto-destroy-activity-duration":null',
                 '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]',
             )
         )
@@ -787,6 +789,8 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     )
     if (
         creation is None
+        or '"auto-destroy-at":null' not in creation.group("body")
+        or '"auto-destroy-activity-duration":null' not in creation.group("body")
         or '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]'
         not in creation.group("body")
     ):

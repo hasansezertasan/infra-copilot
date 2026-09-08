@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:65c3b1314b66d59d36ee21635951cb79c5a0aca9cdda9131db3f50247bbf28c9",
+  "source_hash": "blake3:f0e99064ec68afeec08dd0442972aa18b70f1332329b4d9daab7eb3a46504ed2",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -36,10 +36,10 @@
       "content_hash": "blake3:87ca2929ab55cd54b90ddb1bb1c5f56882f31ccbb06848fb2e3989ff4c6635c3"
     },
     "skills/infra-copilot/references/checks/hcp-current-plan.sh": {
-      "content_hash": "blake3:5812ca8a1c169dba5dea2718af56d5897e6dedb0c7151dc25e880a0406d6eabe"
+      "content_hash": "blake3:56c800293077254f6fe83e4cd8ac951089c70c077c5cc9a2d6310e9f7a261c5a"
     },
     "skills/infra-copilot/references/checks/leaf-cloud.sh": {
-      "content_hash": "blake3:28fad0273aaacb20907fad60f066a3f26dfaadc589bc20a5931c06e86a8e7f3a"
+      "content_hash": "blake3:834f40a1b53e18e13d57ac16f9380416d4dd3342373c5698fb29bf160d1d19d8"
     },
     "skills/infra-copilot/references/checks/status-check-context.sh": {
       "content_hash": "blake3:7b43a11dc33a9af654fac6bf546ea73c9b4ff7d312cef74cd15f2591948de7be"
@@ -81,7 +81,7 @@
       "content_hash": "blake3:640fd8d42f71f8cadf54c76361e4ffb2f77af2b804a7f95cf3366bb9240a59f9"
     },
     "skills/infra-copilot/references/hcp.md": {
-      "content_hash": "blake3:3b2f40bd2a58248c24b42724a10f0f6f11e373f77a96fd45b8b97bd7901fddcc"
+      "content_hash": "blake3:ce31b15a7e6f2bafa73532c3574b344717ad14ebf5b9976f47343f6d8cfcd6d0"
     },
     "skills/infra-copilot/references/migration.md": {
       "content_hash": "blake3:3c15bf5e9dae060bc08a0f9d08ac7e125f6b7fdd06eaa7660563274899c1c6ca"
@@ -90,7 +90,7 @@
       "content_hash": "blake3:ea5ebd1d5aefdd727fca87cc2cfba33c9e063f3104785eac9ed57e3c5fcb57ed"
     },
     "skills/infra-copilot/references/steps.yaml": {
-      "content_hash": "blake3:d1b56d937a5ade2ac1f5be01437113c99e9514c83f868528a8dbc91824638c2c"
+      "content_hash": "blake3:ed147ecda67b6c8d79293f96b96f47b7f4dad597c96c8835f86cf5e61a56bfc9"
     },
     "skills/setup/SKILL.md": {
       "content_hash": "blake3:18457295b83bc8c402513e0214aff6e1bf498004a52f66c9da44692e025af634"

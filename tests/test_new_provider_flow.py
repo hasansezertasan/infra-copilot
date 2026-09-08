@@ -302,6 +302,8 @@ class NewProviderFlowTests(unittest.TestCase):
             '"execution-mode"',
             '"terraform-version"',
             '"auto-apply"',
+            '"auto-destroy-at"',
+            '"auto-destroy-activity-duration"',
             '"speculative-enabled"',
             '"file-triggers-enabled"',
             '"queue-all-runs"',
@@ -330,6 +332,8 @@ class NewProviderFlowTests(unittest.TestCase):
             '"working-directory":$dir',
             '"execution-mode":"remote"',
             '"auto-apply":false',
+            '"auto-destroy-at":null',
+            '"auto-destroy-activity-duration":null',
             '"speculative-enabled":true',
             '"queue-all-runs":false',
             '"vcs-repo":{identifier:$repo',
@@ -570,7 +574,8 @@ terraform {
             terraform = bin_dir / "terraform"
             terraform.write_text(
                 "#!/bin/sh\necho 'Providers required by configuration:'\n"
-                "echo 'provider[registry.terraform.io/hashicorp/google] 6.0.0'\n",
+                "echo 'provider[registry.terraform.io/hashicorp/google] 6.0.0'\n"
+                'exit "${TERRAFORM_PROVIDERS_EXIT:-0}"\n',
                 encoding="utf-8",
             )
             terraform.chmod(0o755)
@@ -596,6 +601,11 @@ terraform {
                 ["/bin/sh", "-c", literal_check(lock_check)], cwd=root, env=env,
                 capture_output=True, text=True,
             )
+            failed_provider_query = subprocess.run(
+                ["/bin/sh", "-c", literal_check(lock_check)], cwd=root,
+                env={**env, "TERRAFORM_PROVIDERS_EXIT": "1"},
+                capture_output=True, text=True,
+            )
             lock.write_text("# empty lock\n", encoding="utf-8")
             subprocess.run(["git", "add", str(lock)], cwd=root, env=git_env, check=True)
             subprocess.run(
@@ -609,6 +619,7 @@ terraform {
             )
         self.assertEqual(valid.returncode, 0, valid.stderr)
         self.assertNotEqual(empty.returncode, 0)
+        self.assertNotEqual(failed_provider_query.returncode, 0)
 
     def test_workspace_bootstrap_makes_the_creation_handoff_reachable(self) -> None:
         bootstrap = self.steps["new-provider-workspace-bootstrap"]
@@ -648,6 +659,8 @@ terraform {
         self.assertIn('test "$hcp_api" = "https://app.terraform.io/api/v2"', credentials)
         self.assertIn("    tri_state: true", credentials)
         self.assertIn("page%5Bnumber%5D=$page", credentials)
+        self.assertIn("pages=$(mktemp) || exit 2", credentials)
+        self.assertIn(': >"$pages" || exit 2', credentials)
         self.assertIn('["next-page"]', credentials)
         self.assertIn("NEW_PROVIDER_CREDENTIALS_VERIFIED_AT", credentials)
         self.assertIn("fromdateiso8601", credentials)
@@ -683,10 +696,14 @@ terraform {
         self.assertIn("terraform/modules", helper)
         self.assertIn("mise.toml", helper)
         self.assertIn('attributes["updated-at"]', helper)
+        self.assertIn("workspace updated-at is invalid or in the future", helper)
+        self.assertIn("resource_exists=", helper)
+        self.assertNotIn('[ "$resource_count" -eq', helper)
         self.assertIn("git --no-optional-locks status --porcelain", helper)
         self.assertIn("candidate run has a malformed created-at timestamp", helper)
         self.assertIn('// error("timestamp does not match RFC3339 UTC")', helper)
         self.assertIn("$epoch <= now", helper)
+        self.assertIn('test("^[0-9a-f]{40}$")', helper)
         self.assertIn("pre_plan_errored", helper)
         self.assertIn("cost_estimation_errored", helper)
         self.assertIn("UNSAFE PLAN", helper)
@@ -702,6 +719,10 @@ terraform {
             helper,
         )
         self.assertIn("UNSAFE RUN", helper)
+        self.assertLess(
+            helper.index("fresh=$(printf"),
+            helper.index('if [ "$fresh" = true ]; then'),
+        )
         self.assertIn('(has("complete") | not) or .complete == true', helper)
         self.assertIn(".deferred_changes", helper)
         self.assertIn('test("^1\\\\.[0-9]+$")', helper)
@@ -752,6 +773,35 @@ terraform {
   decoy = <<-CONFIG
     terraform { cloud { organization = "spoofed" workspaces { name = "spoofed" } } }
     CONFIG
+}
+terraform {
+  cloud {
+    organization = "acme"
+    workspaces { name = "gcp" }
+  }
+}
+''',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(leaf), "all"],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("organization=acme", result.stdout)
+        self.assertIn("workspaces.name=gcp", result.stdout)
+        self.assertNotIn("spoofed", result.stdout)
+
+    @unittest.skipUnless(os.name == "posix", "the parser is a POSIX shell script")
+    def test_leaf_parser_handles_hyphenated_heredoc_delimiters(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            leaf = Path(directory)
+            (leaf / "versions.tf").write_text(
+                '''locals {
+  decoy = <<END-JSON
+    terraform { cloud { organization = "spoofed" } }
+END-JSON
 }
 terraform {
   cloud {
