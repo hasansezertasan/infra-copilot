@@ -283,10 +283,14 @@ class NewProviderFlowTests(unittest.TestCase):
             '"trigger-patterns"',
             '"vcs-repo"',
             '".infra-copilot/config.md"',
+            '"terraform/modules/**"',
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, workspace)
-        self.assertIn('== ([$dir + "/**", ".infra-copilot/config.md"] | sort)', workspace)
+        self.assertIn(
+            '== ([$dir + "/**", "terraform/modules/**", ".infra-copilot/config.md"] | sort)',
+            workspace,
+        )
         self.assertIn('($a["queue-all-runs"] == false)', workspace)
         self.assertIn('test "$hcp_api" = "https://app.terraform.io/api/v2"', workspace)
         self.assertIn("    tri_state: true", workspace)
@@ -475,6 +479,9 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("page%5Bnumber%5D=$page", credentials)
         self.assertIn('["next-page"]', credentials)
         self.assertIn("NEW_PROVIDER_CREDENTIALS_VERIFIED_AT", credentials)
+        self.assertIn("fromdateiso8601", credentials)
+        self.assertIn('strftime("%Y-%m-%dT%H:%M:%SZ")', credentials)
+        self.assertIn("$epoch <= now", credentials)
         self.assertIn("git diff --quiet HEAD -- .infra-copilot/config.md", credentials)
 
     def test_first_plan_targets_the_parameterized_leaf(self) -> None:
@@ -500,6 +507,8 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn('attributes["created-at"]', helper)
         self.assertIn('sub("\\\\.[0-9]+Z$"; "Z")', helper)
         self.assertIn("NEW_PROVIDER_CREDENTIALS_VERIFIED_AT", helper)
+        self.assertIn("terraform/modules", helper)
+        self.assertIn("$epoch <= now", helper)
         self.assertIn("pre_plan_errored", helper)
         self.assertIn("cost_estimation_errored", helper)
         self.assertIn("UNSAFE PLAN", helper)
@@ -588,7 +597,10 @@ terraform {
         self.assertIn("ADDITIONAL_PROVIDER_MISE_TOOLS", inventory)
         self.assertIn("mise config get --file ./mise.toml tools", inventory)
         self.assertIn("infra-copilot:provider-cli", inventory)
-        self.assertNotIn("github:cloudflare/cf-terraforming", inventory)
+        self.assertIn("infra-copilot:general-tool", inventory)
+        self.assertIn(
+            "terraform|gh|jq|github:cloudflare/cf-terraforming", inventory
+        )
         self.assertIn("($actual - $declared | length) == 0", inventory)
 
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
@@ -601,7 +613,7 @@ terraform {
             (root / "terraform").mkdir()
             (root / "mise.toml").write_text(
                 '[tools]\nterraform = "1.14.0"\ngh = "2.80.0"\n'
-                'jq = "1.8.1"\nnode = "24.0.0"\n'
+                'jq = "1.8.1"\n# infra-copilot:general-tool node\nnode = "24.0.0"\n'
                 '# infra-copilot:provider-cli gcloud\ngcloud = "551.0.0"\n',
                 encoding="utf-8",
             )
@@ -640,7 +652,7 @@ terraform {
             )
             (root / "mise.toml").write_text(
                 '[tools]\nterraform = "1.14.0"\ngh = "2.80.0"\n'
-                'jq = "1.8.1"\nnode = "24.0.0"\n',
+                'jq = "1.8.1"\n# infra-copilot:general-tool node\nnode = "24.0.0"\n',
                 encoding="utf-8",
             )
             before_scaffolding = subprocess.run(
@@ -657,6 +669,42 @@ terraform {
         self.assertNotEqual(omitted.returncode, 0)
         self.assertEqual(declared.returncode, 0, declared.stderr)
         self.assertEqual(before_scaffolding.returncode, 0, before_scaffolding.stderr)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_inventory_rejects_an_unclassified_non_bootstrap_pin(self) -> None:
+        inventory = self.steps["new-provider-inventory"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            (root / "terraform").mkdir()
+            (root / "mise.toml").write_text(
+                '[tools]\nterraform = "1.14.0"\ngh = "2.80.0"\n'
+                'jq = "1.8.1"\ngcloud = "551.0.0"\n',
+                encoding="utf-8",
+            )
+            fake_mise = bin_dir / "mise"
+            fake_mise.write_text(
+                "#!/bin/sh\n"
+                "sed -n '/^[A-Za-z0-9]/p' mise.toml\n",
+                encoding="utf-8",
+            )
+            fake_mise.chmod(0o755)
+            result = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                    "ADDITIONAL_PROVIDER_NAMES": "[]",
+                    "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
+                    "ADDITIONAL_PROVIDER_MISE_TOOLS": "[]",
+                    "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                },
+                capture_output=True,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
 
     def test_provider_preflight_is_activated_by_the_reviewed_entry(self) -> None:
         manifest = STEPS.read_text(encoding="utf-8")

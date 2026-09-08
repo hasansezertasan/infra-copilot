@@ -82,9 +82,11 @@ check is red. An all-green scope means "already done, nothing to do."
 Phase 6 is parameterized rather than GCP-specific. Export
 `ADDITIONAL_PROVIDER_NAMES` and the flattened `ADDITIONAL_PROVIDER_MISE_TOOLS`, then run
 `new-provider-inventory` once; that manifest check catches an extra Terraform leaf with
-no durable adoption record and an explicitly marked provider tool omitted from the
-declarations. Provider pins use `# infra-copilot:provider-cli <key>` in `mise.toml`, so
-unrelated repository tools never enter the provider inventory.
+no durable adoption record, an unclassified non-bootstrap mise pin, or an explicitly
+marked provider tool omitted from the declarations. Provider pins use
+`# infra-copilot:provider-cli <key>` and unrelated pins use
+`# infra-copilot:general-tool <key>`, so omissions are detectable without putting
+general-purpose repository tools in the provider inventory.
 Scaffold and verify the decision and leaf for every entry, run every applicable provider
 toolchain trust gate, and only then walk each entry's remaining `new-provider-*` steps.
 This ordering prevents a provider CLI declared under a later entry from being executed
@@ -116,7 +118,7 @@ current provider while still auditing every visible workspace for apply/update c
 lets a later provider reach its own bootstrap handoff without weakening the global
 negative-permission audit.
 
-The credential handoff records `credentials_verified_at` in committed config only after
+The credential handoff records a real, non-future UTC `credentials_verified_at` in committed config only after
 the HUMAN installs every declared variable. `new-provider-plan` accepts or reuses only a
 run created at or after that UTC timestamp, so a prior workspace run cannot prove the
 new least-privilege credential works.

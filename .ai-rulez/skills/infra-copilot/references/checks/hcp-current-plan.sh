@@ -18,12 +18,19 @@ done
 printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \
     | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
     || cannot_verify "NEW_PROVIDER_CREDENTIALS_VERIFIED_AT is not strict UTC"
+printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" | jq -Re '
+    . as $raw
+    | (try fromdateiso8601 catch null) as $epoch
+    | ($epoch != null)
+      and (($epoch | strftime("%Y-%m-%dT%H:%M:%SZ")) == $raw)
+      and ($epoch <= now)' >/dev/null \
+    || cannot_verify "NEW_PROVIDER_CREDENTIALS_VERIFIED_AT is invalid or in the future"
 [ "$hcp_api" = "https://app.terraform.io/api/v2" ] \
     || cannot_verify "refusing to send the HCP token to unexpected endpoint '$hcp_api'"
 
-git diff --quiet HEAD -- "terraform/$NEW_PROVIDER" .infra-copilot/config.md \
+git diff --quiet HEAD -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md \
     || cannot_verify "the provider leaf or config has uncommitted changes"
-git diff --cached --quiet HEAD -- "terraform/$NEW_PROVIDER" .infra-copilot/config.md \
+git diff --cached --quiet HEAD -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md \
     || cannot_verify "the provider leaf or config has staged changes"
 workspace_body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
     -H "Authorization: Bearer $HCP_TOKEN") || cannot_verify "workspace could not be read"
@@ -96,7 +103,7 @@ for sha in $(jq -sr '[.[].included[]?
         continue
     fi
     if git diff --quiet "$sha" HEAD -- "terraform/$NEW_PROVIDER" \
-        .infra-copilot/config.md; then
+        terraform/modules .infra-copilot/config.md; then
         matching_shas=$(jq -cn --argjson shas "$matching_shas" --arg sha "$sha" \
           '$shas + [$sha]') || cannot_verify "matching ingress SHAs could not be encoded"
     fi

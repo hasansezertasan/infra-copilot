@@ -752,7 +752,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             marker in reconciliation.group("body")
             for marker in (
                 '"file-triggers-enabled":true',
-                '"trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]',
+                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md"]',
             )
         )
     ):
@@ -769,9 +769,10 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
                 'index(".infra-copilot/config.md") != null'
             )
             < 1
+            or document.count('index("terraform/modules/**") != null') < 1
         ):
             errors.append(
-                f"{document_name}: every HCP workspace must watch the shared config"
+                f"{document_name}: every HCP workspace must watch shared config and modules"
             )
     if 'checks/hcp-bootstrap-workspaces.sh' not in steps:
         errors.append(
@@ -785,7 +786,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     )
     if (
         creation is None
-        or '"trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]'
+        or '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md"]'
         not in creation.group("body")
     ):
         errors.append(

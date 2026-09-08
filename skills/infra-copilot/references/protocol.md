@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9adb258e2fac63c4684e6ebf6b2a7aafcf53b5cc77114a7362436df98f5f753e
-Source-Hash: blake3:abaf16de38b1d1360cade2d2c52e9e8c3072f790a52fd5368a25ec7ec44d5cd5
+Content-Hash: blake3:6499922178b5f46e338afe2a95054641d065e1517e05aa9924f84db5622ca35b
+Source-Hash: blake3:7c80a6a6a9dc5177b19254ac9efac3b9d6eed5c1008558797f89f2e78d9e6c4c
 Schema-Version: v1
 -->
 
@@ -84,9 +84,11 @@ check is red. An all-green scope means "already done, nothing to do."
 Phase 6 is parameterized rather than GCP-specific. Export
 `ADDITIONAL_PROVIDER_NAMES` and the flattened `ADDITIONAL_PROVIDER_MISE_TOOLS`, then run
 `new-provider-inventory` once; that manifest check catches an extra Terraform leaf with
-no durable adoption record and an explicitly marked provider tool omitted from the
-declarations. Provider pins use `# infra-copilot:provider-cli <key>` in `mise.toml`, so
-unrelated repository tools never enter the provider inventory.
+no durable adoption record, an unclassified non-bootstrap mise pin, or an explicitly
+marked provider tool omitted from the declarations. Provider pins use
+`# infra-copilot:provider-cli <key>` and unrelated pins use
+`# infra-copilot:general-tool <key>`, so omissions are detectable without putting
+general-purpose repository tools in the provider inventory.
 Scaffold and verify the decision and leaf for every entry, run every applicable provider
 toolchain trust gate, and only then walk each entry's remaining `new-provider-*` steps.
 This ordering prevents a provider CLI declared under a later entry from being executed
@@ -118,7 +120,7 @@ current provider while still auditing every visible workspace for apply/update c
 lets a later provider reach its own bootstrap handoff without weakening the global
 negative-permission audit.
 
-The credential handoff records `credentials_verified_at` in committed config only after
+The credential handoff records a real, non-future UTC `credentials_verified_at` in committed config only after
 the HUMAN installs every declared variable. `new-provider-plan` accepts or reuses only a
 run created at or after that UTC timestamp, so a prior workspace run cannot prove the
 new least-privilege credential works.

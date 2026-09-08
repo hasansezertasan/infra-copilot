@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:8c773a9919d816fd9373adf9e1834363d809e5a9c8787d79f98f8703ca15108e
-Source-Hash: blake3:abaf16de38b1d1360cade2d2c52e9e8c3072f790a52fd5368a25ec7ec44d5cd5
+Content-Hash: blake3:81983f54eab852991427e3ebe6c985190944a67e837ba09a7ee3e21262c83a50
+Source-Hash: blake3:7c80a6a6a9dc5177b19254ac9efac3b9d6eed5c1008558797f89f2e78d9e6c4c
 Schema-Version: v1
 -->
 
@@ -57,10 +57,12 @@ Workspace names must be unique across this list and must not be `cloudflare` or
 `github-org`; resume must never repoint an existing bootstrap workspace. Record every
 provider CLI added to `mise.toml` in `mise_tools`; keys must be the same simple name as
 the executable. Mark each corresponding pin with an immediately preceding
-`# infra-copilot:provider-cli <key>` comment. The phase inventory compares the flattened
-declarations only to those explicit markers, so general-purpose repository tools are not
-misclassified while an undeclared marked provider CLI is rejected. An empty list is
-valid only when no marked provider tool was added. Before credentials are added, a
+`# infra-copilot:provider-cli <key>` comment. Every other non-bootstrap pin must carry an
+immediately preceding `# infra-copilot:general-tool <key>` comment. The phase inventory
+requires every non-bootstrap pin to have exactly one classification, then compares the
+flattened declarations only to provider markers. General-purpose tools therefore stay out
+of provider inventory, while an unmarked or undeclared provider CLI is rejected. An empty
+list is valid only when no provider tool was added. Before credentials are added, a
 human must confirm the workspace UI's separate fork speculative-plan toggle is off,
 change `fork_speculative_plans_disabled` from `false` to `true`, and record the verified
 workspace's immutable `ws-...` ID in `fork_speculative_plans_workspace_id`; the HCP API
@@ -68,7 +70,7 @@ does not expose the toggle itself. A renamed or recreated workspace therefore in
 the attestation instead of inheriting it by name.
 
 Leave `credentials_verified_at` empty until the HUMAN has installed or replaced every
-declared workspace variable, then record that moment as strict UTC
+declared workspace variable, then record that moment as a real, non-future strict UTC
 `YYYY-MM-DDTHH:MM:SSZ` and commit the config. The first-plan check accepts only an HCP run
 created at or after that durable handoff, so an older run cannot stand in for the current
 least-privilege credentials.

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:3f3e3bc2aa5cdc1dd38b932d553c64abb9db1cfbb6240266f994d299dff92d44
-Source-Hash: blake3:abaf16de38b1d1360cade2d2c52e9e8c3072f790a52fd5368a25ec7ec44d5cd5
+Content-Hash: blake3:0dbe50b3f504f0ea1c4b37d36622ca18d5e9e869934bd88e9019a1ab66d9d9fb
+Source-Hash: blake3:7c80a6a6a9dc5177b19254ac9efac3b9d6eed5c1008558797f89f2e78d9e6c4c
 Schema-Version: v1
 -->
 
@@ -131,7 +131,7 @@ GitHub↔HCP OAuth connection (browser).
         name:$name, "working-directory":$dir, "execution-mode":"remote",
         "terraform-version":$tf_version,
         "auto-apply":false, "speculative-enabled":true, "file-triggers-enabled":true,
-        "trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"], "queue-all-runs":false, "global-remote-state":false,
+        "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md"], "queue-all-runs":false, "global-remote-state":false,
         "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}' \
       | curl -s -w '\n%{http_code}' -X POST "https://app.terraform.io/api/v2/organizations/$ORG/workspaces" \
           -H "Authorization: Bearer $HCP_TOKEN" \
@@ -173,7 +173,7 @@ GitHub↔HCP OAuth connection (browser).
         "working-directory":$dir, "execution-mode":"remote",
         "terraform-version":$tf_version,
         "auto-apply":false, "speculative-enabled":true, "file-triggers-enabled":true,
-        "trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"], "queue-all-runs":false,
+        "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md"], "queue-all-runs":false,
         "global-remote-state":false,
         "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}')
     curl -sf -X PATCH "https://app.terraform.io/api/v2/workspaces/$ws_id" \
@@ -197,7 +197,8 @@ GitHub↔HCP OAuth connection (browser).
 
   > `trigger-patterns` (glob) requires `file-triggers-enabled: true` — that pair is the
   > path-scoping toggle. Both workspaces also watch the shared `.infra-copilot/config.md`
-  > so public-identifier changes are validated by both plans. `speculative-enabled: true`
+  > and shared `terraform/modules/**`, so public-identifier and module changes are
+  > validated by both plans. `speculative-enabled: true`
   > is the master switch for plans on PRs.
   > The **fork** speculative-plan toggle is *separate* and has no clean create-time
   > attribute — confirm it's **off** in the workspace's UI → Settings → Version Control
@@ -219,6 +220,7 @@ GitHub↔HCP OAuth connection (browser).
             and ($a["speculative-enabled"] == true)
             and ($a["file-triggers-enabled"] == true)
             and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
+            and ((($a["trigger-patterns"]) // []) | index("terraform/modules/**") != null)
             and ((($a["trigger-patterns"]) // []) | index(".infra-copilot/config.md") != null)
             and (($a["vcs-repo"].identifier // "") == $repo)
             and (($a["vcs-repo"].branch // "") == "main")' >/dev/null \
