@@ -250,6 +250,7 @@ class NewProviderFlowTests(unittest.TestCase):
         toolchain = self.steps["new-provider-toolchain"]
         self.assertIn("do not execute the CLI", leaf)
         self.assertIn("    actor: HUMAN", toolchain)
+        self.assertIn("commit both reviewed files", toolchain)
         self.assertIn("mise trust mise.toml", toolchain)
         self.assertIn("MISE_LOCKED=1", toolchain)
         self.assertIn("complete preflight", toolchain)

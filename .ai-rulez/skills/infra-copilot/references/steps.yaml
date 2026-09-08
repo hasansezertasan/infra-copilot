@@ -756,9 +756,10 @@ steps:
     why: A newly pinned provider CLI changes executable configuration after the initial setup trust gate.
     run: |
       Review the complete mise.toml diff and mise.lock URLs. If they are expected,
-      run `mise trust mise.toml`, then install every configured tool with
-      `MISE_LOCKED=1` as documented in docs/setup.md. Reply `done`; the agent re-runs
-      this check and then the complete preflight, including conditional provider CLIs.
+      commit both reviewed files, run `mise trust mise.toml`, then install every
+      configured tool with `MISE_LOCKED=1` as documented in docs/setup.md. Reply
+      `done`; the agent re-runs this check and then the complete preflight, including
+      conditional provider CLIs.
     check: >-
       mise --version >/dev/null &&
       git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
