@@ -759,13 +759,17 @@ steps:
       before new-provider-decision is green. If the provider runbook requires a new
       CLI, add its exact mise pin and refreshed lock, but do not execute the CLI or
       any later runbook commands until new-provider-toolchain is green. Commit the
-      completed leaf before re-running this check; untracked or dirty leaf files are red.
+      completed leaf, including the provider selections written to
+      `.terraform.lock.hcl` by `terraform init -backend=false`, before re-running
+      this check; untracked or dirty leaf files are red.
     check: |
       test -d "terraform/$NEW_PROVIDER" || exit 1
       actual=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" \
         "terraform/$NEW_PROVIDER" workspace)
       test "$actual" = "$NEW_PROVIDER_WORKSPACE" || exit 1
       git ls-files --error-unmatch "terraform/$NEW_PROVIDER/*.tf" >/dev/null 2>&1 || exit 1
+      git ls-files --error-unmatch \
+        "terraform/$NEW_PROVIDER/.terraform.lock.hcl" >/dev/null 2>&1 || exit 1
       test -z "$(git --no-optional-locks status --porcelain -- "terraform/$NEW_PROVIDER")"
     produces: terraform/$NEW_PROVIDER leaf targeting $NEW_PROVIDER_WORKSPACE
     docs: gcp.md
@@ -804,12 +808,12 @@ steps:
     produces: human-reviewed, trusted, locked provider toolchain; complete preflight green
     docs: docs/setup.md#6-local-development
 
-  - id: new-provider-plan-access
+  - id: new-provider-workspace-bootstrap
     phase: 6
     provider: hcp
     actor: HUMAN
-    title: Create the workspace and grant the plan-only team Plan access
-    why: The restricted credential cannot verify a workspace until the workspace exists and its team can see it.
+    title: Create the workspace and make it visible to the plan-only team
+    why: A missing or invisible workspace is expected setup work, not an unverifiable terminal state.
     run: |
       Using a user or organization token yourself, run hcp.md's create_ws and
       set_workspace_config helpers, then grant the plan-only team `Plan` (never
@@ -818,11 +822,20 @@ steps:
         create_ws "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
         set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
 
-      Restore the plan-only credential before replying `done`; the repository-derived
-      inventory then verifies that it can plan but cannot apply or update workspaces.
+      Restore the plan-only credential before replying `done`; this check distinguishes
+      the expected missing/invisible state from network, authentication, and API failures.
     tri_state: true
-    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
-    produces: workspace visible with Plan access and no apply or workspace-update permission
+    check: |
+      test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
+      code=$(curl -sS -o /dev/null -w '%{http_code}' \
+        "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+      case "$code" in
+        200) exit 0 ;;
+        404) exit 1 ;;
+        *) exit 2 ;;
+      esac
+    produces: workspace exists and is visible to the restored plan-only credential
     docs: docs/policy.md#a-credential-that-cannot-apply
 
   - id: new-provider-workspace
@@ -861,6 +874,22 @@ steps:
     produces: configured HCP workspace visible to the plan-only credential
     docs: hcp.md#phase-1--workspaces
 
+  - id: new-provider-plan-access
+    phase: 6
+    provider: hcp
+    actor: HUMAN
+    title: Verify the plan-only team has Plan access and nothing stronger
+    why: Workspace visibility alone does not prove that the credential can plan without applying or reconfiguring workspaces.
+    run: |
+      Using a user or organization token yourself, grant the plan-only team `Plan`
+      (never `Write`) on $NEW_PROVIDER_WORKSPACE. Restore the plan-only credential
+      before replying `done`; the repository-derived inventory then verifies that it
+      can plan but cannot apply or update any workspace.
+    tri_state: true
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
+    produces: Plan access with no apply or workspace-update permission
+    docs: docs/policy.md#a-credential-that-cannot-apply
+
   - id: new-provider-fork-safety
     phase: 6
     provider: hcp
@@ -890,19 +919,44 @@ steps:
       Paste secret values yourself; never send them to the agent. Reply `done` so
       the agent can verify metadata through the vars API.
     check: |
-      test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 1
-      WS_ID=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
-        -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id // empty')
-      test -n "$WS_ID" || exit 1
-      curl -sf "$hcp_api/workspaces/$WS_ID/vars" -H "Authorization: Bearer $HCP_TOKEN" \
-        | jq -e --argjson expected "$NEW_PROVIDER_CREDENTIALS" '
-            [.data[] | .attributes] as $actual
-            | ($expected | length) > 0
-              and all($expected[]; . as $want
-                | any($actual[];
-                    .key == $want.key
-                    and .category == $want.category
-                    and .sensitive == $want.sensitive))' >/dev/null
+      test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
+      workspace_body=$(curl -sf \
+        "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+      WS_ID=$(printf '%s' "$workspace_body" \
+        | jq -er '.data.id | select(type == "string" and length > 0)' 2>/dev/null) \
+        || exit 2
+      pages=$(mktemp)
+      trap 'rm -f "$pages"' EXIT
+      : >"$pages"
+      page=1
+      while : ; do
+        body=$(curl -sf \
+          "$hcp_api/workspaces/$WS_ID/vars?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
+          -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+        printf '%s' "$body" | jq -e '
+          (.data | type == "array")
+          and (.meta.pagination | type == "object")
+          and ((.meta.pagination["next-page"] == null)
+            or (.meta.pagination["next-page"]
+              | type == "number" and . == floor and . > 0))' >/dev/null 2>&1 \
+          || exit 2
+        printf '%s\n' "$body" >>"$pages"
+        next_page=$(printf '%s' "$body" \
+          | jq -r '.meta.pagination["next-page"] // empty') || exit 2
+        test -n "$next_page" || break
+        test "$next_page" -eq $((page + 1)) || exit 2
+        page=$next_page
+      done
+      jq -se --argjson expected "$NEW_PROVIDER_CREDENTIALS" '
+        [.[].data[] | .attributes] as $actual
+        | ($expected | type == "array" and length > 0)
+          and all($expected[]; . as $want
+            | any($actual[];
+                .key == $want.key
+                and .category == $want.category
+                and .sensitive == $want.sensitive))' "$pages" >/dev/null
+    tri_state: true
     produces: all declared provider credential variables in HCP
     docs: docs/secrets.md
 
@@ -912,10 +966,12 @@ steps:
     actor: AGENT
     title: Run the first plan on the new leaf
     why: This proves the leaf, workspace access, and provider credentials end to end.
-    run: 'cd "terraform/$NEW_PROVIDER" && terraform init && terraform plan'
+    run: 'cd "terraform/$NEW_PROVIDER" && terraform init && git diff --exit-code -- .terraform.lock.hcl && terraform plan'
     check: |
       cd "terraform/$NEW_PROVIDER"
       terraform init -input=false >/dev/null || exit 1
+      git diff --quiet HEAD -- .terraform.lock.hcl || exit 1
+      git diff --cached --quiet HEAD -- .terraform.lock.hcl || exit 1
       p=$(mktemp)
       trap 'rm -f "$p"' EXIT
       terraform plan -input=false -no-color >"$p" 2>&1 || exit 1

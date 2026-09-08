@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:8f03d6c76c83ccfda51078f920e04a8cd3ad7140ffe096dd5a362b5a40b43b9e
-Source-Hash: blake3:160d9632bed6bc2e2d7581d81ee2021936dc126f90b9da88f2fee7f19366f01f
+Content-Hash: blake3:3834fb318a1389052f2de2ca0ea58398628c3df5d4c2348a4810785cbb55f670
+Source-Hash: blake3:f261e653ea0364f017d662d107eebc07e110f81619cf04af297c7867d06c5373
 Schema-Version: v1
 -->
 
@@ -99,8 +99,10 @@ non-empty. The decision records the list before scaffolding, and the HUMAN trust
 verifies each declared pin is installed before any provider CLI command runs. An empty
 list skips that gate without inventing a provider tool. The workspace-access step precedes
 detailed workspace verification because the plan-only credential cannot read an ungranted
-workspace; its HUMAN action creates/configures the workspace and grants Plan, after which
-the following check can independently re-derive detailed settings.
+workspace. Its bootstrap check treats only a 404 as expected HUMAN work and keeps network,
+authentication, and API failures unverifiable. After the workspace is visible, the next
+check independently re-derives its detailed settings, and the separate plan-access check
+proves the restored restricted credential can plan but cannot apply or update workspaces.
 
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the

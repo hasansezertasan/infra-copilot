@@ -97,8 +97,10 @@ non-empty. The decision records the list before scaffolding, and the HUMAN trust
 verifies each declared pin is installed before any provider CLI command runs. An empty
 list skips that gate without inventing a provider tool. The workspace-access step precedes
 detailed workspace verification because the plan-only credential cannot read an ungranted
-workspace; its HUMAN action creates/configures the workspace and grants Plan, after which
-the following check can independently re-derive detailed settings.
+workspace. Its bootstrap check treats only a 404 as expected HUMAN work and keeps network,
+authentication, and API failures unverifiable. After the workspace is visible, the next
+check independently re-derives its detailed settings, and the separate plan-access check
+proves the restored restricted credential can plan but cannot apply or update workspaces.
 
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the

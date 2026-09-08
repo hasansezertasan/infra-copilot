@@ -54,8 +54,9 @@ class NewProviderFlowTests(unittest.TestCase):
                 "new-provider-decision",
                 "new-provider-leaf",
                 "new-provider-toolchain",
-                "new-provider-plan-access",
+                "new-provider-workspace-bootstrap",
                 "new-provider-workspace",
+                "new-provider-plan-access",
                 "new-provider-fork-safety",
                 "new-provider-credentials",
                 "new-provider-plan",
@@ -356,7 +357,16 @@ class NewProviderFlowTests(unittest.TestCase):
     def test_leaf_must_be_tracked_and_clean(self) -> None:
         leaf = self.steps["new-provider-leaf"]
         self.assertIn("git ls-files --error-unmatch", leaf)
+        self.assertIn(".terraform.lock.hcl", leaf)
+        self.assertIn("terraform init -backend=false", leaf)
         self.assertIn("git --no-optional-locks status --porcelain", leaf)
+
+    def test_workspace_bootstrap_makes_the_creation_handoff_reachable(self) -> None:
+        bootstrap = self.steps["new-provider-workspace-bootstrap"]
+        self.assertIn("    tri_state: true", bootstrap)
+        self.assertIn("404) exit 1", bootstrap)
+        self.assertIn("*) exit 2", bootstrap)
+        self.assertIn("create_ws", bootstrap)
 
     def test_plan_access_reuses_repository_derived_inventory(self) -> None:
         access = self.steps["new-provider-plan-access"]
@@ -364,7 +374,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("    tri_state: true", access)
         self.assertIn("`Plan`", access)
         self.assertIn("`Write`", access)
-        self.assertIn("create_ws", access)
+        self.assertNotIn("create_ws", access)
 
     def test_fork_plan_safety_is_durable_and_precedes_credentials(self) -> None:
         safety = self.steps["new-provider-fork-safety"]
@@ -382,6 +392,9 @@ class NewProviderFlowTests(unittest.TestCase):
                 self.assertIn(attribute, credentials)
         self.assertNotIn(".attributes.value", credentials)
         self.assertIn('test "$hcp_api" = "https://app.terraform.io/api/v2"', credentials)
+        self.assertIn("    tri_state: true", credentials)
+        self.assertIn("page%5Bnumber%5D=$page", credentials)
+        self.assertIn('["next-page"]', credentials)
 
     def test_first_plan_targets_the_parameterized_leaf(self) -> None:
         plan = self.steps["new-provider-plan"]
@@ -393,6 +406,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("mktemp", plan)
         self.assertIn('"resource-count"] > 0', plan)
         self.assertIn("No changes", plan)
+        self.assertIn("git diff --quiet HEAD -- .terraform.lock.hcl", plan)
 
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
     def test_first_plan_distinguishes_pending_applied_and_unsafe_states(self) -> None:
@@ -421,6 +435,9 @@ class NewProviderFlowTests(unittest.TestCase):
             )
             terraform.chmod(0o755)
             curl.chmod(0o755)
+            git = bin_dir / "git"
+            git.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            git.chmod(0o755)
             for output, count, expected in cases:
                 result = subprocess.run(
                     ["/bin/sh", "-c", plan],
@@ -469,6 +486,14 @@ class NewProviderFlowTests(unittest.TestCase):
             "NEW_PROVIDER_FORK_PLANS_DISABLED",
         ):
             self.assertIn(marker, config)
+
+    def test_hcp_workspace_creation_selects_a_repository_specific_oauth_token(self) -> None:
+        hcp = HCP.read_text(encoding="utf-8")
+        self.assertNotIn('.data[0].relationships["oauth-tokens"]', hcp)
+        self.assertIn('select(.identifier == $repo)', hcp)
+        self.assertIn("resolve_oauth_token_id", hcp)
+        self.assertIn("select(length == 1)", hcp)
+        self.assertIn("export the intended OAUTH_TOKEN_ID", hcp)
 
 
 if __name__ == "__main__":

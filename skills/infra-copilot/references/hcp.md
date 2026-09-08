@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:40791dc5e425e162b97462c4b126cba2f18528720282d864fe6ffb414e014000
-Source-Hash: blake3:160d9632bed6bc2e2d7581d81ee2021936dc126f90b9da88f2fee7f19366f01f
+Content-Hash: blake3:08f3fb4a97c9f98f419657bcbcf7dd100b4f9ed40af116d46533426a75a1b8b6
+Source-Hash: blake3:f261e653ea0364f017d662d107eebc07e110f81619cf04af297c7867d06c5373
 Schema-Version: v1
 -->
 
@@ -68,10 +68,58 @@ GitHub↔HCP OAuth connection (browser).
       || { echo "mise.toml must contain an exact tools.terraform version" >&2; return 1; }
   }
 
-  # oauth-token-id from the VCS connection created in the vcs-connect step
-  OAUTH_TOKEN_ID=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/oauth-clients" \
-    -H "Authorization: Bearer $HCP_TOKEN" \
-    | jq -r '.data[0].relationships["oauth-tokens"].data[0].id // empty')
+  # Reuse the OAuth token already proven to serve $REPO. Phase 6 can derive it
+  # from either bootstrap workspace. During the initial Phase 1 bootstrap there
+  # is no workspace yet, so an organization with exactly one GitHub OAuth token
+  # is unambiguous; an organization with several must export OAUTH_TOKEN_ID
+  # explicitly instead of silently taking whichever connection sorts first.
+  resolve_oauth_token_id () {
+    local workspace body token page count pages
+    if [ -n "${OAUTH_TOKEN_ID:-}" ]; then
+      printf '%s' "$OAUTH_TOKEN_ID" | grep -Eq '^ot-[A-Za-z0-9]+$' \
+        || { echo "OAUTH_TOKEN_ID is not an HCP OAuth token id" >&2; return 1; }
+      return 0
+    fi
+    for workspace in cloudflare github-org; do
+      body=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$workspace" \
+        -H "Authorization: Bearer $HCP_TOKEN") || continue
+      token=$(printf '%s' "$body" | jq -er --arg repo "$REPO" '
+        .data.attributes["vcs-repo"]
+        | select(.identifier == $repo)
+        | .["oauth-token-id"]
+        | select(type == "string" and length > 0)' 2>/dev/null) || continue
+      OAUTH_TOKEN_ID=$token
+      return 0
+    done
+
+    pages=$(mktemp) || return 1
+    : >"$pages"
+    page=1
+    while : ; do
+      body=$(curl -sf \
+        "https://app.terraform.io/api/v2/organizations/$ORG/oauth-clients?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
+        -H "Authorization: Bearer $HCP_TOKEN") \
+        || { rm -f "$pages"; return 1; }
+      printf '%s\n' "$body" >>"$pages"
+      count=$(printf '%s' "$body" | jq -er '.data | length' 2>/dev/null) \
+        || { rm -f "$pages"; return 1; }
+      [ "$count" -eq 100 ] || break
+      page=$((page + 1))
+    done
+    token=$(jq -ser '
+      [.[].data[]
+        | select(.attributes["service-provider"] | test("^github"))
+        | .relationships["oauth-tokens"].data[].id]
+      | unique
+      | select(length == 1)
+      | .[0]' "$pages" 2>/dev/null) || token=
+    rm -f "$pages"
+    [ -n "$token" ] || {
+      echo "Could not select one VCS connection for $REPO; export the intended OAUTH_TOKEN_ID" >&2
+      return 1
+    }
+    OAUTH_TOKEN_ID=$token
+  }
 
   # jq -n builds the payload (correct quoting for free); curl -w captures the HTTP status
   # so we can tell "created" (201) from "already exists" (422 name-taken) from a real error.
@@ -125,8 +173,8 @@ GitHub↔HCP OAuth connection (browser).
   # and `exit` would kill an interactive shell if pasted. if/else is correct in every context.
   if ! load_tf_version; then
     echo "Not creating or updating workspaces without a committed Terraform pin." >&2
-  elif [ -z "$OAUTH_TOKEN_ID" ]; then
-    echo "No VCS oauth-token found — finish the vcs-connect step first; not creating workspaces." >&2
+  elif ! resolve_oauth_token_id; then
+    echo "No unambiguous VCS oauth-token found — finish vcs-connect or select the connection explicitly; not creating workspaces." >&2
   else
     create_ws cloudflare terraform/cloudflare && set_workspace_config cloudflare terraform/cloudflare
     create_ws github-org  terraform/github && set_workspace_config github-org terraform/github
