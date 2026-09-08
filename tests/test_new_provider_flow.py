@@ -65,6 +65,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 self.assertIn("    phase: 6\n", step)
                 self.assertIn("    check:", step)
 
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
     def test_inventory_is_a_manifest_check_not_router_prose(self) -> None:
         inventory = self.steps["new-provider-inventory"]
         self.assertIn("ADDITIONAL_PROVIDER_NAMES", inventory)
@@ -101,6 +102,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn('clean($3) == "adopt"', decision)
         self.assertNotIn('check: "test -d terraform/gcp"', decision)
 
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
     def test_decision_requires_the_standardized_affirmative_row(self) -> None:
         decision = self.steps["new-provider-decision"]
         env = {
@@ -189,6 +191,7 @@ class NewProviderFlowTests(unittest.TestCase):
             with self.subTest(reconciliation=marker):
                 self.assertIn(marker, helper)
 
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
     def test_leaf_check_reads_name_from_the_cloud_workspace_block(self) -> None:
         leaf = self.steps["new-provider-leaf"]
         self.assertIn("checks/leaf-cloud.sh", leaf)
@@ -207,6 +210,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
 
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
     def test_leaf_parser_keeps_reading_cloud_after_workspaces_closes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
