@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2dc1d289c150507c1c70864511a4f0ca45e20947d3e096d500df6362866b2dd0
-Source-Hash: blake3:322c174a77d02601423462cd9c565a87790ad800fc380042cdc377f615109808
+Content-Hash: blake3:ecdfa0f37ff8b2c52eccaa8026c7d102182b6c79ad8f7d0329c956eed7b8a1b0
+Source-Hash: blake3:ee77f0c802f247f9f54a8cfcac745d4ec4f350f2cb4f11862a73557cb0f8e309
 Schema-Version: v1
 -->
 
@@ -72,8 +72,9 @@ the attestation instead of inheriting it by name.
 Leave `credentials_verified_at` empty until the HUMAN has installed or replaced every
 declared workspace variable, then record that moment as a real, non-future strict UTC
 `YYYY-MM-DDTHH:MM:SSZ` and commit the config. The first-plan check accepts only an HCP run
-created after the entire recorded handoff second, so an older run cannot stand in for the current
-least-privilege credentials.
+created after the entire recorded handoff second and after the workspace's latest HCP
+update, so an older run cannot stand in for the current least-privilege credentials or
+newly reconciled execution settings.
 
 Record every variable required to authenticate the provider. A flag such as
 `TFC_GCP_PROVIDER_AUTH=true` is credential configuration even when it is intentionally

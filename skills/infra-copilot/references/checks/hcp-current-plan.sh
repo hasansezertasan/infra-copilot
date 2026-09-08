@@ -29,8 +29,8 @@ printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" | jq -Re '
     || cannot_verify "refusing to send the HCP token to unexpected endpoint '$hcp_api'"
 
 [ -z "$(git --no-optional-locks status --porcelain -- \
-    "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md)" ] \
-    || cannot_verify "the provider leaf, shared modules, or config has uncommitted changes"
+    "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml)" ] \
+    || cannot_verify "the provider leaf, shared modules, config, or mise pin has uncommitted changes"
 workspace_body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
     -H "Authorization: Bearer $HCP_TOKEN") || cannot_verify "workspace could not be read"
 ws_id=$(printf '%s' "$workspace_body" | jq -er \
@@ -44,6 +44,10 @@ resource_count=$(printf '%s' "$workspace_body" | jq -er '
     .data.attributes["resource-count"]
     | select(type == "number" and . == floor and . >= 0)' 2>/dev/null) \
     || cannot_verify "workspace resource-count is not a non-negative integer"
+workspace_updated_at=$(printf '%s' "$workspace_body" | jq -er '
+    .data.attributes["updated-at"]
+    | select(type == "string" and length > 0)' 2>/dev/null) \
+    || cannot_verify "workspace updated-at is missing"
 
 pages=$(mktemp) || cannot_verify "could not create a private run-list file"
 trap 'rm -f "$pages"' EXIT
@@ -52,7 +56,7 @@ page=1
 truncated=false
 while : ; do
     body=$(curl -sf \
-      "$hcp_api/workspaces/$ws_id/runs?page%5Bsize%5D=100&page%5Bnumber%5D=$page&filter%5Boperation%5D=plan_only,plan_and_apply,save_plan&include=configuration_version.ingress_attributes" \
+      "$hcp_api/workspaces/$ws_id/runs?page%5Bsize%5D=100&page%5Bnumber%5D=$page&filter%5Boperation%5D=plan_only,plan_and_apply,save_plan,refresh_only,destroy,empty_apply,action_only&include=configuration_version.ingress_attributes" \
       -H "Authorization: Bearer $HCP_TOKEN") \
       || cannot_verify "run page $page could not be read"
     printf '%s' "$body" | jq -e '
@@ -79,7 +83,7 @@ done
 first_page_ids=$(jq -scer '.[0].data | map(.id)' "$pages" 2>/dev/null) \
     || cannot_verify "the original run-list head could not be read"
 head_body=$(curl -sf \
-  "$hcp_api/workspaces/$ws_id/runs?page%5Bsize%5D=100&page%5Bnumber%5D=1&filter%5Boperation%5D=plan_only,plan_and_apply,save_plan&include=configuration_version.ingress_attributes" \
+  "$hcp_api/workspaces/$ws_id/runs?page%5Bsize%5D=100&page%5Bnumber%5D=1&filter%5Boperation%5D=plan_only,plan_and_apply,save_plan,refresh_only,destroy,empty_apply,action_only&include=configuration_version.ingress_attributes" \
   -H "Authorization: Bearer $HCP_TOKEN") \
   || cannot_verify "the run-list head could not be re-read"
 head_ids=$(printf '%s' "$head_body" | jq -cer '.data | map(.id)' 2>/dev/null) \
@@ -137,7 +141,7 @@ for sha in $(printf '%s' "$candidates" | jq -r '[.[]._commit_sha] | unique | .[]
         continue
     fi
     if git diff --quiet "$sha" HEAD -- "terraform/$NEW_PROVIDER" \
-        terraform/modules .infra-copilot/config.md; then
+        terraform/modules .infra-copilot/config.md mise.toml; then
         matching_shas=$(jq -cn --argjson shas "$matching_shas" --arg sha "$sha" \
           '$shas + [$sha]') || cannot_verify "matching ingress SHAs could not be encoded"
     fi
@@ -166,10 +170,25 @@ fi
 
 status=$(printf '%s' "$latest" | jq -er '.attributes.status') \
     || cannot_verify "matched run has no status"
+operation=$(printf '%s' "$latest" | jq -er '.attributes.operation') \
+    || cannot_verify "matched run has no operation"
+case "$operation" in
+  plan_only|plan_and_apply|save_plan) : ;;
+  destroy) echo "UNSAFE RUN: the newest correlated operation is destroy" >&2; exit 1 ;;
+  refresh_only|empty_apply|action_only) \
+    cannot_verify "the newest correlated operation '$operation' is not plan evidence" ;;
+  *) cannot_verify "the newest correlated run has unknown operation '$operation'" ;;
+esac
 fresh=$(printf '%s' "$latest" | jq -er \
-    --arg verified "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" '
-      try (((.attributes["created-at"] | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)
-        > ($verified | fromdateiso8601)) | tostring) catch empty') \
+    --arg verified "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \
+    --arg workspace_updated "$workspace_updated_at" '
+      def timestamp_key:
+        (capture("^(?<whole>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\\.(?<fraction>[0-9]{1,9}))?Z$")
+          // error("bad timestamp"))
+        | .whole + "." + (((.fraction // "") + "000000000")[0:9]) + "Z";
+      try ((._created_key > ([
+        ($verified | sub("Z$"; ".999999999Z") | timestamp_key),
+        ($workspace_updated | timestamp_key)] | max)) | tostring) catch empty') \
     || cannot_verify "matched run has no comparable created-at timestamp"
 
 if [ "$fresh" = true ] && [ "$status" = policy_soft_failed ]; then
@@ -236,6 +255,9 @@ plan_json=$(curl -sfL "$hcp_api/plans/$plan_id/json-output-redacted" \
 summary=$(printf '%s' "$plan_json" | jq -ec '
   select((.format_version | type) == "string")
   | select((.terraform_version | type) == "string")
+  | select((.complete // true) == true)
+  | select(((.deferred_changes // []) | type) == "array")
+  | select((.deferred_changes // [] | length) == 0)
   | select(((.resource_changes // []) | type) == "array")
   | select(all((.resource_changes // [])[];
       (.change.actions | type) == "array"

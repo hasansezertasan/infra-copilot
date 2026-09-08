@@ -5,8 +5,8 @@ description: "Read-only health check: runs every step's check across the whole m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:0939f897dbf670d01e999f2f32bf4013f1764b894feb36aa6043ec4a5604c85e
-Source-Hash: blake3:322c174a77d02601423462cd9c565a87790ad800fc380042cdc377f615109808
+Content-Hash: blake3:5fbadfaac8f90f62e929794bb6215e8152f7639d0e3406b799111906921b0674
+Source-Hash: blake3:ee77f0c802f247f9f54a8cfcac745d4ec4f350f2cb4f11862a73557cb0f8e309
 Schema-Version: v1
 -->
 
@@ -42,7 +42,10 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    ([`../infra-copilot/references/config.md`](../infra-copilot/references/config.md)). If both are missing, or the loaded
    config is incomplete, report it and stop; do **not** offer to scaffold or edit (that
    belongs to `setup`).
-2. **Preflight** — for `terraform`/`gh`/`jq`, report whether each is **pinned and
+2. **Preflight** — first load the provider inventory. If a provider toolchain trust gate
+   is pending, evaluate and report that Phase 6 gate before running the full mise check;
+   do not misroute its expected HUMAN re-trust handoff as a generic phase-0 failure.
+   Once those gates are green, for `terraform`/`gh`/`jq`, report whether each is **pinned and
    matching**, **pinned and drifted**, or **missing its required pin**. Report `curl`
    separately as present or missing; it is intentionally system-provided and has no pin. A
    drifted pin is a real finding: the plan a reviewer reads may not be the plan that gets

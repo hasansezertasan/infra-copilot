@@ -65,8 +65,9 @@ the attestation instead of inheriting it by name.
 Leave `credentials_verified_at` empty until the HUMAN has installed or replaced every
 declared workspace variable, then record that moment as a real, non-future strict UTC
 `YYYY-MM-DDTHH:MM:SSZ` and commit the config. The first-plan check accepts only an HCP run
-created after the entire recorded handoff second, so an older run cannot stand in for the current
-least-privilege credentials.
+created after the entire recorded handoff second and after the workspace's latest HCP
+update, so an older run cannot stand in for the current least-privilege credentials or
+newly reconciled execution settings.
 
 Record every variable required to authenticate the provider. A flag such as
 `TFC_GCP_PROVIDER_AUTH=true` is credential configuration even when it is intentionally

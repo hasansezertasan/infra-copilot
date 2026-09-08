@@ -129,7 +129,7 @@ GitHub↔HCP OAuth connection (browser).
         name:$name, "working-directory":$dir, "execution-mode":"remote",
         "terraform-version":$tf_version,
         "auto-apply":false, "speculative-enabled":true, "file-triggers-enabled":true,
-        "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md"], "queue-all-runs":false, "global-remote-state":false,
+        "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"], "queue-all-runs":false, "global-remote-state":false,
         "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}' \
       | curl -s -w '\n%{http_code}' -X POST "https://app.terraform.io/api/v2/organizations/$ORG/workspaces" \
           -H "Authorization: Bearer $HCP_TOKEN" \
@@ -171,7 +171,7 @@ GitHub↔HCP OAuth connection (browser).
         "working-directory":$dir, "execution-mode":"remote",
         "terraform-version":$tf_version,
         "auto-apply":false, "speculative-enabled":true, "file-triggers-enabled":true,
-        "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md"], "queue-all-runs":false,
+        "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"], "queue-all-runs":false,
         "global-remote-state":false,
         "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}')
     curl -sf -X PATCH "https://app.terraform.io/api/v2/workspaces/$ws_id" \
@@ -196,7 +196,8 @@ GitHub↔HCP OAuth connection (browser).
   > `trigger-patterns` (glob) requires `file-triggers-enabled: true` — that pair is the
   > path-scoping toggle. Both workspaces also watch the shared `.infra-copilot/config.md`
   > and shared `terraform/modules/**`, so public-identifier and module changes are
-  > validated by both plans. `speculative-enabled: true`
+  > validated by both plans. They also watch `mise.toml`, so a Terraform pin change
+  > cannot reuse an older plan. `speculative-enabled: true`
   > is the master switch for plans on PRs.
   > The **fork** speculative-plan toggle is *separate* and has no clean create-time
   > attribute — confirm it's **off** in the workspace's UI → Settings → Version Control
@@ -220,6 +221,7 @@ GitHub↔HCP OAuth connection (browser).
             and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
             and ((($a["trigger-patterns"]) // []) | index("terraform/modules/**") != null)
             and ((($a["trigger-patterns"]) // []) | index(".infra-copilot/config.md") != null)
+            and ((($a["trigger-patterns"]) // []) | index("mise.toml") != null)
             and (($a["vcs-repo"].identifier // "") == $repo)
             and (($a["vcs-repo"].branch // "") == "main")' >/dev/null \
       && echo "✓ $ws configured as declared"

@@ -50,6 +50,21 @@ awk -v want="$want" '
         }
         return out
     }
+    function mask_strings(text, out, i, ch, in_string, escaped) {
+        out = ""
+        for (i = 1; i <= length(text); i++) {
+            ch = substr(text, i, 1)
+            if (in_string) {
+                out = out " "
+                if (escaped) escaped = 0
+                else if (ch == "\\") escaped = 1
+                else if (ch == "\"") in_string = 0
+            } else if (ch == "\"") {
+                in_string = 1; out = out " "
+            } else out = out ch
+        }
+        return out
+    }
     function emit(key, value) {
         if (want == "all") print key "=" value
         else if (want == key || (want == "workspace" && key == "workspaces.name")) {
@@ -67,7 +82,8 @@ awk -v want="$want" '
         opened_cloud = 0
         opened_workspace = 0
         line = strip_comments($0)
-        if (match(line, /<<-?[[:space:]]*[A-Za-z_][A-Za-z0-9_]*/)) {
+        heredoc_scan = mask_strings(line)
+        if (match(heredoc_scan, /<<-?[[:space:]]*[A-Za-z_][A-Za-z0-9_]*/)) {
             heredoc_start = RSTART
             heredoc = substr(line, RSTART, RLENGTH)
             heredoc_indent = (heredoc ~ /^<<-/)

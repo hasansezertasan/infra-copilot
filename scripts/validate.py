@@ -752,7 +752,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             marker in reconciliation.group("body")
             for marker in (
                 '"file-triggers-enabled":true',
-                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md"]',
+                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]',
             )
         )
     ):
@@ -770,6 +770,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             )
             < 1
             or document.count('index("terraform/modules/**") != null') < 1
+            or document.count('index("mise.toml") != null') < 1
         ):
             errors.append(
                 f"{document_name}: every HCP workspace must watch shared config and modules"
@@ -786,7 +787,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     )
     if (
         creation is None
-        or '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md"]'
+        or '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]'
         not in creation.group("body")
     ):
         errors.append(

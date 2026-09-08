@@ -90,8 +90,13 @@ general-purpose repository tools in the provider inventory.
 Scaffold and verify the decision and leaf for every entry, run every applicable provider
 toolchain trust gate, and only then walk each entry's remaining `new-provider-*` steps.
 This ordering prevents a provider CLI declared under a later entry from being executed
-before its HUMAN review. The initial preflight leaves conditional provider entries
-inactive because no per-entry `NEW_PROVIDER_MISE_TOOLS` is exported yet. After all
+before its HUMAN review. On `add` and `status`, when inventory shows a provider entry
+whose toolchain gate is not yet green, run only the system `mise --version` check, the
+inventory, and that entry's Phase 6 checks through `new-provider-toolchain` before the
+full mise preflight. The full mise check requires current trust and must not steal this
+resumable HUMAN handoff by reporting a generic preflight failure first. Conditional
+provider entries also remain inactive because no per-entry `NEW_PROVIDER_MISE_TOOLS` is
+exported yet. After all
 toolchain gates are green, export each entry in turn and run the complete preflight so
 every reviewed provider CLI is version-checked before its runbook commands. An
 empty list means the optional phase is not applicable only when the inventory check is
@@ -120,8 +125,9 @@ negative-permission audit.
 
 The credential handoff records a real, non-future UTC `credentials_verified_at` in committed config only after
 the HUMAN installs every declared variable. `new-provider-plan` accepts or reuses only a
-run created after the entire recorded UTC second, so a prior workspace run cannot prove the
-new least-privilege credential works.
+run created after the entire recorded UTC second and the workspace's latest `updated-at`,
+so a prior workspace run cannot prove the new least-privilege credential or reconciled
+execution settings work.
 
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the

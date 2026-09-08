@@ -35,7 +35,10 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    ([`../infra-copilot/references/config.md`](../infra-copilot/references/config.md)). If both are missing, or the loaded
    config is incomplete, report it and stop; do **not** offer to scaffold or edit (that
    belongs to `setup`).
-2. **Preflight** — for `terraform`/`gh`/`jq`, report whether each is **pinned and
+2. **Preflight** — first load the provider inventory. If a provider toolchain trust gate
+   is pending, evaluate and report that Phase 6 gate before running the full mise check;
+   do not misroute its expected HUMAN re-trust handoff as a generic phase-0 failure.
+   Once those gates are green, for `terraform`/`gh`/`jq`, report whether each is **pinned and
    matching**, **pinned and drifted**, or **missing its required pin**. Report `curl`
    separately as present or missing; it is intentionally system-provided and has no pin. A
    drifted pin is a real finding: the plan a reviewer reads may not be the plan that gets

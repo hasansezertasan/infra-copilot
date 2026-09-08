@@ -404,7 +404,7 @@ steps:
       $hcp_api/organizations/$ORG/workspaces per workspace with:
         working-directory:   terraform/cloudflare  (and terraform/github)
         file-triggers-enabled: true
-        trigger-patterns:    ["terraform/cloudflare/**", "terraform/modules/**", ".infra-copilot/config.md"]  (and terraform/github/** plus the shared paths)
+        trigger-patterns:    ["terraform/cloudflare/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]  (and terraform/github/** plus the shared paths)
         execution-mode:      remote
         terraform-version:   $TERRAFORM_VERSION  # exact committed mise.toml pin
         auto-apply:          false
@@ -430,6 +430,7 @@ steps:
                 and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
                 and ((($a["trigger-patterns"]) // []) | index("terraform/modules/**") != null)
                 and ((($a["trigger-patterns"]) // []) | index(".infra-copilot/config.md") != null)
+                and ((($a["trigger-patterns"]) // []) | index("mise.toml") != null)
                 and (($a["vcs-repo"].identifier // "") == $repo)
                 and (($a["vcs-repo"].branch // "") == "main")' >/dev/null || exit 1
       done
@@ -944,7 +945,7 @@ steps:
               and ($a["queue-all-runs"] == false)
               and ($a["global-remote-state"] == false)
               and ((($a["trigger-patterns"] // []) | sort)
-                   == ([$dir + "/**", "terraform/modules/**", ".infra-copilot/config.md"] | sort))
+                   == ([$dir + "/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"] | sort))
               and (($a["vcs-repo"].identifier // "") == $repo)
               and (($a["vcs-repo"].branch // "") == "main")' >/dev/null
       rc=$?
@@ -1084,8 +1085,8 @@ steps:
       committed branch to its configured upstream so HCP can ingest the branch tip;
       never push a dirty or detached checkout. Wait until the workspace's VCS run list
       contains an ingested commit whose `terraform/$NEW_PROVIDER`, shared
-      `terraform/modules`, and `.infra-copilot/config.md` trees equal the current
-      committed versions, then run
+      `terraform/modules`, `.infra-copilot/config.md`, and `mise.toml` trees equal the
+      current committed versions, then run
       `sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh" queue` to queue a
       plan-only retry using that configuration version. The helper explicitly includes
       the configuration-version relationship in POST /runs; a CLI-driven or

@@ -1482,7 +1482,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             hcp = repository / ".ai-rulez/skills/infra-copilot/references/hcp.md"
             text = hcp.read_text(encoding="utf-8").replace(
-                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md"]',
+                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]',
                 '"trigger-patterns":[$dir+"/**"]',
                 1,
             )
@@ -1531,7 +1531,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             start = text.index("  set_workspace_config () {")
             end = text.index("\n  }", start)
             reconciliation = text[start:end].replace(
-                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md"]',
+                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]',
                 '"trigger-patterns":[$dir+"/**"]',
                 1,
             )

@@ -292,6 +292,7 @@ class NewProviderFlowTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("new-provider-decision` once in bootstrap mode", protocol)
         self.assertIn("must never\ndiscard an explicit adoption request", protocol)
+        self.assertIn("before the\nfull mise preflight", protocol)
 
     def test_workspace_check_asserts_the_complete_safety_contract(self) -> None:
         workspace = self.steps["new-provider-workspace"]
@@ -308,11 +309,12 @@ class NewProviderFlowTests(unittest.TestCase):
             '"vcs-repo"',
             '".infra-copilot/config.md"',
             '"terraform/modules/**"',
+            '"mise.toml"',
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, workspace)
         self.assertIn(
-            '== ([$dir + "/**", "terraform/modules/**", ".infra-copilot/config.md"] | sort)',
+            '== ([$dir + "/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"] | sort)',
             workspace,
         )
         self.assertIn('($a["queue-all-runs"] == false)', workspace)
@@ -495,6 +497,27 @@ terraform {
         self.assertIn("organization=acme", all_settings)
         self.assertIn("workspaces.name=gcp", all_settings)
 
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
+    def test_leaf_parser_ignores_heredoc_markers_inside_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "a-command.tf").write_text(
+                'locals { example = "example command: cat <<EOF" }\n', encoding="utf-8"
+            )
+            (root / "versions.tf").write_text(
+                'terraform {\n  cloud {\n    organization = "acme"\n'
+                '    workspaces { name = "gcp" }\n  }\n}\n',
+                encoding="utf-8",
+            )
+            all_settings = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(root), "all"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        self.assertIn("organization=acme", all_settings)
+        self.assertIn("workspaces.name=gcp", all_settings)
+
     def test_toolchain_retrusts_after_the_leaf_before_provider_commands(self) -> None:
         leaf = self.steps["new-provider-leaf"]
         toolchain = self.steps["new-provider-toolchain"]
@@ -652,9 +675,11 @@ terraform {
         self.assertIn('attributes["created-at"]', helper)
         self.assertIn('"_created_key"', helper)
         self.assertIn("did not join one-to-one to ingress data", helper)
-        self.assertIn('sub("\\\\.[0-9]+Z$"; "Z")', helper)
+        self.assertIn('sub("Z$"; ".999999999Z")', helper)
         self.assertIn("NEW_PROVIDER_CREDENTIALS_VERIFIED_AT", helper)
         self.assertIn("terraform/modules", helper)
+        self.assertIn("mise.toml", helper)
+        self.assertIn('attributes["updated-at"]', helper)
         self.assertIn("git --no-optional-locks status --porcelain", helper)
         self.assertIn("candidate run has a malformed created-at timestamp", helper)
         self.assertIn('// error("timestamp does not match RFC3339 UTC")', helper)
@@ -669,8 +694,13 @@ terraform {
         self.assertIn("POLICY INTERVENTION", helper)
         self.assertLess(helper.index("status=$("), helper.index('if [ "$mode" = queue ]'))
         self.assertNotIn('git log -1 --format=%H -- "terraform/$NEW_PROVIDER"', helper)
-        self.assertIn("plan_only,plan_and_apply,save_plan&", helper)
-        self.assertNotIn("refresh_only", helper)
+        self.assertIn(
+            "plan_only,plan_and_apply,save_plan,refresh_only,destroy,empty_apply,action_only&",
+            helper,
+        )
+        self.assertIn("UNSAFE RUN", helper)
+        self.assertIn("(.complete // true) == true", helper)
+        self.assertIn(".deferred_changes", helper)
 
     @unittest.skipUnless(os.name == "posix", "the parser is a POSIX shell script")
     def test_leaf_parser_reads_terraform_json_cloud_blocks(self) -> None:
