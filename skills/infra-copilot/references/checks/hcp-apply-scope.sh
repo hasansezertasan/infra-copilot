@@ -316,7 +316,10 @@ for leaf in terraform/*/; do
     # Both the leaf's `hostname` and TF_CLOUD_HOSTNAME disqualify. Terraform's
     # docs do not state which wins when both are set, so neither is assumed to
     # override the other.
-    settings=$(leaf_cloud_settings "$directory")
+    if ! settings=$(leaf_cloud_settings "$directory"); then
+        note_unknown "$directory cloud configuration could not be parsed"
+        continue
+    fi
     # terraform/modules and other shared implementation directories are not
     # deployable roots. Only a directory with a cloud block targets HCP.
     printf '%s\n' "$settings" | grep -Fx 'cloud=present' >/dev/null || continue

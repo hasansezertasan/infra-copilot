@@ -128,7 +128,10 @@ plan_json=$(curl -sfL "$hcp_api/plans/$plan_id/json-output-redacted" \
     -H "Authorization: Bearer $HCP_TOKEN") \
     || cannot_verify "matched run's structured plan could not be read"
 summary=$(printf '%s' "$plan_json" | jq -ec '
-  [.resource_changes[]?.change.actions] as $actions
+  select((.format_version | type) == "string")
+  | select((.terraform_version | type) == "string")
+  | select(((.resource_changes // []) | type) == "array")
+  | [(.resource_changes // [])[]?.change.actions] as $actions
   | {creates: ([$actions[] | select(index("create"))] | length),
      destroys: ([$actions[] | select(index("delete"))] | length)}' 2>/dev/null) \
   || cannot_verify "matched run's structured plan was malformed"

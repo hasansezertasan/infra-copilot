@@ -696,7 +696,7 @@ steps:
         test -d "$leaf" || continue
         name=${leaf%/}; name=${name##*/}
         case "$name" in cloudflare|github) continue ;; esac
-        settings=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" "$leaf" all)
+        settings=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" "$leaf" all) || exit 1
         printf '%s\n' "$settings" | grep -Fx 'cloud=present' >/dev/null || continue
         printf '%s' "$ADDITIONAL_PROVIDER_NAMES" \
           | jq -e --arg name "$name" 'index($name) != null' >/dev/null || exit 1
@@ -863,8 +863,13 @@ steps:
       organization token yourself and run hcp.md's set_workspace_config helper (it
       reconciles every asserted setting, including an already-existing workspace):
 
+        load_tf_version
+        resolve_oauth_token_id
         set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
 
+      If the helper reports a mismatched existing working directory, inspect the named
+      workspace ID first. Export `CONFIRM_WORKSPACE_ID` to that exact ID only when it is
+      truly this provider's workspace; otherwise choose a different workspace name.
       Restore the plan-only credential before replying `done` so the agent can verify
       the settings without receiving your privileged token.
     check: |

@@ -147,7 +147,7 @@ GitHub↔HCP OAuth connection (browser).
   # POST cannot update an existing workspace. Reconcile every setting asserted by the
   # verification below after either response so a 422 resume repairs partial drift.
   set_workspace_config () { # $1 = workspace name   $2 = working directory
-    local ws_id payload workspace_body existing_repo
+    local ws_id payload workspace_body existing_repo existing_directory
     workspace_body=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$1" \
       -H "Authorization: Bearer $HCP_TOKEN") || return 1
     ws_id=$(printf '%s' "$workspace_body" | jq -r '.data.id // empty') || return 1
@@ -158,6 +158,13 @@ GitHub↔HCP OAuth connection (browser).
       echo "✗ $1: refusing to reconfigure workspace owned by ${existing_repo:-no VCS repository}" >&2
       return 1
     }
+    existing_directory=$(printf '%s' "$workspace_body" \
+      | jq -r '.data.attributes["working-directory"] // empty') || return 1
+    if [ "$existing_directory" != "$2" ] \
+      && [ "${CONFIRM_WORKSPACE_ID:-}" != "$ws_id" ]; then
+      echo "✗ $1: workspace $ws_id currently targets '${existing_directory:-repository root}', not '$2'; inspect it and export CONFIRM_WORKSPACE_ID=$ws_id to authorize repointing" >&2
+      return 1
+    fi
     payload=$(jq -n --arg id "$ws_id" --arg dir "$2" --arg repo "$REPO" \
       --arg tok "$OAUTH_TOKEN_ID" --arg tf_version "$TERRAFORM_VERSION" \
       '{data:{id:$id,type:"workspaces",attributes:{

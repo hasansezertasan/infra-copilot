@@ -10,6 +10,11 @@ want=$2
 [ -d "$leaf" ] || exit 1
 case "$want" in hostname|organization|workspace|token|all) : ;; *) exit 2 ;; esac
 
+output=$(mktemp) || exit 2
+trap 'rm -f "$output"' EXIT
+: >"$output"
+set -- "$leaf"/*.tf
+if [ -f "$1" ]; then
 awk -v want="$want" '
     function structural_depth_delta(text, copy, opens, closes) {
         copy = text
@@ -90,4 +95,32 @@ awk -v want="$want" '
         if (inws && depth < workspace_depth) inws = 0
         if (incloud && depth < cloud_depth) incloud = 0
     }
-' "$leaf"/*.tf 2>/dev/null
+' "$@" >>"$output" 2>/dev/null || exit 2
+fi
+
+for json_file in "$leaf"/*.tf.json; do
+    [ -f "$json_file" ] || continue
+    jq -r --arg want "$want" '
+      def clouds:
+        .terraform.cloud?
+        | if type == "array" then .[] else . end;
+      clouds as $cloud
+      | if $want == "all" then
+          "cloud=present",
+          (if ($cloud.hostname | type) == "string" then "hostname=" + $cloud.hostname else empty end),
+          (if ($cloud.organization | type) == "string" then "organization=" + $cloud.organization else empty end),
+          (if ($cloud | has("token")) then "token=present" else empty end),
+          (if ($cloud.workspaces | type) == "object" and ($cloud.workspaces | has("tags"))
+             then "workspaces.tags=present" else empty end),
+          (if ($cloud.workspaces.name | type) == "string"
+             then "workspaces.name=" + $cloud.workspaces.name else empty end)
+        elif $want == "workspace" then
+          if ($cloud.workspaces | type) == "object" and ($cloud.workspaces | has("tags"))
+          then "TAGS" else $cloud.workspaces.name // empty end
+        elif $want == "token" then
+          if ($cloud | has("token")) then "present" else empty end
+        else $cloud[$want] // empty
+        end' "$json_file" >>"$output" 2>/dev/null || exit 2
+done
+
+awk '!seen[$0]++' "$output"

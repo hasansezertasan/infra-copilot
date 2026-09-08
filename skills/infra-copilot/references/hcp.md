@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:b3451b9006e5d91921ef6dce95a2d7ea877d40cd528bf28b338a1e307e3e0778
-Source-Hash: blake3:0661a569f192d81912eca5914e45fb2cadce5bf491c5ac8f9a8967e03ba90d5d
+Content-Hash: blake3:3f3e3bc2aa5cdc1dd38b932d553c64abb9db1cfbb6240266f994d299dff92d44
+Source-Hash: blake3:6a85e947e5b1460762120c5f8a3464d8751814b5e0023568157f95380e97602c
 Schema-Version: v1
 -->
 
@@ -149,7 +149,7 @@ GitHub↔HCP OAuth connection (browser).
   # POST cannot update an existing workspace. Reconcile every setting asserted by the
   # verification below after either response so a 422 resume repairs partial drift.
   set_workspace_config () { # $1 = workspace name   $2 = working directory
-    local ws_id payload workspace_body existing_repo
+    local ws_id payload workspace_body existing_repo existing_directory
     workspace_body=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$1" \
       -H "Authorization: Bearer $HCP_TOKEN") || return 1
     ws_id=$(printf '%s' "$workspace_body" | jq -r '.data.id // empty') || return 1
@@ -160,6 +160,13 @@ GitHub↔HCP OAuth connection (browser).
       echo "✗ $1: refusing to reconfigure workspace owned by ${existing_repo:-no VCS repository}" >&2
       return 1
     }
+    existing_directory=$(printf '%s' "$workspace_body" \
+      | jq -r '.data.attributes["working-directory"] // empty') || return 1
+    if [ "$existing_directory" != "$2" ] \
+      && [ "${CONFIRM_WORKSPACE_ID:-}" != "$ws_id" ]; then
+      echo "✗ $1: workspace $ws_id currently targets '${existing_directory:-repository root}', not '$2'; inspect it and export CONFIRM_WORKSPACE_ID=$ws_id to authorize repointing" >&2
+      return 1
+    fi
     payload=$(jq -n --arg id "$ws_id" --arg dir "$2" --arg repo "$REPO" \
       --arg tok "$OAUTH_TOKEN_ID" --arg tf_version "$TERRAFORM_VERSION" \
       '{data:{id:$id,type:"workspaces",attributes:{

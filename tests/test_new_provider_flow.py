@@ -288,6 +288,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 self.assertIn(marker, helper)
         self.assertIn('[ "$existing_repo" = "$REPO" ]', helper)
         self.assertIn("refusing to reconfigure workspace owned by", helper)
+        self.assertIn("CONFIRM_WORKSPACE_ID", helper)
 
     @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
     def test_leaf_check_reads_name_from_the_cloud_workspace_block(self) -> None:
@@ -464,11 +465,33 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("json-output-redacted", helper)
         self.assertIn('index("delete")', helper)
         self.assertIn('index("create")', helper)
+        self.assertIn(".format_version", helper)
+        self.assertIn(".terraform_version", helper)
         self.assertIn("truncated=true", helper)
         self.assertIn("bounded 500-run scan", helper)
         self.assertIn("still in flight", helper)
         self.assertIn("plan_only,plan_and_apply,save_plan&", helper)
         self.assertNotIn("refresh_only", helper)
+
+    @unittest.skipUnless(os.name == "posix", "the parser is a POSIX shell script")
+    def test_leaf_parser_reads_terraform_json_cloud_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            leaf = Path(directory)
+            (leaf / "versions.tf.json").write_text(
+                '{"terraform":{"cloud":{"hostname":"app.terraform.io",'
+                '"organization":"acme","workspaces":{"name":"gcp"}}}}',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(leaf), "all"],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cloud=present", result.stdout)
+        self.assertIn("hostname=app.terraform.io", result.stdout)
+        self.assertIn("organization=acme", result.stdout)
+        self.assertIn("workspaces.name=gcp", result.stdout)
 
     def test_router_and_status_use_the_durable_inventory(self) -> None:
         for path in (CONFIG, STATUS):
