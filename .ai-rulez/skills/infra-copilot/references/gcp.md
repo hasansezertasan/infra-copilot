@@ -12,12 +12,14 @@
 
 ## Prerequisite: make the decision (HUMAN + docs)
 
-`gcp-decision` in [`steps.yaml`](steps.yaml) stays **red** until GCP is
-intentionally adopted (`test -d terraform/gcp`). Before writing anything:
+The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml) stays
+**red** until GCP is intentionally adopted. Before writing provider code:
 
 1. Add a row to `.infra-copilot/decisions.md` (what GCP is for, auth method, state).
 2. Note the new leaf in `terraform/README.md`.
-3. Then, and only then, follow the phases below.
+3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
+   variable used for authentication.
+4. Then, and only then, follow the parameterized Phase 6 steps.
 
 ## Recommended auth: Workload Identity Federation (keyless)
 

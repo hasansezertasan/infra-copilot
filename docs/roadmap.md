@@ -12,9 +12,11 @@ oversight. Each item links to the issue that owns it.
   instructions that go inert once applied, and no skill or step removes them. Phase-5
   completion currently means the opposite of the correct end state.
   ([#9](https://github.com/hasansezertasan/infra-copilot/issues/9))
-- **Phases 5 and 6 are expected-red for most repos.** Import only matters if resources
-  pre-exist; GCP is a template. `status` says so rather than reporting them as failures.
-  This is intended, not a gap.
+- **Phases 5 and 6 are normally not applicable.** Import only matters if resources
+  pre-exist, and the provider-neutral Phase 6 has no instances until
+  `additional_providers` is populated. Once an entry or an extra Terraform leaf exists,
+  its checks are real resumable state; `status` must not call an interrupted adoption
+  healthy. GCP remains a template until #6 fills in its WIF runbook.
 
 ## Known gaps in the repository itself
 
@@ -37,7 +39,7 @@ oversight. Each item links to the issue that owns it.
   `terraform login` mints, which has none ([#52](https://github.com/hasansezertasan/infra-copilot/issues/52)).
   Per-plugin restriction on Codex and Antigravity is separately unverified.
 - **`status`'s read-only promise is unenforced, and a subagent will not fix that.** The
-  scan runs 21 shell checks, so it needs `Bash`, and `Bash` writes files — removing
+  scan runs manifest-defined shell checks, so it needs `Bash`, and `Bash` writes files — removing
   `Edit`/`Write` narrows the surface without creating a boundary, and removing `Bash`
   stops the scan working. Worth building for context isolation (#19); only a sandboxed
   command runner would enforce the promise.

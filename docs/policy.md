@@ -160,7 +160,7 @@ production.
 **And what only narrows.** A read-only subagent (#19) is worth building — it isolates the
 scan's context and removes `Edit` and `Write` — but it does **not** enforce
 change-nothing, and this page would be contradicting itself to say otherwise. `status`
-runs 21 shell checks: manifest checks, API reads, and a shipped script. It needs `Bash`,
+runs shell checks from a manifest, including API reads and shipped scripts. It needs `Bash`,
 and bypass 3 above establishes that `Bash` writes files. Remove `Bash` and the scan cannot
 run at all. So the subagent reduces the surface for an accident; only a sandboxed
 command runner turns it into a boundary.
@@ -169,7 +169,8 @@ command runner turns it into a boundary.
 
 The `hcp-apply-scope` step in [`steps.yaml`](../.ai-rulez/skills/infra-copilot/references/steps.yaml)
 owns this. It is a `HUMAN` step, and it stays red until someone does the work — like
-`gcp-decision`, a red here is a standing to-do rather than a fault.
+`new-provider-decision` for a configured adoption, a red here is a standing to-do rather
+than a software fault.
 
 ### What plan-only does not buy
 

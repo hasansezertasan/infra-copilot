@@ -191,6 +191,9 @@ class HcpApplyScopeTests(unittest.TestCase):
                     "ORG": "acme",
                     "REPO": repo,
                     "hcp_api": "https://app.terraform.io/api/v2",
+                    "INFRA_COPILOT_REFERENCES": str(
+                        REPO_ROOT / "skills/infra-copilot/references"
+                    ),
                 }
             )
             environment.pop("TF_TOKEN_app_terraform_io", None)

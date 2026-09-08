@@ -16,9 +16,9 @@ Most generated files carry an `AI-RULEZ :: GENERATED FILE — DO NOT EDIT` heade
 **nine of the 31 do not** — the three JSON manifests, `config.md.example`,
 `decisions.md.example`, `steps.yaml`, and the three shell scripts
 `checks/status-check-context.sh`, `checks/hcp-apply-scope.sh`, and
-`checks/hcp-bootstrap-workspaces.sh`, where a Markdown comment would not be valid.
-Absence of the header is not evidence a file is safe to edit. The manifest is the
-authority; the header is only a convenience.
+`checks/leaf-cloud.sh`, where a Markdown comment would not be valid. Absence of the header
+is not evidence a file is safe to edit. The manifest is the authority; the header is only
+a convenience.
 
 ## File resolution
 

@@ -45,22 +45,23 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example).
    Report the HCP token pivot: present or not.
    If `terraform/gcp` exists, also report `gcloud` as pinned/matching, drifted, or missing;
-   omit it while the optional GCP phase has not been adopted.
+   omit it while the optional GCP provider has not been adopted.
 3. **Full scan — but only with checks that don't touch the working tree.** Walk **every**
    step in [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml) (all phases, 0–6). Never run a
    step's `run`. Classify each `check` before running it — the read-only guarantee depends
    on this:
 
-   - **Non-mutating checks** (HCP/Cloudflare/GitHub API reads, file existence, tool
-     versions — phases 0–3, plus the phase-4 `status-check-context` and `hcp-apply-scope`
-     steps) — run them directly. These only read. `status-check-context` is two `gh api`
-     reads and a comparison in `$TMPDIR`; `hcp-apply-scope` lists workspaces and reads the
-     permissions HCP reports for the current credential, and deliberately never posts an
-     apply. Neither touches the working tree or any provider state, so run both even
-     though they sit in phase 4. Reporting setup healthy without evaluating
-     `hcp-apply-scope` would hide the one credential boundary this plugin has.
-   - **Mutating checks — do NOT run them.** `plan-cloudflare`, `plan-github`, and the
-     phase-5 `migrate-import` check run `terraform init`/`plan`,
+   - **Non-mutating checks** (API reads, file existence, tool versions — phases 0–3;
+     phase 4's `status-check-context` and `hcp-apply-scope`; and every Phase 6 step except
+     `new-provider-plan`) — run them directly. These only read.
+     `status-check-context` is two `gh api` reads and a comparison in `$TMPDIR`;
+     `hcp-apply-scope` lists workspaces and reads the permissions HCP reports for the
+     current credential, and deliberately never posts an apply. Neither touches the
+     working tree or any provider state. Reporting setup healthy without evaluating
+     `hcp-apply-scope`, or an adoption healthy without evaluating its workspace and
+     credential metadata, would hide the state these checks exist to recover.
+   - **Mutating checks — do NOT run them.** `plan-cloudflare`, `plan-github`,
+     `new-provider-plan`, and the phase-5 `migrate-import` check run `terraform init`/`plan`,
      which writes `.terraform/` and can create or update `.terraform.lock.hcl` — that would
      dirty the checkout, and this command promises to change nothing. Instead, read the
      **run status per workspace via the HCP API** (non-mutating — see
@@ -69,7 +70,7 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
      HEAD` names the last *commit*, not what is on disk, so uncommitted changes under a
      leaf's directory mean the files you are auditing were never sent to HCP. Test each
      leaf on its own — `git --no-optional-locks status --porcelain -- terraform/cloudflare`,
-     and the same for `terraform/github` — and if the output is non-empty, that leaf's plan
+     and the same for `terraform/github` or `terraform/$NEW_PROVIDER` — and if the output is non-empty, that leaf's plan
      check is `?` (working tree differs from the last tested revision). Stop there for that
      leaf; a green run for HEAD says nothing about edited files. `--no-optional-locks` keeps
      this read from touching git's index, preserving the change-nothing promise.
@@ -157,7 +158,7 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 | `status-check-context` exit 1 (phase 4) | **Nothing — fix it directly**, not via `setup`. For `BLOCKED`, replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keep every other required context, and follow the break-glass sequence ([`../infra-copilot/references/docs/ci.md`](../infra-copilot/references/docs/ci.md#hcp-status-check-context)). For `UNDERPROTECTED`, re-apply `branch_protection.tf` so an HCP context is required again. |
 | Other steps in phases 0–4 | **infra-copilot:setup** |
 | Phase 5 (migrate-*) | **infra-copilot:import** — only relevant if adopting pre-existing resources |
-| Phase 6 (gcp-*) | **infra-copilot:add** — and only after the design decision |
+| Phase 6 (`new-provider-*`) | **infra-copilot:add** — and only after the design decision |
 | All green | Nothing — repo is set up. |
 
 `status-check-context` has **three outcomes, and only two of them are verdicts.** Read the
@@ -191,6 +192,8 @@ separates "not applied yet" from "removed". Do not read a green
 if one is required, is being published. Whether protection is applied at all is a separate
 invariant, and no step asserts it today.
 
-Note that a red Phase 5 or 6 is **expected and fine** for most repos — they're optional
-(import only matters if resources pre-exist; GCP is a template). Say so rather than
-flagging them as failures. The meaningful failure is a red step in phases 0–4.
+Note that Phase 5 or 6 being **not applicable** is expected for most repos — import only
+matters if resources pre-exist, and `additional_providers` is normally empty. Once a
+provider entry or an extra Terraform leaf exists, however, a red Phase 6 step is an
+interrupted adoption and is actionable; do not dismiss it as optional. The meaningful
+bootstrap failure remains a red step in phases 0–4.

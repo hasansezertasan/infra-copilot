@@ -97,7 +97,7 @@ class PolicyDocTests(unittest.TestCase):
     def test_does_not_present_the_subagent_as_enforcement(self) -> None:
         """The subagent cannot enforce change-nothing, and saying so is the point.
 
-        status runs 21 shell checks so it needs Bash, and this document
+        status runs manifest-defined shell checks so it needs Bash, and this document
         establishes that Bash writes files. An earlier draft named the subagent
         as the mechanism that would enforce the promise, which contradicted
         the same page's own bypass 3.

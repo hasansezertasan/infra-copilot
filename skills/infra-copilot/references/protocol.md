@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:ec925d5285d6d44567ba53d72323b0a5f9865ff1d6b0d355b86b1285d93fee5b
-Source-Hash: blake3:7e387d59be8a5faafede38d8bd5096e3e23c61447d16a52e8f6048b71a933809
+Content-Hash: blake3:c99372aef4fe2181bb9085f5bb61be78f0c769c81223b235d82affa0bcf89db0
+Source-Hash: blake3:896ef9db538ace58885a179226753b31f986820ac2c138991bb0856cc2208fcd
 Schema-Version: v1
 -->
 
@@ -16,25 +16,20 @@ apart. Read this file whenever a skill says "follow the shared protocol."
 ## The one idea
 
 **The human is the browser, keyholder, and reviewer of executable repository trust.
-The agent owns everything that does not require those identities or decisions.**
+Everything else scriptable is the agent's.**
 
-Human steps are limited to actions that require browser identity, secret custody, an
-independent trust decision, or a privileged HCP mutation after the agent credential has
-been narrowed. During bootstrap, the agent creates the initial workspaces with the user
-token. After `hcp-apply-scope`, it must not reacquire that authority merely to add another
-workspace; the human keyholder runs the canonical helper with a temporary user or
-organization token. The human surface is five action kinds only:
+Human steps are limited to actions that require browser identity, secret custody, or an
+independent trust decision. Once an HCP token exists (from `terraform login`), the agent
+creates workspaces, sets variables, reads plans, imports resources, and confirms applies
+**over the API** — no more clicking. The human surface is four action kinds only:
 
 1. **Sign up** for a service (browser-only).
 2. **Mint a credential** in a dashboard (browser-only — no API bootstraps the first token).
 3. **Paste a secret** into HCP (browser-only — the agent must never see the plaintext).
 4. **Choose and review repository tool pins** before trusting executable `mise.toml`
    behavior; the agent that proposes a config must not approve its own trust boundary.
-5. **Run a privileged HCP workspace mutation after credential narrowing**, using the
-   canonical helper without widening or replacing the agent's plan-only identity.
 
-Everything else — repository changes, verification, bootstrap workspace creation,
-imports, and plans — is the agent's.
+Everything else — verifying, creating workspaces, importing, planning — is the agent's.
 
 ## Step 0 — read the repo config (AGENT, always first)
 
@@ -59,7 +54,7 @@ Every step in [`steps.yaml`](steps.yaml) is tagged with who performs it:
 | Tag | Meaning | Behaviour |
 |---|---|---|
 | **`AGENT`** | Agent runs it (shell, `gh`, `terraform`, HCP API). | Execute. Verify with the step's `check`. Continue on green. |
-| **`HUMAN`** | Requires signup, dashboard identity, secret custody, executable-config review, or post-handoff HCP authority intentionally withheld from the agent. | **Stop.** Emit the handoff block. Wait for `done`. Then run the `check` before continuing. |
+| **`HUMAN`** | Irreducibly human (signup, dashboard, secret paste, executable-config review). | **Stop.** Emit the handoff block. Wait for `done`. Then run the `check` before continuing. |
 
 ### The handoff block
 
@@ -85,6 +80,14 @@ Every skill here is **idempotent and resumable**. Before doing anything, walk th
 this skill's scope (its phase range of [`steps.yaml`](steps.yaml)) top to bottom and run
 each step's `check` to discover where things already stand. Resume at the first step whose
 check is red. An all-green scope means "already done, nothing to do."
+
+Phase 6 is parameterized rather than GCP-specific. Export
+`ADDITIONAL_PROVIDER_NAMES` and run `new-provider-inventory` once; that manifest check
+catches an extra Terraform leaf with no durable adoption record. Then, for every entry in
+config.md's `additional_providers`, export its `NEW_PROVIDER*` values and walk the
+remaining `new-provider-*` steps in order. Finish one entry before starting the next. An
+empty list means the optional phase is not applicable only when the inventory check is
+green.
 
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the

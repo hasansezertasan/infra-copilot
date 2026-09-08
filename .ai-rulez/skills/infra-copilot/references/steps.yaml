@@ -37,8 +37,13 @@
 #     export CF_ZONE_ID=<cloudflare_zone_id>
 #     export REPO=<managed_repos[0]>
 #     export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
+#     export ADDITIONAL_PROVIDER_NAMES='<additional_providers names as compact JSON>'
 #     export hcp_api=https://app.terraform.io/api/v2
 #     export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
+# Phase 6 runs its inventory once, then instantiates the remaining steps per entry:
+#     export NEW_PROVIDER=<entry.name>
+#     export NEW_PROVIDER_WORKSPACE=<entry.workspace>
+#     export NEW_PROVIDER_CREDENTIALS='<entry.credential_variables as compact JSON>'
 # Preflight exports TERRAFORM_VERSION from the validated repository pin before any
 # Phase 1 workspace check or run uses it.
 # Never guess or invent these values — if the config file is missing, treat it as a
@@ -657,17 +662,171 @@ steps:
     produces: generated.tf with import blocks; plan shows imports only
     docs: migration.md
 
-  # ── Phase 6 — GCP (template only; NOT active) ───────────────────────────
-  - id: gcp-decision
+  # ── Phase 6 — additional providers (parameterized; optional) ────────────
+  # Run the inventory once, then instantiate the remaining sequence once per
+  # config.md `additional_providers` entry.
+  - id: new-provider-inventory
     phase: 6
-    provider: gcp
+    provider: repo
     actor: HUMAN
-    title: (Template) Decide to adopt GCP — update design docs first
-    why: GCP is not a managed provider yet; adopting it changes a locked decision.
+    title: Every additional Terraform leaf has a provider-adoption record
+    why: An untracked leaf may be an interrupted adoption and must not disappear from resume scans.
     run: |
-      GCP is out of scope today. To adopt it: update .infra-copilot/decisions.md
-      and terraform/README.md, THEN follow gcp.md.
-      Do not provision ahead of the decision.
-    check: "test -d terraform/gcp"   # red until GCP is intentionally adopted
-    produces: (none until adopted)
+      For every terraform/<leaf> other than cloudflare and github, add a matching
+      `additional_providers` entry to .infra-copilot/config.md. Record the decision
+      and credential-variable inventory there; never delete an entry to hide red state.
+    check: |
+      printf '%s' "$ADDITIONAL_PROVIDER_NAMES" | jq -e '
+        type == "array"
+        and all(.[]; type == "string" and test("^[a-z0-9][a-z0-9-]*$"))
+        and length == (unique | length)' >/dev/null || exit 1
+      for leaf in terraform/*/; do
+        test -d "$leaf" || continue
+        name=${leaf%/}; name=${name##*/}
+        case "$name" in cloudflare|github) continue ;; esac
+        printf '%s' "$ADDITIONAL_PROVIDER_NAMES" \
+          | jq -e --arg name "$name" 'index($name) != null' >/dev/null || exit 1
+      done
+    produces: complete durable inventory for every additional Terraform leaf
+    docs: config.md
+
+  - id: new-provider-decision
+    phase: 6
+    provider: repo
+    actor: HUMAN
+    title: Record the new-provider decision and its verification inventory
+    why: A provider changes a locked design decision, and later runs need durable names for every check.
+    run: |
+      1. Add a locked row naming the provider to .infra-copilot/decisions.md.
+      2. Add terraform/<provider> to terraform/README.md.
+      3. Add an `additional_providers` entry to .infra-copilot/config.md with its
+         lowercase name, HCP workspace, and every authentication variable's key,
+         category, and sensitive flag. Never put a credential value in the repo.
+      4. Reply `done`; the agent reloads config, exports NEW_PROVIDER,
+         NEW_PROVIDER_WORKSPACE, and NEW_PROVIDER_CREDENTIALS, then re-runs this check.
+    check: |
+      printf '%s' "$NEW_PROVIDER" | grep -Eq '^[a-z0-9][a-z0-9-]*$' || exit 1
+      printf '%s' "$NEW_PROVIDER_WORKSPACE" | grep -Eq '^[a-z0-9][a-z0-9-]*$' || exit 1
+      printf '%s' "$NEW_PROVIDER_CREDENTIALS" | jq -e '
+        type == "array" and length > 0
+        and all(.[];
+          (.key | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$"))
+          and (.category == "env" or .category == "terraform")
+          and (.sensitive | type == "boolean"))' >/dev/null || exit 1
+      awk -F '|' -v provider="$NEW_PROVIDER" '
+        BEGIN { found=0 }
+        tolower($0) ~ tolower(provider) && tolower($4) ~ /^[[:space:]]*locked[[:space:]]*$/ { found=1 }
+        END { exit !found }
+      ' .infra-copilot/decisions.md || exit 1
+      grep -Fq "terraform/$NEW_PROVIDER" terraform/README.md
+    produces: locked provider decision plus a non-secret verification inventory
+    docs: config.md
+
+  - id: new-provider-leaf
+    phase: 6
+    provider: repo
+    actor: AGENT
+    title: Create the new Terraform leaf
+    why: The workspace and plan need committed provider configuration to target.
+    run: |
+      Follow the provider runbook and create terraform/$NEW_PROVIDER with its
+      versions, provider, and initial resource configuration. Its cloud block must
+      select workspace $NEW_PROVIDER_WORKSPACE by name. Do not create resources
+      before new-provider-decision is green.
+    check: |
+      test -d "terraform/$NEW_PROVIDER" || exit 1
+      actual=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" \
+        "terraform/$NEW_PROVIDER" workspace)
+      test "$actual" = "$NEW_PROVIDER_WORKSPACE"
+    produces: terraform/$NEW_PROVIDER leaf targeting $NEW_PROVIDER_WORKSPACE
     docs: gcp.md
+
+  - id: new-provider-workspace
+    phase: 6
+    provider: hcp
+    actor: HUMAN
+    title: Create and safely configure the new HCP workspace
+    why: The leaf needs a remote, VCS-backed workspace with path-scoped plans and auto-apply disabled.
+    run: |
+      The plan-only credential cannot create an organization workspace. Using a user
+      or organization token yourself, run hcp.md's create_ws and
+      set_workspace_config helpers for:
+
+        create_ws "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+        set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+
+      Then grant the plan-only team `Plan` on the workspace (never `Write`) and
+      restore the plan-only credential before replying `done`. The grant makes the
+      workspace visible so the agent can verify it without receiving your privileged token.
+    check: |
+      curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+        -H "Authorization: Bearer $HCP_TOKEN" \
+        | jq -e --arg dir "terraform/$NEW_PROVIDER" --arg repo "$REPO" --arg tf_version "$TERRAFORM_VERSION" '
+            .data.attributes as $a
+            | ($a["working-directory"] == $dir)
+              and ($a["execution-mode"] == "remote")
+              and ($a["terraform-version"] == $tf_version)
+              and ($a["auto-apply"] == false)
+              and ($a["speculative-enabled"] == true)
+              and ($a["file-triggers-enabled"] == true)
+              and ($a["queue-all-runs"] == false)
+              and ((($a["trigger-patterns"] // []) | sort)
+                   == ([$dir + "/**", ".infra-copilot/config.md"] | sort))
+              and (($a["vcs-repo"].identifier // "") == $repo)
+              and (($a["vcs-repo"].branch // "") == "main")' >/dev/null
+    produces: configured HCP workspace visible to the plan-only credential
+    docs: hcp.md#phase-1--workspaces
+
+  - id: new-provider-plan-access
+    phase: 6
+    provider: hcp
+    actor: HUMAN
+    title: The plan-only team holds Plan on the new workspace
+    why: The agent must be able to plan the leaf without regaining an apply path.
+    run: |
+      In HCP, grant the plan-only team `Plan` on $NEW_PROVIDER_WORKSPACE. Do not
+      grant `Write` or organization permissions. Reply `done`; the repository-derived
+      hcp-apply-scope inventory rechecks every leaf and workspace.
+    tri_state: true
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
+    produces: Plan access, with no apply or workspace-update permission
+    docs: docs/policy.md#a-credential-that-cannot-apply
+
+  - id: new-provider-credentials
+    phase: 6
+    provider: hcp
+    actor: HUMAN
+    title: Put the provider credential configuration in HCP
+    why: The first plan must authenticate without exposing credential values to the agent or repository.
+    run: |
+      Mint or configure the provider's least-privilege credential as its runbook
+      requires. In HCP workspace $NEW_PROVIDER_WORKSPACE, add every entry declared
+      by NEW_PROVIDER_CREDENTIALS with the exact key, category, and sensitive flag.
+      Paste secret values yourself; never send them to the agent. Reply `done` so
+      the agent can verify metadata through the vars API.
+    check: |
+      WS_ID=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+        -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id // empty')
+      test -n "$WS_ID" || exit 1
+      curl -sf "$hcp_api/workspaces/$WS_ID/vars" -H "Authorization: Bearer $HCP_TOKEN" \
+        | jq -e --argjson expected "$NEW_PROVIDER_CREDENTIALS" '
+            [.data[] | .attributes] as $actual
+            | ($expected | length) > 0
+              and all($expected[]; . as $want
+                | any($actual[];
+                    .key == $want.key
+                    and .category == $want.category
+                    and .sensitive == $want.sensitive))' >/dev/null
+    produces: all declared provider credential variables in HCP
+    docs: docs/secrets.md
+
+  - id: new-provider-plan
+    phase: 6
+    provider: repo
+    actor: AGENT
+    title: Run the first plan on the new leaf
+    why: This proves the leaf, workspace access, and provider credentials end to end.
+    run: 'cd "terraform/$NEW_PROVIDER" && terraform init && terraform plan'
+    check: 'cd "terraform/$NEW_PROVIDER" && terraform init -input=false >/dev/null && terraform plan -input=false >/dev/null'
+    produces: green speculative plan for $NEW_PROVIDER_WORKSPACE
+    docs: docs/hcp-api.md

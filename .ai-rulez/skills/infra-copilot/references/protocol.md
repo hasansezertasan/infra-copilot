@@ -79,6 +79,14 @@ this skill's scope (its phase range of [`steps.yaml`](steps.yaml)) top to bottom
 each step's `check` to discover where things already stand. Resume at the first step whose
 check is red. An all-green scope means "already done, nothing to do."
 
+Phase 6 is parameterized rather than GCP-specific. Export
+`ADDITIONAL_PROVIDER_NAMES` and run `new-provider-inventory` once; that manifest check
+catches an extra Terraform leaf with no durable adoption record. Then, for every entry in
+config.md's `additional_providers`, export its `NEW_PROVIDER*` values and walk the
+remaining `new-provider-*` steps in order. Finish one entry before starting the next. An
+empty list means the optional phase is not applicable only when the inventory check is
+green.
+
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
 pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool

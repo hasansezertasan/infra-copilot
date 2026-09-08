@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1fce24d765addd0ec2109898d3bed25b5c82115891d4602e6504ca68bc178798
-Source-Hash: blake3:7e387d59be8a5faafede38d8bd5096e3e23c61447d16a52e8f6048b71a933809
+Content-Hash: blake3:865097b896cb6785f5f162752bbd763a8e2a6a98b032b9ab8199ec0032fa4663
+Source-Hash: blake3:896ef9db538ace58885a179226753b31f986820ac2c138991bb0856cc2208fcd
 Schema-Version: v1
 -->
 
@@ -19,12 +19,14 @@ Schema-Version: v1
 
 ## Prerequisite: make the decision (HUMAN + docs)
 
-`gcp-decision` in [`steps.yaml`](steps.yaml) stays **red** until GCP is
-intentionally adopted (`test -d terraform/gcp`). Before writing anything:
+The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml) stays
+**red** until GCP is intentionally adopted. Before writing provider code:
 
 1. Add a row to `.infra-copilot/decisions.md` (what GCP is for, auth method, state).
 2. Note the new leaf in `terraform/README.md`.
-3. Then, and only then, follow the phases below.
+3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
+   variable used for authentication.
+4. Then, and only then, follow the parameterized Phase 6 steps.
 
 ## Recommended auth: Workload Identity Federation (keyless)
 
@@ -42,7 +44,7 @@ the rotation burden that implies.
 | Enable APIs, create SA / WIF pool | **AGENT** | `gcloud` / GCP API, once auth exists. |
 | Approve the WIF trust / OAuth consent | **HUMAN** | One browser consent for the federation trust. |
 | Paste SA key into HCP *(only if not using WIF)* | **HUMAN** | Agent must never see the key. |
-| Create the `gcp` HCP workspace | **HUMAN** | Post-handoff HCP mutation needs a temporary user/org token intentionally withheld from the agent. |
+| Create the `gcp` HCP workspace | **AGENT** | HCP API (same as Phase 1). |
 | First `plan` | **AGENT** | Speculative run in HCP. |
 
 ## Phases (projected)
@@ -91,16 +93,11 @@ gcloud iam workload-identity-pools create hcp-pool --location=global ...
 Provider block goes in `terraform/gcp/providers.tf`, using `google`/`google-beta`, with
 impersonation rather than a key file.
 
-### HUMAN — HCP workspace
+### AGENT — HCP workspace
 
 Create a `gcp` workspace (working dir `terraform/gcp`, path filter `terraform/gcp/**`,
-remote execution, auto-apply **off**) with the canonical `create_ws` helper from
-[`hcp.md`](hcp.md), using a temporary user or organization token. This differs from
-bootstrap Phase 1: `hcp-apply-scope` has already narrowed the agent to a team token with
-no organization permissions, and that credential must not be widened or replaced for
-this mutation. After creation, grant the plan-only team `Plan` on the workspace and drop
-the temporary token. If using a SA key instead of WIF, that is where the sensitive var
-lives.
+remote execution, auto-apply **off**) exactly like Phase 1. If using a SA key instead of
+WIF, that's where the sensitive var lives.
 
 ### AGENT — first plan
 

@@ -8,6 +8,15 @@ cloudflare_zone_id: 0000000000000000000000000000000
 managed_repos:
   - your-org/infra
 hcp_status_check_id: ""
+additional_providers: []
+# Replace [] when adopting a provider. Example:
+# additional_providers:
+#   - name: gcp
+#     workspace: gcp
+#     credential_variables:
+#       - key: TFC_GCP_PROVIDER_AUTH
+#         category: env
+#         sensitive: false
 # infra-copilot:customization end
 ---
 
