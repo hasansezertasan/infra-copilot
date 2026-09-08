@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:f0e99064ec68afeec08dd0442972aa18b70f1332329b4d9daab7eb3a46504ed2",
+  "source_hash": "blake3:1c4575af2feeefc7aae29abea965f6a0dc28bf0003be61a7569ec7a6a187bc1f",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -36,7 +36,7 @@
       "content_hash": "blake3:87ca2929ab55cd54b90ddb1bb1c5f56882f31ccbb06848fb2e3989ff4c6635c3"
     },
     "skills/infra-copilot/references/checks/hcp-current-plan.sh": {
-      "content_hash": "blake3:56c800293077254f6fe83e4cd8ac951089c70c077c5cc9a2d6310e9f7a261c5a"
+      "content_hash": "blake3:50f17bc8f2e9328b20ad223b97799bd180cf58b7d9afdbf05e239de77afd21ce"
     },
     "skills/infra-copilot/references/checks/leaf-cloud.sh": {
       "content_hash": "blake3:834f40a1b53e18e13d57ac16f9380416d4dd3342373c5698fb29bf160d1d19d8"

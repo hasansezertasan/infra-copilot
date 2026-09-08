@@ -105,15 +105,16 @@ head_ids=$(printf '%s' "$head_body" | jq -cer '.data | map(.id)' 2>/dev/null) \
 # parseable before selection; otherwise malformed newer evidence could be hidden
 # by an older valid run during sorting.
 candidates=$(jq -scer '
-  [.[].included[]?
+  . as $pages
+  | [$pages[].included[]?
     | select(.type == "ingress-attributes")
     | {id, sha: .attributes["commit-sha"]}
     | select(.sha | type == "string" and test("^[0-9a-f]{40}$"))] | unique_by(.id) as $ingress
-  | [.[].included[]?
+  | [$pages[].included[]?
       | select(.type == "configuration-versions")
       | {id, ingress_id: (.relationships["ingress-attributes"].data.id // null)}]
       | unique_by(.id) as $configs
-  | [.[].data[]] as $runs
+  | [$pages[].data[]] as $runs
   | if all($runs[];
       (.relationships["configuration-version"].data.id // null) as $config_id
       | ([$configs[] | select(.id == $config_id)]) as $config_matches

@@ -829,6 +829,36 @@ terraform {
         self.assertIn('select(index("forget"))', helper)
         self.assertIn('[ "$forgets" -ne 0 ]', helper)
 
+    @unittest.skipUnless(os.name == "posix", "the helper uses jq")
+    def test_plan_join_preserves_paginated_run_documents(self) -> None:
+        helper = HCP_CURRENT_PLAN.read_text(encoding="utf-8")
+        join_program = helper.split("candidates=$(jq -scer '\n", 1)[1].split(
+            "' \"$pages\"", 1
+        )[0]
+        page = (
+            '{"included":['
+            '{"type":"ingress-attributes","id":"ia-1","attributes":'
+            '{"commit-sha":"0123456789abcdef0123456789abcdef01234567"}},'
+            '{"type":"configuration-versions","id":"cv-1","relationships":'
+            '{"ingress-attributes":{"data":{"id":"ia-1"}}}}],'
+            '"data":[{"id":"run-1","relationships":'
+            '{"configuration-version":{"data":{"id":"cv-1"}}}}]}'
+        )
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as fixture:
+            fixture.write(page)
+            fixture.flush()
+            result = subprocess.run(
+                ["jq", "-scer", join_program, fixture.name],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count('"id":"run-1"'), 1)
+        self.assertIn(
+            '"_commit_sha":"0123456789abcdef0123456789abcdef01234567"',
+            result.stdout,
+        )
+
     def test_inventory_covers_actual_provider_tool_keys(self) -> None:
         inventory = self.steps["new-provider-inventory"]
         self.assertIn("ADDITIONAL_PROVIDER_MISE_TOOLS", inventory)
