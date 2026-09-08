@@ -142,6 +142,24 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertEqual(module_only.returncode, 0, module_only.stderr)
         self.assertNotEqual(collision.returncode, 0)
 
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_inventory_rejects_reserved_bootstrap_leaf_names(self) -> None:
+        inventory = self.steps["new-provider-inventory"]
+        env = {
+            **os.environ,
+            "ADDITIONAL_PROVIDER_WORKSPACES": '["extra"]',
+            "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+        }
+        for name in ("cloudflare", "github"):
+            result = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                env={**env, "ADDITIONAL_PROVIDER_NAMES": f'["{name}"]'},
+                capture_output=True,
+                text=True,
+            )
+            with self.subTest(name=name):
+                self.assertNotEqual(result.returncode, 0)
+
     def test_decision_is_not_inferred_from_the_leaf_directory(self) -> None:
         decision = self.steps["new-provider-decision"]
         self.assertIn(".infra-copilot/decisions.md", decision)
@@ -228,6 +246,8 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn('== ([$dir + "/**", ".infra-copilot/config.md"] | sort)', workspace)
         self.assertIn('($a["queue-all-runs"] == false)', workspace)
         self.assertIn('test "$hcp_api" = "https://app.terraform.io/api/v2"', workspace)
+        self.assertIn("    tri_state: true", workspace)
+        self.assertIn("*) exit 2", workspace)
 
         helper = HCP.read_text(encoding="utf-8").split(
             "  set_workspace_config () {", 1
@@ -243,6 +263,8 @@ class NewProviderFlowTests(unittest.TestCase):
         ):
             with self.subTest(reconciliation=marker):
                 self.assertIn(marker, helper)
+        self.assertIn('[ "$existing_repo" = "$REPO" ]', helper)
+        self.assertIn("refusing to reconfigure workspace owned by", helper)
 
     @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
     def test_leaf_check_reads_name_from_the_cloud_workspace_block(self) -> None:
