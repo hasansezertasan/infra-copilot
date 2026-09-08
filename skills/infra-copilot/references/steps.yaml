@@ -285,7 +285,8 @@ steps:
       body=$(mktemp); trap 'rm -f "$body"' EXIT
       code=$(curl -s -o "$body" -w '%{http_code}' \
         "$hcp_api/organizations/$ORG/oauth-clients" \
-        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+        -H "Authorization: Bearer $HCP_TOKEN") \
+        || { echo "CANNOT VERIFY: the request for $ORG's oauth-clients did not complete (curl exit $?) — DNS, TLS, a timeout, or an unwritable temporary file" >&2; exit 2; }
       case "$code" in
         200)
           # jq -e exits 4 on empty input and 5 on invalid JSON, and this step is
@@ -314,13 +315,23 @@ steps:
         curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
           -H "Authorization: Bearer $HCP_TOKEN" >"$body" \
           || { echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code) and page $page of the workspace list could not be read either" >&2; exit 2; }
-        # A GitHub App installation id is what makes this evidence GitHub-specific.
-        # An organization can hold a GitLab or Bitbucket workspace with the same
-        # owner/name identifier, and that would satisfy a bare identifier match
-        # while GitHub speculative plans stayed disconnected.
+        # Require an actual VCS connection, by either mechanism. create_ws in
+        # hcp.md connects through `oauth-token-id`, so requiring a GitHub App
+        # installation id rejected every workspace this manifest provisions --
+        # which put the fallback back into the exit-2 state it exists to avoid.
+        #
+        # This cannot establish the provider family: a workspace's vcs-repo
+        # carries no service-provider field, and resolving the oauth token to its
+        # client needs an organization-scoped read the narrowed credential does
+        # not have. So an organization holding a GitLab workspace with the same
+        # owner/name would satisfy this. Accepted deliberately: the primary path
+        # above does check GitHub specifically, and this branch runs only after
+        # the handoff, when phase 1 is complete and was verified under the user
+        # token. Recorded in docs/policy.md's limits.
         if jq -e --arg repo "${REPO:-}" \
              '[.data[] | select(.attributes["vcs-repo"].identifier == $repo)
-                       | select(.attributes["vcs-repo"]["github-app-installation-id"] != null)]
+                       | select((.attributes["vcs-repo"]["oauth-token-id"] != null)
+                                or (.attributes["vcs-repo"]["github-app-installation-id"] != null))]
               | length > 0' "$body" >/dev/null 2>&1; then
           exit 0
         fi
@@ -331,7 +342,7 @@ steps:
         [ "$page" -lt "$pages" ] || break
         page=$((page + 1))
       done
-      echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code), and no GitHub-connected workspace for ${REPO:-<REPO unset>} is visible; if the plan-only identity is in use, phase 1 was verified under the user token" >&2
+      echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code), and no VCS-connected workspace for ${REPO:-<REPO unset>} is visible; if the plan-only identity is in use, phase 1 was verified under the user token" >&2
       exit 2
     produces: GitHub<->HCP OAuth connection
     docs: docs/setup.md#2-hcp-terraform--workspaces

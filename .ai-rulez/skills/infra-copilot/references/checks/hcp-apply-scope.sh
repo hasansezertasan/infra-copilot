@@ -21,8 +21,13 @@
 #   0  the credential can plan and cannot cause an apply, everywhere it can see
 #   1  invariant BROKEN — a real verdict about the credential:
 #        UNPROTECTED     it can apply, change workspace settings, or a workspace
-#                        auto-applies what it queues
-#        OVER-RESTRICTED it cannot queue runs on a workspace it can see
+#                        auto-applies what it queues. Asserted for EVERY visible
+#                        workspace: the credential must not be able to change
+#                        anything, anywhere.
+#        OVER-RESTRICTED it cannot queue runs on a workspace belonging to $REPO.
+#                        Scoped deliberately — this repo needs Plan only where it
+#                        runs, and demanding it elsewhere would widen access for
+#                        no reason.
 #        SPLIT-BRAIN     $HCP_TOKEN and terraform's credential are different tokens
 #   2  COULD NOT VERIFY — missing config, no credential, jq or curl missing, an API
 #      read failed, unreadable evidence, or a managed leaf with no visible
@@ -176,18 +181,26 @@ while : ; do
         # the apply permission is denied.
         [ "$update" != true ] || broken="${broken}UNPROTECTED: the credential can update settings on workspace '$name', including auto-apply, so the boundary is self-removable.
 "
-        [ "$apply" != false ] || [ "$plan" != false ] \
-            || broken="${broken}OVER-RESTRICTED: the credential cannot queue runs on workspace '$name', so plan steps cannot work there. Grant the team the workspace 'Plan' permission, not 'Read'.
-"
-
         # `working-directory` is not unique across an organization: two repos
         # bootstrapped by this plugin both have terraform/cloudflare. Only count a
         # directory toward this repo's inventory when the workspace is connected to
         # this repo.
         directory=$(printf '%s' "$entry" | jq -r '.attributes["working-directory"] // empty' 2>/dev/null)
         identifier=$(printf '%s' "$entry" | jq -r '.attributes["vcs-repo"].identifier // empty' 2>/dev/null)
-        if [ -n "$directory" ] && [ "$identifier" = "$REPO" ]; then
-            seen_repo_directories="$seen_repo_directories $directory"
+        ours=false
+        if [ "$identifier" = "$REPO" ]; then
+            ours=true
+            [ -z "$directory" ] || seen_repo_directories="$seen_repo_directories $directory"
+        fi
+
+        # Scoped to this repository, unlike the assertions above. The step needs
+        # Plan only where this repo runs; a workspace the team can merely read
+        # elsewhere in the organization is not this repo's business, and telling
+        # the operator to grant Plan on it would widen access to that workspace's
+        # plans, state and variables for nothing.
+        if [ "$ours" = true ] && [ "$apply" = false ] && [ "$plan" = false ]; then
+            broken="${broken}OVER-RESTRICTED: the credential cannot queue runs on workspace '$name', which belongs to $REPO, so plan steps cannot work there. Grant the team the workspace 'Plan' permission, not 'Read'.
+"
         fi
     done
 

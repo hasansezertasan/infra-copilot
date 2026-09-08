@@ -30,18 +30,27 @@ MANIFEST = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
 GITHUB_CLIENT = '{"data":[{"attributes":{"service-provider":"github_app"}}]}'
 NO_CLIENT = '{"data":[]}'
 GITLAB_ONLY = '{"data":[{"attributes":{"service-provider":"gitlab"}}]}'
-def workspace(identifier: str, *, github: bool = True, pages: int = 1) -> str:
-    installation = '"github-app-installation-id":"ghi-1"' if github else '"github-app-installation-id":null'
+def workspace(identifier: str, *, connection: str = "oauth", pages: int = 1) -> str:
+    """One workspace, connected by `oauth`, `app`, or not at all (`none`).
+
+    hcp.md's create_ws connects through oauth-token-id, so that is the shape the
+    real flow produces -- an earlier fix required the App field and rejected it.
+    """
+    markers = {
+        "oauth": '"oauth-token-id":"ot-1","github-app-installation-id":null',
+        "app": '"oauth-token-id":null,"github-app-installation-id":"ghi-1"',
+        "none": '"oauth-token-id":null,"github-app-installation-id":null',
+    }[connection]
     return (
         '{"data":[{"attributes":{"vcs-repo":{"identifier":"%s",%s}}}],'
-        '"meta":{"pagination":{"total-pages":%d}}}' % (identifier, installation, pages)
+        '"meta":{"pagination":{"total-pages":%d}}}' % (identifier, markers, pages)
     )
 
 
 CONNECTED_WORKSPACE = workspace("acme/infra")
 OTHER_WORKSPACE = workspace("acme/other")
-#: Same owner/name, but connected through a non-GitHub provider.
-NON_GITHUB_WORKSPACE = workspace("acme/infra", github=False)
+#: Right identifier, but no VCS connection at all.
+UNCONNECTED_WORKSPACE = workspace("acme/infra", connection="none")
 
 
 def extract_check() -> str:
@@ -61,6 +70,7 @@ class VcsConnectCheckTests(unittest.TestCase):
         workspace_body: str = "{}",
         repo: str = "acme/infra",
         later_pages: dict[int, str] | None = None,
+        transport_fails: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
             # Two URLs, two bodies. The stub writes to whatever -o names, which is
@@ -68,7 +78,8 @@ class VcsConnectCheckTests(unittest.TestCase):
             stub = Path(directory) / "curl"
             stub.write_text(
                 "#!/bin/sh\n"
-                'out=""; prev=""; url=""\n'
+                + ("exit 6\n" if transport_fails else "")
+                + 'out=""; prev=""; url=""\n'
                 'for a in "$@"; do\n'
                 '  case "$prev" in -o) out="$a" ;; esac\n'
                 '  case "$a" in http*) url="$a" ;; esac\n'
@@ -160,17 +171,39 @@ class VcsConnectCheckTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2, result.stdout)
                 self.assertIn("could not be parsed", result.stderr)
 
-    def test_a_matching_workspace_on_a_non_github_provider_is_not_evidence(self) -> None:
-        """An organization can hold a GitLab workspace with the same owner/name.
+    def test_the_oauth_connection_this_manifest_creates_is_evidence(self) -> None:
+        """create_ws connects through oauth-token-id, not a GitHub App.
 
-        A bare identifier match would pass while GitHub speculative plans stayed
-        disconnected, contradicting the step's provider invariant.
+        Requiring the App field rejected every workspace the documented flow
+        provisions, so the fallback exited 2 and blocked resume -- the state it
+        was added to prevent.
         """
         result = self.run_check(
-            code="403", oauth_body="{}", workspace_body=NON_GITHUB_WORKSPACE
+            code="403", oauth_body="{}", workspace_body=workspace("acme/infra")
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_github_app_connection_is_also_evidence(self) -> None:
+        result = self.run_check(
+            code="403",
+            oauth_body="{}",
+            workspace_body=workspace("acme/infra", connection="app"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_workspace_with_no_vcs_connection_is_not_evidence(self) -> None:
+        """Matching identifier alone does not show a connection exists."""
+        result = self.run_check(
+            code="403", oauth_body="{}", workspace_body=UNCONNECTED_WORKSPACE
         )
         self.assertEqual(result.returncode, 2, result.stdout)
-        self.assertIn("GitHub-connected", result.stderr)
+        self.assertIn("VCS-connected", result.stderr)
+
+    def test_a_transport_failure_names_itself(self) -> None:
+        """A tri-state 2 with empty stderr gives the operator nothing to fix."""
+        result = self.run_check(code="", oauth_body="{}", transport_fails=True)
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("did not complete", result.stderr)
 
     def test_the_fallback_follows_pagination(self) -> None:
         """The workspace may sit past the first page of a large organization."""

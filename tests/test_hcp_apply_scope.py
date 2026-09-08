@@ -47,6 +47,7 @@ class HcpApplyScopeTests(unittest.TestCase):
         leaves: list[str] | None = None,
         auto_apply: tuple[str, ...] = (),
         repo: str = "acme/infra",
+        foreign: tuple[str, ...] = (),
         pagination: object = 1,
         fail_after_page: int | None = None,
         empty_after_page: int | None = None,
@@ -75,7 +76,9 @@ class HcpApplyScopeTests(unittest.TestCase):
                         # directory against the repo's terraform/<leaf>/ dirs and
                         # correlates the VCS identifier with $REPO.
                         "working-directory": DIRECTORIES.get(name, f"terraform/{name}"),
-                        "vcs-repo": {"identifier": repo},
+                        "vcs-repo": {
+                            "identifier": "acme/elsewhere" if name in foreign else repo
+                        },
                         "auto-apply": name in auto_apply,
                     }
                     if permissions is not None:
@@ -183,6 +186,31 @@ class HcpApplyScopeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("OVER-RESTRICTED", result.stderr)
         self.assertNotIn("UNPROTECTED", result.stderr)
+
+    def test_another_repositorys_read_only_workspace_is_not_over_restricted(self) -> None:
+        """Plan is needed only where this repo runs.
+
+        Demanding it on a workspace the team can merely read elsewhere would
+        tell the operator to widen access to that workspace's plans, state and
+        variables for nothing.
+        """
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY), ("theirs", READ_ONLY)],
+            leaves=["terraform/cloudflare"],
+            foreign=("theirs",),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_another_repositorys_appliable_workspace_is_still_unprotected(self) -> None:
+        """The security assertion stays global: it must not apply anything."""
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY), ("theirs", CAN_APPLY)],
+            leaves=["terraform/cloudflare"],
+            foreign=("theirs",),
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("UNPROTECTED", result.stderr)
+        self.assertIn("theirs", result.stderr)
 
     # ---- the credential terraform would actually use ----
 
