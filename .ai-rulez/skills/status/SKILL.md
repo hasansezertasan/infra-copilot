@@ -44,9 +44,12 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    [`../infra-copilot/references/docs/setup.md#6`](../infra-copilot/references/docs/setup.md#6-local-development) and
    [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example).
    Report the HCP token pivot: present or not.
-   For each additional provider, report every tool declared by its `mise_tools` inventory
-   as pinned and installed, drifted, or missing; omit provider-tool output when that list
-   is empty. GCP declares `gcloud`, but this reporting is provider-neutral.
+   For each additional provider, run `new-provider-toolchain` first without activating
+   any conditional provider preflight. If that HUMAN trust gate is red, report the gate
+   and do not inspect or execute its provider CLIs. Only after it is green, export that
+   entry's `NEW_PROVIDER_MISE_TOOLS` and report each declared tool as pinned and installed,
+   drifted, or missing. Omit provider-tool output when that list is empty. GCP declares
+   `gcloud`, but this reporting is provider-neutral.
 3. **Full scan — but only with checks that don't touch the working tree.** Walk **every**
    step in [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml) (all phases, 0–6). Never run a
    step's `run`. Classify each `check` before running it — the read-only guarantee depends

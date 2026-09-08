@@ -17,6 +17,7 @@ additional_providers: []
 #       - gcloud
 #     fork_speculative_plans_disabled: false
 #     fork_speculative_plans_workspace_id: ""
+#     credentials_verified_at: ""
 #     credential_variables:
 #       - key: TFC_GCP_PROVIDER_AUTH
 #         category: env

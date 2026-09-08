@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:3e6cc4467dff95cd955c61df35e28944bf1b91e4c65d318abaf421d9195d0652
-Source-Hash: blake3:0fde7730e58afab76ae6aae7a6b7cc2b541b224334cad719ed22d7f57dc51798
+Content-Hash: blake3:523799688b022a6a0af2e0475007de3b9dfd19b03e27c6d0c6f11ebd57fbede9
+Source-Hash: blake3:b876e61f2cd2881d13ac7f4e3171b45c069470d4132db325ef23ff63dd40d6b8
 Schema-Version: v1
 -->
 
@@ -46,6 +46,7 @@ additional_providers:
       - gcloud
     fork_speculative_plans_disabled: false # set true only after the HUMAN verifies the UI
     fork_speculative_plans_workspace_id: "" # immutable ws-... identity for that attestation
+    credentials_verified_at: ""  # HUMAN records UTC after installing the declared variables
     credential_variables:
       - key: TFC_GCP_PROVIDER_AUTH
         category: env         # env or terraform
@@ -63,6 +64,12 @@ change `fork_speculative_plans_disabled` from `false` to `true`, and record the 
 workspace's immutable `ws-...` ID in `fork_speculative_plans_workspace_id`; the HCP API
 does not expose the toggle itself. A renamed or recreated workspace therefore invalidates
 the attestation instead of inheriting it by name.
+
+Leave `credentials_verified_at` empty until the HUMAN has installed or replaced every
+declared workspace variable, then record that moment as strict UTC
+`YYYY-MM-DDTHH:MM:SSZ` and commit the config. The first-plan check accepts only an HCP run
+created at or after that durable handoff, so an older run cannot stand in for the current
+least-privilege credentials.
 
 Record every variable required to authenticate the provider. A flag such as
 `TFC_GCP_PROVIDER_AUTH=true` is credential configuration even when it is intentionally
@@ -121,12 +128,15 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export NEW_PROVIDER_MISE_TOOLS='<entry.mise_tools as compact JSON>'
    export NEW_PROVIDER_FORK_PLANS_DISABLED=<entry.fork_speculative_plans_disabled>
    export NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID=<entry.fork_speculative_plans_workspace_id>
+   export NEW_PROVIDER_CREDENTIALS_VERIFIED_AT=<entry.credentials_verified_at>
    export NEW_PROVIDER_CREDENTIALS='<entry.credential_variables as compact JSON>'
    ```
 
    For an entry written before `fork_speculative_plans_workspace_id` existed, export it
    as the empty string. That deliberately makes the fork-safety step red until the human
    binds the prior attestation to the current immutable workspace ID.
+   Likewise, export a missing legacy `credentials_verified_at` as the empty string; that
+   keeps credential and plan completion red until the HUMAN performs the current handoff.
 
    Validate `name` and `workspace` against `^[a-z0-9][a-z0-9-]*$` before putting them
    into a path or URL. `NEW_PROVIDER_MISE_TOOLS` and `NEW_PROVIDER_CREDENTIALS` are JSON

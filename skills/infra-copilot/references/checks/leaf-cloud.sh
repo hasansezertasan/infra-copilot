@@ -35,6 +35,12 @@ awk -v want="$want" '
         }
     }
     {
+        if (inheredoc) {
+            marker = $0
+            if (heredoc_indent) sub(/^[[:space:]]*/, "", marker)
+            if (marker == heredoc_end) inheredoc = 0
+            next
+        }
         opened_cloud = 0
         opened_workspace = 0
         line = $0
@@ -50,6 +56,17 @@ awk -v want="$want" '
             line = substr(line, 1, start - 1) substr(rest, end + 2)
         }
         sub(/#.*/, "", line); sub(/\/\/.*/, "", line)
+        if (match(line, /<<-?[[:space:]]*[A-Za-z_][A-Za-z0-9_]*/)) {
+            heredoc_start = RSTART
+            heredoc = substr(line, RSTART, RLENGTH)
+            heredoc_indent = (heredoc ~ /^<<-/)
+            sub(/^<<-?[[:space:]]*/, "", heredoc)
+            heredoc_end = heredoc
+            line = substr(line, 1, heredoc_start - 1)
+            starts_heredoc = 1
+        } else {
+            starts_heredoc = 0
+        }
         structure = line
         gsub(/"[^"]*"/, "", structure)
     }
@@ -94,6 +111,7 @@ awk -v want="$want" '
         depth += structural_depth_delta(structure)
         if (inws && depth < workspace_depth) inws = 0
         if (incloud && depth < cloud_depth) incloud = 0
+        if (starts_heredoc) inheredoc = 1
     }
 ' "$@" >>"$output" 2>/dev/null || exit 2
 fi

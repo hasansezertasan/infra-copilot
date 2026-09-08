@@ -5,8 +5,8 @@ description: "Read-only health check: runs every step's check across the whole m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e954d7c98fb40ea47708c79d82b1d995c65ff63a609ae3dc608e518905435827
-Source-Hash: blake3:0fde7730e58afab76ae6aae7a6b7cc2b541b224334cad719ed22d7f57dc51798
+Content-Hash: blake3:aa4f25863f40ae281838fae2765d8ac948f2772d5374b629bb1d45074c18a616
+Source-Hash: blake3:b876e61f2cd2881d13ac7f4e3171b45c069470d4132db325ef23ff63dd40d6b8
 Schema-Version: v1
 -->
 
@@ -51,9 +51,12 @@ This file is a **router**: the machinery — actor model, resume scan, preflight
    [`../infra-copilot/references/docs/setup.md#6`](../infra-copilot/references/docs/setup.md#6-local-development) and
    [`../infra-copilot/references/decisions.md.example`](../infra-copilot/references/decisions.md.example).
    Report the HCP token pivot: present or not.
-   For each additional provider, report every tool declared by its `mise_tools` inventory
-   as pinned and installed, drifted, or missing; omit provider-tool output when that list
-   is empty. GCP declares `gcloud`, but this reporting is provider-neutral.
+   For each additional provider, run `new-provider-toolchain` first without activating
+   any conditional provider preflight. If that HUMAN trust gate is red, report the gate
+   and do not inspect or execute its provider CLIs. Only after it is green, export that
+   entry's `NEW_PROVIDER_MISE_TOOLS` and report each declared tool as pinned and installed,
+   drifted, or missing. Omit provider-tool output when that list is empty. GCP declares
+   `gcloud`, but this reporting is provider-neutral.
 3. **Full scan — but only with checks that don't touch the working tree.** Walk **every**
    step in [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml) (all phases, 0–6). Never run a
    step's `run`. Classify each `check` before running it — the read-only guarantee depends

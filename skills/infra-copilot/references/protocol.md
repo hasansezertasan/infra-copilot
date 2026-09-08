@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7817b4bb49a546fb61c26a543e11a3d70325285bff68a2e8d1f23deb457d4c02
-Source-Hash: blake3:0fde7730e58afab76ae6aae7a6b7cc2b541b224334cad719ed22d7f57dc51798
+Content-Hash: blake3:30bef8d29ca58c2fea1135dd26151f7a78dfe982d0d04e77783e84609951ef4b
+Source-Hash: blake3:b876e61f2cd2881d13ac7f4e3171b45c069470d4132db325ef23ff63dd40d6b8
 Schema-Version: v1
 -->
 
@@ -114,6 +114,11 @@ The access check scopes both repository-derived visibility and Plan requirements
 current provider while still auditing every visible workspace for apply/update capability. This
 lets a later provider reach its own bootstrap handoff without weakening the global
 negative-permission audit.
+
+The credential handoff records `credentials_verified_at` in committed config only after
+the HUMAN installs every declared variable. `new-provider-plan` accepts or reuses only a
+run created at or after that UTC timestamp, so a prior workspace run cannot prove the
+new least-privilege credential works.
 
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the

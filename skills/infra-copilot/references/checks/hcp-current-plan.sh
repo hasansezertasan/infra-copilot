@@ -7,13 +7,17 @@ case "$mode" in check|queue) : ;; *) echo "usage: $0 [check|queue]" >&2; exit 2 
 
 cannot_verify() { echo "CANNOT VERIFY: $1" >&2; exit 2; }
 
-for tool in curl jq git; do
+for tool in curl jq git grep; do
     command -v "$tool" >/dev/null 2>&1 || cannot_verify "$tool is not on PATH"
 done
-for required in ORG REPO NEW_PROVIDER NEW_PROVIDER_WORKSPACE HCP_TOKEN hcp_api; do
+for required in ORG REPO NEW_PROVIDER NEW_PROVIDER_WORKSPACE \
+    NEW_PROVIDER_CREDENTIALS_VERIFIED_AT HCP_TOKEN hcp_api; do
     eval "value=\${$required:-}"
     [ -n "$value" ] || cannot_verify "$required is not set"
 done
+printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \
+    | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
+    || cannot_verify "NEW_PROVIDER_CREDENTIALS_VERIFIED_AT is not strict UTC"
 [ "$hcp_api" = "https://app.terraform.io/api/v2" ] \
     || cannot_verify "refusing to send the HCP token to unexpected endpoint '$hcp_api'"
 
@@ -128,22 +132,29 @@ fi
 
 status=$(printf '%s' "$latest" | jq -er '.attributes.status') \
     || cannot_verify "matched run has no status"
+fresh=$(printf '%s' "$latest" | jq -er \
+    --arg verified "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" '
+      try (((.attributes["created-at"] | fromdateiso8601)
+        >= ($verified | fromdateiso8601)) | tostring) catch empty') \
+    || cannot_verify "matched run has no comparable created-at timestamp"
 
-if [ "$status" = policy_soft_failed ]; then
+if [ "$fresh" = true ] && [ "$status" = policy_soft_failed ]; then
     echo "POLICY INTERVENTION: the newest commit-correlated run needs human review; refusing to queue a retry" >&2
     exit 1
 fi
 
 if [ "$mode" = queue ]; then
-    case "$status" in
-      pending|fetching|fetching_completed|pre_plan_running|pre_plan_completed|queuing|plan_queued|planning|planned|cost_estimating|cost_estimated|policy_checking|policy_override|policy_checked|confirmed|post_plan_running|post_plan_completed|applying) \
-        cannot_verify "the newest commit-correlated run is still in flight ($status); refusing to queue a duplicate" ;;
-      planned_and_finished|planned_and_saved|applied)
-        echo "the newest commit-correlated run is already complete; no retry queued"
-        exit 0 ;;
-      errored|canceled|discarded|force_canceled) : ;;
-      *) cannot_verify "the newest commit-correlated run has unknown status '$status'" ;;
-    esac
+    if [ "$fresh" = true ]; then
+        case "$status" in
+          pending|fetching|fetching_completed|pre_plan_running|pre_plan_completed|queuing|plan_queued|planning|planned|cost_estimating|cost_estimated|policy_checking|policy_override|policy_checked|confirmed|post_plan_running|post_plan_completed|applying) \
+            cannot_verify "the newest post-credential run is still in flight ($status); refusing to queue a duplicate" ;;
+          planned_and_finished|planned_and_saved|applied)
+            echo "the newest post-credential run is already complete; no retry queued"
+            exit 0 ;;
+          errored|canceled|discarded|force_canceled) : ;;
+          *) cannot_verify "the newest post-credential run has unknown status '$status'" ;;
+        esac
+    fi
     cv_id=$(printf '%s' "$latest" | jq -er '
       .relationships["configuration-version"].data.id
       | select(type == "string" and length > 0)') \
@@ -172,6 +183,7 @@ if [ "$mode" = queue ]; then
     exit 0
 fi
 
+[ "$fresh" = true ] || exit 1
 case "$status" in
   planned_and_finished|planned_and_saved|applied) : ;;
   errored|canceled|discarded|force_canceled) exit 1 ;;
@@ -189,6 +201,12 @@ summary=$(printf '%s' "$plan_json" | jq -ec '
   select((.format_version | type) == "string")
   | select((.terraform_version | type) == "string")
   | select(((.resource_changes // []) | type) == "array")
+  | select(all((.resource_changes // [])[];
+      (.change.actions | type) == "array"
+      and (.change.actions | length) > 0
+      and all(.change.actions[];
+        . == "no-op" or . == "create" or . == "read" or . == "update"
+        or . == "delete" or . == "forget")))
   | [(.resource_changes // [])[]?.change.actions] as $actions
   | {creates: ([$actions[] | select(index("create"))] | length),
      destroys: ([$actions[] | select(index("delete"))] | length)}' 2>/dev/null) \

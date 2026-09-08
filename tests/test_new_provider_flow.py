@@ -175,7 +175,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("git diff --quiet HEAD", decision)
         self.assertIn("git diff --cached --quiet HEAD", decision)
         self.assertIn(
-            'grep -Fq "terraform/$NEW_PROVIDER" terraform/README.md || exit 1',
+            'grep -Eq "(^|[^A-Za-z0-9_-])terraform/$NEW_PROVIDER(/|',
             decision,
         )
 
@@ -189,6 +189,7 @@ class NewProviderFlowTests(unittest.TestCase):
             "NEW_PROVIDER_MISE_TOOLS": '["gcloud"]',
             "NEW_PROVIDER_FORK_PLANS_DISABLED": "false",
             "NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID": "",
+            "NEW_PROVIDER_CREDENTIALS_VERIFIED_AT": "",
             "NEW_PROVIDER_CREDENTIALS": (
                 '[{"key":"TFC_GCP_PROVIDER_AUTH","category":"env",'
                 '"sensitive":false}]'
@@ -222,6 +223,19 @@ class NewProviderFlowTests(unittest.TestCase):
                 "| Provider: gcp | adopt | locked |\n",
                 encoding="utf-8",
             )
+            (root / "terraform/README.md").write_text(
+                "terraform/gcp-old\n", encoding="utf-8"
+            )
+            prefix_only = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            (root / "terraform/README.md").write_text(
+                "terraform/gcp\n", encoding="utf-8"
+            )
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
             subprocess.run(
                 ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
@@ -244,6 +258,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 text=True,
             )
         self.assertNotEqual(negative.returncode, 0)
+        self.assertNotEqual(prefix_only.returncode, 0)
         self.assertEqual(positive.returncode, 0, positive.stderr)
 
     def test_explicit_adoption_bootstraps_an_empty_inventory(self) -> None:
@@ -457,6 +472,8 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("    tri_state: true", credentials)
         self.assertIn("page%5Bnumber%5D=$page", credentials)
         self.assertIn('["next-page"]', credentials)
+        self.assertIn("NEW_PROVIDER_CREDENTIALS_VERIFIED_AT", credentials)
+        self.assertIn("git diff --quiet HEAD -- .infra-copilot/config.md", credentials)
 
     def test_first_plan_targets_the_parameterized_leaf(self) -> None:
         plan = self.steps["new-provider-plan"]
@@ -478,6 +495,8 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("bounded 500-run scan", helper)
         self.assertIn("still in flight", helper)
         self.assertIn("planned_and_saved|applied", helper)
+        self.assertIn('attributes["created-at"] | fromdateiso8601', helper)
+        self.assertIn("NEW_PROVIDER_CREDENTIALS_VERIFIED_AT", helper)
         self.assertIn("the run-list head changed during pagination", helper)
         self.assertIn('git diff --quiet "$sha" HEAD', helper)
         self.assertIn('[ "$status" = policy_soft_failed ]', helper)
@@ -522,6 +541,40 @@ class NewProviderFlowTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("cloud=present", result.stdout)
+
+    @unittest.skipUnless(os.name == "posix", "the parser is a POSIX shell script")
+    def test_leaf_parser_ignores_terraform_syntax_inside_heredocs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            leaf = Path(directory)
+            (leaf / "versions.tf").write_text(
+                '''locals {
+  decoy = <<-CONFIG
+    terraform { cloud { organization = "spoofed" workspaces { name = "spoofed" } } }
+    CONFIG
+}
+terraform {
+  cloud {
+    organization = "acme"
+    workspaces { name = "gcp" }
+  }
+}
+''',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(leaf), "all"],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("organization=acme", result.stdout)
+        self.assertIn("workspaces.name=gcp", result.stdout)
+        self.assertNotIn("spoofed", result.stdout)
+
+    def test_plan_rejects_malformed_change_action_arrays(self) -> None:
+        helper = HCP_CURRENT_PLAN.read_text(encoding="utf-8")
+        self.assertIn('(.change.actions | type) == "array"', helper)
+        self.assertIn('. == "forget"', helper)
 
     def test_inventory_covers_actual_provider_tool_keys(self) -> None:
         inventory = self.steps["new-provider-inventory"]
@@ -611,6 +664,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertIn("Phase 6 plan contents and durable completion", status)
         self.assertIn("resource-count", status)
         self.assertIn("destroys are\n   zero", status)
+        self.assertIn("If that HUMAN trust gate is red", status)
 
     def test_legacy_config_defaults_only_a_missing_provider_list(self) -> None:
         config = CONFIG.read_text(encoding="utf-8")

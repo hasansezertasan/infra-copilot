@@ -113,6 +113,11 @@ current provider while still auditing every visible workspace for apply/update c
 lets a later provider reach its own bootstrap handoff without weakening the global
 negative-permission audit.
 
+The credential handoff records `credentials_verified_at` in committed config only after
+the HUMAN installs every declared variable. `new-provider-plan` accepts or reuses only a
+run created at or after that UTC timestamp, so a prior workspace run cannot prove the
+new least-privilege credential works.
+
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
 pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool

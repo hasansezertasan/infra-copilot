@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:25dfabe5d9448c79dc0b8b898bb0d5e6ea40461f5df1d0917e15088ce4407447
-Source-Hash: blake3:0fde7730e58afab76ae6aae7a6b7cc2b541b224334cad719ed22d7f57dc51798
+Content-Hash: blake3:90a34e7e1beed90f175559e13ede87e27602cdafe8de894511f579fcbe735f2f
+Source-Hash: blake3:b876e61f2cd2881d13ac7f4e3171b45c069470d4132db325ef23ff63dd40d6b8
 Schema-Version: v1
 -->
 
@@ -27,7 +27,7 @@ The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml)
 2. Note the new leaf in `terraform/README.md`.
 3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
    variable used for authentication, `mise_tools: [gcloud]`, and an initially false fork
-   speculative-plan attestation with an empty workspace-ID binding.
+   speculative-plan attestation with empty workspace-ID and credential-verification fields.
 4. Then, and only then, follow the parameterized Phase 6 steps.
 
 ## Recommended auth: Workload Identity Federation (keyless)
