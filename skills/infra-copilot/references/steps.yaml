@@ -282,6 +282,7 @@ steps:
     # filter[names] is case-insensitive, so re-assert the exact name in jq.
     check: |
       test -n "$HCP_TOKEN" || exit 1
+      [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || exit 1
       curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" \
         | jq -e '.data.id' >/dev/null || exit 1
       curl -sf "$hcp_api/organizations/$ORG/projects?filter%5Bnames%5D=infra" \
@@ -302,7 +303,7 @@ steps:
       # credential, which hcp-apply-scope's environment route makes a real case.
       export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
       curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e '.data.id'
-    check: 'curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
+    check: '[ "$hcp_api" = "https://app.terraform.io/api/v2" ] && curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
     produces: verified API access
     docs: docs/state.md#api-access
 

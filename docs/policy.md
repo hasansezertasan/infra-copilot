@@ -297,10 +297,12 @@ API token, and a user token carries that user's permissions — `docs/state.md` 
 plainly: *"the same token authenticates every HCP REST endpoint, so anything you can do in
 the UI you can script."* There is no apply scope to remove from it.
 
-The control is therefore to provision a **different principal** — a user or team without
-apply permission on the `cloudflare` and `github-org` workspaces — and run the agent as
-that identity. Phase 0 neither provisions nor verifies such an identity, so this is
-operator work today, and worth its own issue.
+The control is therefore to provision a **team token** whose team holds only the workspace
+`Plan` permission on this repository's workspaces — never `Write` or `Apply`. The
+`hcp-apply-scope` step in `steps.yaml` verifies this: it reads each workspace's
+`permissions` block under the calling token's own identity and requires `can-queue-run`
+true with `can-queue-apply` false, rejects user tokens outright, and stays red until the
+handoff is done.
 
 ## Claude Code specifics
 

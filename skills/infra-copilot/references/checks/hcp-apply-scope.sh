@@ -453,6 +453,21 @@ fi
 for leaf in terraform/*/; do
     [ -d "$leaf" ] || continue    # no terraform/ yet: nothing to compare
     directory=${leaf%/}
+    # Terraform override files (_override.tf, override.tf) replace matching
+    # blocks from base files, but this parser processes *.tf in glob order and
+    # takes the first value. Refuse to verify rather than risk reading the base
+    # value while Terraform uses the override.
+    override_found=
+    for f in "${leaf}"*.tf; do
+        [ -f "$f" ] || continue
+        case "${f##*/}" in
+            override.tf|*_override.tf) override_found=yes; break ;;
+        esac
+    done
+    if [ -n "$override_found" ]; then
+        note_unknown "$directory has Terraform override files; this parser cannot replicate Terraform's block-merge semantics, so the effective cloud configuration cannot be determined"
+        continue
+    fi
     # Every permission read above was scoped to $ORG, so a leaf pointed at
     # another organization proves nothing: a same-named plan-only workspace in
     # $ORG would satisfy the comparison while Terraform targeted an organization
