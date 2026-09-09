@@ -63,10 +63,8 @@ GCP is *not* provisioned today (template only).
 
 Route a new-provider adoption through Phase 6 of
 [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml), using
-the shared resume protocol. Retain the requested provider's validated lowercase slug for
-the protocol's bootstrap decision when config has no entry yet; an empty initial inventory
-does not cancel an explicit adoption request. The manifest and protocol own the sequence
-and safety rules.
+the shared resume protocol. The manifest and protocol own the bootstrap behavior,
+sequence, and safety rules.
 
 Template + rationale for the GCP case: [`../infra-copilot/references/gcp.md`](../infra-copilot/references/gcp.md).
 

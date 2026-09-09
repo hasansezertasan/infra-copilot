@@ -119,7 +119,9 @@ CUSTOMIZATION_RULE_MARKERS = (
     "verbatim",
     "Never merge by inference",
 )
-PHASE_FIVE_RULE_DOCUMENT = ".ai-rulez/skills/status/SKILL.md"
+PHASE_FIVE_RULE_DOCUMENT = (
+    ".ai-rulez/skills/infra-copilot/references/status.md"
+)
 PHASE_FIVE_RULE_MARKERS = (
     # A clean run alone must never be read as "imports are done" ...
     "imports: 0",
@@ -136,7 +138,7 @@ TOOLCHAIN_WORKSPACE_CHECK_DOCUMENT = (
 TOOLCHAIN_SETUP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/setup.md"
 TOOLCHAIN_IMPORT_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/import.md"
 TOOLCHAIN_CONFIG_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/config.md"
-TOOLCHAIN_STATUS_DOCUMENT = ".ai-rulez/skills/status/SKILL.md"
+TOOLCHAIN_STATUS_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/status.md"
 TOOLCHAIN_CI_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/ci.md"
 TOOLCHAIN_DECISIONS_DOCUMENT = (
     ".ai-rulez/skills/infra-copilot/references/decisions.md.example"

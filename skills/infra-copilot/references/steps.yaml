@@ -820,7 +820,7 @@ steps:
         "terraform/$NEW_PROVIDER/.terraform.lock.hcl" >/dev/null 2>&1 || exit 1
       test -z "$(git --no-optional-locks status --porcelain -- "terraform/$NEW_PROVIDER")"
     produces: terraform/$NEW_PROVIDER leaf targeting $NEW_PROVIDER_WORKSPACE
-    docs: gcp.md
+    docs: protocol.md#resume-protocol
 
   - id: new-provider-toolchain
     phase: 6
@@ -899,7 +899,7 @@ steps:
         ' "terraform/$NEW_PROVIDER/.terraform.lock.hcl" || exit 1
       done
     produces: committed lock selections and checksums for every required provider
-    docs: gcp.md
+    docs: protocol.md#resume-protocol
 
   - id: new-provider-workspace-bootstrap
     phase: 6

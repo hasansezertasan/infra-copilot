@@ -5,8 +5,8 @@ description: "Provision something new in an already-bootstrapped infra repo: a m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:69d798d59ecfc0889098bd7e9005deccc6a451a8e7a468e2ba2c3411faca5420
-Source-Hash: blake3:1c4575af2feeefc7aae29abea965f6a0dc28bf0003be61a7569ec7a6a187bc1f
+Content-Hash: blake3:2630d5cc8a6e285a1cf8bf190552756f6e4f500493bfd72ca11fdeb5b7c31133
+Source-Hash: blake3:7d6a9fa43884df986635c88d96268c935efb54f524dafafef5676fe96a9fd244
 Schema-Version: v1
 -->
 
@@ -70,10 +70,8 @@ GCP is *not* provisioned today (template only).
 
 Route a new-provider adoption through Phase 6 of
 [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml), using
-the shared resume protocol. Retain the requested provider's validated lowercase slug for
-the protocol's bootstrap decision when config has no entry yet; an empty initial inventory
-does not cancel an explicit adoption request. The manifest and protocol own the sequence
-and safety rules.
+the shared resume protocol. The manifest and protocol own the bootstrap behavior,
+sequence, and safety rules.
 
 Template + rationale for the GCP case: [`../infra-copilot/references/gcp.md`](../infra-copilot/references/gcp.md).
 

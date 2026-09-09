@@ -637,7 +637,10 @@ class ValidatePhaseFiveRuleTests(unittest.TestCase):
     def test_rejects_rule_that_accepts_a_clean_run_alone(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            document = repository / ".ai-rulez/skills/status/SKILL.md"
+            document = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/status.md"
+            )
             document.parent.mkdir(parents=True)
             document.write_text(
                 "Infer done from the workspace's latest HCP run being clean.",
@@ -647,11 +650,11 @@ class ValidatePhaseFiveRuleTests(unittest.TestCase):
             self.assertEqual(
                 validate_phase_five_rule(repository),
                 [
-                    ".ai-rulez/skills/status/SKILL.md: phase-5 completion rule "
+                    ".ai-rulez/skills/infra-copilot/references/status.md: phase-5 completion rule "
                     "missing 'imports: 0'",
-                    ".ai-rulez/skills/status/SKILL.md: phase-5 completion rule "
+                    ".ai-rulez/skills/infra-copilot/references/status.md: phase-5 completion rule "
                     "missing 'incomplete'",
-                    ".ai-rulez/skills/status/SKILL.md: phase-5 completion rule "
+                    ".ai-rulez/skills/infra-copilot/references/status.md: phase-5 completion rule "
                     "missing 'status `applied`'",
                 ],
             )
@@ -1552,7 +1555,10 @@ class ValidateToolchainContractTests(unittest.TestCase):
                 Path(__file__).parents[1] / ".ai-rulez",
                 repository / ".ai-rulez",
             )
-            status = repository / ".ai-rulez/skills/status/SKILL.md"
+            status = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/status.md"
+            )
             text = status.read_text(encoding="utf-8").replace(
                 "  ✓ repo-config-sync", "", 1
             )
@@ -1669,9 +1675,9 @@ class ValidateToolchainContractTests(unittest.TestCase):
                 repository
                 / ".ai-rulez/skills/infra-copilot/references/config.md"
             )
-            status = repository / ".ai-rulez/skills/status/SKILL.md"
+            status = references / "status.md"
             setup.parent.mkdir(parents=True)
-            status.parent.mkdir(parents=True)
+            status.parent.mkdir(parents=True, exist_ok=True)
             steps.write_text("pin=$(mise current terraform)", encoding="utf-8")
             hcp.write_text("terraform-version", encoding="utf-8")
             setup.write_text("mise trust mise.toml", encoding="utf-8")
@@ -1705,9 +1711,9 @@ class ValidateToolchainContractTests(unittest.TestCase):
             setup = references / "docs/setup.md"
             import_guide = references / "docs/import.md"
             config = references / "config.md"
-            status = repository / ".ai-rulez/skills/status/SKILL.md"
+            status = references / "status.md"
             setup.parent.mkdir(parents=True)
-            status.parent.mkdir(parents=True)
+            status.parent.mkdir(parents=True, exist_ok=True)
             # A fixed tool list leaves conditionally configured tools unvalidated.
             steps.write_text(
                 "MISE_LOCKED=1 mise install --dry-run terraform gh jq", encoding="utf-8"

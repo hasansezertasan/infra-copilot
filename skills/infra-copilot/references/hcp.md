@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:ce31b15a7e6f2bafa73532c3574b344717ad14ebf5b9976f47343f6d8cfcd6d0
-Source-Hash: blake3:1c4575af2feeefc7aae29abea965f6a0dc28bf0003be61a7569ec7a6a187bc1f
+Content-Hash: blake3:9e2cb2b0ecc165c05b75b5eee4f56c91755de7ef1ce8d9e8e99a636ebccb9d38
+Source-Hash: blake3:7d6a9fa43884df986635c88d96268c935efb54f524dafafef5676fe96a9fd244
 Schema-Version: v1
 -->
 
@@ -58,7 +58,12 @@ GitHub↔HCP OAuth connection (browser).
   HTTP status surfaces as an error instead of a silent `jq` crash:
 
   ```sh
-  export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
+  # An already-exported HCP_TOKEN wins. Creating a workspace is organization-scoped,
+  # and after the hcp-apply-scope handoff the machine's normal credential is a team
+  # token with no organization permissions — so a human running this supplies an
+  # admin credential deliberately, and resolving from the terraform credential
+  # would overwrite it and fail the POST.
+  export HCP_TOKEN=${HCP_TOKEN:-${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}}
   # $ORG, $REPO sourced from config — see config.md
   : "${ORG:?run Step 0 (read config) first}"
   : "${REPO:?run Step 0 (read config) first}"   # the repo HCP watches via VCS

@@ -24,6 +24,9 @@ HCP_CURRENT_PLAN = (
     / ".ai-rulez/skills/infra-copilot/references/checks/hcp-current-plan.sh"
 )
 STATUS = REPO_ROOT / ".ai-rulez/skills/status/SKILL.md"
+STATUS_RUNBOOK = (
+    REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/status.md"
+)
 
 
 def phase_six_steps() -> dict[str, str]:
@@ -982,20 +985,23 @@ terraform {
         self.assertNotIn("test -d terraform/gcp", gcloud)
 
     def test_router_and_status_use_the_durable_inventory(self) -> None:
-        for path in (CONFIG, STATUS):
+        for path in (CONFIG, STATUS_RUNBOOK):
             with self.subTest(path=path.name):
                 self.assertIn("additional_providers", path.read_text(encoding="utf-8"))
         add = ADD.read_text(encoding="utf-8")
         self.assertNotIn("None of steps 2–5 have `steps.yaml` entries", add)
         self.assertIn("shared resume protocol", add)
         self.assertNotIn("Workspace creation remains", add)
-        status = STATUS.read_text(encoding="utf-8")
+        status = STATUS_RUNBOOK.read_text(encoding="utf-8")
         self.assertIn("every Phase 6 step", status)
         self.assertIn("Phase 6 plan contents and durable completion", status)
         self.assertIn("resource-count", status)
         self.assertIn("destroys are\n   zero", status)
         self.assertIn("If that HUMAN trust gate is red", status)
         self.assertIn("terraform/cloudflare terraform/modules", status)
+        router = STATUS.read_text(encoding="utf-8")
+        self.assertIn("references/status.md", router)
+        self.assertNotIn("Phase 6 plan contents and durable completion", router)
 
     def test_legacy_config_defaults_only_a_missing_provider_list(self) -> None:
         config = CONFIG.read_text(encoding="utf-8")
