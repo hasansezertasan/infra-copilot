@@ -242,27 +242,47 @@ steps:
 
       # An already-provisioned repository needs no user token: phases 0 and 1 are
       # done, and the plan-only identity hcp-apply-scope installs is the intended
-      # steady state. A workspace connected to $REPO is that evidence, and it is
-      # workspace-scoped so the team token can read it. Without this, every later
-      # resume and every status run reported hcp-login red and told the operator
-      # to restore the apply-capable token phase 4 had just removed.
+      # steady state. BOTH bootstrap workspaces connected to $REPO are that
+      # evidence, and the inventory is workspace-scoped so the team token can
+      # read it. One alone is only a partial bootstrap: workspaces-create still
+      # needs the user token for its organization-scoped POST. Without the
+      # completed-set distinction, setup either restored the apply-capable token
+      # after phase 4 or got stuck trying to create the missing workspace with a
+      # team token that has no organization permissions.
       page=1
+      has_cloudflare=false
+      has_github_org=false
+      inventory_complete=false
       while : ; do
         list=$(curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
           -H "Authorization: Bearer $token") || break
-        jq -e --arg repo "${REPO:-}" \
-          '[.data[] | select(.attributes["vcs-repo"].identifier == $repo)] | length > 0' \
-          >/dev/null 2>&1 <<JSON && exit 0
-      $list
-      JSON
+        printf '%s' "$list" | jq -e '.data | type == "array"' \
+          >/dev/null 2>&1 || break
+        names=$(printf '%s' "$list" | jq -r --arg repo "${REPO:-}" '
+          [.data[] | select(.attributes["vcs-repo"].identifier == $repo)
+           | .attributes.name] | join(" ")
+        ' 2>/dev/null) || break
+        for name in $names; do
+          case "$name" in
+            cloudflare) has_cloudflare=true ;;
+            github-org) has_github_org=true ;;
+          esac
+        done
         count=$(printf '%s' "$list" | jq -e '.data | length' 2>/dev/null) || break
-        [ "$count" -eq 100 ] || break     # short page: the whole list was read
+        if [ "$count" -lt 100 ]; then
+          inventory_complete=true          # short page: the whole list was read
+          break
+        fi
         pages=$(printf '%s' "$list" | jq -er '.meta.pagination["total-pages"]
                 | if type == "number" and . == floor and . > 0
                   then (floor | tostring) else empty end' 2>/dev/null) || break
-        [ "$page" -lt "$pages" ] || break
+        if [ "$page" -ge "$pages" ]; then
+          inventory_complete=true
+          break
+        fi
         page=$((page + 1))
       done
+      $inventory_complete && $has_cloudflare && $has_github_org && exit 0
 
       # Cold repository: phases 0 and 1 genuinely need the user credential, and a
       # team token cannot read organization VCS settings or complete the OAuth

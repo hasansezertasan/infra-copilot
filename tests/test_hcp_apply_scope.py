@@ -667,6 +667,23 @@ class HcpApplyScopeTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_a_workspace_block_sharing_the_cloud_line_closes_independently(self) -> None:
+        """The outer cloud brace must not keep workspace parsing active."""
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            env={"TF_CLOUD_ORGANIZATION": "acme"},
+            leaf_hcl={
+                "terraform/cloudflare": (
+                    'terraform {\n  cloud { workspaces { name = "cloudflare" }\n'
+                    '    hostname = "tfe.example.com"\n'
+                    "  }\n}\n"
+                )
+            },
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("tfe.example.com", result.stderr)
+
     def test_a_cloud_example_in_a_heredoc_is_not_configuration(self) -> None:
         """String contents before the real block must not select its workspace.
 

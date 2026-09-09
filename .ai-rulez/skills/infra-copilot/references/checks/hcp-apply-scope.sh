@@ -198,8 +198,15 @@ leaf_cloud_settings () {  # $1 = leaf directory
                     sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
                     print "workspaces.name=" value
                 }
-            } else if (structure ~ /(^|[^[:alnum:]_])workspaces[[:space:]]*{/) {
-                inws = 1; wsdepth = opens - closes
+            } else if (match(structure, /(^|[^[:alnum:]_])workspaces[[:space:]]*{/)) {
+                # Count from the workspaces opener, not from the whole line. If
+                # `cloud { workspaces { ... }` shares a line, the outer brace
+                # belongs only to cloud; including it kept inws set after the
+                # nested block closed and hid later hostname/token attributes.
+                workspace_tail = substr(structure, RSTART + RLENGTH)
+                nested_opens = gsub(/{/, "{", workspace_tail)
+                nested_closes = gsub(/}/, "}", workspace_tail)
+                inws = 1; wsdepth = 1 + nested_opens - nested_closes
                 # A single-line `workspaces { name = "x" }` opens and closes at
                 # once, so its attributes are read from this same line.
                 if (match(structure, /(^|[^[:alnum:]_])tags[[:space:]]*=/)) print "workspaces.tags=present"

@@ -44,6 +44,7 @@ class HcpLoginCheckTests(unittest.TestCase):
         env_token: str | None = None,
         curl_fails: bool = False,
         workspace_repo: str | None = None,
+        workspace_names: tuple[str, ...] = ("cloudflare", "github-org"),
         workspaces_readable: bool = True,
         hcp_api: str = "https://app.terraform.io/api/v2",
     ) -> subprocess.CompletedProcess[str]:
@@ -66,7 +67,15 @@ class HcpLoginCheckTests(unittest.TestCase):
             listing = json.dumps(
                 {
                     "data": (
-                        [{"attributes": {"vcs-repo": {"identifier": workspace_repo}}}]
+                        [
+                            {
+                                "attributes": {
+                                    "name": name,
+                                    "vcs-repo": {"identifier": workspace_repo},
+                                }
+                            }
+                            for name in workspace_names
+                        ]
                         if workspace_repo
                         else []
                     ),
@@ -143,6 +152,16 @@ class HcpLoginCheckTests(unittest.TestCase):
     def test_another_repositorys_workspace_is_not_provisioning_evidence(self) -> None:
         """A cold repo in a shared organization still needs the user token."""
         result = self.run_check(code="404", workspace_repo="acme/other")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("not a user token", result.stderr)
+
+    def test_a_partial_bootstrap_still_requires_a_user_token(self) -> None:
+        """The missing workspace still needs an organization-scoped create."""
+        result = self.run_check(
+            code="404",
+            workspace_repo="acme/infra",
+            workspace_names=("cloudflare",),
+        )
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("not a user token", result.stderr)
 
