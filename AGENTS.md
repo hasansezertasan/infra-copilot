@@ -10,14 +10,15 @@ most likely way to get it wrong is to edit the wrong copy of a file.
 skill — and editing them is silently undone by the next `make generate`.
 
 Before editing any file under those paths, check `.ai-rulez-generated.json`. If the path
-is listed (30 are), edit its source under `.ai-rulez/` instead, then run `make generate`.
+is listed (31 are), edit its source under `.ai-rulez/` instead, then run `make generate`.
 
 Most generated files carry an `AI-RULEZ :: GENERATED FILE — DO NOT EDIT` header, but
-**eight of the 30 do not** — the three JSON manifests, `config.md.example`,
-`decisions.md.example`, `steps.yaml`, and the two shell scripts
-`checks/status-check-context.sh` and `checks/hcp-apply-scope.sh`, where a Markdown
-comment would not be valid. Absence of the header is not evidence a file
-is safe to edit. The manifest is the authority; the header is only a convenience.
+**nine of the 31 do not** — the three JSON manifests, `config.md.example`,
+`decisions.md.example`, `steps.yaml`, and the three shell scripts
+`checks/status-check-context.sh`, `checks/hcp-apply-scope.sh`, and
+`checks/hcp-bootstrap-workspaces.sh`, where a Markdown comment would not be valid.
+Absence of the header is not evidence a file is safe to edit. The manifest is the
+authority; the header is only a convenience.
 
 ## File resolution
 

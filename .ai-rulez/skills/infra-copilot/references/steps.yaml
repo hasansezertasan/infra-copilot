@@ -240,49 +240,14 @@ steps:
         exit 0
       fi
 
-      # An already-provisioned repository needs no user token: phases 0 and 1 are
-      # done, and the plan-only identity hcp-apply-scope installs is the intended
-      # steady state. BOTH bootstrap workspaces connected to $REPO are that
-      # evidence, and the inventory is workspace-scoped so the team token can
-      # read it. One alone is only a partial bootstrap: workspaces-create still
-      # needs the user token for its organization-scoped POST. Without the
-      # completed-set distinction, setup either restored the apply-capable token
-      # after phase 4 or got stuck trying to create the missing workspace with a
-      # team token that has no organization permissions.
-      page=1
-      has_cloudflare=false
-      has_github_org=false
-      inventory_complete=false
-      while : ; do
-        list=$(curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
-          -H "Authorization: Bearer $token") || break
-        printf '%s' "$list" | jq -e '.data | type == "array"' \
-          >/dev/null 2>&1 || break
-        names=$(printf '%s' "$list" | jq -r --arg repo "${REPO:-}" '
-          [.data[] | select(.attributes["vcs-repo"].identifier == $repo)
-           | .attributes.name] | join(" ")
-        ' 2>/dev/null) || break
-        for name in $names; do
-          case "$name" in
-            cloudflare) has_cloudflare=true ;;
-            github-org) has_github_org=true ;;
-          esac
-        done
-        count=$(printf '%s' "$list" | jq -e '.data | length' 2>/dev/null) || break
-        if [ "$count" -lt 100 ]; then
-          inventory_complete=true          # short page: the whole list was read
-          break
-        fi
-        pages=$(printf '%s' "$list" | jq -er '.meta.pagination["total-pages"]
-                | if type == "number" and . == floor and . > 0
-                  then (floor | tostring) else empty end' 2>/dev/null) || break
-        if [ "$page" -ge "$pages" ]; then
-          inventory_complete=true
-          break
-        fi
-        page=$((page + 1))
-      done
-      $inventory_complete && $has_cloudflare && $has_github_org && exit 0
+      # A narrowed token is the intended steady state only after the complete
+      # Phase 1 invariant is green. Names alone are insufficient: drift in the
+      # version, VCS target, execution mode, or safety toggles still requires the
+      # user credential so workspaces-create can reconcile it. Both steps call
+      # one shared check so their definitions of "provisioned" cannot diverge.
+      HCP_TOKEN=$token \
+        sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh" \
+        >/dev/null 2>&1 && exit 0
 
       # Cold repository: phases 0 and 1 genuinely need the user credential, and a
       # team token cannot read organization VCS settings or complete the OAuth
@@ -294,7 +259,7 @@ steps:
       case "$code" in
         200) exit 0 ;;
         401|403|404)
-          echo "this repository has no workspace connected to ${REPO:-<REPO unset>} yet, and the HCP credential in use is not a user token (account/details returned $code). Phases 0 and 1 need the user credential from 'terraform login': a team token cannot read organization VCS settings or complete the OAuth flow. Unset TF_TOKEN_app_terraform_io, or run 'terraform login' for this bootstrap and re-apply hcp-apply-scope afterwards." >&2
+          echo "this repository's complete Phase 1 workspace configuration is not visible and green, and the HCP credential in use is not a user token (account/details returned $code). Phases 0 and 1 need the user credential from 'terraform login': a team token cannot read organization VCS settings, complete the OAuth flow, create a missing workspace, or reconcile drift. Unset TF_TOKEN_app_terraform_io, or run 'terraform login' for this bootstrap and re-apply hcp-apply-scope afterwards." >&2
           exit 1
           ;;
         *) exit 0 ;;
@@ -472,26 +437,9 @@ steps:
         vcs-repo:            identifier $REPO, oauth-token-id from vcs-connect, branch main
       Then in each workspace's UI -> Version Control, confirm FORK speculative plans are OFF
       (separate toggle, no clean create-time attribute; defaults off).
-    # Assert every attribute the `run` block above declares. Checking only `auto-apply`
-    # greens a workspace that plans the wrong directory, ignores path filters, runs
-    # locally, skips PR plans, or points at the wrong repo or branch.
-    check: |
-      for pair in "cloudflare:terraform/cloudflare" "github-org:terraform/github"; do
-        ws=${pair%%:*}; dir=${pair#*:}
-        curl -sf "$hcp_api/organizations/$ORG/workspaces/$ws" -H "Authorization: Bearer $HCP_TOKEN" \
-          | jq -e --arg dir "$dir" --arg repo "$REPO" --arg tf_version "$TERRAFORM_VERSION" '
-              .data.attributes as $a
-              | ($a["working-directory"] == $dir)
-                and ($a["execution-mode"] == "remote")
-                and ($a["terraform-version"] == $tf_version)
-                and ($a["auto-apply"] == false)
-                and ($a["speculative-enabled"] == true)
-                and ($a["file-triggers-enabled"] == true)
-                and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
-                and ((($a["trigger-patterns"]) // []) | index(".infra-copilot/config.md") != null)
-                and (($a["vcs-repo"].identifier // "") == $repo)
-                and (($a["vcs-repo"].branch // "") == "main")' >/dev/null || exit 1
-      done
+    # The same complete invariant decides whether hcp-login may accept a narrowed
+    # team token. Keep it in one executable source rather than duplicating jq.
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh"
     produces: workspaces `cloudflare`, `github-org`
     docs: docs/state.md#workspaces
 

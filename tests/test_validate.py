@@ -1495,6 +1495,30 @@ class ValidateToolchainContractTests(unittest.TestCase):
             errors,
         )
 
+    def test_rejects_missing_shared_config_workspace_verification(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            shutil.copytree(
+                Path(__file__).parents[1] / ".ai-rulez",
+                repository / ".ai-rulez",
+            )
+            check = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/checks/hcp-bootstrap-workspaces.sh"
+            )
+            text = check.read_text(encoding="utf-8").replace(
+                'index(".infra-copilot/config.md") != null',
+                'index("terraform.tfvars") != null',
+                1,
+            )
+            check.write_text(text, encoding="utf-8")
+
+            errors = validate_toolchain_contract(repository)
+
+        self.assertTrue(
+            any("every HCP workspace must watch" in error for error in errors), errors
+        )
+
     def test_rejects_missing_shared_trigger_reconciliation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)

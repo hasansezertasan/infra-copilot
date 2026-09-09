@@ -45,13 +45,13 @@ class HcpLoginCheckTests(unittest.TestCase):
         curl_fails: bool = False,
         workspace_repo: str | None = None,
         workspace_names: tuple[str, ...] = ("cloudflare", "github-org"),
+        workspace_version: str = "1.14.6",
         workspaces_readable: bool = True,
         hcp_api: str = "https://app.terraform.io/api/v2",
     ) -> subprocess.CompletedProcess[str]:
         """Run the extracted check with `curl` stubbed per URL.
 
-        `workspace_repo` is the vcs-repo identifier the workspace list reports,
-        which is how an already-provisioned repository is recognised.
+        `workspace_repo` is the VCS identifier each named workspace reports.
         """
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory) / "home"
@@ -64,24 +64,34 @@ class HcpLoginCheckTests(unittest.TestCase):
             calls = Path(directory) / "calls"
             bin_dir = Path(directory) / "bin"
             bin_dir.mkdir()
-            listing = json.dumps(
-                {
-                    "data": (
-                        [
-                            {
+            workspace_bodies: dict[str, str] = {}
+            for name, leaf in (
+                ("cloudflare", "terraform/cloudflare"),
+                ("github-org", "terraform/github"),
+            ):
+                if workspace_repo and name in workspace_names:
+                    workspace_bodies[name] = json.dumps(
+                        {
+                            "data": {
                                 "attributes": {
-                                    "name": name,
-                                    "vcs-repo": {"identifier": workspace_repo},
+                                    "working-directory": leaf,
+                                    "execution-mode": "remote",
+                                    "terraform-version": workspace_version,
+                                    "auto-apply": False,
+                                    "speculative-enabled": True,
+                                    "file-triggers-enabled": True,
+                                    "trigger-patterns": [
+                                        f"{leaf}/**",
+                                        ".infra-copilot/config.md",
+                                    ],
+                                    "vcs-repo": {
+                                        "identifier": workspace_repo,
+                                        "branch": "main",
+                                    },
                                 }
                             }
-                            for name in workspace_names
-                        ]
-                        if workspace_repo
-                        else []
-                    ),
-                    "meta": {"pagination": {"total-pages": 1}},
-                }
-            )
+                        }
+                    )
             stub = [
                 "#!/bin/sh",
                 'url=""; for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done',
@@ -89,8 +99,18 @@ class HcpLoginCheckTests(unittest.TestCase):
                 "exit 6" if curl_fails else "",
                 'case "$url" in',
                 "  *account/details*)" + f' printf "%s" {code!r} ;;',
-                "  *workspaces*)"
-                + (f' printf "%s" {listing!r} ;;' if workspaces_readable else " exit 22 ;;"),
+                "  *workspaces/cloudflare*)"
+                + (
+                    f' printf "%s" {workspace_bodies["cloudflare"]!r} ;;'
+                    if workspaces_readable and "cloudflare" in workspace_bodies
+                    else " exit 22 ;;"
+                ),
+                "  *workspaces/github-org*)"
+                + (
+                    f' printf "%s" {workspace_bodies["github-org"]!r} ;;'
+                    if workspaces_readable and "github-org" in workspace_bodies
+                    else " exit 22 ;;"
+                ),
                 '  *) echo "unstubbed URL: $url" >&2; exit 99 ;;',
                 "esac",
             ]
@@ -100,7 +120,16 @@ class HcpLoginCheckTests(unittest.TestCase):
             environment = dict(os.environ)
             environment["PATH"] = f"{bin_dir}:{environment['PATH']}"
             environment.update(
-                {"HOME": str(home), "hcp_api": hcp_api, "ORG": "acme", "REPO": "acme/infra"}
+                {
+                    "HOME": str(home),
+                    "hcp_api": hcp_api,
+                    "ORG": "acme",
+                    "REPO": "acme/infra",
+                    "TERRAFORM_VERSION": "1.14.6",
+                    "INFRA_COPILOT_REFERENCES": str(
+                        REPO_ROOT / ".ai-rulez/skills/infra-copilot/references"
+                    ),
+                }
             )
             environment.pop("TF_TOKEN_app_terraform_io", None)
             if env_token is not None:
@@ -161,6 +190,16 @@ class HcpLoginCheckTests(unittest.TestCase):
             code="404",
             workspace_repo="acme/infra",
             workspace_names=("cloudflare",),
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("not a user token", result.stderr)
+
+    def test_workspace_drift_still_requires_a_user_token(self) -> None:
+        """The agent needs the user identity to reconcile Phase 1 settings."""
+        result = self.run_check(
+            code="404",
+            workspace_repo="acme/infra",
+            workspace_version="0.1.0",
         )
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("not a user token", result.stderr)

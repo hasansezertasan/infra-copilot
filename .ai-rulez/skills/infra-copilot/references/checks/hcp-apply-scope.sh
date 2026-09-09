@@ -29,6 +29,8 @@
 #                        runs, and demanding it elsewhere would widen access for
 #                        no reason.
 #        SPLIT-BRAIN     $HCP_TOKEN and terraform's credential are different tokens
+#        USER-CREDENTIAL the credential is an account-wide user identity, not the
+#                        plan-only team identity the handoff requires
 #   2  COULD NOT VERIFY — missing config, no credential, jq or curl missing, an API
 #      read failed, unreadable evidence, or a managed leaf with no visible
 #      workspace. Distinct from 1 on purpose: unreadable evidence proves nothing
@@ -96,6 +98,25 @@ elif [ -r "$credentials" ]; then
     source_description=$credentials
 else
     cannot_verify "no HCP credential found; set TF_TOKEN_app_terraform_io or run 'terraform login'"
+fi
+
+# Workspace permissions are organization-scoped. A user token that happens to
+# have Plan-only access in $ORG may still apply in another organization, so it
+# cannot satisfy the machine-wide handoff. /account/details exists only for a
+# user identity; team tokens are rejected there. Preserve a definite workspace
+# verdict if this identity probe itself is unreadable.
+if identity_code=$(curl -s -o /dev/null -w '%{http_code}' "$hcp_api/account/details" \
+        -H "Authorization: Bearer $token"); then
+    case "$identity_code" in
+        200)
+            broken="${broken}USER-CREDENTIAL: the Terraform credential is an account-wide user token, not the plan-only team token required by this handoff; replace it with the team token before running plans.
+"
+            ;;
+        401|403|404) : ;;  # expected for a non-user identity
+        *) note_unknown "the credential identity could not be classified because account/details returned HTTP $identity_code" ;;
+    esac
+else
+    note_unknown "the credential identity could not be classified because account/details could not be read"
 fi
 
 # A plan-only token here beside an apply-capable $HCP_TOKEN means the API calls in
@@ -169,7 +190,11 @@ leaf_cloud_settings () {  # $1 = leaf directory
                 if (char == "\"") { instring = 1; structure = structure "\"" }
                 else structure = structure char
             }
-            if (match(structure, /=[[:space:]]*<<-?[[:space:]]*[[:alnum:]_-]+/)) {
+            # HCL permits a heredoc as a nested expression argument (for
+            # example indent(2, <<-HCL)), so do not require the marker to follow
+            # `=` directly. HCL has no shift operator; any unquoted <<MARKER is
+            # a heredoc opener.
+            if (match(structure, /<<-?[[:space:]]*[[:alnum:]_-]+/)) {
                 marker = substr(structure, RSTART, RLENGTH)
                 indented_heredoc = (marker ~ /<<-/)
                 sub(/^.*<<-?[[:space:]]*/, "", marker)

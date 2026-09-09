@@ -64,30 +64,35 @@ GCP is *not* provisioned today (template only). Before any Terraform:
 1. **Decide, on the record** (`HUMAN`, step `gcp-decision` in
    [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml)) — update
    `.infra-copilot/decisions.md` and `terraform/README.md`. Do not provision ahead of the decision.
-2. **New leaf + workspace** (`HUMAN` once `hcp-apply-scope` is done) — create
-   `terraform/<provider>/`, a matching HCP workspace (same `create_ws` pattern as setup
-   Phase 1, [`../infra-copilot/references/hcp.md`](../infra-copilot/references/hcp.md)),
-   with the same safety toggles (auto-apply off, path-scoped triggers).
+2. **New leaf** (`AGENT`) — create `terraform/<provider>/` with the provider,
+   resources, and a `cloud` block targeting its matching workspace. Repository
+   files remain agent-owned even though the credential-bound workspace operation
+   in the next step does not.
+3. **New workspace** (`HUMAN` once `hcp-apply-scope` is done) — run the same
+   `create_ws` pattern as setup Phase 1
+   ([`../infra-copilot/references/hcp.md`](../infra-copilot/references/hcp.md))
+   with a temporary user or organization token and the same safety toggles
+   (auto-apply off, path-scoped triggers).
    `create_ws` is organization-scoped, and the plan-only team token deliberately holds no
    organization permissions, so **the agent's credential cannot create a workspace**. A
    human runs this with the user token — or an organization token — then grants the team
    `Plan` on it in step 4 below. Do not widen the team's permissions to make the agent able
    to do it: that hands back the apply rights `hcp-apply-scope` exists to remove.
-3. **Grant the plan-only team access** (`HUMAN`) — before anything the agent must
+4. **Grant the plan-only team access** (`HUMAN`) — before anything the agent must
    verify. Once `hcp-apply-scope` is done the agent's credential is a team token with
    `Plan` on the *existing* workspaces only, so the new workspace is **invisible** to it:
-   the vars check in step 4 would fail even though the human did everything right. Add
+   the vars check in step 5 would fail even though the human did everything right. Add
    `Plan` for that team on the new workspace, and never `Write`.
    Until this is done, `hcp-apply-scope` reports `CANNOT VERIFY` for the new leaf rather
    than a false pass, because a workspace the credential cannot see is indistinguishable
    from one that does not exist. Granting `Read` instead gives `OVER-RESTRICTED` — visible
    but unable to queue runs — and granting `Write` to work around it is `UNPROTECTED`.
-4. **Credential** — mint the provider's scoped token/service-account key (`HUMAN`) and
+5. **Credential** — mint the provider's scoped token/service-account key (`HUMAN`) and
    paste it into the new workspace's variables (`HUMAN`, sensitive). The agent verifies via
    the vars API, never sees the plaintext.
-5. **First plan** on the new leaf — same proof-of-credentials as setup Phase 4.
+6. **First plan** (`AGENT`) on the new leaf — same proof-of-credentials as setup Phase 4.
 
-> None of steps 2–5 have `steps.yaml` entries; phase 6 holds only `gcp-decision`, whose
+> None of steps 2–6 have `steps.yaml` entries; phase 6 holds only `gcp-decision`, whose
 > check is satisfied by the directory existing. So an adoption interrupted part-way reads
 > green and neither `status` nor a later `add` can resume it. Tracked in
 > [#60](https://github.com/hasansezertasan/infra-copilot/issues/60) — until then, finish

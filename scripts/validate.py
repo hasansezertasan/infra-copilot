@@ -130,6 +130,9 @@ PHASE_FIVE_RULE_MARKERS = (
 )
 TOOLCHAIN_STEPS_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/steps.yaml"
 TOOLCHAIN_HCP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/hcp.md"
+TOOLCHAIN_WORKSPACE_CHECK_DOCUMENT = (
+    ".ai-rulez/skills/infra-copilot/references/checks/hcp-bootstrap-workspaces.sh"
+)
 TOOLCHAIN_SETUP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/setup.md"
 TOOLCHAIN_IMPORT_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/import.md"
 TOOLCHAIN_CONFIG_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/config.md"
@@ -591,6 +594,12 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     steps = (root / TOOLCHAIN_STEPS_DOCUMENT).read_text(encoding="utf-8")
     hcp = (root / TOOLCHAIN_HCP_DOCUMENT).read_text(encoding="utf-8")
+    workspace_check_path = root / TOOLCHAIN_WORKSPACE_CHECK_DOCUMENT
+    workspace_check = (
+        workspace_check_path.read_text(encoding="utf-8")
+        if workspace_check_path.is_file()
+        else ""
+    )
     setup = (root / TOOLCHAIN_SETUP_DOCUMENT).read_text(encoding="utf-8")
     import_guide = (root / TOOLCHAIN_IMPORT_DOCUMENT).read_text(encoding="utf-8")
     config = (root / TOOLCHAIN_CONFIG_DOCUMENT).read_text(encoding="utf-8")
@@ -752,7 +761,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             "created, reconciled, and verified"
         )
     for document, document_name in (
-        (steps, TOOLCHAIN_STEPS_DOCUMENT),
+        (workspace_check, TOOLCHAIN_WORKSPACE_CHECK_DOCUMENT),
         (hcp, TOOLCHAIN_HCP_DOCUMENT),
     ):
         if (
@@ -764,6 +773,11 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             errors.append(
                 f"{document_name}: every HCP workspace must watch the shared config"
             )
+    if 'checks/hcp-bootstrap-workspaces.sh' not in steps:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: workspace readiness must use the shared "
+            "bootstrap-workspace check"
+        )
     creation = re.search(
         r"^  create_ws \(\) \{(?P<body>.*?^  \})",
         hcp,

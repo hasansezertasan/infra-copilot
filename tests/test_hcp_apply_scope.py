@@ -63,6 +63,7 @@ class HcpApplyScopeTests(unittest.TestCase):
         body: str | None = None,
         env: dict[str, str] | None = None,
         curl_fails: bool = False,
+        account_code: str = "404",
         credential: str | None = TOKEN,
     ) -> subprocess.CompletedProcess[str]:
         if workspaces is None:
@@ -126,7 +127,7 @@ class HcpApplyScopeTests(unittest.TestCase):
             stub = [
                 "#!/bin/sh",
                 "exit 22" if curl_fails else "",
-                'out=""; page=1; prev=""',
+                'out=""; page=1; prev=""; url=""',
                 'for a in "$@"; do',
                 '  case "$prev" in -o) out="$a" ;; esac',
                 '  case "$a" in',
@@ -137,10 +138,11 @@ class HcpApplyScopeTests(unittest.TestCase):
                 # Any URL this stub does not recognise is a bug in the test, not
                 # a pass: an earlier harness in this repo silently stopped
                 # matching and the tests kept passing.
-                '    http*) case "$a" in *organizations/*/workspaces*) : ;; *) echo "unstubbed URL: $a" >&2; exit 99 ;; esac ;;',
+                '    http*) url="$a"; case "$a" in *organizations/*/workspaces*|*/account/details) : ;; *) echo "unstubbed URL: $a" >&2; exit 99 ;; esac ;;',
                 "  esac",
                 '  prev="$a"',
                 "done",
+                f'case "$url" in */account/details) printf "%s" {account_code!r}; exit 0 ;; esac',
                 f'if [ "$page" -gt {fail_after_page} ]; then exit 22; fi'
                 if fail_after_page is not None
                 else "",
@@ -287,6 +289,12 @@ class HcpApplyScopeTests(unittest.TestCase):
         result = self.run_check(env={"HCP_TOKEN": "some-other-token"})
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("SPLIT-BRAIN", result.stderr)
+
+    def test_a_user_credential_cannot_satisfy_the_handoff(self) -> None:
+        """Organization-scoped Plan rights do not bound an account identity."""
+        result = self.run_check(account_code="200")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("USER-CREDENTIAL", result.stderr)
 
     def test_no_credential_at_all_cannot_be_verified(self) -> None:
         result = self.run_check(credential=None)
@@ -691,21 +699,26 @@ class HcpApplyScopeTests(unittest.TestCase):
         documentation heredoc could make a hidden effective workspace look like
         the visible, plan-only workspace named in the example.
         """
-        for operator, closing_indent in (("<<", ""), ("<<-", "    ")):
-            with self.subTest(operator=operator):
+        for opener, closing_indent in (
+            ("<<HCL", ""),
+            ("<<-HCL", "    "),
+            ("indent(2, <<-HCL", "    "),
+        ):
+            with self.subTest(opener=opener):
                 result = self.run_check(
                     workspaces=[("cloudflare", PLAN_ONLY)],
                     leaves=["terraform/cloudflare"],
                     leaf_hcl={
                         "terraform/cloudflare": (
                             "locals {\n"
-                            f"  example = {operator}HCL\n"
+                            f"  example = {opener}\n"
                             "terraform {\n  cloud {\n"
                             '    organization = "acme"\n'
                             '    workspaces { name = "cloudflare" }\n'
                             "  }\n}\n"
                             f"{closing_indent}HCL\n"
-                            "}\n"
+                            + ("  )\n" if opener.startswith("indent") else "")
+                            + "}\n"
                             "terraform {\n  cloud {\n"
                             '    organization = "acme"\n'
                             '    workspaces { name = "production" }\n'

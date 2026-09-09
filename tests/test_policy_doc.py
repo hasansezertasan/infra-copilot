@@ -14,6 +14,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 POLICY = REPO_ROOT / "docs/policy.md"
 MANIFEST = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+ADD_SKILL = REPO_ROOT / ".ai-rulez/skills/add/SKILL.md"
+PROTOCOL = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/protocol.md"
+GCP = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/gcp.md"
 
 
 class PolicyDocTests(unittest.TestCase):
@@ -33,6 +36,16 @@ class PolicyDocTests(unittest.TestCase):
         )[0]
         self.assertIn("export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq", step)
         self.assertLess(step.index("export HCP_TOKEN="), step.index("hcp-apply-scope.sh"))
+
+    def test_post_handoff_workspace_actor_is_consistent(self) -> None:
+        """The agent owns leaf code but never reacquires HCP admin authority."""
+        add = ADD_SKILL.read_text(encoding="utf-8")
+        protocol = PROTOCOL.read_text(encoding="utf-8")
+        gcp = GCP.read_text(encoding="utf-8")
+        self.assertIn("**New leaf** (`AGENT`)", add)
+        self.assertIn("**New workspace** (`HUMAN`", add)
+        self.assertIn("post-handoff HCP authority", protocol)
+        self.assertIn("| Create the `gcp` HCP workspace | **HUMAN** |", gcp)
 
     def test_no_deployable_profile_ships(self) -> None:
         """A file that looks authoritative invites being deployed unread."""
