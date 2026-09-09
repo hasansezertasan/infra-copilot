@@ -43,7 +43,15 @@ class HcpLoginCheckTests(unittest.TestCase):
         file_token: str | None = "user-token",
         env_token: str | None = None,
         curl_fails: bool = False,
+        workspace_repo: str | None = None,
+        workspaces_readable: bool = True,
+        hcp_api: str = "https://app.terraform.io/api/v2",
     ) -> subprocess.CompletedProcess[str]:
+        """Run the extracted check with `curl` stubbed per URL.
+
+        `workspace_repo` is the vcs-repo identifier the workspace list reports,
+        which is how an already-provisioned repository is recognised.
+        """
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory) / "home"
             (home / ".terraform.d").mkdir(parents=True)
@@ -52,28 +60,53 @@ class HcpLoginCheckTests(unittest.TestCase):
                     json.dumps({"credentials": {"app.terraform.io": {"token": file_token}}}),
                     encoding="utf-8",
                 )
+            calls = Path(directory) / "calls"
             bin_dir = Path(directory) / "bin"
             bin_dir.mkdir()
-            stub = bin_dir / "curl"
-            stub.write_text(
-                "#!/bin/sh\nexit 6\n" if curl_fails else f"#!/bin/sh\nprintf '%s' {code}\n",
-                encoding="utf-8",
+            listing = json.dumps(
+                {
+                    "data": (
+                        [{"attributes": {"vcs-repo": {"identifier": workspace_repo}}}]
+                        if workspace_repo
+                        else []
+                    ),
+                    "meta": {"pagination": {"total-pages": 1}},
+                }
             )
-            stub.chmod(0o755)
+            stub = [
+                "#!/bin/sh",
+                'url=""; for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done',
+                f'printf "%s\n" "$url" >> {str(calls)!r}',
+                "exit 6" if curl_fails else "",
+                'case "$url" in',
+                "  *account/details*)" + f' printf "%s" {code!r} ;;',
+                "  *workspaces*)"
+                + (f' printf "%s" {listing!r} ;;' if workspaces_readable else " exit 22 ;;"),
+                '  *) echo "unstubbed URL: $url" >&2; exit 99 ;;',
+                "esac",
+            ]
+            (bin_dir / "curl").write_text("\n".join(stub) + "\n", encoding="utf-8")
+            (bin_dir / "curl").chmod(0o755)
+
             environment = dict(os.environ)
             environment["PATH"] = f"{bin_dir}:{environment['PATH']}"
-            environment["HOME"] = str(home)
-            environment["hcp_api"] = "https://app.terraform.io/api/v2"
+            environment.update(
+                {"HOME": str(home), "hcp_api": hcp_api, "ORG": "acme", "REPO": "acme/infra"}
+            )
             environment.pop("TF_TOKEN_app_terraform_io", None)
             if env_token is not None:
                 environment["TF_TOKEN_app_terraform_io"] = env_token
-            return subprocess.run(
+            result = subprocess.run(
                 ["/bin/sh", "-c", extract_check()],
                 capture_output=True,
                 text=True,
                 env=environment,
                 cwd=directory,
             )
+            result.requests = (  # type: ignore[attr-defined]
+                calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
+            )
+            return result
 
     def test_a_user_token_is_green(self) -> None:
         self.assertEqual(self.run_check().returncode, 0)
@@ -91,6 +124,42 @@ class HcpLoginCheckTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout)
                 self.assertIn("not a user token", result.stderr)
                 self.assertIn("terraform login", result.stderr)
+
+    def test_a_provisioned_repository_passes_with_a_team_token(self) -> None:
+        """The steady state after the handoff.
+
+        Requiring a user token universally made hcp-login the first red step on
+        every later resume and on status, telling the operator to restore the
+        apply-capable token phase 4 had just removed.
+        """
+        result = self.run_check(code="404", workspace_repo="acme/infra")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # The user-token probe must not even be attempted once provisioning is
+        # established, or a 404 there would still decide the outcome.
+        self.assertNotIn(
+            "account/details", " ".join(result.requests), result.requests
+        )
+
+    def test_another_repositorys_workspace_is_not_provisioning_evidence(self) -> None:
+        """A cold repo in a shared organization still needs the user token."""
+        result = self.run_check(code="404", workspace_repo="acme/other")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("not a user token", result.stderr)
+
+    def test_an_unexpected_endpoint_never_receives_the_credential(self) -> None:
+        """This check runs earliest, before the tri-state guards can refuse."""
+        for endpoint in ("http://app.terraform.io/api/v2", "https://evil.example/api/v2"):
+            with self.subTest(endpoint=endpoint):
+                result = self.run_check(hcp_api=endpoint)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.requests, [], result.requests)
+                self.assertIn("was not checked", result.stderr)
+
+    def test_an_unreadable_workspace_list_falls_through(self) -> None:
+        """Cannot establish provisioning, so the credential kind still decides."""
+        result = self.run_check(code="404", workspaces_readable=False)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("not a user token", result.stderr)
 
     def test_no_credential_is_red(self) -> None:
         self.assertEqual(self.run_check(file_token=None).returncode, 1)

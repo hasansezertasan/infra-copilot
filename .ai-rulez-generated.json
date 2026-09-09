@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:fc0886244f6d93dcec1e1fc52fdc5deeaa33f16f931c9fbed72026144380495c",
+  "source_hash": "blake3:69a8c6fa01831ce7e2cffe0da6c33a8b5b284dd3631273fc45818b630f3dea69",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -84,7 +84,7 @@
       "content_hash": "blake3:07721435f6886146285734e0f05b572fbf91cd1309206a99cee8c97384b0d794"
     },
     "skills/infra-copilot/references/steps.yaml": {
-      "content_hash": "blake3:984b90645ba17d6e864bee65dde8948bd608a446ccdc722b33fc945d29cc93ed"
+      "content_hash": "blake3:bbb94e3ae6f8ced53f253daa76036dbdcca23651c3b5003352b8ebc231338944"
     },
     "skills/setup/SKILL.md": {
       "content_hash": "blake3:18457295b83bc8c402513e0214aff6e1bf498004a52f66c9da44692e025af634"
