@@ -632,6 +632,33 @@ class HcpApplyScopeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("names no HCP organization", result.stderr)
 
+    def test_an_attribute_on_the_opening_line_is_read(self) -> None:
+        """HCL allows `cloud { organization = "acme"`.
+
+        Skipping the rest of the opening line lost the attribute, so the leaf
+        looked like it named no organization and the check stopped setup at a
+        correctly configured repository.
+        """
+        for label, hcl in (
+            (
+                "attribute on the opening line",
+                "terraform {\n  cloud { organization = \"acme\"\n"
+                '    workspaces { name = "cloudflare" }\n  }\n}\n',
+            ),
+            (
+                "whole block on two lines",
+                "terraform {\n  cloud { organization = \"acme\"\n"
+                '    workspaces { name = "cloudflare" } }\n}\n',
+            ),
+        ):
+            with self.subTest(shape=label):
+                result = self.run_check(
+                    workspaces=[("cloudflare", PLAN_ONLY)],
+                    leaves=["terraform/cloudflare"],
+                    leaf_hcl={"terraform/cloudflare": hcl},
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_an_organization_outside_the_cloud_block_is_ignored(self) -> None:
         """The cloud block ends at its closing brace.
 

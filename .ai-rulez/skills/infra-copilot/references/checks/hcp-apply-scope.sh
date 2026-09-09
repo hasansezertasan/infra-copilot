@@ -148,9 +148,13 @@ leaf_cloud_settings () {  # $1 = leaf directory
             opens = gsub(/{/, "{", line)
             closes = gsub(/}/, "}", line)
         }
+        # No `next` here: HCL allows `cloud { organization = "acme"`, and
+        # skipping the rest of the opening line lost that attribute entirely --
+        # the leaf then looked like it named no organization and the check
+        # stopped setup at a correctly configured repository.
         !incloud && line ~ /(^|[^[:alnum:]_])cloud[[:space:]]*{/ {
             incloud = 1; depth = opens - closes
-            next
+            opening = 1
         }
         incloud {
             # Nested blocks are tracked so the cloud block ends where it really
@@ -190,7 +194,8 @@ leaf_cloud_settings () {  # $1 = leaf directory
                 wsdepth += (line ~ /(^|[^[:alnum:]_])workspaces[[:space:]]*{/ ? 0 : opens - closes)
                 if (wsdepth <= 0) inws = 0
             }
-            depth += (line ~ /(^|[^[:alnum:]_])cloud[[:space:]]*{/ ? 0 : opens - closes)
+            if (!opening) depth += opens - closes
+            opening = 0
             if (depth <= 0) incloud = 0
         }
     ' "$1"/*.tf 2>/dev/null

@@ -216,10 +216,29 @@ steps:
     # file-only check marked phase 0 red for anyone following hcp-apply-scope's
     # environment-variable route, and setup then told them to run `terraform login`
     # again -- recreating the apply-capable user token that step exists to remove.
-    check: >-
-      test -n "${TF_TOKEN_app_terraform_io:-}"
-      || jq -e ".credentials[\"app.terraform.io\"].token | strings | length > 0"
-      ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1
+    #
+    # Presence alone is not enough. On a machine already narrowed by
+    # hcp-apply-scope, the plan-only team token satisfied a presence test, so
+    # bootstrapping a SECOND repository skipped this handoff -- and then
+    # vcs-connect could not read oauth-clients while no workspace existed yet for
+    # its fallback, so setup stalled with no way to ask for the user credential.
+    # /account/details exists only for a user token, so it distinguishes them.
+    # Only a definitive negative turns this red: a transport failure leaves the
+    # presence result standing rather than blocking a cold bootstrap offline.
+    check: |
+      token=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' \
+        ~/.terraform.d/credentials.tfrc.json 2>/dev/null)}
+      [ -n "$token" ] && [ "$token" != null ] || exit 1
+      code=$(curl -s -o /dev/null -w '%{http_code}' "$hcp_api/account/details" \
+        -H "Authorization: Bearer $token") || exit 0
+      case "$code" in
+        200) exit 0 ;;
+        401|403|404)
+          echo "the HCP credential in use is not a user token (account/details returned $code). Phases 0 and 1 need the user credential from 'terraform login': a team token cannot read organization VCS settings or complete the OAuth flow. Unset TF_TOKEN_app_terraform_io, or run 'terraform login' for this bootstrap and re-apply hcp-apply-scope afterwards." >&2
+          exit 1
+          ;;
+        *) exit 0 ;;
+      esac
     produces: an HCP account and an API token terraform can use
     docs: docs/setup.md#1-hcp-terraform--organization
 
