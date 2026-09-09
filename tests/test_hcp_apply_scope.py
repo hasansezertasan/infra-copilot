@@ -56,6 +56,7 @@ class HcpApplyScopeTests(unittest.TestCase):
         nameless: tuple[str, ...] = (),
         shift_on_recheck: bool = False,
         pages_on_recheck: int | None = None,
+        fail_on_recheck: bool = False,
         pagination: object = 1,
         fail_after_page: int | None = None,
         empty_after_page: int | None = None,
@@ -162,9 +163,16 @@ class HcpApplyScopeTests(unittest.TestCase):
                     'n=$(cat "$TMPCOUNT" 2>/dev/null || echo 0); n=$((n + 1)); '
                     'printf "%s" "$n" > "$TMPCOUNT"\n'
                     f'if [ "$n" -gt 1 ]; then body=$(printf "%s" "$body" '
-                    f'| sed \'s/"total-pages":[0-9]*/"total-pages":{pages_on_recheck}/\'); fi'
+                    f'| sed \'s/"total-pages":[[:space:]]*[0-9][0-9]*/"total-pages":{pages_on_recheck}/\'); fi'
                 )
                 if pages_on_recheck is not None
+                else "",
+                (
+                    'n=$(cat "$TMPCOUNT" 2>/dev/null || echo 0); n=$((n + 1)); '
+                    'printf "%s" "$n" > "$TMPCOUNT"; '
+                    'if [ "$n" -gt 1 ]; then exit 22; fi'
+                )
+                if fail_on_recheck
                 else "",
                 'if [ -n "$out" ]; then printf \'%s\' "$body" > "$out"; else printf \'%s\' "$body"; fi',
             ]
@@ -692,6 +700,31 @@ class HcpApplyScopeTests(unittest.TestCase):
                 self.assertIn("'production'", result.stderr)
                 self.assertNotIn("'cloudflare', which", result.stderr)
 
+    def test_documentation_in_quoted_strings_is_not_configuration(self) -> None:
+        """Quoted block names, attributes and braces are string data."""
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            leaf_hcl={
+                "terraform/cloudflare": (
+                    "locals {\n"
+                    '  opening = "cloud {"\n'
+                    '  nested = "workspaces {"\n'
+                    '  organization = "acme"\n'
+                    '  name = "cloudflare"\n'
+                    '  closing = "} }"\n'
+                    "}\n"
+                    "terraform {\n  cloud {\n"
+                    '    organization = "acme"\n'
+                    '    workspaces { name = "production" }\n'
+                    "  }\n}\n"
+                )
+            },
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("'production'", result.stderr)
+        self.assertNotIn("'cloudflare', which", result.stderr)
+
     def test_an_organization_outside_the_cloud_block_is_ignored(self) -> None:
         """The cloud block ends at its closing brace.
 
@@ -816,6 +849,17 @@ class HcpApplyScopeTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("changed while it was being read", result.stderr)
+
+    def test_a_failed_consistency_reread_reports_the_request_failure(self) -> None:
+        """A transport failure is not evidence that the workspace set changed."""
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY)],
+            leaves=["terraform/cloudflare"],
+            fail_on_recheck=True,
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("could not be re-read", result.stderr)
+        self.assertNotIn("changed while it was being read", result.stderr)
 
     def test_a_stable_list_over_two_pages_passes(self) -> None:
         """The re-list must not report a change when nothing changed."""

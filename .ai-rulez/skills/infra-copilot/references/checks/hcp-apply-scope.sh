@@ -144,34 +144,47 @@ leaf_cloud_settings () {  # $1 = leaf directory
                 }
                 next
             }
-            line = $0
-            while (inblock) {
-                end = index(line, "*/")
-                if (end == 0) { line = ""; break }
-                line = substr(line, end + 2); inblock = 0
+            # Build two views in one lexical pass. `line` keeps string values so
+            # literal attributes can be emitted. `structure` masks string
+            # contents and comments so their braces, block names and fake
+            # assignments cannot steer the parser.
+            raw = $0; line = ""; structure = ""; instring = 0; escaped = 0
+            for (i = 1; i <= length(raw); i++) {
+                char = substr(raw, i, 1); pair = substr(raw, i, 2)
+                if (inblock) {
+                    if (pair == "*/") { inblock = 0; i++ }
+                    continue
+                }
+                if (instring) {
+                    line = line char
+                    if (escaped) { escaped = 0; structure = structure " "; continue }
+                    if (char == "\\") { escaped = 1; structure = structure " "; continue }
+                    if (char == "\"") { instring = 0; structure = structure "\"" }
+                    else structure = structure " "
+                    continue
+                }
+                if (char == "#" || pair == "//") break
+                if (pair == "/*") { inblock = 1; i++; continue }
+                line = line char
+                if (char == "\"") { instring = 1; structure = structure "\"" }
+                else structure = structure char
             }
-            while ((start = index(line, "/*")) > 0) {
-                rest = substr(line, start + 2)
-                end = index(rest, "*/")
-                if (end == 0) { line = substr(line, 1, start - 1); inblock = 1; break }
-                line = substr(line, 1, start - 1) substr(rest, end + 2)
-            }
-            sub(/#.*/, "", line); sub(/\/\/.*/, "", line)
-            if (match(line, /=[[:space:]]*<<-?[[:space:]]*[[:alnum:]_-]+/)) {
-                marker = substr(line, RSTART, RLENGTH)
+            if (match(structure, /=[[:space:]]*<<-?[[:space:]]*[[:alnum:]_-]+/)) {
+                marker = substr(structure, RSTART, RLENGTH)
                 indented_heredoc = (marker ~ /<<-/)
                 sub(/^.*<<-?[[:space:]]*/, "", marker)
                 heredoc = marker
                 line = substr(line, 1, RSTART - 1)
+                structure = substr(structure, 1, RSTART - 1)
             }
-            opens = gsub(/{/, "{", line)
-            closes = gsub(/}/, "}", line)
+            opens = gsub(/{/, "{", structure)
+            closes = gsub(/}/, "}", structure)
         }
         # No `next` here: HCL allows `cloud { organization = "acme"`, and
         # skipping the rest of the opening line lost that attribute entirely --
         # the leaf then looked like it named no organization and the check
         # stopped setup at a correctly configured repository.
-        !incloud && line ~ /(^|[^[:alnum:]_])cloud[[:space:]]*{/ {
+        !incloud && structure ~ /(^|[^[:alnum:]_])cloud[[:space:]]*{/ {
             incloud = 1; depth = opens - closes
             opening = 1
         }
@@ -179,18 +192,18 @@ leaf_cloud_settings () {  # $1 = leaf directory
             # Nested blocks are tracked so the cloud block ends where it really
             # ends, not at the first closing brace.
             if (inws) {
-                if (match(line, /(^|[^[:alnum:]_])tags[[:space:]]*=/)) print "workspaces.tags=present"
-                else if (match(line, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/)) {
+                if (match(structure, /(^|[^[:alnum:]_])tags[[:space:]]*=/)) print "workspaces.tags=present"
+                else if (match(structure, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/)) {
                     value = substr(line, RSTART, RLENGTH)
                     sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
                     print "workspaces.name=" value
                 }
-            } else if (line ~ /(^|[^[:alnum:]_])workspaces[[:space:]]*{/) {
+            } else if (structure ~ /(^|[^[:alnum:]_])workspaces[[:space:]]*{/) {
                 inws = 1; wsdepth = opens - closes
                 # A single-line `workspaces { name = "x" }` opens and closes at
                 # once, so its attributes are read from this same line.
-                if (match(line, /(^|[^[:alnum:]_])tags[[:space:]]*=/)) print "workspaces.tags=present"
-                else if (match(line, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/)) {
+                if (match(structure, /(^|[^[:alnum:]_])tags[[:space:]]*=/)) print "workspaces.tags=present"
+                else if (match(structure, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/)) {
                     value = substr(line, RSTART, RLENGTH)
                     sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
                     print "workspaces.name=" value
@@ -199,10 +212,10 @@ leaf_cloud_settings () {  # $1 = leaf directory
                 # token is reported as present, never by value: there is no
                 # reason to carry a credential in a shell variable, and the only
                 # question asked of it is whether the leaf has one.
-                if (match(line, /(^|[^[:alnum:]_])token[[:space:]]*=/)) print "token=present"
+                if (match(structure, /(^|[^[:alnum:]_])token[[:space:]]*=/)) print "token=present"
                 for (key = 1; key <= 2; key++) {
                     want = (key == 1 ? "hostname" : "organization")
-                    if (match(line, "(^|[^[:alnum:]_])" want "[[:space:]]*=[[:space:]]*\"[^\"]*\"")) {
+                    if (match(structure, "(^|[^[:alnum:]_])" want "[[:space:]]*=[[:space:]]*\"[^\"]*\"")) {
                         value = substr(line, RSTART, RLENGTH)
                         sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
                         print want "=" value
@@ -210,7 +223,7 @@ leaf_cloud_settings () {  # $1 = leaf directory
                 }
             }
             if (inws) {
-                wsdepth += (line ~ /(^|[^[:alnum:]_])workspaces[[:space:]]*{/ ? 0 : opens - closes)
+                wsdepth += (structure ~ /(^|[^[:alnum:]_])workspaces[[:space:]]*{/ ? 0 : opens - closes)
                 if (wsdepth <= 0) inws = 0
             }
             if (!opening) depth += opens - closes
@@ -367,16 +380,32 @@ done
 # plugin creates, and an earlier `page > 1` guard meant a single full page that
 # gained a second page was never re-read at all.
 recheck=""
+recheck_failed=""
 verify_page=1
 verify_pages=1
 while : ; do
     again=$(curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$verify_page" \
-        -H "Authorization: Bearer $token") || { recheck="unreadable"; break; }
-    recheck="$recheck $(printf '%s' "$again" | jq -r '.data[].id' 2>/dev/null | tr '\n' ' ')"
+        -H "Authorization: Bearer $token") || {
+            note_unknown "page $verify_page of the workspace list for $ORG could not be re-read for the consistency check"
+            recheck_failed=yes
+            break
+        }
+    page_ids=$(printf '%s' "$again" | jq -er '
+        .data | if type == "array" then map(.id) | join(" ") else empty end
+    ' 2>/dev/null) || {
+        note_unknown "page $verify_page of the workspace list for $ORG was not the expected JSON when re-read for the consistency check"
+        recheck_failed=yes
+        break
+    }
+    recheck="$recheck $page_ids"
     verify_pages=$(printf '%s' "$again" | jq -er '.meta.pagination["total-pages"]
                     | if type == "number" and . == floor and . > 0
                       then (floor | tostring) else empty end' 2>/dev/null) \
-        || { recheck="unreadable"; break; }
+        || {
+            note_unknown "page $verify_page of the workspace list for $ORG carried no positive-integer pagination metadata when re-read for the consistency check"
+            recheck_failed=yes
+            break
+        }
     [ "$verify_page" -lt "$verify_pages" ] || break
     verify_page=$((verify_page + 1))
 done
@@ -385,7 +414,7 @@ again_set=$(printf '%s' "$recheck" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n'
 # Comparing page counts as well was redundant -- a workspace added on a new page
 # changes the id set too -- and `pages_seen` goes stale when the scan breaks
 # early, which would have reported a change that never happened.
-if [ "$first_set" != "$again_set" ]; then
+if [ -z "$recheck_failed" ] && [ "$first_set" != "$again_set" ]; then
     note_unknown "the workspace list in $ORG changed while it was being read, so an entry may have shifted between pages or landed on a page this scan never requested; re-run when the organization is not being modified"
 fi
 

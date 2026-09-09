@@ -25,6 +25,15 @@ class PolicyDocTests(unittest.TestCase):
         self.policy = re.sub(r"\s+", " ", raw)
         self.raw = raw
 
+    def test_handoff_check_reloads_the_terraform_credential(self) -> None:
+        """Replacing credentials.tfrc.json must not leave a stale HCP_TOKEN."""
+        manifest = re.sub(r"\s+", " ", MANIFEST.read_text(encoding="utf-8"))
+        step = manifest.split("- id: hcp-apply-scope", 1)[1].split(
+            "- id: plan-cloudflare", 1
+        )[0]
+        self.assertIn("export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq", step)
+        self.assertLess(step.index("export HCP_TOKEN="), step.index("hcp-apply-scope.sh"))
+
     def test_no_deployable_profile_ships(self) -> None:
         """A file that looks authoritative invites being deployed unread."""
         self.assertFalse(

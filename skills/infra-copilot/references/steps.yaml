@@ -596,7 +596,14 @@ steps:
       with the user token if you need to, and leave the team's organization access
       empty.
     tri_state: true   # exit 2 = could not verify; see protocol.md
-    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
+    # The credentials-file route replaces a file but cannot update the current
+    # process environment. Resolve HCP_TOKEN again here so a user token exported
+    # during Step 0 cannot create a false SPLIT-BRAIN verdict after the handoff.
+    check: >-
+      export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r
+      '.credentials["app.terraform.io"].token'
+      ~/.terraform.d/credentials.tfrc.json)} &&
+      sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
     produces: an agent credential with no direct apply path (not a boundary against a hostile actor — see docs/policy.md)
     docs: docs/policy.md#a-credential-that-cannot-apply
 
