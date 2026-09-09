@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6c7e158f26dcf282118046535c927c559048a87ebfed30cf108eacf019fbbac7
-Source-Hash: blake3:08d9efc8383f0e500d20ec1cac749a5477e465d3aff4d7c196663f1f6651891f
+Content-Hash: blake3:cd6a7c2848aef09ba1077b3ce13f10e8cef4f3e4c05ab3146def1fa9035ae501
+Source-Hash: blake3:aacece82efe69355e707c4a31ca328695c93afbc27dafadaf4ab56ce5997565d
 Schema-Version: v1
 -->
 
@@ -80,7 +80,7 @@ preflight — is in
      HEAD` names the last *commit*, not what is on disk, so uncommitted changes under a
      leaf's directory mean the files you are auditing were never sent to HCP. Test each
      leaf together with shared inputs — `git --no-optional-locks status --porcelain --
-     terraform/cloudflare terraform/modules .infra-copilot/config.md`, and the same leaf
+     terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml`, and the same leaf
      substitution for `terraform/github` or `terraform/$NEW_PROVIDER` — and if the output is non-empty, that leaf's plan
      check is `?` (working tree differs from the last tested revision). Stop there for that
      leaf; a green run for HEAD says nothing about edited files. `--no-optional-locks` keeps

@@ -73,7 +73,7 @@ preflight — is in
      HEAD` names the last *commit*, not what is on disk, so uncommitted changes under a
      leaf's directory mean the files you are auditing were never sent to HCP. Test each
      leaf together with shared inputs — `git --no-optional-locks status --porcelain --
-     terraform/cloudflare terraform/modules .infra-copilot/config.md`, and the same leaf
+     terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml`, and the same leaf
      substitution for `terraform/github` or `terraform/$NEW_PROVIDER` — and if the output is non-empty, that leaf's plan
      check is `?` (working tree differs from the last tested revision). Stop there for that
      leaf; a green run for HEAD says nothing about edited files. `--no-optional-locks` keeps

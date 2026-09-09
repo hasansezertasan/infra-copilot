@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:cbbd46a55edc9d26573c25891d7dde0a82a530e0e5cfa59bb5c1bb40a707dcaf
-Source-Hash: blake3:08d9efc8383f0e500d20ec1cac749a5477e465d3aff4d7c196663f1f6651891f
+Content-Hash: blake3:c3823f12a1405cd4dded6e7d2ace77b23d0de0b1e3389ff678e5c5c056e74138
+Source-Hash: blake3:aacece82efe69355e707c4a31ca328695c93afbc27dafadaf4ab56ce5997565d
 Schema-Version: v1
 -->
 
@@ -45,6 +45,7 @@ additional_providers:
     mise_tools:               # exact mise keys added for this provider; [] if none
       - gcloud
     mise_config_blob: ""      # HUMAN-reviewed `git hash-object mise.toml`
+    mise_lock_blob: ""        # HUMAN-reviewed `git hash-object mise.lock`
     fork_speculative_plans_disabled: false # set true only after the HUMAN verifies the UI
     fork_speculative_plans_workspace_id: "" # immutable ws-... identity for that attestation
     credentials_verified_at: ""  # HUMAN records UTC after installing the declared variables
@@ -77,20 +78,23 @@ created after the entire recorded handoff second and after the workspace's lates
 update, so an older run cannot stand in for the current least-privilege credentials or
 newly reconciled execution settings.
 
-Record every variable in the provider workspace, including every value required to
+Record every directly defined variable in the provider workspace, including every value required to
 authenticate the provider. A flag such as
 `TFC_GCP_PROVIDER_AUTH=true` is credential configuration even when it is intentionally
 non-sensitive; a downloaded key normally has `sensitive: true`. An empty list is invalid
 for an adopted provider. The exact metadata inventory prevents an old, undeclared
 credential from remaining active in a reused workspace while still letting a later `add`
 or `status` verify keys without reading their values or guessing provider-specific
-conventions.
+conventions. Effective organization-, project-, or workspace-scoped variable sets make
+this metadata inventory unverifiable, so the credential check pauses until they are
+detached and the required variables are defined directly on the workspace.
 
-Leave `mise_config_blob` empty until the HUMAN has reviewed the complete committed
-`mise.toml` and `mise.lock`. Then record the output of `git hash-object mise.toml`, commit
-that attestation with the reviewed files, and run `mise trust mise.toml`. Path-level mise
-trust survives later edits, so only this content-bound value proves the currently active
-configuration was reviewed.
+Leave `mise_config_blob` and `mise_lock_blob` empty until the HUMAN has reviewed the
+complete committed `mise.toml` and `mise.lock`. Then record the respective outputs of
+`git hash-object mise.toml` and `git hash-object mise.lock`, commit both attestations with
+the reviewed files, and run `mise trust mise.toml`. Path-level mise trust survives later
+edits, so only these content-bound values prove the currently active configuration and
+lock were reviewed together.
 
 ## Startup contract (the skill's first action)
 
@@ -142,6 +146,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export NEW_PROVIDER_WORKSPACE=<entry.workspace>
    export NEW_PROVIDER_MISE_TOOLS='<entry.mise_tools as compact JSON>'
    export NEW_PROVIDER_MISE_CONFIG_BLOB=<entry.mise_config_blob>
+   export NEW_PROVIDER_MISE_LOCK_BLOB=<entry.mise_lock_blob>
    export NEW_PROVIDER_FORK_PLANS_DISABLED=<entry.fork_speculative_plans_disabled>
    export NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID=<entry.fork_speculative_plans_workspace_id>
    export NEW_PROVIDER_CREDENTIALS_VERIFIED_AT=<entry.credentials_verified_at>
@@ -155,6 +160,8 @@ Before running ANY step's `check` or `run`, the agent MUST:
    keeps credential and plan completion red until the HUMAN performs the current handoff.
    Export a missing legacy `mise_config_blob` as the empty string so a changed executable
    configuration cannot inherit an older path-level trust decision.
+   Export a missing legacy `mise_lock_blob` as the empty string so a changed lock file
+   cannot inherit an older toolchain review.
 
    Validate `name` and `workspace` against `^[a-z0-9][a-z0-9-]*$` before putting them
    into a path or URL. `NEW_PROVIDER_MISE_TOOLS` and `NEW_PROVIDER_CREDENTIALS` are JSON

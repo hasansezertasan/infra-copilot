@@ -115,20 +115,22 @@ candidates=$(jq -scer '
       | {id, ingress_id: (.relationships["ingress-attributes"].data.id // null)}]
       | unique_by(.id) as $configs
   | [$pages[].data[]] as $runs
-  | if all($runs[];
-      (.relationships["configuration-version"].data.id // null) as $config_id
-      | ([$configs[] | select(.id == $config_id)]) as $config_matches
-      | ($config_matches | length) == 1
-        and ($config_matches[0].ingress_id | type == "string" and length > 0)
-        and (([$ingress[] | select(.id == $config_matches[0].ingress_id)] | length) == 1))
-    then [$runs[]
+  | [$runs[]
       | . as $run
-      | .relationships["configuration-version"].data.id as $config_id
-      | ($configs[] | select(.id == $config_id) | .ingress_id) as $ingress_id
-      | ($ingress[] | select(.id == $ingress_id) | .sha) as $sha
-      | $run + {"_commit_sha": $sha}]
-    else error("a run did not join one-to-one to ingress data")
-    end' "$pages" 2>/dev/null) \
+      | (.relationships["configuration-version"].data.id // null) as $config_id
+      | ([$configs[] | select(.id == $config_id)]) as $config_matches
+      | if ($config_matches | length) != 1 then
+          error("a run did not join one-to-one to configuration-version data")
+        elif $config_matches[0].ingress_id == null then
+          $run + {"_commit_sha": null}
+        elif ($config_matches[0].ingress_id | type == "string" and length > 0) then
+          $config_matches[0].ingress_id as $ingress_id
+          | ([$ingress[] | select(.id == $ingress_id)]) as $ingress_matches
+          | if ($ingress_matches | length) == 1 then
+              $run + {"_commit_sha": $ingress_matches[0].sha}
+            else error("a VCS run did not join one-to-one to ingress data") end
+        else error("a configuration-version ingress relationship was malformed") end]' "$pages" \
+    2>/dev/null) \
     || cannot_verify "run-to-ingress relationships were malformed"
 candidates=$(printf '%s' "$candidates" | jq -cer '
   def timestamp_key:
@@ -149,7 +151,8 @@ candidates=$(printf '%s' "$candidates" | jq -cer '
 # tip and a prior relevant run when path triggers skipped an unrelated commit.
 matching_shas='[]'
 missing_shas='[]'
-for sha in $(printf '%s' "$candidates" | jq -r '[.[]._commit_sha] | unique | .[]'); do
+for sha in $(printf '%s' "$candidates" \
+    | jq -r '[.[]._commit_sha | select(type == "string")] | unique | .[]'); do
     if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
         missing_shas=$(jq -cn --argjson shas "$missing_shas" --arg sha "$sha" \
           '$shas + [$sha]') || cannot_verify "missing ingress SHAs could not be encoded"
@@ -169,18 +172,26 @@ if ! printf '%s' "$matching_shas" | jq -e 'length > 0' >/dev/null; then
     exit 1
 fi
 
-latest=$(printf '%s' "$candidates" | jq -cer --argjson shas "$matching_shas" '
+selected_key=$(printf '%s' "$candidates" | jq -er --argjson shas "$matching_shas" '
   map(select(._commit_sha as $sha | $shas | index($sha)))
-  | max_by(._created_key)') \
+  | max_by(._created_key)._created_key') \
   || cannot_verify "the newest run for the current relevant tree could not be selected"
-selected_key=$(printf '%s' "$latest" | jq -er '._created_key') \
-  || cannot_verify "the selected run timestamp key could not be read"
+latest=$(printf '%s' "$candidates" | jq -cer --argjson shas "$matching_shas" \
+    --arg selected "$selected_key" '
+      map(select((._commit_sha as $sha | $shas | index($sha))
+        and ._created_key == $selected))
+      | if length == 1 then .[0] else error("newest matching run timestamp is ambiguous") end') \
+  || cannot_verify "multiple newest runs for the current relevant tree share one timestamp"
 if printf '%s' "$candidates" | jq -e --argjson shas "$missing_shas" \
     --arg selected "$selected_key" '
       any(.[];
         (._commit_sha as $sha | $shas | index($sha))
         and (._created_key >= $selected))' >/dev/null; then
     cannot_verify "an unavailable ingress commit could supersede the selected matching run"
+fi
+if printf '%s' "$candidates" | jq -e --arg selected "$selected_key" '
+    any(.[]; ._commit_sha == null and ._created_key >= $selected)' >/dev/null; then
+    cannot_verify "an ingress-less run could supersede the selected matching run"
 fi
 
 status=$(printf '%s' "$latest" | jq -er '.attributes.status') \

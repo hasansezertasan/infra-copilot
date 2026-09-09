@@ -216,6 +216,7 @@ class NewProviderFlowTests(unittest.TestCase):
             "NEW_PROVIDER_WORKSPACE": "gcp",
             "NEW_PROVIDER_MISE_TOOLS": '["gcloud"]',
             "NEW_PROVIDER_MISE_CONFIG_BLOB": "",
+            "NEW_PROVIDER_MISE_LOCK_BLOB": "",
             "NEW_PROVIDER_FORK_PLANS_DISABLED": "false",
             "NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID": "",
             "NEW_PROVIDER_CREDENTIALS_VERIFIED_AT": "",
@@ -532,9 +533,11 @@ terraform {
         toolchain = self.steps["new-provider-toolchain"]
         self.assertIn("do not execute the CLI", leaf)
         self.assertIn("    actor: HUMAN", toolchain)
-        self.assertIn("commit all three\n      reviewed files", toolchain)
+        self.assertIn("commit all four reviewed files", toolchain)
         self.assertIn("NEW_PROVIDER_MISE_CONFIG_BLOB", toolchain)
+        self.assertIn("NEW_PROVIDER_MISE_LOCK_BLOB", toolchain)
         self.assertIn("git hash-object -- mise.toml", toolchain)
+        self.assertIn("git hash-object -- mise.lock", toolchain)
         self.assertIn(".infra-copilot/config.md", toolchain)
         self.assertIn("mise trust mise.toml", toolchain)
         self.assertIn("mise trust --show", toolchain)
@@ -675,6 +678,8 @@ terraform {
         self.assertIn("$epoch <= now", credentials)
         self.assertIn("git diff --quiet HEAD -- .infra-copilot/config.md", credentials)
         self.assertIn("($actual == $wanted)", credentials)
+        self.assertIn("/varsets?page%5Bsize%5D=1", credentials)
+        self.assertIn("(.data | length == 0)", credentials)
         self.assertNotIn("all($expected[]", credentials)
 
     def test_first_plan_targets_the_parameterized_leaf(self) -> None:
@@ -717,6 +722,8 @@ terraform {
         self.assertIn("cost_estimation_errored", helper)
         self.assertIn("UNSAFE PLAN", helper)
         self.assertIn("could supersede the selected matching run", helper)
+        self.assertIn("an ingress-less run could supersede", helper)
+        self.assertIn("multiple newest runs for the current relevant tree", helper)
         self.assertIn("the run-list head changed during pagination", helper)
         self.assertIn('git diff --quiet "$sha" HEAD', helper)
         self.assertIn('[ "$status" = policy_soft_failed ]', helper)
@@ -849,9 +856,12 @@ terraform {
             '{"type":"ingress-attributes","id":"ia-1","attributes":'
             '{"commit-sha":"0123456789abcdef0123456789abcdef01234567"}},'
             '{"type":"configuration-versions","id":"cv-1","relationships":'
-            '{"ingress-attributes":{"data":{"id":"ia-1"}}}}],'
+            '{"ingress-attributes":{"data":{"id":"ia-1"}}}},'
+            '{"type":"configuration-versions","id":"cv-cli","relationships":{}}],'
             '"data":[{"id":"run-1","relationships":'
-            '{"configuration-version":{"data":{"id":"cv-1"}}}}]}'
+            '{"configuration-version":{"data":{"id":"cv-1"}}}},'
+            '{"id":"run-cli","relationships":'
+            '{"configuration-version":{"data":{"id":"cv-cli"}}}}]}'
         )
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as fixture:
             fixture.write(page)
@@ -867,6 +877,8 @@ terraform {
             '"_commit_sha":"0123456789abcdef0123456789abcdef01234567"',
             result.stdout,
         )
+        self.assertIn('"id":"run-cli"', result.stdout)
+        self.assertIn('"_commit_sha":null', result.stdout)
 
     def test_inventory_covers_actual_provider_tool_keys(self) -> None:
         inventory = self.steps["new-provider-inventory"]
@@ -1005,7 +1017,7 @@ terraform {
         self.assertIn("destroys are\n   zero", status)
         self.assertIn("If that HUMAN trust gate is red", status)
         self.assertIn(
-            "terraform/cloudflare terraform/modules .infra-copilot/config.md",
+            "terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml",
             status,
         )
         router = STATUS.read_text(encoding="utf-8")
@@ -1023,6 +1035,7 @@ terraform {
             "ADDITIONAL_PROVIDER_WORKSPACES",
             "NEW_PROVIDER_MISE_TOOLS",
             "NEW_PROVIDER_MISE_CONFIG_BLOB",
+            "NEW_PROVIDER_MISE_LOCK_BLOB",
             "NEW_PROVIDER_FORK_PLANS_DISABLED",
             "NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID",
         ):

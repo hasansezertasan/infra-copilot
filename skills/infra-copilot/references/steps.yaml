@@ -45,6 +45,8 @@
 #     export NEW_PROVIDER=<entry.name>
 #     export NEW_PROVIDER_WORKSPACE=<entry.workspace>
 #     export NEW_PROVIDER_MISE_TOOLS='<entry.mise_tools as compact JSON>'
+#     export NEW_PROVIDER_MISE_CONFIG_BLOB=<entry.mise_config_blob>
+#     export NEW_PROVIDER_MISE_LOCK_BLOB=<entry.mise_lock_blob>
 # The once-per-phase inventory also receives every declared provider tool:
 #     export ADDITIONAL_PROVIDER_MISE_TOOLS='<all entry.mise_tools flattened as compact JSON>'
 #     export NEW_PROVIDER_FORK_PLANS_DISABLED=<entry.fork_speculative_plans_disabled>
@@ -734,7 +736,8 @@ steps:
          lowercase name, HCP workspace, and every authentication variable's key,
          category, and sensitive flag. Inventory every workspace variable so undeclared
          credentials cannot survive a reused workspace. Record provider mise tools (or
-         `[]`) and set `mise_config_blob: ""` until the HUMAN reviews the toolchain. Set
+         `[]`) and set `mise_config_blob: ""` and `mise_lock_blob: ""` until the HUMAN
+         reviews the toolchain. Set
          `fork_speculative_plans_disabled: false` until that HUMAN check is performed.
          Set `fork_speculative_plans_workspace_id: ""` until the same check binds the
          attestation to the immutable HCP workspace identity.
@@ -751,6 +754,10 @@ steps:
         and length == (unique | length)' >/dev/null || exit 1
       if test -n "$NEW_PROVIDER_MISE_CONFIG_BLOB"; then
         printf '%s\n' "$NEW_PROVIDER_MISE_CONFIG_BLOB" \
+          | grep -Eq '^[0-9a-f]{40}([0-9a-f]{24})?$' || exit 1
+      fi
+      if test -n "$NEW_PROVIDER_MISE_LOCK_BLOB"; then
+        printf '%s\n' "$NEW_PROVIDER_MISE_LOCK_BLOB" \
           | grep -Eq '^[0-9a-f]{40}([0-9a-f]{24})?$' || exit 1
       fi
       case "$NEW_PROVIDER_FORK_PLANS_DISABLED" in true|false) : ;; *) exit 1 ;; esac
@@ -838,8 +845,9 @@ steps:
     why: A newly pinned provider CLI changes executable configuration after the initial setup trust gate.
     run: |
       Review the complete mise.toml diff and mise.lock URLs. If they are expected, record
-      `git hash-object mise.toml` as this provider's `mise_config_blob`, commit all three
-      reviewed files, run `mise trust mise.toml`, then install every
+      `git hash-object mise.toml` as this provider's `mise_config_blob` and
+      `git hash-object mise.lock` as its `mise_lock_blob`, commit all four reviewed files,
+      run `mise trust mise.toml`, then install every
       configured tool with `MISE_LOCKED=1` as documented in docs/setup.md. Reply
       `done`; the agent re-runs this check. Once every provider toolchain gate is
       green, it runs the complete preflight once per provider entry, exporting that
@@ -850,7 +858,9 @@ steps:
       git diff --quiet HEAD -- mise.toml mise.lock .infra-copilot/config.md &&
       git diff --cached --quiet HEAD -- mise.toml mise.lock .infra-copilot/config.md &&
       current_mise_blob=$(git hash-object -- mise.toml) &&
+      current_mise_lock_blob=$(git hash-object -- mise.lock) &&
       [ "$NEW_PROVIDER_MISE_CONFIG_BLOB" = "$current_mise_blob" ] &&
+      [ "$NEW_PROVIDER_MISE_LOCK_BLOB" = "$current_mise_lock_blob" ] &&
       repo_dir=$(pwd -P) &&
       mise trust --show 2>/dev/null | grep -Fx "$repo_dir: trusted" >/dev/null &&
       tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
@@ -1050,7 +1060,8 @@ steps:
       Mint or configure the provider's least-privilege credential as its runbook
       requires. In HCP workspace $NEW_PROVIDER_WORKSPACE, reconcile every variable to
       the exact NEW_PROVIDER_CREDENTIALS inventory by key, category, and sensitive flag;
-      delete undeclared leftovers before continuing.
+      delete undeclared leftovers before continuing. Detach any effective variable sets
+      first; their inherited variables cannot be proven by this workspace-local inventory.
       Paste secret values yourself; never send them to the agent. Reply `done` so
       the agent can verify metadata through the vars API. After every declared variable
       is installed, record the current UTC time as `credentials_verified_at` in config.md
@@ -1063,6 +1074,11 @@ steps:
       WS_ID=$(printf '%s' "$workspace_body" \
         | jq -er '.data.id | select(type == "string" and length > 0)' 2>/dev/null) \
         || exit 2
+      varset_body=$(curl -sf \
+        "$hcp_api/workspaces/$WS_ID/varsets?page%5Bsize%5D=1&page%5Bnumber%5D=1" \
+        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+      printf '%s' "$varset_body" | jq -e '
+        (.data | type == "array") and (.data | length == 0)' >/dev/null 2>&1 || exit 2
       pages=$(mktemp) || exit 2
       trap 'rm -f "$pages"' EXIT
       : >"$pages" || exit 2
