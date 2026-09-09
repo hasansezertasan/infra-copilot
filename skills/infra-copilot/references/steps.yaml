@@ -1077,8 +1077,9 @@ steps:
       varset_body=$(curl -sf \
         "$hcp_api/workspaces/$WS_ID/varsets?page%5Bsize%5D=1&page%5Bnumber%5D=1" \
         -H "Authorization: Bearer $HCP_TOKEN") || exit 2
-      printf '%s' "$varset_body" | jq -e '
-        (.data | type == "array") and (.data | length == 0)' >/dev/null 2>&1 || exit 2
+      varset_count=$(printf '%s' "$varset_body" \
+        | jq -er '.data | select(type == "array") | length' 2>/dev/null) || exit 2
+      test "$varset_count" -eq 0 || exit 1
       pages=$(mktemp) || exit 2
       trap 'rm -f "$pages"' EXIT
       : >"$pages" || exit 2

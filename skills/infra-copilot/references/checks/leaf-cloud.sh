@@ -80,6 +80,7 @@ awk -v want="$want" '
             next
         }
         opened_cloud = 0
+        opened_terraform = 0
         opened_workspace = 0
         line = strip_comments($0)
         heredoc_scan = mask_strings(line)
@@ -99,33 +100,58 @@ awk -v want="$want" '
     }
     !interraform && match(structure, /(^|[^[:alnum:]_])terraform[[:space:]]*{/) {
         interraform = 1
+        opened_terraform = 1
+        terraform_open_end = RSTART + RLENGTH - 1
         terraform_depth = depth_through_match(structure)
     }
-    interraform && !incloud && depth == terraform_depth &&
-        match(structure, /(^|[^[:alnum:]_])cloud[[:space:]]*{/) {
-        incloud = 1
-        opened_cloud = 1
-        cloud_depth = depth_through_match(structure)
-        if (want == "all") print "cloud=present"
+    {
+        search_offset = opened_terraform ? terraform_open_end : 0
+        cloud_structure = substr(structure, search_offset + 1)
+        if (interraform && !incloud &&
+            match(cloud_structure, /(^|[^[:alnum:]_])cloud[[:space:]]*{/)) {
+            cloud_open_end = search_offset + RSTART + RLENGTH - 1
+            cloud_parent_depth = depth + structural_depth_delta(substr(structure, 1, cloud_open_end)) - 1
+            if (cloud_parent_depth == terraform_depth) {
+                incloud = 1
+                opened_cloud = 1
+                cloud_depth = cloud_parent_depth + 1
+                if (want == "all") print "cloud=present"
+            }
+        }
     }
-    incloud && !inws && match(structure, /(^|[^[:alnum:]_])workspaces[[:space:]]*{/) {
-        inws = 1
-        opened_workspace = 1
-        workspace_depth = depth_through_match(structure)
+    {
+        search_offset = opened_cloud ? cloud_open_end : 0
+        workspace_structure = substr(structure, search_offset + 1)
+        if (incloud && !inws &&
+            match(workspace_structure, /(^|[^[:alnum:]_])workspaces[[:space:]]*{/)) {
+            workspace_open_start = search_offset + RSTART
+            workspace_open_end = search_offset + RSTART + RLENGTH - 1
+            workspace_parent_depth = depth + structural_depth_delta(substr(structure, 1, workspace_open_end)) - 1
+            if (workspace_parent_depth == cloud_depth) {
+                inws = 1
+                opened_workspace = 1
+                workspace_depth = workspace_parent_depth + 1
+            }
+        }
     }
-    incloud && !inws && (depth == cloud_depth || opened_cloud) {
+    incloud && (!inws || opened_workspace) && (depth == cloud_depth || opened_cloud) {
+        attribute_line = opened_cloud ? substr(line, cloud_open_end + 1) : line
+        if (opened_workspace) {
+            attribute_start = opened_cloud ? cloud_open_end + 1 : 1
+            attribute_line = substr(line, attribute_start, workspace_open_start - attribute_start)
+        }
         for (key = 1; key <= 2; key++) {
             attribute = (key == 1 ? "hostname" : "organization")
             if ((want == "all" || want == attribute) &&
-                match(line, "(^|[^[:alnum:]_])" attribute "[[:space:]]*=[[:space:]]*\"[^\"]*\"")) {
-                value = substr(line, RSTART, RLENGTH)
+                match(attribute_line, "(^|[^[:alnum:]_])" attribute "[[:space:]]*=[[:space:]]*\"[^\"]*\"")) {
+                value = substr(attribute_line, RSTART, RLENGTH)
                 sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
                 emit(attribute, value)
             }
         }
     }
-    incloud && !inws && (depth == cloud_depth || opened_cloud) &&
-        match(structure, /(^|[^[:alnum:]_])token[[:space:]]*=/) {
+    incloud && (!inws || opened_workspace) && (depth == cloud_depth || opened_cloud) &&
+        match(attribute_line, /(^|[^[:alnum:]_])token[[:space:]]*=/) {
         emit("token", "present")
     }
     inws && (depth == workspace_depth || opened_workspace) &&
@@ -134,8 +160,11 @@ awk -v want="$want" '
         if (want == "all") print "workspaces.tags=present"
     }
     inws && (depth == workspace_depth || opened_workspace) &&
-        match(line, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/) {
-        value = substr(line, RSTART, RLENGTH)
+        match((opened_workspace ? substr(line, workspace_open_end + 1) : line),
+          /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/) {
+        workspace_line = opened_workspace ? substr(line, workspace_open_end + 1) : line
+        match(workspace_line, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/)
+        value = substr(workspace_line, RSTART, RLENGTH)
         sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
         emit("workspaces.name", value)
     }

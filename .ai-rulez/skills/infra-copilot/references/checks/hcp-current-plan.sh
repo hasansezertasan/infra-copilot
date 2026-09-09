@@ -144,6 +144,15 @@ candidates=$(printf '%s' "$candidates" | jq -cer '
       else error("timestamp is noncanonical or in the future") end;
   map(. + {"_created_key": (.attributes["created-at"] | timestamp_key)})') \
     || cannot_verify "a candidate run has a malformed created-at timestamp"
+required_after_key=$(jq -nr \
+    --arg verified "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \
+    --arg workspace_updated "$workspace_updated_at" '
+      def timestamp_key:
+        capture("^(?<whole>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\\.(?<fraction>[0-9]{1,9}))?Z$")
+        | .whole + "." + (((.fraction // "") + "000000000")[0:9]) + "Z";
+      [($verified | sub("Z$"; ".999999999Z") | timestamp_key),
+       ($workspace_updated | timestamp_key)] | max') \
+  || cannot_verify "the current evidence safety boundary could not be computed"
 
 # HCP records the ingested branch tip, not necessarily the last commit that
 # touched this leaf. Accept an ingested SHA only when its relevant-path tree is
@@ -189,8 +198,11 @@ if printf '%s' "$candidates" | jq -e --argjson shas "$missing_shas" \
         and (._created_key >= $selected))' >/dev/null; then
     cannot_verify "an unavailable ingress commit could supersede the selected matching run"
 fi
-if printf '%s' "$candidates" | jq -e --arg selected "$selected_key" '
-    any(.[]; ._commit_sha == null and ._created_key >= $selected)' >/dev/null; then
+if printf '%s' "$candidates" | jq -e --arg selected "$selected_key" \
+    --arg required_after "$required_after_key" '
+      any(.[]; ._commit_sha == null
+        and ._created_key >= $selected
+        and ._created_key > $required_after)' >/dev/null; then
     cannot_verify "an ingress-less run could supersede the selected matching run"
 fi
 
@@ -198,16 +210,8 @@ status=$(printf '%s' "$latest" | jq -er '.attributes.status') \
     || cannot_verify "matched run has no status"
 operation=$(printf '%s' "$latest" | jq -er '.attributes.operation') \
     || cannot_verify "matched run has no operation"
-fresh=$(printf '%s' "$latest" | jq -er \
-    --arg verified "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \
-    --arg workspace_updated "$workspace_updated_at" '
-      def timestamp_key:
-        (capture("^(?<whole>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\\.(?<fraction>[0-9]{1,9}))?Z$")
-          // error("bad timestamp"))
-        | .whole + "." + (((.fraction // "") + "000000000")[0:9]) + "Z";
-      try ((._created_key > ([
-        ($verified | sub("Z$"; ".999999999Z") | timestamp_key),
-        ($workspace_updated | timestamp_key)] | max)) | tostring) catch empty') \
+fresh=$(printf '%s' "$latest" | jq -er --arg required_after "$required_after_key" '
+      (._created_key > $required_after) | tostring') \
     || cannot_verify "matched run has no comparable created-at timestamp"
 
 if [ "$fresh" = true ]; then

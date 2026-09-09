@@ -679,7 +679,8 @@ terraform {
         self.assertIn("git diff --quiet HEAD -- .infra-copilot/config.md", credentials)
         self.assertIn("($actual == $wanted)", credentials)
         self.assertIn("/varsets?page%5Bsize%5D=1", credentials)
-        self.assertIn("(.data | length == 0)", credentials)
+        self.assertIn("varset_count=", credentials)
+        self.assertIn('test "$varset_count" -eq 0 || exit 1', credentials)
         self.assertNotIn("all($expected[]", credentials)
 
     def test_first_plan_targets_the_parameterized_leaf(self) -> None:
@@ -837,6 +838,25 @@ terraform {
         self.assertIn("organization=acme", result.stdout)
         self.assertIn("workspaces.name=gcp", result.stdout)
         self.assertNotIn("spoofed", result.stdout)
+
+    @unittest.skipUnless(os.name == "posix", "the parser is a POSIX shell script")
+    def test_leaf_parser_handles_compact_nested_cloud_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            leaf = Path(directory)
+            (leaf / "versions.tf").write_text(
+                'terraform { cloud { organization = "acme" '
+                'workspaces { name = "gcp" } } }\n',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(leaf), "all"],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cloud=present", result.stdout)
+        self.assertIn("organization=acme", result.stdout)
+        self.assertIn("workspaces.name=gcp", result.stdout)
 
     def test_plan_rejects_malformed_change_action_arrays(self) -> None:
         helper = HCP_CURRENT_PLAN.read_text(encoding="utf-8")
