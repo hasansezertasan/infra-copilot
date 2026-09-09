@@ -659,6 +659,39 @@ class HcpApplyScopeTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_a_cloud_example_in_a_heredoc_is_not_configuration(self) -> None:
+        """String contents before the real block must not select its workspace.
+
+        The shell reader used to treat the first ``cloud {`` text as HCL, so a
+        documentation heredoc could make a hidden effective workspace look like
+        the visible, plan-only workspace named in the example.
+        """
+        for operator, closing_indent in (("<<", ""), ("<<-", "    ")):
+            with self.subTest(operator=operator):
+                result = self.run_check(
+                    workspaces=[("cloudflare", PLAN_ONLY)],
+                    leaves=["terraform/cloudflare"],
+                    leaf_hcl={
+                        "terraform/cloudflare": (
+                            "locals {\n"
+                            f"  example = {operator}HCL\n"
+                            "terraform {\n  cloud {\n"
+                            '    organization = "acme"\n'
+                            '    workspaces { name = "cloudflare" }\n'
+                            "  }\n}\n"
+                            f"{closing_indent}HCL\n"
+                            "}\n"
+                            "terraform {\n  cloud {\n"
+                            '    organization = "acme"\n'
+                            '    workspaces { name = "production" }\n'
+                            "  }\n}\n"
+                        )
+                    },
+                )
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertIn("'production'", result.stderr)
+                self.assertNotIn("'cloudflare', which", result.stderr)
+
     def test_an_organization_outside_the_cloud_block_is_ignored(self) -> None:
         """The cloud block ends at its closing brace.
 

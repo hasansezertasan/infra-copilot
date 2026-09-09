@@ -132,6 +132,18 @@ found=0
 leaf_cloud_settings () {  # $1 = leaf directory
     awk '
         {
+            # Heredoc bodies are string data, not HCL structure. A pasted cloud
+            # example before the real block must not become the target this
+            # check verifies. Keep the opening-line prefix (an attribute may
+            # precede <<MARKER), then ignore every body line and the delimiter.
+            if (heredoc != "") {
+                delimiter = $0
+                if (indented_heredoc) sub(/^[[:space:]]*/, "", delimiter)
+                if (delimiter == heredoc) {
+                    heredoc = ""; indented_heredoc = 0
+                }
+                next
+            }
             line = $0
             while (inblock) {
                 end = index(line, "*/")
@@ -145,6 +157,13 @@ leaf_cloud_settings () {  # $1 = leaf directory
                 line = substr(line, 1, start - 1) substr(rest, end + 2)
             }
             sub(/#.*/, "", line); sub(/\/\/.*/, "", line)
+            if (match(line, /=[[:space:]]*<<-?[[:space:]]*[[:alnum:]_-]+/)) {
+                marker = substr(line, RSTART, RLENGTH)
+                indented_heredoc = (marker ~ /<<-/)
+                sub(/^.*<<-?[[:space:]]*/, "", marker)
+                heredoc = marker
+                line = substr(line, 1, RSTART - 1)
+            }
             opens = gsub(/{/, "{", line)
             closes = gsub(/}/, "}", line)
         }
