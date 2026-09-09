@@ -215,6 +215,7 @@ class NewProviderFlowTests(unittest.TestCase):
             "NEW_PROVIDER": "gcp",
             "NEW_PROVIDER_WORKSPACE": "gcp",
             "NEW_PROVIDER_MISE_TOOLS": '["gcloud"]',
+            "NEW_PROVIDER_MISE_CONFIG_BLOB": "",
             "NEW_PROVIDER_FORK_PLANS_DISABLED": "false",
             "NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID": "",
             "NEW_PROVIDER_CREDENTIALS_VERIFIED_AT": "",
@@ -531,7 +532,10 @@ terraform {
         toolchain = self.steps["new-provider-toolchain"]
         self.assertIn("do not execute the CLI", leaf)
         self.assertIn("    actor: HUMAN", toolchain)
-        self.assertIn("commit both reviewed files", toolchain)
+        self.assertIn("commit all three\n      reviewed files", toolchain)
+        self.assertIn("NEW_PROVIDER_MISE_CONFIG_BLOB", toolchain)
+        self.assertIn("git hash-object -- mise.toml", toolchain)
+        self.assertIn(".infra-copilot/config.md", toolchain)
         self.assertIn("mise trust mise.toml", toolchain)
         self.assertIn("mise trust --show", toolchain)
         self.assertIn('$repo_dir: trusted', toolchain)
@@ -670,6 +674,8 @@ terraform {
         self.assertIn('strftime("%Y-%m-%dT%H:%M:%SZ")', credentials)
         self.assertIn("$epoch <= now", credentials)
         self.assertIn("git diff --quiet HEAD -- .infra-copilot/config.md", credentials)
+        self.assertIn("($actual == $wanted)", credentials)
+        self.assertNotIn("all($expected[]", credentials)
 
     def test_first_plan_targets_the_parameterized_leaf(self) -> None:
         plan = self.steps["new-provider-plan"]
@@ -998,7 +1004,10 @@ terraform {
         self.assertIn("resource-count", status)
         self.assertIn("destroys are\n   zero", status)
         self.assertIn("If that HUMAN trust gate is red", status)
-        self.assertIn("terraform/cloudflare terraform/modules", status)
+        self.assertIn(
+            "terraform/cloudflare terraform/modules .infra-copilot/config.md",
+            status,
+        )
         router = STATUS.read_text(encoding="utf-8")
         self.assertIn("references/status.md", router)
         self.assertNotIn("Phase 6 plan contents and durable completion", router)
@@ -1013,6 +1022,7 @@ terraform {
         for marker in (
             "ADDITIONAL_PROVIDER_WORKSPACES",
             "NEW_PROVIDER_MISE_TOOLS",
+            "NEW_PROVIDER_MISE_CONFIG_BLOB",
             "NEW_PROVIDER_FORK_PLANS_DISABLED",
             "NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID",
         ):

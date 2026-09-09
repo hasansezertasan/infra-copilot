@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:77ce4f2f690a640838ebbf7de5c45b938bdf0b0285474481f2e2029da9cd1c15
-Source-Hash: blake3:b3909e58e3125f5198183f745713158d8d4427964c48caf471f59de54bbf1b49
+Content-Hash: blake3:6c7e158f26dcf282118046535c927c559048a87ebfed30cf108eacf019fbbac7
+Source-Hash: blake3:08d9efc8383f0e500d20ec1cac749a5477e465d3aff4d7c196663f1f6651891f
 Schema-Version: v1
 -->
 
@@ -79,9 +79,9 @@ preflight — is in
      first by asking whether the checkout corresponds to a commit at all. `git rev-parse
      HEAD` names the last *commit*, not what is on disk, so uncommitted changes under a
      leaf's directory mean the files you are auditing were never sent to HCP. Test each
-     leaf together with shared modules — `git --no-optional-locks status --porcelain --
-     terraform/cloudflare terraform/modules`, and the same leaf substitution for
-     `terraform/github` or `terraform/$NEW_PROVIDER` — and if the output is non-empty, that leaf's plan
+     leaf together with shared inputs — `git --no-optional-locks status --porcelain --
+     terraform/cloudflare terraform/modules .infra-copilot/config.md`, and the same leaf
+     substitution for `terraform/github` or `terraform/$NEW_PROVIDER` — and if the output is non-empty, that leaf's plan
      check is `?` (working tree differs from the last tested revision). Stop there for that
      leaf; a green run for HEAD says nothing about edited files. `--no-optional-locks` keeps
      this read from touching git's index, preserving the change-nothing promise.

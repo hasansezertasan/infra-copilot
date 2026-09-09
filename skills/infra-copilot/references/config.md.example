@@ -15,10 +15,11 @@ additional_providers: []
 #     workspace: gcp
 #     mise_tools:
 #       - gcloud
+#     mise_config_blob: "" # set to `git hash-object mise.toml` only after HUMAN review
 #     fork_speculative_plans_disabled: false
 #     fork_speculative_plans_workspace_id: ""
 #     credentials_verified_at: ""
-#     credential_variables:
+#     credential_variables: # exact metadata inventory of every workspace variable
 #       - key: TFC_GCP_PROVIDER_AUTH
 #         category: env
 #         sensitive: false

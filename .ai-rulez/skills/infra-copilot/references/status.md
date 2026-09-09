@@ -72,9 +72,9 @@ preflight — is in
      first by asking whether the checkout corresponds to a commit at all. `git rev-parse
      HEAD` names the last *commit*, not what is on disk, so uncommitted changes under a
      leaf's directory mean the files you are auditing were never sent to HCP. Test each
-     leaf together with shared modules — `git --no-optional-locks status --porcelain --
-     terraform/cloudflare terraform/modules`, and the same leaf substitution for
-     `terraform/github` or `terraform/$NEW_PROVIDER` — and if the output is non-empty, that leaf's plan
+     leaf together with shared inputs — `git --no-optional-locks status --porcelain --
+     terraform/cloudflare terraform/modules .infra-copilot/config.md`, and the same leaf
+     substitution for `terraform/github` or `terraform/$NEW_PROVIDER` — and if the output is non-empty, that leaf's plan
      check is `?` (working tree differs from the last tested revision). Stop there for that
      leaf; a green run for HEAD says nothing about edited files. `--no-optional-locks` keeps
      this read from touching git's index, preserving the change-nothing promise.

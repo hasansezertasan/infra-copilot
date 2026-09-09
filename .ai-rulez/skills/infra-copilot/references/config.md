@@ -28,7 +28,7 @@ additional_providers: []       # provider-adoption records; empty until add's ne
 ```
 
 Each `additional_providers` entry is the durable input for one provider-neutral Phase 6
-scan. It records public names and the *names and properties* of credential variables,
+scan. It records public names and the *names and properties* of workspace variables,
 never their values:
 
 ```yaml
@@ -37,6 +37,7 @@ additional_providers:
     workspace: gcp           # HCP workspace selected by the leaf's cloud block
     mise_tools:               # exact mise keys added for this provider; [] if none
       - gcloud
+    mise_config_blob: ""      # HUMAN-reviewed `git hash-object mise.toml`
     fork_speculative_plans_disabled: false # set true only after the HUMAN verifies the UI
     fork_speculative_plans_workspace_id: "" # immutable ws-... identity for that attestation
     credentials_verified_at: ""  # HUMAN records UTC after installing the declared variables
@@ -69,11 +70,20 @@ created after the entire recorded handoff second and after the workspace's lates
 update, so an older run cannot stand in for the current least-privilege credentials or
 newly reconciled execution settings.
 
-Record every variable required to authenticate the provider. A flag such as
+Record every variable in the provider workspace, including every value required to
+authenticate the provider. A flag such as
 `TFC_GCP_PROVIDER_AUTH=true` is credential configuration even when it is intentionally
 non-sensitive; a downloaded key normally has `sensitive: true`. An empty list is invalid
-for an adopted provider. This inventory lets a later `add` or `status` verify exact keys
-without reading their values or guessing provider-specific conventions.
+for an adopted provider. The exact metadata inventory prevents an old, undeclared
+credential from remaining active in a reused workspace while still letting a later `add`
+or `status` verify keys without reading their values or guessing provider-specific
+conventions.
+
+Leave `mise_config_blob` empty until the HUMAN has reviewed the complete committed
+`mise.toml` and `mise.lock`. Then record the output of `git hash-object mise.toml`, commit
+that attestation with the reviewed files, and run `mise trust mise.toml`. Path-level mise
+trust survives later edits, so only this content-bound value proves the currently active
+configuration was reviewed.
 
 ## Startup contract (the skill's first action)
 
@@ -124,6 +134,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export NEW_PROVIDER=<entry.name>
    export NEW_PROVIDER_WORKSPACE=<entry.workspace>
    export NEW_PROVIDER_MISE_TOOLS='<entry.mise_tools as compact JSON>'
+   export NEW_PROVIDER_MISE_CONFIG_BLOB=<entry.mise_config_blob>
    export NEW_PROVIDER_FORK_PLANS_DISABLED=<entry.fork_speculative_plans_disabled>
    export NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID=<entry.fork_speculative_plans_workspace_id>
    export NEW_PROVIDER_CREDENTIALS_VERIFIED_AT=<entry.credentials_verified_at>
@@ -135,6 +146,8 @@ Before running ANY step's `check` or `run`, the agent MUST:
    binds the prior attestation to the current immutable workspace ID.
    Likewise, export a missing legacy `credentials_verified_at` as the empty string; that
    keeps credential and plan completion red until the HUMAN performs the current handoff.
+   Export a missing legacy `mise_config_blob` as the empty string so a changed executable
+   configuration cannot inherit an older path-level trust decision.
 
    Validate `name` and `workspace` against `^[a-z0-9][a-z0-9-]*$` before putting them
    into a path or URL. `NEW_PROVIDER_MISE_TOOLS` and `NEW_PROVIDER_CREDENTIALS` are JSON

@@ -732,7 +732,9 @@ steps:
       2. Add terraform/<provider> to terraform/README.md.
       3. Add an `additional_providers` entry to .infra-copilot/config.md with its
          lowercase name, HCP workspace, and every authentication variable's key,
-         category, and sensitive flag. Record provider mise tools (or `[]`) and set
+         category, and sensitive flag. Inventory every workspace variable so undeclared
+         credentials cannot survive a reused workspace. Record provider mise tools (or
+         `[]`) and set `mise_config_blob: ""` until the HUMAN reviews the toolchain. Set
          `fork_speculative_plans_disabled: false` until that HUMAN check is performed.
          Set `fork_speculative_plans_workspace_id: ""` until the same check binds the
          attestation to the immutable HCP workspace identity.
@@ -747,6 +749,10 @@ steps:
         type == "array"
         and all(.[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9_-]*$"))
         and length == (unique | length)' >/dev/null || exit 1
+      if test -n "$NEW_PROVIDER_MISE_CONFIG_BLOB"; then
+        printf '%s\n' "$NEW_PROVIDER_MISE_CONFIG_BLOB" \
+          | grep -Eq '^[0-9a-f]{40}([0-9a-f]{24})?$' || exit 1
+      fi
       case "$NEW_PROVIDER_FORK_PLANS_DISABLED" in true|false) : ;; *) exit 1 ;; esac
       if test -n "$NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID"; then
         printf '%s\n' "$NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID" \
@@ -767,7 +773,9 @@ steps:
         and all(.[];
           (.key | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$"))
           and (.category == "env" or .category == "terraform")
-          and (.sensitive | type == "boolean"))' >/dev/null || exit 1
+          and (.sensitive | type == "boolean"))
+        and length == (map(.category + "\u0000" + .key) | unique | length)' \
+        >/dev/null || exit 1
       awk -F '|' -v provider="$NEW_PROVIDER" '
         function clean(value) {
           gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
@@ -829,17 +837,20 @@ steps:
     title: Review and trust the provider's changed executable toolchain
     why: A newly pinned provider CLI changes executable configuration after the initial setup trust gate.
     run: |
-      Review the complete mise.toml diff and mise.lock URLs. If they are expected,
-      commit both reviewed files, run `mise trust mise.toml`, then install every
+      Review the complete mise.toml diff and mise.lock URLs. If they are expected, record
+      `git hash-object mise.toml` as this provider's `mise_config_blob`, commit all three
+      reviewed files, run `mise trust mise.toml`, then install every
       configured tool with `MISE_LOCKED=1` as documented in docs/setup.md. Reply
       `done`; the agent re-runs this check. Once every provider toolchain gate is
       green, it runs the complete preflight once per provider entry, exporting that
       entry's NEW_PROVIDER_MISE_TOOLS so its conditional provider CLI is verified.
     check: >-
       mise --version >/dev/null &&
-      git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
-      git diff --quiet HEAD -- mise.toml mise.lock &&
-      git diff --cached --quiet HEAD -- mise.toml mise.lock &&
+      git ls-files --error-unmatch mise.toml mise.lock .infra-copilot/config.md >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- mise.toml mise.lock .infra-copilot/config.md &&
+      git diff --cached --quiet HEAD -- mise.toml mise.lock .infra-copilot/config.md &&
+      current_mise_blob=$(git hash-object -- mise.toml) &&
+      [ "$NEW_PROVIDER_MISE_CONFIG_BLOB" = "$current_mise_blob" ] &&
       repo_dir=$(pwd -P) &&
       mise trust --show 2>/dev/null | grep -Fx "$repo_dir: trusted" >/dev/null &&
       tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
@@ -1037,8 +1048,9 @@ steps:
     why: The first plan must authenticate without exposing credential values to the agent or repository.
     run: |
       Mint or configure the provider's least-privilege credential as its runbook
-      requires. In HCP workspace $NEW_PROVIDER_WORKSPACE, add every entry declared
-      by NEW_PROVIDER_CREDENTIALS with the exact key, category, and sensitive flag.
+      requires. In HCP workspace $NEW_PROVIDER_WORKSPACE, reconcile every variable to
+      the exact NEW_PROVIDER_CREDENTIALS inventory by key, category, and sensitive flag;
+      delete undeclared leftovers before continuing.
       Paste secret values yourself; never send them to the agent. Reply `done` so
       the agent can verify metadata through the vars API. After every declared variable
       is installed, record the current UTC time as `credentials_verified_at` in config.md
@@ -1074,13 +1086,14 @@ steps:
         page=$next_page
       done
       jq -se --argjson expected "$NEW_PROVIDER_CREDENTIALS" '
-        [.[].data[] | .attributes] as $actual
+        [.[].data[] | .attributes
+          | {key: .key, category: .category, sensitive: .sensitive}]
+          | sort_by(.category, .key) as $actual
+        | ($expected
+            | map({key: .key, category: .category, sensitive: .sensitive})
+            | sort_by(.category, .key)) as $wanted
         | ($expected | type == "array" and length > 0)
-          and all($expected[]; . as $want
-            | any($actual[];
-                .key == $want.key
-                and .category == $want.category
-                and .sensitive == $want.sensitive))' "$pages" >/dev/null || exit 1
+          and ($actual == $wanted)' "$pages" >/dev/null || exit 1
       printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \
         | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' || exit 1
       printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" | jq -Re '
@@ -1093,7 +1106,7 @@ steps:
       git diff --quiet HEAD -- .infra-copilot/config.md || exit 1
       git diff --cached --quiet HEAD -- .infra-copilot/config.md
     tri_state: true
-    produces: all declared provider credential variables in HCP
+    produces: exact declared workspace-variable metadata in HCP
     docs: docs/secrets.md
 
   - id: new-provider-plan
