@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:cd6a7c2848aef09ba1077b3ce13f10e8cef4f3e4c05ab3146def1fa9035ae501
-Source-Hash: blake3:ea7edd7e53474c4b6c92353924580730c15121b72d126ff7d15f8bd7ef6c9944
+Content-Hash: blake3:00b1825065eef954555441e24ba65435b0e4ec2911fe03a2100bd9ac3adc7af4
+Source-Hash: blake3:3ab6f3e67e42fe8f1aa11c1f5d4a1ecba0a4a57f681902e1918140d6e52b1415
 Schema-Version: v1
 -->
 
@@ -86,17 +86,26 @@ preflight — is in
      leaf; a green run for HEAD says nothing about edited files. `--no-optional-locks` keeps
      this read from touching git's index, preserving the change-nothing promise.
 
-     For a clean leaf, resolve the revision with `git rev-parse HEAD` and use the guide's
-     specific-commit lookup, which correlates on the run's configuration-version ingress
-     `commit-sha` — never on the run message — and names every operation so the PR's
-     *speculative* plan is visible at all. Judge only the lookup's `latest`, the newest run
-     for that revision, and keep failure distinct from ignorance:
+     For a clean leaf, find the newest commit whose relevant trees match — `git log
+     --format=%H -1 -- terraform/<leaf> terraform/modules .infra-copilot/config.md
+     mise.toml`. Path-filtered workspaces correctly create no run for unrelated later
+     commits, so correlating on exact `HEAD` would report `?` whenever HEAD contains
+     only an unrelated change after the last Terraform update. Use the guide's
+     specific-commit lookup with that relevant commit, which correlates on the run's
+     configuration-version ingress `commit-sha` — never on the run message — and names
+     every operation so the PR's *speculative* plan is visible at all. Judge only the
+     lookup's `latest`, the newest run for that revision, and keep failure distinct
+     from ignorance:
 
-     - `"green": true` → `✓`, subject to the Phase 5 and Phase 6 content checks below.
+     - `"green": true` AND `latest.operation` is not `destroy` → `✓`, subject to the
+       Phase 5 and Phase 6 content checks below. A `destroy` operation that reaches
+       `applied` is green by status but destructive by intent — report it as `✗`.
      - `latest` in a terminal failure (`errored`, `canceled`, `discarded`,
-       `force_canceled`) → `✗`. That is definitive evidence the revision does not plan, so
-       the step is **red** and eligible to be the first red step that routes the user to a
-       fixing skill. Never soften it to `?`.
+       `force_canceled`, `pre_plan_errored`, `cost_estimation_errored`,
+       `policy_errored`, `post_plan_errored`, `policy_hard_failed`) → `✗`. That is
+       definitive evidence the revision does not plan, so the step is **red** and
+       eligible to be the first red step that routes the user to a fixing skill.
+       Never soften it to `?`.
      - `latest` still in flight (`planning`, `planned`, `applying`, `plan_queued`, …) → `?`
        (not finished yet).
      - no match at all → `?` (current revision not verified).
