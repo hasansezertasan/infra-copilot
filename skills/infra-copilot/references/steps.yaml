@@ -237,10 +237,54 @@ steps:
     # file-only check marked phase 0 red for anyone following hcp-apply-scope's
     # environment-variable route, and setup then told them to run `terraform login`
     # again -- recreating the apply-capable user token that step exists to remove.
-    check: >-
-      test -n "${TF_TOKEN_app_terraform_io:-}"
-      || jq -e ".credentials[\"app.terraform.io\"].token | strings | length > 0"
-      ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1
+    #
+    # Presence alone is not enough. On a machine already narrowed by
+    # hcp-apply-scope, the plan-only team token satisfied a presence test, so
+    # bootstrapping a SECOND repository skipped this handoff -- and then
+    # vcs-connect could not read oauth-clients while no workspace existed yet for
+    # its fallback, so setup stalled with no way to ask for the user credential.
+    # /account/details exists only for a user token, so it distinguishes them.
+    # Only a definitive negative turns this red: a transport failure leaves the
+    # presence result standing rather than blocking a cold bootstrap offline.
+    check: |
+      token=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' \
+        ~/.terraform.d/credentials.tfrc.json 2>/dev/null)}
+      [ -n "$token" ] && [ "$token" != null ] || exit 1
+
+      # Never send the credential to an unexpected endpoint. This check runs
+      # earliest of all, so a repo-local config pointing $hcp_api elsewhere would
+      # disclose the token before vcs-connect or hcp-apply-scope get to refuse
+      # it. Degrade to the presence result instead of sending it: those two are
+      # tri-state and will reject the endpoint loudly.
+      if [ "$hcp_api" != "https://app.terraform.io/api/v2" ]; then
+        echo "note: \$hcp_api is '$hcp_api', not https://app.terraform.io/api/v2, so the credential kind was not checked — vcs-connect and hcp-apply-scope will refuse that endpoint" >&2
+        exit 0
+      fi
+
+      # A narrowed token is the intended steady state only after the complete
+      # Phase 1 invariant is green. Names alone are insufficient: drift in the
+      # version, VCS target, execution mode, or safety toggles still requires the
+      # user credential so workspaces-create can reconcile it. Both steps call
+      # one shared check so their definitions of "provisioned" cannot diverge.
+      HCP_TOKEN=$token \
+        sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh" \
+        >/dev/null 2>&1 && exit 0
+
+      # Cold repository: phases 0 and 1 genuinely need the user credential, and a
+      # team token cannot read organization VCS settings or complete the OAuth
+      # flow. /account/details exists only for a user token. Only a definitive
+      # negative is red; a transport failure or any other status leaves the
+      # presence result standing so a bootstrap is not blocked offline.
+      code=$(curl -s -o /dev/null -w '%{http_code}' "$hcp_api/account/details" \
+        -H "Authorization: Bearer $token") || exit 0
+      case "$code" in
+        200) exit 0 ;;
+        401|403|404)
+          echo "this repository's complete Phase 1 workspace configuration is not visible and green, and the HCP credential in use is not a user token (account/details returned $code). Phases 0 and 1 need the user credential from 'terraform login': a team token cannot read organization VCS settings, complete the OAuth flow, create a missing workspace, or reconcile drift. Unset TF_TOKEN_app_terraform_io, or run 'terraform login' for this bootstrap and re-apply hcp-apply-scope afterwards." >&2
+          exit 1
+          ;;
+        *) exit 0 ;;
+      esac
     produces: an HCP account and an API token terraform can use
     docs: docs/setup.md#1-hcp-terraform--organization
 
@@ -259,6 +303,7 @@ steps:
     # filter[names] is case-insensitive, so re-assert the exact name in jq.
     check: |
       test -n "$HCP_TOKEN" || exit 1
+      [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || exit 1
       curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" \
         | jq -e '.data.id' >/dev/null || exit 1
       curl -sf "$hcp_api/organizations/$ORG/projects?filter%5Bnames%5D=infra" \
@@ -279,7 +324,7 @@ steps:
       # credential, which hcp-apply-scope's environment route makes a real case.
       export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
       curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e '.data.id'
-    check: 'curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
+    check: '[ "$hcp_api" = "https://app.terraform.io/api/v2" ] && curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
     produces: verified API access
     docs: docs/state.md#api-access
 
@@ -416,30 +461,9 @@ steps:
         vcs-repo:            identifier $REPO, oauth-token-id from vcs-connect, branch main
       Then in each workspace's UI -> Version Control, confirm FORK speculative plans are OFF
       (separate toggle, no clean create-time attribute; defaults off).
-    # Assert every attribute the `run` block above declares. Checking only `auto-apply`
-    # greens a workspace that plans the wrong directory, ignores path filters, runs
-    # locally, skips PR plans, or points at the wrong repo or branch.
-    check: |
-      for pair in "cloudflare:terraform/cloudflare" "github-org:terraform/github"; do
-        ws=${pair%%:*}; dir=${pair#*:}
-        curl -sf "$hcp_api/organizations/$ORG/workspaces/$ws" -H "Authorization: Bearer $HCP_TOKEN" \
-          | jq -e --arg dir "$dir" --arg repo "$REPO" --arg tf_version "$TERRAFORM_VERSION" '
-              .data.attributes as $a
-              | ($a["working-directory"] == $dir)
-                and ($a["execution-mode"] == "remote")
-                and ($a["terraform-version"] == $tf_version)
-                and ($a["auto-apply"] == false)
-                and ($a["auto-destroy-at"] == null)
-                and ($a["auto-destroy-activity-duration"] == null)
-                and ($a["speculative-enabled"] == true)
-                and ($a["file-triggers-enabled"] == true)
-                and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
-                and ((($a["trigger-patterns"]) // []) | index("terraform/modules/**") != null)
-                and ((($a["trigger-patterns"]) // []) | index(".infra-copilot/config.md") != null)
-                and ((($a["trigger-patterns"]) // []) | index("mise.toml") != null)
-                and (($a["vcs-repo"].identifier // "") == $repo)
-                and (($a["vcs-repo"].branch // "") == "main")' >/dev/null || exit 1
-      done
+    # The same complete invariant decides whether hcp-login may accept a narrowed
+    # team token. Keep it in one executable source rather than duplicating jq.
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh"
     produces: workspaces `cloudflare`, `github-org`
     docs: docs/state.md#workspaces
 
@@ -564,7 +588,14 @@ steps:
       with the user token if you need to, and leave the team's organization access
       empty.
     tri_state: true   # exit 2 = could not verify; see protocol.md
-    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
+    # The credentials-file route replaces a file but cannot update the current
+    # process environment. Resolve HCP_TOKEN again here so a user token exported
+    # during Step 0 cannot create a false SPLIT-BRAIN verdict after the handoff.
+    check: >-
+      export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r
+      '.credentials["app.terraform.io"].token'
+      ~/.terraform.d/credentials.tfrc.json)} &&
+      sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
     produces: an agent credential with no direct apply path (not a boundary against a hostile actor — see docs/policy.md)
     docs: docs/policy.md#a-credential-that-cannot-apply
 

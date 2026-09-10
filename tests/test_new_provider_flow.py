@@ -528,6 +528,25 @@ terraform {
         self.assertIn("organization=acme", all_settings)
         self.assertIn("workspaces.name=gcp", all_settings)
 
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
+    def test_leaf_parser_ignores_escaped_braces_inside_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "versions.tf").write_text(
+                'locals { decoy = "quoted \\\" } cloud { \\\" text" }\n'
+                'terraform {\n  cloud { organization = "acme"\n'
+                '    workspaces { name = "gcp" }\n  }\n}\n',
+                encoding="utf-8",
+            )
+            all_settings = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(root), "all"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        self.assertIn("organization=acme", all_settings)
+        self.assertIn("workspaces.name=gcp", all_settings)
+
     def test_toolchain_retrusts_after_the_leaf_before_provider_commands(self) -> None:
         leaf = self.steps["new-provider-leaf"]
         toolchain = self.steps["new-provider-toolchain"]

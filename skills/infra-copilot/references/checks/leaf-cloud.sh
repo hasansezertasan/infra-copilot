@@ -83,20 +83,19 @@ awk -v want="$want" '
         opened_terraform = 0
         opened_workspace = 0
         line = strip_comments($0)
-        heredoc_scan = mask_strings(line)
-        if (match(heredoc_scan, /<<-?[[:space:]]*[A-Za-z_][A-Za-z0-9_-]*/)) {
+        structure = mask_strings(line)
+        if (match(structure, /<<-?[[:space:]]*[A-Za-z_][A-Za-z0-9_-]*/)) {
             heredoc_start = RSTART
             heredoc = substr(line, RSTART, RLENGTH)
             heredoc_indent = (heredoc ~ /^<<-/)
             sub(/^<<-?[[:space:]]*/, "", heredoc)
             heredoc_end = heredoc
             line = substr(line, 1, heredoc_start - 1)
+            structure = substr(structure, 1, heredoc_start - 1)
             starts_heredoc = 1
         } else {
             starts_heredoc = 0
         }
-        structure = line
-        gsub(/"[^"]*"/, "", structure)
     }
     !interraform && match(structure, /(^|[^[:alnum:]_])terraform[[:space:]]*{/) {
         interraform = 1

@@ -300,16 +300,32 @@ done
 # plugin creates, and an earlier `page > 1` guard meant a single full page that
 # gained a second page was never re-read at all.
 recheck=""
+recheck_failed=""
 verify_page=1
 verify_pages=1
 while : ; do
     again=$(curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$verify_page" \
-        -H "Authorization: Bearer $token") || { recheck="unreadable"; break; }
-    recheck="$recheck $(printf '%s' "$again" | jq -r '.data[].id' 2>/dev/null | tr '\n' ' ')"
+        -H "Authorization: Bearer $token") || {
+            note_unknown "page $verify_page of the workspace list for $ORG could not be re-read for the consistency check"
+            recheck_failed=yes
+            break
+        }
+    page_ids=$(printf '%s' "$again" | jq -er '
+        .data | if type == "array" then map(.id) | join(" ") else empty end
+    ' 2>/dev/null) || {
+        note_unknown "page $verify_page of the workspace list for $ORG was not the expected JSON when re-read for the consistency check"
+        recheck_failed=yes
+        break
+    }
+    recheck="$recheck $page_ids"
     verify_pages=$(printf '%s' "$again" | jq -er '.meta.pagination["total-pages"]
                     | if type == "number" and . == floor and . > 0
                       then (floor | tostring) else empty end' 2>/dev/null) \
-        || { recheck="unreadable"; break; }
+        || {
+            note_unknown "page $verify_page of the workspace list for $ORG carried no positive-integer pagination metadata when re-read for the consistency check"
+            recheck_failed=yes
+            break
+        }
     [ "$verify_page" -lt "$verify_pages" ] || break
     verify_page=$((verify_page + 1))
 done
@@ -318,7 +334,7 @@ again_set=$(printf '%s' "$recheck" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n'
 # Comparing page counts as well was redundant -- a workspace added on a new page
 # changes the id set too -- and `pages_seen` goes stale when the scan breaks
 # early, which would have reported a change that never happened.
-if [ "$first_set" != "$again_set" ]; then
+if [ -z "$recheck_failed" ] && [ "$first_set" != "$again_set" ]; then
     note_unknown "the workspace list in $ORG changed while it was being read, so an entry may have shifted between pages or landed on a page this scan never requested; re-run when the organization is not being modified"
 fi
 
