@@ -1,0 +1,206 @@
+#!/bin/sh
+# Read Terraform cloud settings without mistaking comments or nested attributes
+# for direct cloud members. `all` emits the settings consumed by hcp-apply-scope.
+# Usage: leaf-cloud.sh <terraform/leaf> hostname|organization|workspace|token|all
+set -u
+
+[ "$#" -eq 2 ] || { echo "usage: leaf-cloud.sh <leaf> hostname|organization|workspace|token|all" >&2; exit 2; }
+leaf=$1
+want=$2
+[ -d "$leaf" ] || exit 1
+case "$want" in hostname|organization|workspace|token|all) : ;; *) exit 2 ;; esac
+
+output=$(mktemp) || exit 2
+trap 'rm -f "$output"' EXIT
+: >"$output"
+set -- "$leaf"/*.tf
+if [ -f "$1" ]; then
+awk -v want="$want" '
+    function structural_depth_delta(text, copy, opens, closes) {
+        copy = text
+        gsub(/"[^"]*"/, "", copy)
+        opens = gsub(/{/, "{", copy)
+        closes = gsub(/}/, "}", copy)
+        return opens - closes
+    }
+    function depth_through_match(text, copy) {
+        copy = substr(text, 1, RSTART + RLENGTH - 1)
+        return depth + structural_depth_delta(copy)
+    }
+    function strip_comments(text, out, i, ch, pair, in_string, escaped) {
+        out = ""
+        for (i = 1; i <= length(text); i++) {
+            ch = substr(text, i, 1)
+            pair = substr(text, i, 2)
+            if (incomment) {
+                if (pair == "*/") { incomment = 0; i++ }
+                continue
+            }
+            if (in_string) {
+                out = out ch
+                if (escaped) escaped = 0
+                else if (ch == "\\") escaped = 1
+                else if (ch == "\"") in_string = 0
+                continue
+            }
+            if (ch == "\"") { in_string = 1; out = out ch; continue }
+            if (pair == "/*") { incomment = 1; i++; continue }
+            if (ch == "#" || pair == "//") break
+            out = out ch
+        }
+        return out
+    }
+    function mask_strings(text, out, i, ch, in_string, escaped) {
+        out = ""
+        for (i = 1; i <= length(text); i++) {
+            ch = substr(text, i, 1)
+            if (in_string) {
+                out = out " "
+                if (escaped) escaped = 0
+                else if (ch == "\\") escaped = 1
+                else if (ch == "\"") in_string = 0
+            } else if (ch == "\"") {
+                in_string = 1; out = out " "
+            } else out = out ch
+        }
+        return out
+    }
+    function emit(key, value) {
+        if (want == "all") print key "=" value
+        else if (want == key || (want == "workspace" && key == "workspaces.name")) {
+            print value
+            exit
+        }
+    }
+    {
+        if (inheredoc) {
+            marker = $0
+            if (heredoc_indent) sub(/^[[:space:]]*/, "", marker)
+            if (marker == heredoc_end) inheredoc = 0
+            next
+        }
+        opened_cloud = 0
+        opened_terraform = 0
+        opened_workspace = 0
+        line = strip_comments($0)
+        structure = mask_strings(line)
+        if (match(structure, /<<-?[[:space:]]*[A-Za-z_][A-Za-z0-9_-]*/)) {
+            heredoc_start = RSTART
+            heredoc = substr(line, RSTART, RLENGTH)
+            heredoc_indent = (heredoc ~ /^<<-/)
+            sub(/^<<-?[[:space:]]*/, "", heredoc)
+            heredoc_end = heredoc
+            line = substr(line, 1, heredoc_start - 1)
+            structure = substr(structure, 1, heredoc_start - 1)
+            starts_heredoc = 1
+        } else {
+            starts_heredoc = 0
+        }
+    }
+    !interraform && match(structure, /(^|[^[:alnum:]_])terraform[[:space:]]*{/) {
+        interraform = 1
+        opened_terraform = 1
+        terraform_open_end = RSTART + RLENGTH - 1
+        terraform_depth = depth_through_match(structure)
+    }
+    {
+        search_offset = opened_terraform ? terraform_open_end : 0
+        cloud_structure = substr(structure, search_offset + 1)
+        if (interraform && !incloud &&
+            match(cloud_structure, /(^|[^[:alnum:]_])cloud[[:space:]]*{/)) {
+            cloud_open_end = search_offset + RSTART + RLENGTH - 1
+            cloud_parent_depth = depth + structural_depth_delta(substr(structure, 1, cloud_open_end)) - 1
+            if (cloud_parent_depth == terraform_depth) {
+                incloud = 1
+                opened_cloud = 1
+                cloud_depth = cloud_parent_depth + 1
+                if (want == "all") print "cloud=present"
+            }
+        }
+    }
+    {
+        search_offset = opened_cloud ? cloud_open_end : 0
+        workspace_structure = substr(structure, search_offset + 1)
+        if (incloud && !inws &&
+            match(workspace_structure, /(^|[^[:alnum:]_])workspaces[[:space:]]*{/)) {
+            workspace_open_start = search_offset + RSTART
+            workspace_open_end = search_offset + RSTART + RLENGTH - 1
+            workspace_parent_depth = depth + structural_depth_delta(substr(structure, 1, workspace_open_end)) - 1
+            if (workspace_parent_depth == cloud_depth) {
+                inws = 1
+                opened_workspace = 1
+                workspace_depth = workspace_parent_depth + 1
+            }
+        }
+    }
+    incloud && (!inws || opened_workspace) && (depth == cloud_depth || opened_cloud) {
+        attribute_line = opened_cloud ? substr(line, cloud_open_end + 1) : line
+        if (opened_workspace) {
+            attribute_start = opened_cloud ? cloud_open_end + 1 : 1
+            attribute_line = substr(line, attribute_start, workspace_open_start - attribute_start)
+        }
+        for (key = 1; key <= 2; key++) {
+            attribute = (key == 1 ? "hostname" : "organization")
+            if ((want == "all" || want == attribute) &&
+                match(attribute_line, "(^|[^[:alnum:]_])" attribute "[[:space:]]*=[[:space:]]*\"[^\"]*\"")) {
+                value = substr(attribute_line, RSTART, RLENGTH)
+                sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
+                emit(attribute, value)
+            }
+        }
+    }
+    incloud && (!inws || opened_workspace) && (depth == cloud_depth || opened_cloud) &&
+        match(attribute_line, /(^|[^[:alnum:]_])token[[:space:]]*=/) {
+        emit("token", "present")
+    }
+    inws && (depth == workspace_depth || opened_workspace) &&
+        line ~ /(^|[^[:alnum:]_])tags[[:space:]]*=/ {
+        if (want == "workspace") { print "TAGS"; exit }
+        if (want == "all") print "workspaces.tags=present"
+    }
+    inws && (depth == workspace_depth || opened_workspace) &&
+        match((opened_workspace ? substr(line, workspace_open_end + 1) : line),
+          /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/) {
+        workspace_line = opened_workspace ? substr(line, workspace_open_end + 1) : line
+        match(workspace_line, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/)
+        value = substr(workspace_line, RSTART, RLENGTH)
+        sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
+        emit("workspaces.name", value)
+    }
+    {
+        depth += structural_depth_delta(structure)
+        if (inws && depth < workspace_depth) inws = 0
+        if (incloud && depth < cloud_depth) incloud = 0
+        if (interraform && depth < terraform_depth) interraform = 0
+        if (starts_heredoc) inheredoc = 1
+    }
+' "$@" >>"$output" 2>/dev/null || exit 2
+fi
+
+for json_file in "$leaf"/*.tf.json; do
+    [ -f "$json_file" ] || continue
+    jq -r --arg want "$want" '
+      def clouds:
+        .terraform.cloud?
+        | select(. != null)
+        | if type == "array" then .[] else . end;
+      clouds as $cloud
+      | if $want == "all" then
+          "cloud=present",
+          (if ($cloud.hostname | type) == "string" then "hostname=" + $cloud.hostname else empty end),
+          (if ($cloud.organization | type) == "string" then "organization=" + $cloud.organization else empty end),
+          (if ($cloud | has("token")) then "token=present" else empty end),
+          (if ($cloud.workspaces | type) == "object" and ($cloud.workspaces | has("tags"))
+             then "workspaces.tags=present" else empty end),
+          (if ($cloud.workspaces.name | type) == "string"
+             then "workspaces.name=" + $cloud.workspaces.name else empty end)
+        elif $want == "workspace" then
+          if ($cloud.workspaces | type) == "object" and ($cloud.workspaces | has("tags"))
+          then "TAGS" else $cloud.workspaces.name // empty end
+        elif $want == "token" then
+          if ($cloud | has("token")) then "present" else empty end
+        else $cloud[$want] // empty
+        end' "$json_file" >>"$output" 2>/dev/null || exit 2
+done
+
+awk '!seen[$0]++' "$output"

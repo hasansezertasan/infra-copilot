@@ -191,6 +191,9 @@ class HcpApplyScopeTests(unittest.TestCase):
                     "ORG": "acme",
                     "REPO": repo,
                     "hcp_api": "https://app.terraform.io/api/v2",
+                    "INFRA_COPILOT_REFERENCES": str(
+                        REPO_ROOT / "skills/infra-copilot/references"
+                    ),
                 }
             )
             environment.pop("TF_TOKEN_app_terraform_io", None)
@@ -215,6 +218,10 @@ class HcpApplyScopeTests(unittest.TestCase):
 
     def test_plan_only_credential_passes(self) -> None:
         result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_shared_module_directory_is_not_treated_as_an_hcp_leaf(self) -> None:
+        result = self.run_check(leaves=[*DEFAULT_LEAVES, "terraform/modules"])
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_credential_that_can_apply_is_a_verdict(self) -> None:
@@ -252,6 +259,13 @@ class HcpApplyScopeTests(unittest.TestCase):
             workspaces=[("cloudflare", PLAN_ONLY), ("theirs", READ_ONLY)],
             leaves=["terraform/cloudflare"],
             foreign=("theirs",),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_scoped_plan_check_ignores_a_later_read_only_workspace(self) -> None:
+        result = self.run_check(
+            workspaces=[("cloudflare", PLAN_ONLY), ("github-org", READ_ONLY)],
+            env={"HCP_SCOPE_WORKSPACE": "cloudflare"},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -644,6 +658,13 @@ class HcpApplyScopeTests(unittest.TestCase):
         result = self.run_check(
             workspaces=[("cloudflare", PLAN_ONLY)],
             leaves=["terraform/cloudflare", "terraform/mystery"],
+            leaf_hcl={
+                "terraform/mystery": (
+                    'terraform {\n  cloud {\n'
+                    '    workspaces { name = "mystery" }\n'
+                    "  }\n}\n"
+                )
+            },
         )
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("names no HCP organization", result.stderr)

@@ -637,7 +637,10 @@ class ValidatePhaseFiveRuleTests(unittest.TestCase):
     def test_rejects_rule_that_accepts_a_clean_run_alone(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            document = repository / ".ai-rulez/skills/status/SKILL.md"
+            document = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/status.md"
+            )
             document.parent.mkdir(parents=True)
             document.write_text(
                 "Infer done from the workspace's latest HCP run being clean.",
@@ -647,11 +650,11 @@ class ValidatePhaseFiveRuleTests(unittest.TestCase):
             self.assertEqual(
                 validate_phase_five_rule(repository),
                 [
-                    ".ai-rulez/skills/status/SKILL.md: phase-5 completion rule "
+                    ".ai-rulez/skills/infra-copilot/references/status.md: phase-5 completion rule "
                     "missing 'imports: 0'",
-                    ".ai-rulez/skills/status/SKILL.md: phase-5 completion rule "
+                    ".ai-rulez/skills/infra-copilot/references/status.md: phase-5 completion rule "
                     "missing 'incomplete'",
-                    ".ai-rulez/skills/status/SKILL.md: phase-5 completion rule "
+                    ".ai-rulez/skills/infra-copilot/references/status.md: phase-5 completion rule "
                     "missing 'status `applied`'",
                 ],
             )
@@ -1482,7 +1485,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             hcp = repository / ".ai-rulez/skills/infra-copilot/references/hcp.md"
             text = hcp.read_text(encoding="utf-8").replace(
-                '"trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]',
+                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]',
                 '"trigger-patterns":[$dir+"/**"]',
                 1,
             )
@@ -1531,7 +1534,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             start = text.index("  set_workspace_config () {")
             end = text.index("\n  }", start)
             reconciliation = text[start:end].replace(
-                '"trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]',
+                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]',
                 '"trigger-patterns":[$dir+"/**"]',
                 1,
             )
@@ -1552,7 +1555,10 @@ class ValidateToolchainContractTests(unittest.TestCase):
                 Path(__file__).parents[1] / ".ai-rulez",
                 repository / ".ai-rulez",
             )
-            status = repository / ".ai-rulez/skills/status/SKILL.md"
+            status = (
+                repository
+                / ".ai-rulez/skills/infra-copilot/references/status.md"
+            )
             text = status.read_text(encoding="utf-8").replace(
                 "  ✓ repo-config-sync", "", 1
             )
@@ -1669,9 +1675,9 @@ class ValidateToolchainContractTests(unittest.TestCase):
                 repository
                 / ".ai-rulez/skills/infra-copilot/references/config.md"
             )
-            status = repository / ".ai-rulez/skills/status/SKILL.md"
+            status = references / "status.md"
             setup.parent.mkdir(parents=True)
-            status.parent.mkdir(parents=True)
+            status.parent.mkdir(parents=True, exist_ok=True)
             steps.write_text("pin=$(mise current terraform)", encoding="utf-8")
             hcp.write_text("terraform-version", encoding="utf-8")
             setup.write_text("mise trust mise.toml", encoding="utf-8")
@@ -1705,9 +1711,9 @@ class ValidateToolchainContractTests(unittest.TestCase):
             setup = references / "docs/setup.md"
             import_guide = references / "docs/import.md"
             config = references / "config.md"
-            status = repository / ".ai-rulez/skills/status/SKILL.md"
+            status = references / "status.md"
             setup.parent.mkdir(parents=True)
-            status.parent.mkdir(parents=True)
+            status.parent.mkdir(parents=True, exist_ok=True)
             # A fixed tool list leaves conditionally configured tools unvalidated.
             steps.write_text(
                 "MISE_LOCKED=1 mise install --dry-run terraform gh jq", encoding="utf-8"
@@ -1860,6 +1866,7 @@ else cat >/dev/null; printf '%s\n' '1.15.9'; fi
         fixture_mise = """#!/bin/sh
 case "$1" in
   --version) exit 0 ;;
+  trust) printf '%s: trusted\n' "$(pwd -P)" ;;
   config) sed -n '/^\\[tools\\]/,$p' ./mise.toml | sed '1d' ;;
   install)
     shift 2
@@ -2053,28 +2060,31 @@ exit 0
                 executable.chmod(0o755)
             (binaries / "jq").symlink_to(jq)
 
-            def run(pin: str) -> int:
+            def run(pin: str, provider_tools: str = "[]") -> int:
                 return subprocess.run(
                     ["/bin/sh", "-c", check],
                     cwd=repository,
                     env=os.environ
-                    | {"PATH": f"{binaries}:/usr/bin:/bin", "PIN": pin},
+                    | {
+                        "PATH": f"{binaries}:/usr/bin:/bin",
+                        "PIN": pin,
+                        "NEW_PROVIDER_MISE_TOOLS": provider_tools,
+                    },
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     check=False,
                 ).returncode
 
-            # Without terraform/gcp the pin is not yet required.
+            # Before the provider's HUMAN toolchain gate, its CLI is not executed.
             self.assertEqual(run("551.0.0"), 0)
 
-            (repository / "terraform/gcp").mkdir(parents=True)
             # The regression: matching pin and installed SDK must agree. Reading
             # `core.version` yielded an empty string and kept this red.
-            self.assertEqual(run("551.0.0"), 0)
+            self.assertEqual(run("551.0.0", '["gcloud"]'), 0)
             # Drift, the release date mistaken for a version, and non-exact
             # selectors all have to fail.
             for pin in ("550.0.0", "2026.01.02", "latest", ">=551", "551"):
-                self.assertNotEqual(run(pin), 0, pin)
+                self.assertNotEqual(run(pin, '["gcloud"]'), 0, pin)
 
 
 if __name__ == "__main__":

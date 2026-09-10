@@ -40,10 +40,14 @@ class PolicyDocTests(unittest.TestCase):
     def test_post_handoff_workspace_actor_is_consistent(self) -> None:
         """The agent owns leaf code but never reacquires HCP admin authority."""
         add = ADD_SKILL.read_text(encoding="utf-8")
+        manifest = MANIFEST.read_text(encoding="utf-8")
         protocol = PROTOCOL.read_text(encoding="utf-8")
         gcp = GCP.read_text(encoding="utf-8")
-        self.assertIn("**New leaf** (`AGENT`)", add)
-        self.assertIn("**New workspace** (`HUMAN`", add)
+        self.assertIn("Route a new-provider adoption through Phase 6", add)
+        self.assertRegex(manifest, r"id: new-provider-leaf[\s\S]*?actor: AGENT")
+        self.assertRegex(
+            manifest, r"id: new-provider-workspace-bootstrap[\s\S]*?actor: HUMAN"
+        )
         self.assertIn("post-handoff HCP authority", protocol)
         self.assertIn("| Create the `gcp` HCP workspace | **HUMAN** |", gcp)
 
@@ -97,7 +101,7 @@ class PolicyDocTests(unittest.TestCase):
     def test_does_not_present_the_subagent_as_enforcement(self) -> None:
         """The subagent cannot enforce change-nothing, and saying so is the point.
 
-        status runs 21 shell checks so it needs Bash, and this document
+        status runs manifest-defined shell checks so it needs Bash, and this document
         establishes that Bash writes files. An earlier draft named the subagent
         as the mechanism that would enforce the promise, which contradicted
         the same page's own bypass 3.

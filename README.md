@@ -93,7 +93,8 @@ principal that lacks apply permission**. Note that is not the token `terraform l
 mints: a user token carries its user's permissions, so this needs a separate identity that
 phase 0 does not create. A
 read-only subagent ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
-narrows the surface but cannot enforce change-nothing: the scan runs 21 shell checks, so
+narrows the surface but cannot enforce change-nothing: the scan runs manifest-defined
+shell checks, so
 it needs `Bash`, and `Bash` writes files.
 
 The document also states which secrets never reach the agent and which one does.

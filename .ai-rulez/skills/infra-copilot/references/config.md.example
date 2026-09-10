@@ -8,6 +8,22 @@ cloudflare_zone_id: 0000000000000000000000000000000
 managed_repos:
   - your-org/infra
 hcp_status_check_id: ""
+additional_providers: []
+# Replace [] when adopting a provider. Example:
+# additional_providers:
+#   - name: gcp
+#     workspace: gcp
+#     mise_tools:
+#       - gcloud
+#     mise_config_blob: "" # set to `git hash-object mise.toml` only after HUMAN review
+#     mise_lock_blob: "" # set to `git hash-object mise.lock` only after HUMAN review
+#     fork_speculative_plans_disabled: false
+#     fork_speculative_plans_workspace_id: ""
+#     credentials_verified_at: ""
+#     credential_variables: # exact metadata inventory of every workspace variable
+#       - key: TFC_GCP_PROVIDER_AUTH
+#         category: env
+#         sensitive: false
 # infra-copilot:customization end
 ---
 

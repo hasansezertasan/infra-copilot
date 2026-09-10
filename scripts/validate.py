@@ -119,7 +119,9 @@ CUSTOMIZATION_RULE_MARKERS = (
     "verbatim",
     "Never merge by inference",
 )
-PHASE_FIVE_RULE_DOCUMENT = ".ai-rulez/skills/status/SKILL.md"
+PHASE_FIVE_RULE_DOCUMENT = (
+    ".ai-rulez/skills/infra-copilot/references/status.md"
+)
 PHASE_FIVE_RULE_MARKERS = (
     # A clean run alone must never be read as "imports are done" ...
     "imports: 0",
@@ -136,7 +138,7 @@ TOOLCHAIN_WORKSPACE_CHECK_DOCUMENT = (
 TOOLCHAIN_SETUP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/setup.md"
 TOOLCHAIN_IMPORT_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/import.md"
 TOOLCHAIN_CONFIG_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/config.md"
-TOOLCHAIN_STATUS_DOCUMENT = ".ai-rulez/skills/status/SKILL.md"
+TOOLCHAIN_STATUS_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/status.md"
 TOOLCHAIN_CI_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/ci.md"
 TOOLCHAIN_DECISIONS_DOCUMENT = (
     ".ai-rulez/skills/infra-copilot/references/decisions.md.example"
@@ -752,7 +754,9 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             marker in reconciliation.group("body")
             for marker in (
                 '"file-triggers-enabled":true',
-                '"trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]',
+                '"auto-destroy-at":null',
+                '"auto-destroy-activity-duration":null',
+                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]',
             )
         )
     ):
@@ -769,9 +773,11 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
                 'index(".infra-copilot/config.md") != null'
             )
             < 1
+            or document.count('index("terraform/modules/**") != null') < 1
+            or document.count('index("mise.toml") != null') < 1
         ):
             errors.append(
-                f"{document_name}: every HCP workspace must watch the shared config"
+                f"{document_name}: every HCP workspace must watch shared config and modules"
             )
     if 'checks/hcp-bootstrap-workspaces.sh' not in steps:
         errors.append(
@@ -785,7 +791,9 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     )
     if (
         creation is None
-        or '"trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]'
+        or '"auto-destroy-at":null' not in creation.group("body")
+        or '"auto-destroy-activity-duration":null' not in creation.group("body")
+        or '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]'
         not in creation.group("body")
     ):
         errors.append(

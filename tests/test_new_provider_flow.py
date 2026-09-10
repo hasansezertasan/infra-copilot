@@ -1,0 +1,1093 @@
+"""Protect the resumable, provider-neutral Phase 6 contract."""
+
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+STEPS = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+LEAF_CLOUD = (
+    REPO_ROOT
+    / ".ai-rulez/skills/infra-copilot/references/checks/leaf-cloud.sh"
+)
+ADD = REPO_ROOT / ".ai-rulez/skills/add/SKILL.md"
+CONFIG = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/config.md"
+HCP = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/hcp.md"
+HCP_CURRENT_PLAN = (
+    REPO_ROOT
+    / ".ai-rulez/skills/infra-copilot/references/checks/hcp-current-plan.sh"
+)
+STATUS = REPO_ROOT / ".ai-rulez/skills/status/SKILL.md"
+STATUS_RUNBOOK = (
+    REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/status.md"
+)
+
+
+def phase_six_steps() -> dict[str, str]:
+    text = STEPS.read_text(encoding="utf-8")
+    matches = list(re.finditer(r"^  - id: (new-provider-[^\n]+)\n", text, re.MULTILINE))
+    return {
+        match.group(1): text[match.start() : matches[index + 1].start()]
+        if index + 1 < len(matches)
+        else text[match.start() :]
+        for index, match in enumerate(matches)
+    }
+
+
+def literal_check(step: str) -> str:
+    match = re.search(r"^    check: \|\n(?P<body>(?:      .*\n)+)", step, re.MULTILINE)
+    if match is None:
+        raise AssertionError("step has no literal check")
+    return "\n".join(
+        line.removeprefix("      ") for line in match.group("body").splitlines()
+    )
+
+
+class NewProviderFlowTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.steps = phase_six_steps()
+
+    def test_phase_six_tracks_every_resumable_state_in_order(self) -> None:
+        self.assertEqual(
+            list(self.steps),
+            [
+                "new-provider-inventory",
+                "new-provider-decision",
+                "new-provider-leaf",
+                "new-provider-toolchain",
+                "new-provider-lock",
+                "new-provider-workspace-bootstrap",
+                "new-provider-workspace",
+                "new-provider-plan-access",
+                "new-provider-fork-safety",
+                "new-provider-credentials",
+                "new-provider-plan",
+            ],
+        )
+        for name, step in self.steps.items():
+            with self.subTest(step=name):
+                self.assertIn("    phase: 6\n", step)
+                self.assertIn("    check:", step)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_inventory_is_a_manifest_check_not_router_prose(self) -> None:
+        inventory = self.steps["new-provider-inventory"]
+        self.assertIn("ADDITIONAL_PROVIDER_NAMES", inventory)
+        self.assertIn("for leaf in terraform/*/", inventory)
+        self.assertIn("cloudflare|github", inventory)
+        self.assertIn("index($name) != null", inventory)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "terraform/gcp").mkdir(parents=True)
+            (root / "terraform/gcp/versions.tf").write_text(
+                'terraform { cloud { workspaces { name = "gcp" } } }\n',
+                encoding="utf-8",
+            )
+            common_env = {
+                **os.environ,
+                "ADDITIONAL_PROVIDER_WORKSPACES": '["gcp"]',
+                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+            }
+            untracked = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={**common_env, "ADDITIONAL_PROVIDER_NAMES": "[]"},
+                capture_output=True,
+                text=True,
+            )
+            tracked = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={**common_env, "ADDITIONAL_PROVIDER_NAMES": '["gcp"]'},
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(untracked.returncode, 1)
+        self.assertEqual(tracked.returncode, 0, tracked.stderr)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_inventory_skips_modules_and_rejects_workspace_collisions(self) -> None:
+        inventory = self.steps["new-provider-inventory"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "terraform/modules/network").mkdir(parents=True)
+            (root / "terraform/modules/network/main.tf").write_text(
+                'variable "name" {}\n', encoding="utf-8"
+            )
+            base_env = {
+                **os.environ,
+                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+            }
+            module_only = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={
+                    **base_env,
+                    "ADDITIONAL_PROVIDER_NAMES": "[]",
+                    "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
+                },
+                capture_output=True,
+                text=True,
+            )
+            collision = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={
+                    **base_env,
+                    "ADDITIONAL_PROVIDER_NAMES": '["gcp"]',
+                    "ADDITIONAL_PROVIDER_WORKSPACES": '["cloudflare"]',
+                },
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(module_only.returncode, 0, module_only.stderr)
+        self.assertNotEqual(collision.returncode, 0)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_inventory_tracks_provider_directory_before_cloud_exists(self) -> None:
+        inventory = self.steps["new-provider-inventory"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "terraform/gcp").mkdir(parents=True)
+            (root / "terraform/gcp/versions.tf").write_text(
+                'terraform { required_version = ">= 1.0" }\n', encoding="utf-8"
+            )
+            env = {
+                **os.environ,
+                "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
+                "ADDITIONAL_PROVIDER_MISE_TOOLS": "[]",
+                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+            }
+            missing = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={**env, "ADDITIONAL_PROVIDER_NAMES": "[]"},
+                capture_output=True,
+                text=True,
+            )
+        self.assertNotEqual(missing.returncode, 0)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_inventory_rejects_reserved_bootstrap_leaf_names(self) -> None:
+        inventory = self.steps["new-provider-inventory"]
+        env = {
+            **os.environ,
+            "ADDITIONAL_PROVIDER_WORKSPACES": '["extra"]',
+            "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+        }
+        for name in ("cloudflare", "github", "modules"):
+            result = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                env={**env, "ADDITIONAL_PROVIDER_NAMES": f'["{name}"]'},
+                capture_output=True,
+                text=True,
+            )
+            with self.subTest(name=name):
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_decision_is_not_inferred_from_the_leaf_directory(self) -> None:
+        decision = self.steps["new-provider-decision"]
+        self.assertIn(".infra-copilot/decisions.md", decision)
+        self.assertIn("terraform/README.md", decision)
+        self.assertIn("locked", decision)
+        self.assertIn('clean($2) == expected', decision)
+        self.assertIn('clean($3) == "adopt"', decision)
+        self.assertNotIn('check: "test -d terraform/gcp"', decision)
+        self.assertIn("git diff --quiet HEAD", decision)
+        self.assertIn("git diff --cached --quiet HEAD", decision)
+        self.assertIn(
+            'grep -Eq "(^|[^A-Za-z0-9_-])terraform/$NEW_PROVIDER(/|',
+            decision,
+        )
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_decision_requires_the_standardized_affirmative_row(self) -> None:
+        decision = self.steps["new-provider-decision"]
+        env = {
+            **os.environ,
+            "NEW_PROVIDER": "gcp",
+            "NEW_PROVIDER_WORKSPACE": "gcp",
+            "NEW_PROVIDER_MISE_TOOLS": '["gcloud"]',
+            "NEW_PROVIDER_MISE_CONFIG_BLOB": "",
+            "NEW_PROVIDER_MISE_LOCK_BLOB": "",
+            "NEW_PROVIDER_FORK_PLANS_DISABLED": "false",
+            "NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID": "",
+            "NEW_PROVIDER_CREDENTIALS_VERIFIED_AT": "",
+            "NEW_PROVIDER_CREDENTIALS": (
+                '[{"key":"TFC_GCP_PROVIDER_AUTH","category":"env",'
+                '"sensitive":false}]'
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".infra-copilot").mkdir()
+            (root / "terraform").mkdir()
+            (root / "terraform/README.md").write_text(
+                "terraform/gcp\n", encoding="utf-8"
+            )
+            (root / ".infra-copilot/config.md").write_text(
+                "additional_providers:\n  - name: gcp\n", encoding="utf-8"
+            )
+            decisions = root / ".infra-copilot/decisions.md"
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Use AWS, not GCP | aws | locked |\n",
+                encoding="utf-8",
+            )
+            negative = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n",
+                encoding="utf-8",
+            )
+            (root / "terraform/README.md").write_text(
+                "terraform/gcp-old\n", encoding="utf-8"
+            )
+            prefix_only = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            (root / "terraform/README.md").write_text(
+                "terraform/gcp\n", encoding="utf-8"
+            )
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "add", ".infra-copilot/config.md", ".infra-copilot/decisions.md",
+                 "terraform/README.md"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qm", "test fixture"],
+                cwd=root,
+                check=True,
+            )
+            positive = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+        self.assertNotEqual(negative.returncode, 0)
+        self.assertNotEqual(prefix_only.returncode, 0)
+        self.assertEqual(positive.returncode, 0, positive.stderr)
+
+    def test_explicit_adoption_bootstraps_an_empty_inventory(self) -> None:
+        protocol = (
+            REPO_ROOT
+            / ".ai-rulez/skills/infra-copilot/references/protocol.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("new-provider-decision` once in bootstrap mode", protocol)
+        self.assertIn("must never\ndiscard an explicit adoption request", protocol)
+        self.assertIn("before the\nfull mise preflight", protocol)
+
+    def test_workspace_check_asserts_the_complete_safety_contract(self) -> None:
+        workspace = self.steps["new-provider-workspace"]
+        for marker in (
+            '"working-directory"',
+            '"execution-mode"',
+            '"terraform-version"',
+            '"auto-apply"',
+            '"auto-destroy-at"',
+            '"auto-destroy-activity-duration"',
+            '"speculative-enabled"',
+            '"file-triggers-enabled"',
+            '"queue-all-runs"',
+            '"global-remote-state"',
+            '"trigger-patterns"',
+            '"vcs-repo"',
+            '".infra-copilot/config.md"',
+            '"terraform/modules/**"',
+            '"mise.toml"',
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, workspace)
+        self.assertIn(
+            '== ([$dir + "/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"] | sort)',
+            workspace,
+        )
+        self.assertIn('($a["queue-all-runs"] == false)', workspace)
+        self.assertIn('test "$hcp_api" = "https://app.terraform.io/api/v2"', workspace)
+        self.assertIn("    tri_state: true", workspace)
+        self.assertIn("*) exit 2", workspace)
+
+        helper = HCP.read_text(encoding="utf-8").split(
+            "  set_workspace_config () {", 1
+        )[1].split("\n  }", 1)[0]
+        for marker in (
+            '"working-directory":$dir',
+            '"execution-mode":"remote"',
+            '"auto-apply":false',
+            '"auto-destroy-at":null',
+            '"auto-destroy-activity-duration":null',
+            '"speculative-enabled":true',
+            '"queue-all-runs":false',
+            '"vcs-repo":{identifier:$repo',
+            'branch:"main"',
+        ):
+            with self.subTest(reconciliation=marker):
+                self.assertIn(marker, helper)
+        self.assertIn('[ "$existing_repo" = "$REPO" ]', helper)
+        self.assertIn("refusing to reconfigure workspace owned by", helper)
+        self.assertIn("CONFIRM_WORKSPACE_ID", helper)
+
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
+    def test_leaf_check_reads_name_from_the_cloud_workspace_block(self) -> None:
+        leaf = self.steps["new-provider-leaf"]
+        self.assertIn("checks/leaf-cloud.sh", leaf)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "versions.tf").write_text(
+                'resource "example" "x" { name = "gcp" }\n'
+                'terraform { cloud { organization = "acme" } }\n',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(root), "workspace"],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_leaf_check_validates_the_complete_cloud_target(self) -> None:
+        leaf = self.steps["new-provider-leaf"]
+        self.assertIn('grep -Fx "organization=$ORG"', leaf)
+        self.assertIn("app.terraform.io", leaf)
+        self.assertIn("workspaces.name=$NEW_PROVIDER_WORKSPACE", leaf)
+
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
+    def test_leaf_parser_keeps_reading_cloud_after_workspaces_closes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "versions.tf").write_text(
+                """terraform {
+  cloud {
+    workspaces {
+      name = "gcp"
+    }
+    hostname = "app.terraform.io"
+    organization = "acme"
+  }
+}
+""",
+                encoding="utf-8",
+            )
+            values = {
+                key: subprocess.run(
+                    ["/bin/sh", str(LEAF_CLOUD), str(root), key],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip()
+                for key in ("workspace", "hostname", "organization")
+            }
+        self.assertEqual(
+            values,
+            {
+                "workspace": "gcp",
+                "hostname": "app.terraform.io",
+                "organization": "acme",
+            },
+        )
+
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
+    def test_leaf_parser_ignores_nested_host_and_organization_tags(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "versions.tf").write_text(
+                """terraform {
+  cloud {
+    workspaces {
+      tags = {
+        hostname = "attacker.example"
+        organization = "wrong-org"
+      }
+    }
+    hostname = "app.terraform.io"
+    organization = "acme"
+  }
+}
+""",
+                encoding="utf-8",
+            )
+            values = {
+                key: subprocess.run(
+                    ["/bin/sh", str(LEAF_CLOUD), str(root), key],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip()
+                for key in ("hostname", "organization")
+            }
+            all_settings = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(root), "all"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        self.assertEqual(
+            values,
+            {"hostname": "app.terraform.io", "organization": "acme"},
+        )
+        self.assertIn("hostname=app.terraform.io", all_settings)
+        self.assertIn("organization=acme", all_settings)
+        self.assertNotIn("attacker.example", all_settings)
+        self.assertNotIn("wrong-org", all_settings)
+
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
+    def test_leaf_parser_ignores_cloud_blocks_outside_terraform(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "versions.tf").write_text(
+                '''resource "example_service" "decoy" {
+  cloud {
+    organization = "wrong-org"
+    workspaces { name = "wrong-workspace" }
+  }
+}
+terraform {
+  cloud {
+    organization = "acme"
+    workspaces { name = "gcp" }
+  }
+}
+''',
+                encoding="utf-8",
+            )
+            all_settings = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(root), "all"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        self.assertIn("organization=acme", all_settings)
+        self.assertIn("workspaces.name=gcp", all_settings)
+        self.assertNotIn("wrong-org", all_settings)
+        self.assertNotIn("wrong-workspace", all_settings)
+
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
+    def test_leaf_parser_ignores_comment_delimiters_inside_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "a-route.tf").write_text(
+                'resource "example_route" "all" { route_pattern = "/*" }\n',
+                encoding="utf-8",
+            )
+            (root / "versions.tf").write_text(
+                'terraform {\n  cloud {\n    organization = "acme"\n'
+                '    workspaces { name = "gcp" }\n  }\n}\n',
+                encoding="utf-8",
+            )
+            all_settings = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(root), "all"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        self.assertIn("organization=acme", all_settings)
+        self.assertIn("workspaces.name=gcp", all_settings)
+
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
+    def test_leaf_parser_ignores_heredoc_markers_inside_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "a-command.tf").write_text(
+                'locals { example = "example command: cat <<EOF" }\n', encoding="utf-8"
+            )
+            (root / "versions.tf").write_text(
+                'terraform {\n  cloud {\n    organization = "acme"\n'
+                '    workspaces { name = "gcp" }\n  }\n}\n',
+                encoding="utf-8",
+            )
+            all_settings = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(root), "all"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        self.assertIn("organization=acme", all_settings)
+        self.assertIn("workspaces.name=gcp", all_settings)
+
+    @unittest.skipUnless(os.name == "posix", "the check is a POSIX shell script")
+    def test_leaf_parser_ignores_escaped_braces_inside_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "versions.tf").write_text(
+                'locals { decoy = "quoted \\\" } cloud { \\\" text" }\n'
+                'terraform {\n  cloud { organization = "acme"\n'
+                '    workspaces { name = "gcp" }\n  }\n}\n',
+                encoding="utf-8",
+            )
+            all_settings = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(root), "all"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        self.assertIn("organization=acme", all_settings)
+        self.assertIn("workspaces.name=gcp", all_settings)
+
+    def test_toolchain_retrusts_after_the_leaf_before_provider_commands(self) -> None:
+        leaf = self.steps["new-provider-leaf"]
+        toolchain = self.steps["new-provider-toolchain"]
+        self.assertIn("do not execute the CLI", leaf)
+        self.assertIn("    actor: HUMAN", toolchain)
+        self.assertIn("commit all four reviewed files", toolchain)
+        self.assertIn("NEW_PROVIDER_MISE_CONFIG_BLOB", toolchain)
+        self.assertIn("NEW_PROVIDER_MISE_LOCK_BLOB", toolchain)
+        self.assertIn("git hash-object -- mise.toml", toolchain)
+        self.assertIn("git hash-object -- mise.lock", toolchain)
+        self.assertIn(".infra-copilot/config.md", toolchain)
+        self.assertIn("mise trust mise.toml", toolchain)
+        self.assertIn("mise trust --show", toolchain)
+        self.assertIn('$repo_dir: trusted', toolchain)
+        self.assertIn("MISE_LOCKED=1", toolchain)
+        self.assertIn("NEW_PROVIDER_MISE_TOOLS", toolchain)
+        self.assertIn("--dry-run-code", toolchain)
+        self.assertIn('mise which "$tool" --version', toolchain)
+        self.assertIn('mise exec "$tool"', toolchain)
+        self.assertIn("complete preflight", toolchain)
+
+    def test_leaf_must_be_tracked_and_clean(self) -> None:
+        leaf = self.steps["new-provider-leaf"]
+        lock = self.steps["new-provider-lock"]
+        self.assertIn("git ls-files --error-unmatch", leaf)
+        self.assertIn(".terraform.lock.hcl", leaf)
+        self.assertIn("terraform init -backend=false", leaf)
+        self.assertIn("git --no-optional-locks status --porcelain", leaf)
+        self.assertIn('terraform -chdir="terraform/$NEW_PROVIDER" providers', lock)
+        self.assertIn('provider\\[\\([^]]*\\)\\]', lock)
+        self.assertIn("version && checksum", lock)
+        self.assertNotIn('terraform -chdir="terraform/$NEW_PROVIDER" providers', leaf)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_leaf_rejects_a_lock_without_required_provider_selection(self) -> None:
+        lock_check = self.steps["new-provider-lock"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            provider_dir = root / "terraform/gcp"
+            provider_dir.mkdir(parents=True)
+            (provider_dir / "versions.tf").write_text(
+                'terraform {\n  cloud {\n    organization = "acme"\n'
+                '    workspaces { name = "gcp" }\n  }\n}\n',
+                encoding="utf-8",
+            )
+            lock = provider_dir / ".terraform.lock.hcl"
+            lock.write_text(
+                'provider "registry.terraform.io/hashicorp/google" {\n'
+                '  version = "6.0.0"\n  hashes = [\n    "h1:fixture",\n  ]\n}\n',
+                encoding="utf-8",
+            )
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            terraform = bin_dir / "terraform"
+            terraform.write_text(
+                "#!/bin/sh\necho 'Providers required by configuration:'\n"
+                "echo 'provider[registry.terraform.io/hashicorp/google] 6.0.0'\n"
+                'exit "${TERRAFORM_PROVIDERS_EXIT:-0}"\n',
+                encoding="utf-8",
+            )
+            terraform.chmod(0o755)
+            git_env = os.environ | {
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_SYSTEM": os.devnull,
+            }
+            subprocess.run(["git", "init", "-q"], cwd=root, env=git_env, check=True)
+            subprocess.run(["git", "add", "."], cwd=root, env=git_env, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qm", "valid lock"],
+                cwd=root, env=git_env, check=True,
+            )
+            env = os.environ | {
+                "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                "NEW_PROVIDER": "gcp",
+                "NEW_PROVIDER_WORKSPACE": "gcp",
+                "ORG": "acme",
+                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+            }
+            valid = subprocess.run(
+                ["/bin/sh", "-c", literal_check(lock_check)], cwd=root, env=env,
+                capture_output=True, text=True,
+            )
+            failed_provider_query = subprocess.run(
+                ["/bin/sh", "-c", literal_check(lock_check)], cwd=root,
+                env={**env, "TERRAFORM_PROVIDERS_EXIT": "1"},
+                capture_output=True, text=True,
+            )
+            lock.write_text("# empty lock\n", encoding="utf-8")
+            subprocess.run(["git", "add", str(lock)], cwd=root, env=git_env, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qm", "empty lock"],
+                cwd=root, env=git_env, check=True,
+            )
+            empty = subprocess.run(
+                ["/bin/sh", "-c", literal_check(lock_check)], cwd=root, env=env,
+                capture_output=True, text=True,
+            )
+        self.assertEqual(valid.returncode, 0, valid.stderr)
+        self.assertNotEqual(empty.returncode, 0)
+        self.assertNotEqual(failed_provider_query.returncode, 0)
+
+    def test_workspace_bootstrap_makes_the_creation_handoff_reachable(self) -> None:
+        bootstrap = self.steps["new-provider-workspace-bootstrap"]
+        self.assertIn("    tri_state: true", bootstrap)
+        self.assertIn("404) exit 1", bootstrap)
+        self.assertIn("*) exit 2", bootstrap)
+        self.assertIn("create_ws", bootstrap)
+        self.assertIn("resolve_oauth_token_id", bootstrap)
+
+    def test_plan_access_reuses_repository_derived_inventory(self) -> None:
+        access = self.steps["new-provider-plan-access"]
+        self.assertIn("hcp-apply-scope.sh", access)
+        self.assertIn('HCP_SCOPE_WORKSPACE="$NEW_PROVIDER_WORKSPACE"', access)
+        self.assertIn("    tri_state: true", access)
+        self.assertIn("`Plan`", access)
+        self.assertIn("`Write`", access)
+        self.assertNotIn("create_ws", access)
+
+    def test_fork_plan_safety_is_durable_and_precedes_credentials(self) -> None:
+        safety = self.steps["new-provider-fork-safety"]
+        self.assertIn("    actor: HUMAN", safety)
+        self.assertIn("NEW_PROVIDER_FORK_PLANS_DISABLED", safety)
+        self.assertIn("NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID", safety)
+        self.assertIn("Version Control", safety)
+        self.assertIn("fork", safety.lower())
+        self.assertIn("git diff --quiet HEAD -- .infra-copilot/config.md", safety)
+        self.assertIn("actual_id", safety)
+
+    def test_credentials_check_matches_declared_metadata(self) -> None:
+        credentials = self.steps["new-provider-credentials"]
+        self.assertIn("/vars", credentials)
+        self.assertIn("NEW_PROVIDER_CREDENTIALS", credentials)
+        for attribute in (".key", ".category", ".sensitive"):
+            with self.subTest(attribute=attribute):
+                self.assertIn(attribute, credentials)
+        self.assertNotIn(".attributes.value", credentials)
+        self.assertIn('test "$hcp_api" = "https://app.terraform.io/api/v2"', credentials)
+        self.assertIn("    tri_state: true", credentials)
+        self.assertIn("page%5Bnumber%5D=$page", credentials)
+        self.assertIn("pages=$(mktemp) || exit 2", credentials)
+        self.assertIn(': >"$pages" || exit 2', credentials)
+        self.assertIn('["next-page"]', credentials)
+        self.assertIn("NEW_PROVIDER_CREDENTIALS_VERIFIED_AT", credentials)
+        self.assertIn("fromdateiso8601", credentials)
+        self.assertIn('strftime("%Y-%m-%dT%H:%M:%SZ")', credentials)
+        self.assertIn("$epoch <= now", credentials)
+        self.assertIn("git diff --quiet HEAD -- .infra-copilot/config.md", credentials)
+        self.assertIn("($actual == $wanted)", credentials)
+        self.assertIn("/varsets?page%5Bsize%5D=1", credentials)
+        self.assertIn("varset_count=", credentials)
+        self.assertIn('test "$varset_count" -eq 0 || exit 1', credentials)
+        self.assertNotIn("all($expected[]", credentials)
+
+    def test_first_plan_targets_the_parameterized_leaf(self) -> None:
+        plan = self.steps["new-provider-plan"]
+        self.assertIn("hcp-current-plan.sh", plan)
+        self.assertIn("configuration-version relationship", plan)
+        self.assertIn("configured upstream", plan)
+        self.assertIn("gh pr create --draft", plan)
+        self.assertIn("    tri_state: true", plan)
+        helper = HCP_CURRENT_PLAN.read_text(encoding="utf-8")
+        self.assertIn('sha: .attributes["commit-sha"]', helper)
+        self.assertIn('"plan-only":true', helper)
+        self.assertIn('"configuration-version":{data:', helper)
+        self.assertIn("json-output-redacted", helper)
+        self.assertIn('index("delete")', helper)
+        self.assertIn('index("create")', helper)
+        self.assertIn(".format_version", helper)
+        self.assertIn(".terraform_version", helper)
+        self.assertIn("truncated=true", helper)
+        self.assertIn("bounded 500-run scan", helper)
+        self.assertIn("still in flight", helper)
+        self.assertIn("planned_and_saved|applied", helper)
+        self.assertIn('attributes["created-at"]', helper)
+        self.assertIn('"_created_key"', helper)
+        self.assertIn("did not join one-to-one to ingress data", helper)
+        self.assertIn('sub("Z$"; ".999999999Z")', helper)
+        self.assertIn("NEW_PROVIDER_CREDENTIALS_VERIFIED_AT", helper)
+        self.assertIn("terraform/modules", helper)
+        self.assertIn("mise.toml", helper)
+        self.assertIn('attributes["updated-at"]', helper)
+        self.assertIn("workspace updated-at is invalid or in the future", helper)
+        self.assertIn("resource_exists=", helper)
+        self.assertNotIn('[ "$resource_count" -eq', helper)
+        self.assertIn("git --no-optional-locks status --porcelain", helper)
+        self.assertIn("candidate run has a malformed created-at timestamp", helper)
+        self.assertIn('// error("timestamp does not match RFC3339 UTC")', helper)
+        self.assertIn("$epoch <= now", helper)
+        self.assertIn('test("^[0-9a-f]{40}$")', helper)
+        self.assertIn("pre_plan_errored", helper)
+        self.assertIn("cost_estimation_errored", helper)
+        self.assertIn("UNSAFE PLAN", helper)
+        self.assertIn("could supersede the selected matching run", helper)
+        self.assertIn("an ingress-less run could supersede", helper)
+        self.assertIn("multiple newest runs for the current relevant tree", helper)
+        self.assertIn("the run-list head changed during pagination", helper)
+        self.assertIn('git diff --quiet "$sha" HEAD', helper)
+        self.assertIn('[ "$status" = policy_soft_failed ]', helper)
+        self.assertIn("POLICY INTERVENTION", helper)
+        self.assertLess(helper.index("status=$("), helper.index('if [ "$mode" = queue ]'))
+        self.assertNotIn('git log -1 --format=%H -- "terraform/$NEW_PROVIDER"', helper)
+        self.assertIn(
+            "plan_only,plan_and_apply,save_plan,refresh_only,destroy,empty_apply,action_only&",
+            helper,
+        )
+        self.assertIn("UNSAFE RUN", helper)
+        self.assertLess(
+            helper.index("fresh=$(printf"),
+            helper.index('if [ "$fresh" = true ]; then'),
+        )
+        self.assertIn('(has("complete") | not) or .complete == true', helper)
+        self.assertIn(".deferred_changes", helper)
+        self.assertIn('test("^1\\\\.[0-9]+$")', helper)
+        self.assertIn('(.resource_changes | type) == "array"', helper)
+
+    @unittest.skipUnless(os.name == "posix", "the parser is a POSIX shell script")
+    def test_leaf_parser_reads_terraform_json_cloud_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            leaf = Path(directory)
+            (leaf / "versions.tf.json").write_text(
+                '{"terraform":{"cloud":{"hostname":"app.terraform.io",'
+                '"organization":"acme","workspaces":{"name":"gcp"}}}}',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(leaf), "all"],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cloud=present", result.stdout)
+        self.assertIn("hostname=app.terraform.io", result.stdout)
+        self.assertIn("organization=acme", result.stdout)
+        self.assertIn("workspaces.name=gcp", result.stdout)
+
+    @unittest.skipUnless(os.name == "posix", "the parser is a POSIX shell script")
+    def test_leaf_parser_does_not_invent_a_json_cloud_block(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            leaf = Path(directory)
+            (leaf / "main.tf.json").write_text(
+                '{"resource":{"example":{"fixture":{"name":"test"}}}}',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(leaf), "all"],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("cloud=present", result.stdout)
+
+    @unittest.skipUnless(os.name == "posix", "the parser is a POSIX shell script")
+    def test_leaf_parser_ignores_terraform_syntax_inside_heredocs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            leaf = Path(directory)
+            (leaf / "versions.tf").write_text(
+                '''locals {
+  decoy = <<-CONFIG
+    terraform { cloud { organization = "spoofed" workspaces { name = "spoofed" } } }
+    CONFIG
+}
+terraform {
+  cloud {
+    organization = "acme"
+    workspaces { name = "gcp" }
+  }
+}
+''',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(leaf), "all"],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("organization=acme", result.stdout)
+        self.assertIn("workspaces.name=gcp", result.stdout)
+        self.assertNotIn("spoofed", result.stdout)
+
+    @unittest.skipUnless(os.name == "posix", "the parser is a POSIX shell script")
+    def test_leaf_parser_handles_hyphenated_heredoc_delimiters(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            leaf = Path(directory)
+            (leaf / "versions.tf").write_text(
+                '''locals {
+  decoy = <<END-JSON
+    terraform { cloud { organization = "spoofed" } }
+END-JSON
+}
+terraform {
+  cloud {
+    organization = "acme"
+    workspaces { name = "gcp" }
+  }
+}
+''',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(leaf), "all"],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("organization=acme", result.stdout)
+        self.assertIn("workspaces.name=gcp", result.stdout)
+        self.assertNotIn("spoofed", result.stdout)
+
+    @unittest.skipUnless(os.name == "posix", "the parser is a POSIX shell script")
+    def test_leaf_parser_handles_compact_nested_cloud_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            leaf = Path(directory)
+            (leaf / "versions.tf").write_text(
+                'terraform { cloud { organization = "acme" '
+                'workspaces { name = "gcp" } } }\n',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["/bin/sh", str(LEAF_CLOUD), str(leaf), "all"],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cloud=present", result.stdout)
+        self.assertIn("organization=acme", result.stdout)
+        self.assertIn("workspaces.name=gcp", result.stdout)
+
+    def test_plan_rejects_malformed_change_action_arrays(self) -> None:
+        helper = HCP_CURRENT_PLAN.read_text(encoding="utf-8")
+        self.assertIn('(.change.actions | type) == "array"', helper)
+        self.assertIn('. == "forget"', helper)
+        self.assertIn('select(index("forget"))', helper)
+        self.assertIn('[ "$forgets" -ne 0 ]', helper)
+
+    @unittest.skipUnless(os.name == "posix", "the helper uses jq")
+    def test_plan_join_preserves_paginated_run_documents(self) -> None:
+        helper = HCP_CURRENT_PLAN.read_text(encoding="utf-8")
+        join_program = helper.split("candidates=$(jq -scer '\n", 1)[1].split(
+            "' \"$pages\"", 1
+        )[0]
+        page = (
+            '{"included":['
+            '{"type":"ingress-attributes","id":"ia-1","attributes":'
+            '{"commit-sha":"0123456789abcdef0123456789abcdef01234567"}},'
+            '{"type":"configuration-versions","id":"cv-1","relationships":'
+            '{"ingress-attributes":{"data":{"id":"ia-1"}}}},'
+            '{"type":"configuration-versions","id":"cv-cli","relationships":{}}],'
+            '"data":[{"id":"run-1","relationships":'
+            '{"configuration-version":{"data":{"id":"cv-1"}}}},'
+            '{"id":"run-cli","relationships":'
+            '{"configuration-version":{"data":{"id":"cv-cli"}}}}]}'
+        )
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as fixture:
+            fixture.write(page)
+            fixture.flush()
+            result = subprocess.run(
+                ["jq", "-scer", join_program, fixture.name],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count('"id":"run-1"'), 1)
+        self.assertIn(
+            '"_commit_sha":"0123456789abcdef0123456789abcdef01234567"',
+            result.stdout,
+        )
+        self.assertIn('"id":"run-cli"', result.stdout)
+        self.assertIn('"_commit_sha":null', result.stdout)
+
+    def test_inventory_covers_actual_provider_tool_keys(self) -> None:
+        inventory = self.steps["new-provider-inventory"]
+        self.assertIn("ADDITIONAL_PROVIDER_MISE_TOOLS", inventory)
+        self.assertIn("mise config get --file ./mise.toml tools", inventory)
+        self.assertIn("infra-copilot:provider-cli", inventory)
+        self.assertIn("infra-copilot:general-tool", inventory)
+        self.assertIn(
+            "terraform|gh|jq|github:cloudflare/cf-terraforming", inventory
+        )
+        self.assertIn("($actual - $declared | length) == 0", inventory)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_inventory_rejects_an_undeclared_provider_tool(self) -> None:
+        inventory = self.steps["new-provider-inventory"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            (root / "terraform").mkdir()
+            (root / "mise.toml").write_text(
+                '[tools]\nterraform = "1.14.0"\ngh = "2.80.0"\n'
+                'jq = "1.8.1"\n# infra-copilot:general-tool node\nnode = "24.0.0"\n'
+                '# infra-copilot:provider-cli gcloud\ngcloud = "551.0.0"\n',
+                encoding="utf-8",
+            )
+            fake_mise = bin_dir / "mise"
+            fake_mise.write_text(
+                "#!/bin/sh\n"
+                "echo 'terraform = \"1.14.0\"'\n"
+                "echo 'gh = \"2.80.0\"'\n"
+                "echo 'jq = \"1.8.1\"'\n"
+                "echo 'node = \"24.0.0\"'\n"
+                "if [ -z \"${OMIT_GCLOUD:-}\" ]; then "
+                "echo 'gcloud = \"551.0.0\"'; fi\n",
+                encoding="utf-8",
+            )
+            fake_mise.chmod(0o755)
+            env = {
+                **os.environ,
+                "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                "ADDITIONAL_PROVIDER_NAMES": "[]",
+                "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
+                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+            }
+            omitted = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={**env, "ADDITIONAL_PROVIDER_MISE_TOOLS": "[]"},
+                capture_output=True,
+                text=True,
+            )
+            declared = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={**env, "ADDITIONAL_PROVIDER_MISE_TOOLS": '["gcloud"]'},
+                capture_output=True,
+                text=True,
+            )
+            (root / "mise.toml").write_text(
+                '[tools]\nterraform = "1.14.0"\ngh = "2.80.0"\n'
+                'jq = "1.8.1"\n# infra-copilot:general-tool node\nnode = "24.0.0"\n',
+                encoding="utf-8",
+            )
+            before_scaffolding = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={
+                    **env,
+                    "OMIT_GCLOUD": "1",
+                    "ADDITIONAL_PROVIDER_MISE_TOOLS": '["gcloud"]',
+                },
+                capture_output=True,
+                text=True,
+            )
+        self.assertNotEqual(omitted.returncode, 0)
+        self.assertEqual(declared.returncode, 0, declared.stderr)
+        self.assertEqual(before_scaffolding.returncode, 0, before_scaffolding.stderr)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_inventory_rejects_an_unclassified_non_bootstrap_pin(self) -> None:
+        inventory = self.steps["new-provider-inventory"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            (root / "terraform").mkdir()
+            (root / "mise.toml").write_text(
+                '[tools]\nterraform = "1.14.0"\ngh = "2.80.0"\n'
+                'jq = "1.8.1"\ngcloud = "551.0.0"\n',
+                encoding="utf-8",
+            )
+            fake_mise = bin_dir / "mise"
+            fake_mise.write_text(
+                "#!/bin/sh\n"
+                "sed -n '/^[A-Za-z0-9]/p' mise.toml\n",
+                encoding="utf-8",
+            )
+            fake_mise.chmod(0o755)
+            result = subprocess.run(
+                ["/bin/sh", "-c", literal_check(inventory)],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                    "ADDITIONAL_PROVIDER_NAMES": "[]",
+                    "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
+                    "ADDITIONAL_PROVIDER_MISE_TOOLS": "[]",
+                    "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                },
+                capture_output=True,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_provider_preflight_is_activated_by_the_reviewed_entry(self) -> None:
+        manifest = STEPS.read_text(encoding="utf-8")
+        gcloud = manifest.split("  - tool: gcloud\n", 1)[1].split(
+            "  - tool: infra-copilot-references\n", 1
+        )[0]
+        self.assertIn("NEW_PROVIDER_MISE_TOOLS", gcloud)
+        self.assertNotIn("test -d terraform/gcp", gcloud)
+
+    def test_router_and_status_use_the_durable_inventory(self) -> None:
+        for path in (CONFIG, STATUS_RUNBOOK):
+            with self.subTest(path=path.name):
+                self.assertIn("additional_providers", path.read_text(encoding="utf-8"))
+        add = ADD.read_text(encoding="utf-8")
+        self.assertNotIn("None of steps 2–5 have `steps.yaml` entries", add)
+        self.assertIn("shared resume protocol", add)
+        self.assertNotIn("Workspace creation remains", add)
+        status = STATUS_RUNBOOK.read_text(encoding="utf-8")
+        self.assertIn("every Phase 6 step", status)
+        self.assertIn("Phase 6 plan contents and durable completion", status)
+        self.assertIn("resource-count", status)
+        self.assertIn("destroys are\n   zero", status)
+        self.assertIn("If that HUMAN trust gate is red", status)
+        self.assertIn(
+            "terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml",
+            status,
+        )
+        router = STATUS.read_text(encoding="utf-8")
+        self.assertIn("references/status.md", router)
+        self.assertNotIn("Phase 6 plan contents and durable completion", router)
+
+    def test_legacy_config_defaults_only_a_missing_provider_list(self) -> None:
+        config = CONFIG.read_text(encoding="utf-8")
+        self.assertIn(
+            "additional_providers` is absent (legacy config), default it to `[]`",
+            config,
+        )
+        self.assertIn("reject it unless its value is an array", config)
+        for marker in (
+            "ADDITIONAL_PROVIDER_WORKSPACES",
+            "NEW_PROVIDER_MISE_TOOLS",
+            "NEW_PROVIDER_MISE_CONFIG_BLOB",
+            "NEW_PROVIDER_MISE_LOCK_BLOB",
+            "NEW_PROVIDER_FORK_PLANS_DISABLED",
+            "NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID",
+        ):
+            self.assertIn(marker, config)
+
+    def test_hcp_workspace_creation_selects_a_repository_specific_oauth_token(self) -> None:
+        hcp = HCP.read_text(encoding="utf-8")
+        self.assertNotIn('.data[0].relationships["oauth-tokens"]', hcp)
+        self.assertIn('select(.identifier == $repo)', hcp)
+        self.assertIn("resolve_oauth_token_id", hcp)
+        self.assertIn("select(length == 1)", hcp)
+        self.assertIn("export the intended OAUTH_TOKEN_ID", hcp)
+
+
+if __name__ == "__main__":
+    unittest.main()

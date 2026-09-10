@@ -66,10 +66,58 @@ GitHub↔HCP OAuth connection (browser).
       || { echo "mise.toml must contain an exact tools.terraform version" >&2; return 1; }
   }
 
-  # oauth-token-id from the VCS connection created in the vcs-connect step
-  OAUTH_TOKEN_ID=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/oauth-clients" \
-    -H "Authorization: Bearer $HCP_TOKEN" \
-    | jq -r '.data[0].relationships["oauth-tokens"].data[0].id // empty')
+  # Reuse the OAuth token already proven to serve $REPO. Phase 6 can derive it
+  # from either bootstrap workspace. During the initial Phase 1 bootstrap there
+  # is no workspace yet, so an organization with exactly one GitHub OAuth token
+  # is unambiguous; an organization with several must export OAUTH_TOKEN_ID
+  # explicitly instead of silently taking whichever connection sorts first.
+  resolve_oauth_token_id () {
+    local workspace body token page count pages
+    if [ -n "${OAUTH_TOKEN_ID:-}" ]; then
+      printf '%s' "$OAUTH_TOKEN_ID" | grep -Eq '^ot-[A-Za-z0-9]+$' \
+        || { echo "OAUTH_TOKEN_ID is not an HCP OAuth token id" >&2; return 1; }
+      return 0
+    fi
+    for workspace in cloudflare github-org; do
+      body=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$workspace" \
+        -H "Authorization: Bearer $HCP_TOKEN") || continue
+      token=$(printf '%s' "$body" | jq -er --arg repo "$REPO" '
+        .data.attributes["vcs-repo"]
+        | select(.identifier == $repo)
+        | .["oauth-token-id"]
+        | select(type == "string" and length > 0)' 2>/dev/null) || continue
+      OAUTH_TOKEN_ID=$token
+      return 0
+    done
+
+    pages=$(mktemp) || return 1
+    : >"$pages" || { rm -f "$pages"; return 1; }
+    page=1
+    while : ; do
+      body=$(curl -sf \
+        "https://app.terraform.io/api/v2/organizations/$ORG/oauth-clients?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
+        -H "Authorization: Bearer $HCP_TOKEN") \
+        || { rm -f "$pages"; return 1; }
+      printf '%s\n' "$body" >>"$pages"
+      count=$(printf '%s' "$body" | jq -er '.data | length' 2>/dev/null) \
+        || { rm -f "$pages"; return 1; }
+      [ "$count" -eq 100 ] || break
+      page=$((page + 1))
+    done
+    token=$(jq -ser '
+      [.[].data[]
+        | select(.attributes["service-provider"] | test("^github"))
+        | .relationships["oauth-tokens"].data[].id]
+      | unique
+      | select(length == 1)
+      | .[0]' "$pages" 2>/dev/null) || token=
+    rm -f "$pages"
+    [ -n "$token" ] || {
+      echo "Could not select one VCS connection for $REPO; export the intended OAUTH_TOKEN_ID" >&2
+      return 1
+    }
+    OAUTH_TOKEN_ID=$token
+  }
 
   # jq -n builds the payload (correct quoting for free); curl -w captures the HTTP status
   # so we can tell "created" (201) from "already exists" (422 name-taken) from a real error.
@@ -80,8 +128,9 @@ GitHub↔HCP OAuth connection (browser).
       {data:{type:"workspaces",attributes:{
         name:$name, "working-directory":$dir, "execution-mode":"remote",
         "terraform-version":$tf_version,
-        "auto-apply":false, "speculative-enabled":true, "file-triggers-enabled":true,
-        "trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"], "queue-all-runs":false, "global-remote-state":false,
+        "auto-apply":false, "auto-destroy-at":null, "auto-destroy-activity-duration":null,
+        "speculative-enabled":true, "file-triggers-enabled":true,
+        "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"], "queue-all-runs":false, "global-remote-state":false,
         "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}' \
       | curl -s -w '\n%{http_code}' -X POST "https://app.terraform.io/api/v2/organizations/$ORG/workspaces" \
           -H "Authorization: Bearer $HCP_TOKEN" \
@@ -96,21 +145,41 @@ GitHub↔HCP OAuth connection (browser).
     esac
   }
 
-  # POST cannot update an existing workspace. Reconcile the committed Terraform pin and
-  # trigger patterns after either response so resume runs fix all declared drift.
+  # POST cannot update an existing workspace. Reconcile every setting asserted by the
+  # verification below after either response so a 422 resume repairs partial drift.
   set_workspace_config () { # $1 = workspace name   $2 = working directory
-    local ws_id payload
-    ws_id=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$1" \
-      -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id // empty') || return 1
+    local ws_id payload workspace_body existing_repo existing_directory
+    workspace_body=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$1" \
+      -H "Authorization: Bearer $HCP_TOKEN") || return 1
+    ws_id=$(printf '%s' "$workspace_body" | jq -r '.data.id // empty') || return 1
     [ -n "$ws_id" ] || { echo "✗ $1: workspace id not found" >&2; return 1; }
-    payload=$(jq -n --arg id "$ws_id" --arg dir "$2" --arg tf_version "$TERRAFORM_VERSION" \
+    existing_repo=$(printf '%s' "$workspace_body" \
+      | jq -r '.data.attributes["vcs-repo"].identifier // empty') || return 1
+    [ "$existing_repo" = "$REPO" ] || {
+      echo "✗ $1: refusing to reconfigure workspace owned by ${existing_repo:-no VCS repository}" >&2
+      return 1
+    }
+    existing_directory=$(printf '%s' "$workspace_body" \
+      | jq -r '.data.attributes["working-directory"] // empty') || return 1
+    if [ "$existing_directory" != "$2" ] \
+      && [ "${CONFIRM_WORKSPACE_ID:-}" != "$ws_id" ]; then
+      echo "✗ $1: workspace $ws_id currently targets '${existing_directory:-repository root}', not '$2'; inspect it and export CONFIRM_WORKSPACE_ID=$ws_id to authorize repointing" >&2
+      return 1
+    fi
+    payload=$(jq -n --arg id "$ws_id" --arg dir "$2" --arg repo "$REPO" \
+      --arg tok "$OAUTH_TOKEN_ID" --arg tf_version "$TERRAFORM_VERSION" \
       '{data:{id:$id,type:"workspaces",attributes:{
-        "terraform-version":$tf_version, "file-triggers-enabled":true,
-        "trigger-patterns":[$dir+"/**", ".infra-copilot/config.md"]}}}')
+        "working-directory":$dir, "execution-mode":"remote",
+        "terraform-version":$tf_version,
+        "auto-apply":false, "auto-destroy-at":null, "auto-destroy-activity-duration":null,
+        "speculative-enabled":true, "file-triggers-enabled":true,
+        "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"], "queue-all-runs":false,
+        "global-remote-state":false,
+        "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}')
     curl -sf -X PATCH "https://app.terraform.io/api/v2/workspaces/$ws_id" \
       -H "Authorization: Bearer $HCP_TOKEN" \
       -H "Content-Type: application/vnd.api+json" -d "$payload" >/dev/null \
-      && echo "✓ $1 Terraform $TERRAFORM_VERSION and trigger patterns"
+      && echo "✓ $1 safety, VCS, Terraform $TERRAFORM_VERSION, and trigger settings"
   }
 
   # Gate with if/else, NOT `return`/`exit`: this block is run as a script by the agent,
@@ -118,8 +187,8 @@ GitHub↔HCP OAuth connection (browser).
   # and `exit` would kill an interactive shell if pasted. if/else is correct in every context.
   if ! load_tf_version; then
     echo "Not creating or updating workspaces without a committed Terraform pin." >&2
-  elif [ -z "$OAUTH_TOKEN_ID" ]; then
-    echo "No VCS oauth-token found — finish the vcs-connect step first; not creating workspaces." >&2
+  elif ! resolve_oauth_token_id; then
+    echo "No unambiguous VCS oauth-token found — finish vcs-connect or select the connection explicitly; not creating workspaces." >&2
   else
     create_ws cloudflare terraform/cloudflare && set_workspace_config cloudflare terraform/cloudflare
     create_ws github-org  terraform/github && set_workspace_config github-org terraform/github
@@ -128,7 +197,9 @@ GitHub↔HCP OAuth connection (browser).
 
   > `trigger-patterns` (glob) requires `file-triggers-enabled: true` — that pair is the
   > path-scoping toggle. Both workspaces also watch the shared `.infra-copilot/config.md`
-  > so public-identifier changes are validated by both plans. `speculative-enabled: true`
+  > and shared `terraform/modules/**`, so public-identifier and module changes are
+  > validated by both plans. They also watch `mise.toml`, so a Terraform pin change
+  > cannot reuse an older plan. `speculative-enabled: true`
   > is the master switch for plans on PRs.
   > The **fork** speculative-plan toggle is *separate* and has no clean create-time
   > attribute — confirm it's **off** in the workspace's UI → Settings → Version Control
@@ -147,10 +218,14 @@ GitHub↔HCP OAuth connection (browser).
             and ($a["execution-mode"] == "remote")
             and ($a["terraform-version"] == $tf_version)
             and ($a["auto-apply"] == false)
+            and ($a["auto-destroy-at"] == null)
+            and ($a["auto-destroy-activity-duration"] == null)
             and ($a["speculative-enabled"] == true)
             and ($a["file-triggers-enabled"] == true)
             and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
+            and ((($a["trigger-patterns"]) // []) | index("terraform/modules/**") != null)
             and ((($a["trigger-patterns"]) // []) | index(".infra-copilot/config.md") != null)
+            and ((($a["trigger-patterns"]) // []) | index("mise.toml") != null)
             and (($a["vcs-repo"].identifier // "") == $repo)
             and (($a["vcs-repo"].branch // "") == "main")' >/dev/null \
       && echo "✓ $ws configured as declared"

@@ -58,6 +58,9 @@ for required in ORG hcp_api REPO; do
     eval "value=\${$required:-}"
     [ -n "$value" ] || cannot_verify "$required is not set; export it per references/config.md"
 done
+[ -n "${INFRA_COPILOT_REFERENCES:-}" ] \
+    && [ -r "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" ] \
+    || cannot_verify "INFRA_COPILOT_REFERENCES does not contain checks/leaf-cloud.sh; export it per references/config.md"
 
 # Checked before the credential is resolved, let alone sent. $hcp_api comes from a
 # repo-local config file, so an edited or mistyped value would put a bearer token in
@@ -141,128 +144,11 @@ found=0
 # the inventory: a stale `cloudflare-copy` connected to the same repo with the
 # same working directory passed, while the plan the leaf actually runs could not
 # be queued.
-# One parser for the whole `cloud` block, emitting `key=value` lines:
-#   hostname, organization, token, workspaces.name, workspaces.tags
-#
-# Previously two near-identical readers, and each grew its own bugs -- an
-# unanchored `name` matched `hostname`, comments were scanned as code, and
-# `incloud` was never cleared at the closing brace, so an `organization`
-# attribute in a later provider or resource block was read as the cloud one and
-# blocked a correctly configured leaf. Brace depth is tracked now, and the
-# comment handling exists once.
+# One shared parser owns the whole `cloud` block and emits the key=value lines
+# consumed below. Keeping it in checks/leaf-cloud.sh also lets Phase 6 inventory
+# and leaf checks use exactly the same host, organization, and workspace rules.
 leaf_cloud_settings () {  # $1 = leaf directory
-    awk '
-        {
-            # Heredoc bodies are string data, not HCL structure. A pasted cloud
-            # example before the real block must not become the target this
-            # check verifies. Keep the opening-line prefix (an attribute may
-            # precede <<MARKER), then ignore every body line and the delimiter.
-            if (heredoc != "") {
-                delimiter = $0
-                if (indented_heredoc) sub(/^[[:space:]]*/, "", delimiter)
-                if (delimiter == heredoc) {
-                    heredoc = ""; indented_heredoc = 0
-                }
-                next
-            }
-            # Build two views in one lexical pass. `line` keeps string values so
-            # literal attributes can be emitted. `structure` masks string
-            # contents and comments so their braces, block names and fake
-            # assignments cannot steer the parser.
-            raw = $0; line = ""; structure = ""; instring = 0; escaped = 0
-            for (i = 1; i <= length(raw); i++) {
-                char = substr(raw, i, 1); pair = substr(raw, i, 2)
-                if (inblock) {
-                    if (pair == "*/") { inblock = 0; i++ }
-                    continue
-                }
-                if (instring) {
-                    line = line char
-                    if (escaped) { escaped = 0; structure = structure " "; continue }
-                    if (char == "\\") { escaped = 1; structure = structure " "; continue }
-                    if (char == "\"") { instring = 0; structure = structure "\"" }
-                    else structure = structure " "
-                    continue
-                }
-                if (char == "#" || pair == "//") break
-                if (pair == "/*") { inblock = 1; i++; continue }
-                line = line char
-                if (char == "\"") { instring = 1; structure = structure "\"" }
-                else structure = structure char
-            }
-            # HCL permits a heredoc as a nested expression argument (for
-            # example indent(2, <<-HCL)), so do not require the marker to follow
-            # `=` directly. HCL has no shift operator; any unquoted <<MARKER is
-            # a heredoc opener.
-            if (match(structure, /<<-?[[:space:]]*[[:alnum:]_-]+/)) {
-                marker = substr(structure, RSTART, RLENGTH)
-                indented_heredoc = (marker ~ /<<-/)
-                sub(/^.*<<-?[[:space:]]*/, "", marker)
-                heredoc = marker
-                line = substr(line, 1, RSTART - 1)
-                structure = substr(structure, 1, RSTART - 1)
-            }
-            opens = gsub(/{/, "{", structure)
-            closes = gsub(/}/, "}", structure)
-        }
-        # No `next` here: HCL allows `cloud { organization = "acme"`, and
-        # skipping the rest of the opening line lost that attribute entirely --
-        # the leaf then looked like it named no organization and the check
-        # stopped setup at a correctly configured repository.
-        !incloud && structure ~ /(^|[^[:alnum:]_])cloud[[:space:]]*{/ {
-            incloud = 1; depth = opens - closes
-            opening = 1
-        }
-        incloud {
-            # Nested blocks are tracked so the cloud block ends where it really
-            # ends, not at the first closing brace.
-            if (inws) {
-                if (match(structure, /(^|[^[:alnum:]_])tags[[:space:]]*=/)) print "workspaces.tags=present"
-                else if (match(structure, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/)) {
-                    value = substr(line, RSTART, RLENGTH)
-                    sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
-                    print "workspaces.name=" value
-                }
-            } else if (match(structure, /(^|[^[:alnum:]_])workspaces[[:space:]]*{/)) {
-                # Count from the workspaces opener, not from the whole line. If
-                # `cloud { workspaces { ... }` shares a line, the outer brace
-                # belongs only to cloud; including it kept inws set after the
-                # nested block closed and hid later hostname/token attributes.
-                workspace_tail = substr(structure, RSTART + RLENGTH)
-                nested_opens = gsub(/{/, "{", workspace_tail)
-                nested_closes = gsub(/}/, "}", workspace_tail)
-                inws = 1; wsdepth = 1 + nested_opens - nested_closes
-                # A single-line `workspaces { name = "x" }` opens and closes at
-                # once, so its attributes are read from this same line.
-                if (match(structure, /(^|[^[:alnum:]_])tags[[:space:]]*=/)) print "workspaces.tags=present"
-                else if (match(structure, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/)) {
-                    value = substr(line, RSTART, RLENGTH)
-                    sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
-                    print "workspaces.name=" value
-                }
-            } else {
-                # token is reported as present, never by value: there is no
-                # reason to carry a credential in a shell variable, and the only
-                # question asked of it is whether the leaf has one.
-                if (match(structure, /(^|[^[:alnum:]_])token[[:space:]]*=/)) print "token=present"
-                for (key = 1; key <= 2; key++) {
-                    want = (key == 1 ? "hostname" : "organization")
-                    if (match(structure, "(^|[^[:alnum:]_])" want "[[:space:]]*=[[:space:]]*\"[^\"]*\"")) {
-                        value = substr(line, RSTART, RLENGTH)
-                        sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
-                        print want "=" value
-                    }
-                }
-            }
-            if (inws) {
-                wsdepth += (structure ~ /(^|[^[:alnum:]_])workspaces[[:space:]]*{/ ? 0 : opens - closes)
-                if (wsdepth <= 0) inws = 0
-            }
-            if (!opening) depth += opens - closes
-            opening = 0
-            if (depth <= 0) incloud = 0
-        }
-    ' "$1"/*.tf 2>/dev/null
+    sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" "$1" all
 }
 
 leaf_setting () {  # $1 = settings text, $2 = key; prints the first value
@@ -374,7 +260,9 @@ while : ; do
         # a conclusive verdict, so the script exited 2 and `status` reported
         # nothing to fix while the credential provably could not queue the plans
         # this repository needs.
-        if [ "$ours" = true ] && [ "$plan" = false ]; then
+        if [ "$ours" = true ] && [ "$plan" = false ] \
+            && { [ -z "${HCP_SCOPE_WORKSPACE:-}" ] \
+                || [ "$name" = "$HCP_SCOPE_WORKSPACE" ]; }; then
             broken="${broken}OVER-RESTRICTED: the credential cannot queue runs on workspace '$name', which belongs to $REPO, so plan steps cannot work there. Grant the team the workspace 'Plan' permission, not 'Read'.
 "
         fi
@@ -453,21 +341,6 @@ fi
 for leaf in terraform/*/; do
     [ -d "$leaf" ] || continue    # no terraform/ yet: nothing to compare
     directory=${leaf%/}
-    # Terraform override files (_override.tf, override.tf) replace matching
-    # blocks from base files, but this parser processes *.tf in glob order and
-    # takes the first value. Refuse to verify rather than risk reading the base
-    # value while Terraform uses the override.
-    override_found=
-    for f in "${leaf}"*.tf; do
-        [ -f "$f" ] || continue
-        case "${f##*/}" in
-            override.tf|*_override.tf) override_found=yes; break ;;
-        esac
-    done
-    if [ -n "$override_found" ]; then
-        note_unknown "$directory has Terraform override files; this parser cannot replicate Terraform's block-merge semantics, so the effective cloud configuration cannot be determined"
-        continue
-    fi
     # Every permission read above was scoped to $ORG, so a leaf pointed at
     # another organization proves nothing: a same-named plan-only workspace in
     # $ORG would satisfy the comparison while Terraform targeted an organization
@@ -482,7 +355,13 @@ for leaf in terraform/*/; do
     # Both the leaf's `hostname` and TF_CLOUD_HOSTNAME disqualify. Terraform's
     # docs do not state which wins when both are set, so neither is assumed to
     # override the other.
-    settings=$(leaf_cloud_settings "$directory")
+    if ! settings=$(leaf_cloud_settings "$directory"); then
+        note_unknown "$directory cloud configuration could not be parsed"
+        continue
+    fi
+    # terraform/modules and other shared implementation directories are not
+    # deployable roots. Only a directory with a cloud block targets HCP.
+    printf '%s\n' "$settings" | grep -Fx 'cloud=present' >/dev/null || continue
 
     # A leaf may carry its own credential inline. That token is what Terraform
     # would use for this leaf, and nothing here can read it, so no permission
@@ -530,6 +409,16 @@ for leaf in terraform/*/; do
     fi
     if [ -z "$expected" ]; then
         note_unknown "$directory declares no cloud workspace name, so the workspace it targets cannot be identified"
+        continue
+    fi
+    # Phase 6 checks one provider at a time. A later recorded leaf may be ready
+    # locally while its workspace has not reached its bootstrap handoff yet; do
+    # not let that future workspace deadlock the current provider's Plan audit.
+    # The global unprotected-permission scan above still covers every workspace
+    # visible to the credential, and each provider becomes the required target
+    # when its own access step runs.
+    if [ -n "${HCP_SCOPE_WORKSPACE:-}" ] \
+        && [ "$expected" != "$HCP_SCOPE_WORKSPACE" ]; then
         continue
     fi
     case " $seen_repo_names " in

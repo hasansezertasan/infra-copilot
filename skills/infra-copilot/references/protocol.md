@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:ec925d5285d6d44567ba53d72323b0a5f9865ff1d6b0d355b86b1285d93fee5b
-Source-Hash: blake3:7e387d59be8a5faafede38d8bd5096e3e23c61447d16a52e8f6048b71a933809
+Content-Hash: blake3:cbd55036f2f5edbc6e851d1bad6b75ec2a99045193f398d56e14ce742bb634d5
+Source-Hash: blake3:3ab6f3e67e42fe8f1aa11c1f5d4a1ecba0a4a57f681902e1918140d6e52b1415
 Schema-Version: v1
 -->
 
@@ -85,6 +85,56 @@ Every skill here is **idempotent and resumable**. Before doing anything, walk th
 this skill's scope (its phase range of [`steps.yaml`](steps.yaml)) top to bottom and run
 each step's `check` to discover where things already stand. Resume at the first step whose
 check is red. An all-green scope means "already done, nothing to do."
+
+Phase 6 is parameterized rather than GCP-specific. Export
+`ADDITIONAL_PROVIDER_NAMES` and the flattened `ADDITIONAL_PROVIDER_MISE_TOOLS`, then run
+`new-provider-inventory` once; that manifest check catches an extra Terraform leaf with
+no durable adoption record, an unclassified non-bootstrap mise pin, or an explicitly
+marked provider tool omitted from the declarations. Provider pins use
+`# infra-copilot:provider-cli <key>` and unrelated pins use
+`# infra-copilot:general-tool <key>`, so omissions are detectable without putting
+general-purpose repository tools in the provider inventory.
+Scaffold and verify the decision and leaf for every entry, run every applicable provider
+toolchain trust gate, and only then walk each entry's remaining `new-provider-*` steps.
+This ordering prevents a provider CLI declared under a later entry from being executed
+before its HUMAN review. On `add` and `status`, when inventory shows a provider entry
+whose toolchain gate is not yet green, run only the system `mise --version` check, the
+inventory, and that entry's Phase 6 checks through `new-provider-toolchain` before the
+full mise preflight. The full mise check requires current trust and must not steal this
+resumable HUMAN handoff by reporting a generic preflight failure first. Conditional
+provider entries also remain inactive because no per-entry `NEW_PROVIDER_MISE_TOOLS` is
+exported yet. After all
+toolchain gates are green, export each entry in turn and run the complete preflight so
+every reviewed provider CLI is version-checked before its runbook commands. An
+empty list means the optional phase is not applicable only when the inventory check is
+green. When `add` was explicitly invoked to adopt a provider that has no matching entry,
+retain the validated requested provider slug as `NEW_PROVIDER` and instantiate
+`new-provider-decision` once in bootstrap mode. Leave the other `NEW_PROVIDER*` values
+empty so its check stays red. After the HUMAN records the decision and config entry,
+reload config and continue the normal per-entry scan. The empty-list shortcut must never
+discard an explicit adoption request.
+
+For each entry, `new-provider-toolchain` is applicable only when its `mise_tools` list is
+non-empty. The decision records the list before scaffolding, the inventory rejects an
+actual provider pin omitted from all entries, and all applicable HUMAN trust gates verify
+their declared pins, resolved executable paths, and active mise versions before any
+provider CLI command runs. An empty list skips that gate
+only when the actual tool inventory confirms no provider pin needs it. The workspace-access step precedes
+detailed workspace verification because the plan-only credential cannot read an ungranted
+workspace. Its bootstrap check treats only a 404 as expected HUMAN work and keeps network,
+authentication, and API failures unverifiable. After the workspace is visible, the next
+check independently re-derives its detailed settings, and the separate plan-access check
+proves the restored restricted credential can plan but cannot apply or update workspaces.
+The access check scopes both repository-derived visibility and Plan requirements to the
+current provider while still auditing every visible workspace for apply/update capability. This
+lets a later provider reach its own bootstrap handoff without weakening the global
+negative-permission audit.
+
+The credential handoff records a real, non-future UTC `credentials_verified_at` in committed config only after
+the HUMAN installs every declared variable. `new-provider-plan` accepts or reuses only a
+run created after the entire recorded UTC second and the workspace's latest `updated-at`,
+so a prior workspace run cannot prove the new least-privilege credential or reconciled
+execution settings work.
 
 `setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
