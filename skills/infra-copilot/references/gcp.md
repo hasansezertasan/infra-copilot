@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:159788603da6593705d729c3e528b02b432a6c1ef99c6a1c308b68285ae5c524
-Source-Hash: blake3:7dee96056af2ed6a30677a4a11b6dda9d8fed0a017f5dd85da90cc3598cb33e8
+Content-Hash: blake3:42999f709a38908161338dee275cd1728f9784d0747b4bde695d2acfe3171687
+Source-Hash: blake3:7ef7906a472961d0e74b9eb02dc106d1a015ad699bc94f0422de90e656c635ea
 Schema-Version: v1
 -->
 
@@ -46,7 +46,7 @@ the rotation burden that implies.
 | Enable APIs, create SA / WIF pool | **AGENT** | `gcloud` / GCP API, once auth exists. |
 | Approve the WIF trust / OAuth consent | **HUMAN** | One browser consent for the federation trust. |
 | Paste SA key into HCP *(only if not using WIF)* | **HUMAN** | Agent must never see the key. |
-| Create the `gcp` HCP workspace | **HUMAN** | The plan-only agent credential cannot create organization workspaces. |
+| Create the `gcp` HCP workspace | **HUMAN** | The post-handoff mutation needs a temporary user/org token intentionally withheld from the agent. |
 | First `plan` | **AGENT** | Speculative run in HCP. |
 
 ## Phases (projected)

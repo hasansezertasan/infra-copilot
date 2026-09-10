@@ -78,11 +78,15 @@ class HcpLoginCheckTests(unittest.TestCase):
                                     "execution-mode": "remote",
                                     "terraform-version": workspace_version,
                                     "auto-apply": False,
+                                    "auto-destroy-at": None,
+                                    "auto-destroy-activity-duration": None,
                                     "speculative-enabled": True,
                                     "file-triggers-enabled": True,
                                     "trigger-patterns": [
                                         f"{leaf}/**",
+                                        "terraform/modules/**",
                                         ".infra-copilot/config.md",
+                                        "mise.toml",
                                     ],
                                     "vcs-repo": {
                                         "identifier": workspace_repo,

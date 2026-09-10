@@ -40,10 +40,14 @@ class PolicyDocTests(unittest.TestCase):
     def test_post_handoff_workspace_actor_is_consistent(self) -> None:
         """The agent owns leaf code but never reacquires HCP admin authority."""
         add = ADD_SKILL.read_text(encoding="utf-8")
+        manifest = MANIFEST.read_text(encoding="utf-8")
         protocol = PROTOCOL.read_text(encoding="utf-8")
         gcp = GCP.read_text(encoding="utf-8")
-        self.assertIn("**New leaf** (`AGENT`)", add)
-        self.assertIn("**New workspace** (`HUMAN`", add)
+        self.assertIn("Route a new-provider adoption through Phase 6", add)
+        self.assertRegex(manifest, r"id: new-provider-leaf[\s\S]*?actor: AGENT")
+        self.assertRegex(
+            manifest, r"id: new-provider-workspace-bootstrap[\s\S]*?actor: HUMAN"
+        )
         self.assertIn("post-handoff HCP authority", protocol)
         self.assertIn("| Create the `gcp` HCP workspace | **HUMAN** |", gcp)
 

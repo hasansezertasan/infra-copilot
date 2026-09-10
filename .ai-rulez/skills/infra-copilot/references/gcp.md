@@ -39,7 +39,7 @@ the rotation burden that implies.
 | Enable APIs, create SA / WIF pool | **AGENT** | `gcloud` / GCP API, once auth exists. |
 | Approve the WIF trust / OAuth consent | **HUMAN** | One browser consent for the federation trust. |
 | Paste SA key into HCP *(only if not using WIF)* | **HUMAN** | Agent must never see the key. |
-| Create the `gcp` HCP workspace | **HUMAN** | The plan-only agent credential cannot create organization workspaces. |
+| Create the `gcp` HCP workspace | **HUMAN** | The post-handoff mutation needs a temporary user/org token intentionally withheld from the agent. |
 | First `plan` | **AGENT** | Speculative run in HCP. |
 
 ## Phases (projected)
