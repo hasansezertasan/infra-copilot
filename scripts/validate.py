@@ -130,6 +130,9 @@ PHASE_FIVE_RULE_MARKERS = (
 )
 TOOLCHAIN_STEPS_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/steps.yaml"
 TOOLCHAIN_HCP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/hcp.md"
+TOOLCHAIN_WORKSPACE_CHECK_DOCUMENT = (
+    ".ai-rulez/skills/infra-copilot/references/checks/hcp-bootstrap-workspaces.sh"
+)
 TOOLCHAIN_SETUP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/setup.md"
 TOOLCHAIN_IMPORT_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/import.md"
 TOOLCHAIN_CONFIG_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/config.md"
@@ -591,6 +594,12 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     steps = (root / TOOLCHAIN_STEPS_DOCUMENT).read_text(encoding="utf-8")
     hcp = (root / TOOLCHAIN_HCP_DOCUMENT).read_text(encoding="utf-8")
+    workspace_check_path = root / TOOLCHAIN_WORKSPACE_CHECK_DOCUMENT
+    workspace_check = (
+        workspace_check_path.read_text(encoding="utf-8")
+        if workspace_check_path.is_file()
+        else ""
+    )
     setup = (root / TOOLCHAIN_SETUP_DOCUMENT).read_text(encoding="utf-8")
     import_guide = (root / TOOLCHAIN_IMPORT_DOCUMENT).read_text(encoding="utf-8")
     config = (root / TOOLCHAIN_CONFIG_DOCUMENT).read_text(encoding="utf-8")
@@ -752,7 +761,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             "created, reconciled, and verified"
         )
     for document, document_name in (
-        (steps, TOOLCHAIN_STEPS_DOCUMENT),
+        (workspace_check, TOOLCHAIN_WORKSPACE_CHECK_DOCUMENT),
         (hcp, TOOLCHAIN_HCP_DOCUMENT),
     ):
         if (
@@ -764,6 +773,11 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             errors.append(
                 f"{document_name}: every HCP workspace must watch the shared config"
             )
+    if 'checks/hcp-bootstrap-workspaces.sh' not in steps:
+        errors.append(
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: workspace readiness must use the shared "
+            "bootstrap-workspace check"
+        )
     creation = re.search(
         r"^  create_ws \(\) \{(?P<body>.*?^  \})",
         hcp,
@@ -1150,6 +1164,79 @@ def validate_versions(root: Path = ROOT) -> list[str]:
     return errors
 
 
+#: Keys the manifest is allowed to declare at column zero. Anything else there is a
+#: block scalar that lost its indentation, which silently changes what the document
+#: means -- see validate_manifest_shape.
+MANIFEST_TOP_LEVEL_KEYS = ("org", "domain", "hcp_api", "preflight", "steps")
+
+
+#: The credential terraform itself prefers. Every place the shipped guidance
+#: derives HCP_TOKEN has to follow the same order, or a repo using the
+#: environment route gets an empty bearer token -- or worse, a stale
+#: apply-capable one from a file that should no longer matter.
+TOKEN_FILE_DERIVATION = "HCP_TOKEN=$(jq"
+
+
+def validate_token_resolution(root: Path = ROOT) -> list[str]:
+    """No shipped source may derive HCP_TOKEN from the credentials file alone.
+
+    Nine documents did, found separately across four review rounds: Step 0,
+    docs/state.md, hcp-verify, then hcp.md twice, cloudflare.md, github.md,
+    docs/hcp-api.md, the manifest's own comment, and finally docs/policy.md --
+    which the first version of this validator missed because it scanned only
+    .ai-rulez/skills. Hand-authored guidance ships too: an operator following a
+    snippet in docs/ replaces a plan-only token just as effectively.
+    """
+    roots = (root / ".ai-rulez/skills", root / "docs")
+    return [
+        f"{path.relative_to(root)}:{number}: derives HCP_TOKEN from the "
+        "credentials file alone; use ${TF_TOKEN_app_terraform_io:-...} as config.md does"
+        for scan_root in roots
+        for path in sorted(scan_root.rglob("*"))
+        if path.is_file() and path.suffix in {".md", ".yaml", ".sh"}
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+        )
+        if TOKEN_FILE_DERIVATION in line.replace(" ", "")
+        and "TF_TOKEN_app_terraform_io" not in line
+    ]
+
+
+def validate_manifest_shape(root: Path = ROOT) -> list[str]:
+    """Reject a column-zero line the manifest does not permit there.
+
+    Nothing in this repository parses steps.yaml as YAML: ai-rulez copies it
+    verbatim and the tests read it as text, so a broken document passed every
+    check. A `run: |` paragraph that lost its leading spaces terminated the
+    scalar and left a bare token at the document root -- the authoritative phase
+    manifest stopped parsing and `make check` stayed green.
+
+    This is a shape check, not a parser. It catches the class that actually
+    happens when editing this file: content escaping a block scalar. Adding a
+    real YAML parser would mean a new runtime dependency for one file.
+    """
+    errors: list[str] = []
+    for relative in (
+        ".ai-rulez/skills/infra-copilot/references/steps.yaml",
+        "skills/infra-copilot/references/steps.yaml",
+    ):
+        text = read_document(root / relative)
+        if text is None:
+            errors.append(f"{relative}: unreadable, cannot check manifest shape")
+            continue
+        for number, line in enumerate(text.splitlines(), start=1):
+            if not line or line[:1].isspace() or line.startswith("#"):
+                continue
+            key = line.split(":", 1)[0]
+            if key in MANIFEST_TOP_LEVEL_KEYS:
+                continue
+            errors.append(
+                f"{relative}:{number}: {line.strip()[:60]!r} starts at column 0 but is "
+                "not a top-level key; a block scalar has lost its indentation"
+            )
+    return errors
+
+
 def validate_layout() -> list[str]:
     required = (
         "Makefile",
@@ -1211,6 +1298,8 @@ def main() -> int:
         *validate_description_budget(),
         *validate_config_fallbacks(),
         *validate_customization_markers(),
+        *validate_manifest_shape(),
+        *validate_token_resolution(),
         *validate_phase_five_rule(),
         *validate_toolchain_contract(),
         *validate_shipped_check_paths(),

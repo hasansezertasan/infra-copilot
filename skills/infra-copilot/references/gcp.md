@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:4b80d30347c3dea605845a0cfaf9001dd1b404b2ab292b190a86dbaad483f136
-Source-Hash: blake3:98bb14f05c8d6bcefb4ce8d00bd80c40e7d048f5d77b97e60fe67cfb258efb49
+Content-Hash: blake3:1fce24d765addd0ec2109898d3bed25b5c82115891d4602e6504ca68bc178798
+Source-Hash: blake3:7e387d59be8a5faafede38d8bd5096e3e23c61447d16a52e8f6048b71a933809
 Schema-Version: v1
 -->
 
@@ -42,7 +42,7 @@ the rotation burden that implies.
 | Enable APIs, create SA / WIF pool | **AGENT** | `gcloud` / GCP API, once auth exists. |
 | Approve the WIF trust / OAuth consent | **HUMAN** | One browser consent for the federation trust. |
 | Paste SA key into HCP *(only if not using WIF)* | **HUMAN** | Agent must never see the key. |
-| Create the `gcp` HCP workspace | **AGENT** | HCP API (same as Phase 1). |
+| Create the `gcp` HCP workspace | **HUMAN** | Post-handoff HCP mutation needs a temporary user/org token intentionally withheld from the agent. |
 | First `plan` | **AGENT** | Speculative run in HCP. |
 
 ## Phases (projected)
@@ -91,11 +91,16 @@ gcloud iam workload-identity-pools create hcp-pool --location=global ...
 Provider block goes in `terraform/gcp/providers.tf`, using `google`/`google-beta`, with
 impersonation rather than a key file.
 
-### AGENT — HCP workspace
+### HUMAN — HCP workspace
 
 Create a `gcp` workspace (working dir `terraform/gcp`, path filter `terraform/gcp/**`,
-remote execution, auto-apply **off**) exactly like Phase 1. If using a SA key instead of
-WIF, that's where the sensitive var lives.
+remote execution, auto-apply **off**) with the canonical `create_ws` helper from
+[`hcp.md`](hcp.md), using a temporary user or organization token. This differs from
+bootstrap Phase 1: `hcp-apply-scope` has already narrowed the agent to a team token with
+no organization permissions, and that credential must not be widened or replaced for
+this mutation. After creation, grant the plan-only team `Plan` on the workspace and drop
+the temporary token. If using a SA key instead of WIF, that is where the sensitive var
+lives.
 
 ### AGENT — first plan
 

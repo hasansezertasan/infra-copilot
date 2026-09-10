@@ -14,6 +14,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 POLICY = REPO_ROOT / "docs/policy.md"
 MANIFEST = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+ADD_SKILL = REPO_ROOT / ".ai-rulez/skills/add/SKILL.md"
+PROTOCOL = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/protocol.md"
+GCP = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/gcp.md"
 
 
 class PolicyDocTests(unittest.TestCase):
@@ -24,6 +27,25 @@ class PolicyDocTests(unittest.TestCase):
         # word survived review in this same pull request.
         self.policy = re.sub(r"\s+", " ", raw)
         self.raw = raw
+
+    def test_handoff_check_reloads_the_terraform_credential(self) -> None:
+        """Replacing credentials.tfrc.json must not leave a stale HCP_TOKEN."""
+        manifest = re.sub(r"\s+", " ", MANIFEST.read_text(encoding="utf-8"))
+        step = manifest.split("- id: hcp-apply-scope", 1)[1].split(
+            "- id: plan-cloudflare", 1
+        )[0]
+        self.assertIn("export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq", step)
+        self.assertLess(step.index("export HCP_TOKEN="), step.index("hcp-apply-scope.sh"))
+
+    def test_post_handoff_workspace_actor_is_consistent(self) -> None:
+        """The agent owns leaf code but never reacquires HCP admin authority."""
+        add = ADD_SKILL.read_text(encoding="utf-8")
+        protocol = PROTOCOL.read_text(encoding="utf-8")
+        gcp = GCP.read_text(encoding="utf-8")
+        self.assertIn("**New leaf** (`AGENT`)", add)
+        self.assertIn("**New workspace** (`HUMAN`", add)
+        self.assertIn("post-handoff HCP authority", protocol)
+        self.assertIn("| Create the `gcp` HCP workspace | **HUMAN** |", gcp)
 
     def test_no_deployable_profile_ships(self) -> None:
         """A file that looks authoritative invites being deployed unread."""
@@ -114,6 +136,27 @@ class PolicyDocTests(unittest.TestCase):
         for characterisation in ("in a non-interactive run", "it is a block"):
             self.assertNotIn(characterisation, self.policy)
         self.assertIn("code.claude.com/docs/en/settings", self.policy)
+
+    def test_does_not_sell_plan_only_as_a_security_boundary(self) -> None:
+        """HCP treats plan as security-equivalent to write.
+
+        A plan runs the configuration's code in the same security context as an
+        apply, with access to workspace variables and state. An earlier version
+        of this page called a plan-only identity "the only enforcing control",
+        which is the exact overstatement the rest of the page argues against.
+        """
+        self.assertIn("equivalent to the write permission", self.policy)
+        self.assertIn("not intended to stop malicious actors", self.policy)
+        self.assertIn("architectural-details/security-model", self.policy)
+        # The claim it replaced must not come back.
+        for overstatement in (
+            "the only enforcing control",
+            "the durable answer for apply",
+        ):
+            self.assertNotIn(overstatement, self.policy)
+
+    def test_keeps_the_sandbox_as_the_only_hostile_actor_boundary(self) -> None:
+        self.assertIn("still the only boundary", self.policy)
 
     def test_records_the_hcp_token_exception_and_the_real_control(self) -> None:
         self.assertIn("credentials.tfrc.json", self.policy)

@@ -5,8 +5,8 @@ description: "Greenfield bootstrap of a Terraform + HCP Terraform + Cloudflare +
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:fb26470eec39a89de4f1a64a5b8f17d91c8dfa2b756a992a219b421c5d023c8d
-Source-Hash: blake3:98bb14f05c8d6bcefb4ce8d00bd80c40e7d048f5d77b97e60fe67cfb258efb49
+Content-Hash: blake3:18457295b83bc8c402513e0214aff6e1bf498004a52f66c9da44692e025af634
+Source-Hash: blake3:7e387d59be8a5faafede38d8bd5096e3e23c61447d16a52e8f6048b71a933809
 Schema-Version: v1
 -->
 
@@ -33,7 +33,7 @@ the canonical docs under [`../infra-copilot/references/`](../infra-copilot/refer
 | 1 | **HCP workspaces** — create `cloudflare` + `github-org`, VCS + safety toggles | `AGENT` (API) + `HUMAN` VCS OAuth | [`../infra-copilot/references/hcp.md`](../infra-copilot/references/hcp.md), [`../infra-copilot/references/docs/setup.md#2`](../infra-copilot/references/docs/setup.md#2-hcp-terraform--workspaces) |
 | 2 | **Cloudflare** — mint scoped token, paste into HCP, verify | `HUMAN` mint/paste, `AGENT` verify | [`../infra-copilot/references/cloudflare.md`](../infra-copilot/references/cloudflare.md) |
 | 3 | **GitHub** — create + install the GitHub App, paste creds into HCP | `HUMAN` create/install/paste, `AGENT` verify | [`../infra-copilot/references/github.md`](../infra-copilot/references/github.md) |
-| 4 | **First plan** — `init` + speculative `plan` per leaf, read via API | `AGENT` | [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md) |
+| 4 | **Narrow the credential, then first plan** — hand off to a plan-only HCP identity, then `init` + speculative `plan` per leaf, read via API | `HUMAN` handoff, then `AGENT` | [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml) (`hcp-apply-scope`), [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md) |
 
 Adopting resources that already exist (a live domain, existing repos)? That's
 **infra-copilot:import** (Phase 5), run after this reaches green plans.
@@ -100,6 +100,10 @@ Setup is complete when you can report:
 - ✓ Both workspaces use the exact Terraform version committed in `mise.toml`.
 - ✓ All sensitive vars present (`cloudflare_api_token`; `github_app_id`, `github_app_installation_id`, `github_app_pem`).
 - ✓ `terraform plan` green on both leaves.
+- ✓ `hcp-apply-scope` green — the credential in use cannot apply. It is a `HUMAN`
+  step like `cf-token` and `gh-app`: stop there, hand off, and continue when it turns
+  green. Setup is not complete while the agent still holds the apply-capable user
+  token from `terraform login`.
 
 If the domain/repos already exist, continue with **infra-copilot:import** to adopt them
 (plan should then show imports, not creates). Otherwise day-to-day work follows your

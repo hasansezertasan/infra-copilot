@@ -1,0 +1,551 @@
+#!/bin/sh
+# Assert that the HCP credential this repo's tooling would use can queue plans but
+# CANNOT cause an apply. docs/policy.md works through every host-level control and
+# finds only two that enforce anything; this is the one inside the repo's control.
+#
+# It checks the credential TERRAFORM would use, not $HCP_TOKEN. `terraform` never
+# reads $HCP_TOKEN. It reads TF_TOKEN_app_terraform_io, then credentials configured
+# in the CLI config. An earlier version verified $HCP_TOKEN alone, which proved
+# nothing about an apply started through the Terraform CLI -- the primary way
+# anything here would apply.
+#
+# Read-only, and deliberately NOT a dry `POST /runs/<id>/actions/apply`: if the
+# token does hold apply rights and the run is confirmable, that probe applies
+# production infrastructure -- the check would cause the thing it detects.
+#
+# Requires $ORG, $hcp_api and $REPO exported per references/config.md. $REPO is not
+# optional: it tells this repository's workspaces from another repository's in the
+# same organization, where both have a terraform/cloudflare working directory.
+#
+# Exit codes:
+#   0  the credential can plan and cannot cause an apply, everywhere it can see
+#   1  invariant BROKEN — a real verdict about the credential:
+#        UNPROTECTED     it can apply, change workspace settings, or a workspace
+#                        auto-applies what it queues. Asserted for EVERY visible
+#                        workspace: the credential must not be able to change
+#                        anything, anywhere.
+#        OVER-RESTRICTED it cannot queue runs on a workspace belonging to $REPO.
+#                        Scoped deliberately — this repo needs Plan only where it
+#                        runs, and demanding it elsewhere would widen access for
+#                        no reason.
+#        SPLIT-BRAIN     $HCP_TOKEN and terraform's credential are different tokens
+#        USER-CREDENTIAL the credential is an account-wide user identity, not the
+#                        plan-only team identity the handoff requires
+#   2  COULD NOT VERIFY — missing config, no credential, jq or curl missing, an API
+#      read failed, unreadable evidence, or a managed leaf with no visible
+#      workspace. Distinct from 1 on purpose: unreadable evidence proves nothing
+#      and must never send anyone into a recovery flow. The shared resume protocol
+#      must not execute this step's `run` on a 2.
+#
+# A verdict outranks uncertainty. If one workspace definitely allows an apply and
+# another cannot be read, this exits 1 and names both: `status` renders 2 as "?,
+# nothing to fix", which would bury proof that the boundary is open.
+set -u
+
+cannot_verify() { echo "CANNOT VERIFY: $1" >&2; exit 2; }
+
+# grep included: it detects the CLI-config credentials block below, and an absent
+# grep would exit 127 rather than the tri-state 2 the step contract requires.
+for tool in curl jq grep; do
+    command -v "$tool" >/dev/null 2>&1 \
+        || cannot_verify "$tool is not on PATH; preflight installs it"
+done
+
+# REPO is required, not optional. Skipping the correlation when it was unset let
+# another repository's workspaces -- same working directory, different repo --
+# satisfy this repo's inventory, which is the exact case the correlation exists for.
+for required in ORG hcp_api REPO; do
+    eval "value=\${$required:-}"
+    [ -n "$value" ] || cannot_verify "$required is not set; export it per references/config.md"
+done
+
+# Checked before the credential is resolved, let alone sent. $hcp_api comes from a
+# repo-local config file, so an edited or mistyped value would put a bearer token in
+# a request to an arbitrary host -- over plaintext if the scheme were http.
+[ "$hcp_api" = "https://app.terraform.io/api/v2" ] \
+    || cannot_verify "\$hcp_api is '$hcp_api', not https://app.terraform.io/api/v2; refusing to send an HCP credential to an unexpected endpoint"
+
+broken=""   # definite verdicts
+unknown=""  # evidence that could not be read
+
+note_unknown() { unknown="${unknown}  - $1
+"; }
+
+# ── Which credential would terraform use ────────────────────────────────────────
+# Terraform's documented order is TF_TOKEN_<host>, then credentials in the CLI
+# config. What it does NOT document is which wins between a hand-written
+# `credentials` block in the CLI config file and the credentials.tfrc.json that
+# `terraform login` writes. Rather than guess, refuse to verify when a CLI-config
+# block for this host exists: verifying the wrong token would be worse than
+# admitting we cannot tell.
+cli_config=${TF_CLI_CONFIG_FILE:-${HOME:-}/.terraformrc}
+credentials="${HOME:-}/.terraform.d/credentials.tfrc.json"
+
+if [ -n "${TF_TOKEN_app_terraform_io:-}" ]; then
+    token=$TF_TOKEN_app_terraform_io
+    source_description="TF_TOKEN_app_terraform_io"
+elif [ -r "$cli_config" ] && grep -q 'credentials' "$cli_config" 2>/dev/null; then
+    # Deliberately coarse: any `credentials` keyword in the CLI config refuses. A
+    # same-line regex for the hostname missed valid HCL -- comments count as
+    # whitespace, so `credentials /* managed */ "app.terraform.io"` is legal and
+    # slipped past, leaving an apply-capable CLI-config token unexamined. Parsing
+    # HCL is out of scope for a POSIX check, so anything that might declare a
+    # credential is undeterminable rather than assumed irrelevant.
+    cannot_verify "$cli_config contains a credentials declaration. Terraform's docs do not state whether it or $credentials wins, and this check does not parse HCL, so which token terraform uses cannot be determined. Remove it, or set TF_TOKEN_app_terraform_io so the source is unambiguous."
+elif [ -r "$credentials" ]; then
+    token=$(jq -er '.credentials["app.terraform.io"].token' "$credentials" 2>/dev/null) \
+        || cannot_verify "$credentials has no app.terraform.io token; run 'terraform login'"
+    source_description=$credentials
+else
+    cannot_verify "no HCP credential found; set TF_TOKEN_app_terraform_io or run 'terraform login'"
+fi
+
+# Workspace permissions are organization-scoped. A user token that happens to
+# have Plan-only access in $ORG may still apply in another organization, so it
+# cannot satisfy the machine-wide handoff. /account/details exists only for a
+# user identity; team tokens are rejected there. Preserve a definite workspace
+# verdict if this identity probe itself is unreadable.
+if identity_code=$(curl -s -o /dev/null -w '%{http_code}' "$hcp_api/account/details" \
+        -H "Authorization: Bearer $token"); then
+    case "$identity_code" in
+        200)
+            broken="${broken}USER-CREDENTIAL: the Terraform credential is an account-wide user token, not the plan-only team token required by this handoff; replace it with the team token before running plans.
+"
+            ;;
+        401|403|404) : ;;  # expected for a non-user identity
+        *) note_unknown "the credential identity could not be classified because account/details returned HTTP $identity_code" ;;
+    esac
+else
+    note_unknown "the credential identity could not be classified because account/details could not be read"
+fi
+
+# A plan-only token here beside an apply-capable $HCP_TOKEN means the API calls in
+# steps.yaml and terraform are two different identities, so verifying either says
+# nothing about the other.
+if [ -n "${HCP_TOKEN:-}" ] && [ "$HCP_TOKEN" != "$token" ]; then
+    broken="${broken}SPLIT-BRAIN: \$HCP_TOKEN is not the credential terraform would use ($source_description), so the plugin's API calls and terraform authenticate as different identities and neither can be verified from the other. Export HCP_TOKEN from that same source per references/config.md.
+"
+fi
+
+# ── Every workspace the credential can see ──────────────────────────────────────
+# Not a fixed pair: the `add` workflow creates more, and a hardcoded list would
+# ignore them.
+boolean () {  # $1 = json object, $2 = key path expression; prints true/false
+    printf '%s' "$1" | jq -er "$2 | if type == \"boolean\" then tostring else \"not-a-boolean\" end" 2>/dev/null
+}
+
+page=1
+found=0
+# Terraform targets a workspace by NAME, declared in each leaf's `cloud` block.
+# Matching on repository plus working-directory let the wrong workspace satisfy
+# the inventory: a stale `cloudflare-copy` connected to the same repo with the
+# same working directory passed, while the plan the leaf actually runs could not
+# be queued.
+# One parser for the whole `cloud` block, emitting `key=value` lines:
+#   hostname, organization, token, workspaces.name, workspaces.tags
+#
+# Previously two near-identical readers, and each grew its own bugs -- an
+# unanchored `name` matched `hostname`, comments were scanned as code, and
+# `incloud` was never cleared at the closing brace, so an `organization`
+# attribute in a later provider or resource block was read as the cloud one and
+# blocked a correctly configured leaf. Brace depth is tracked now, and the
+# comment handling exists once.
+leaf_cloud_settings () {  # $1 = leaf directory
+    awk '
+        {
+            # Heredoc bodies are string data, not HCL structure. A pasted cloud
+            # example before the real block must not become the target this
+            # check verifies. Keep the opening-line prefix (an attribute may
+            # precede <<MARKER), then ignore every body line and the delimiter.
+            if (heredoc != "") {
+                delimiter = $0
+                if (indented_heredoc) sub(/^[[:space:]]*/, "", delimiter)
+                if (delimiter == heredoc) {
+                    heredoc = ""; indented_heredoc = 0
+                }
+                next
+            }
+            # Build two views in one lexical pass. `line` keeps string values so
+            # literal attributes can be emitted. `structure` masks string
+            # contents and comments so their braces, block names and fake
+            # assignments cannot steer the parser.
+            raw = $0; line = ""; structure = ""; instring = 0; escaped = 0
+            for (i = 1; i <= length(raw); i++) {
+                char = substr(raw, i, 1); pair = substr(raw, i, 2)
+                if (inblock) {
+                    if (pair == "*/") { inblock = 0; i++ }
+                    continue
+                }
+                if (instring) {
+                    line = line char
+                    if (escaped) { escaped = 0; structure = structure " "; continue }
+                    if (char == "\\") { escaped = 1; structure = structure " "; continue }
+                    if (char == "\"") { instring = 0; structure = structure "\"" }
+                    else structure = structure " "
+                    continue
+                }
+                if (char == "#" || pair == "//") break
+                if (pair == "/*") { inblock = 1; i++; continue }
+                line = line char
+                if (char == "\"") { instring = 1; structure = structure "\"" }
+                else structure = structure char
+            }
+            # HCL permits a heredoc as a nested expression argument (for
+            # example indent(2, <<-HCL)), so do not require the marker to follow
+            # `=` directly. HCL has no shift operator; any unquoted <<MARKER is
+            # a heredoc opener.
+            if (match(structure, /<<-?[[:space:]]*[[:alnum:]_-]+/)) {
+                marker = substr(structure, RSTART, RLENGTH)
+                indented_heredoc = (marker ~ /<<-/)
+                sub(/^.*<<-?[[:space:]]*/, "", marker)
+                heredoc = marker
+                line = substr(line, 1, RSTART - 1)
+                structure = substr(structure, 1, RSTART - 1)
+            }
+            opens = gsub(/{/, "{", structure)
+            closes = gsub(/}/, "}", structure)
+        }
+        # No `next` here: HCL allows `cloud { organization = "acme"`, and
+        # skipping the rest of the opening line lost that attribute entirely --
+        # the leaf then looked like it named no organization and the check
+        # stopped setup at a correctly configured repository.
+        !incloud && structure ~ /(^|[^[:alnum:]_])cloud[[:space:]]*{/ {
+            incloud = 1; depth = opens - closes
+            opening = 1
+        }
+        incloud {
+            # Nested blocks are tracked so the cloud block ends where it really
+            # ends, not at the first closing brace.
+            if (inws) {
+                if (match(structure, /(^|[^[:alnum:]_])tags[[:space:]]*=/)) print "workspaces.tags=present"
+                else if (match(structure, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/)) {
+                    value = substr(line, RSTART, RLENGTH)
+                    sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
+                    print "workspaces.name=" value
+                }
+            } else if (match(structure, /(^|[^[:alnum:]_])workspaces[[:space:]]*{/)) {
+                # Count from the workspaces opener, not from the whole line. If
+                # `cloud { workspaces { ... }` shares a line, the outer brace
+                # belongs only to cloud; including it kept inws set after the
+                # nested block closed and hid later hostname/token attributes.
+                workspace_tail = substr(structure, RSTART + RLENGTH)
+                nested_opens = gsub(/{/, "{", workspace_tail)
+                nested_closes = gsub(/}/, "}", workspace_tail)
+                inws = 1; wsdepth = 1 + nested_opens - nested_closes
+                # A single-line `workspaces { name = "x" }` opens and closes at
+                # once, so its attributes are read from this same line.
+                if (match(structure, /(^|[^[:alnum:]_])tags[[:space:]]*=/)) print "workspaces.tags=present"
+                else if (match(structure, /(^|[^[:alnum:]_])name[[:space:]]*=[[:space:]]*"[^"]*"/)) {
+                    value = substr(line, RSTART, RLENGTH)
+                    sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
+                    print "workspaces.name=" value
+                }
+            } else {
+                # token is reported as present, never by value: there is no
+                # reason to carry a credential in a shell variable, and the only
+                # question asked of it is whether the leaf has one.
+                if (match(structure, /(^|[^[:alnum:]_])token[[:space:]]*=/)) print "token=present"
+                for (key = 1; key <= 2; key++) {
+                    want = (key == 1 ? "hostname" : "organization")
+                    if (match(structure, "(^|[^[:alnum:]_])" want "[[:space:]]*=[[:space:]]*\"[^\"]*\"")) {
+                        value = substr(line, RSTART, RLENGTH)
+                        sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
+                        print want "=" value
+                    }
+                }
+            }
+            if (inws) {
+                wsdepth += (structure ~ /(^|[^[:alnum:]_])workspaces[[:space:]]*{/ ? 0 : opens - closes)
+                if (wsdepth <= 0) inws = 0
+            }
+            if (!opening) depth += opens - closes
+            opening = 0
+            if (depth <= 0) incloud = 0
+        }
+    ' "$1"/*.tf 2>/dev/null
+}
+
+leaf_setting () {  # $1 = settings text, $2 = key; prints the first value
+    printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -1
+}
+
+seen_repo_names=""
+ids=""      # workspace ids seen, to detect the list changing mid-scan
+
+# Nothing inside this loop exits directly. Once a page has been processed the
+# script may already hold a definite verdict, and `status` renders exit 2 as "?,
+# nothing to fix" -- so an unrelated read failure here would hide proof that the
+# credential can apply. Uncertainty is recorded and the final selection below
+# decides. The first version fixed this for per-workspace values only and left
+# every page-level path exiting straight out.
+while : ; do
+    if ! body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
+        -H "Authorization: Bearer $token"); then
+        note_unknown "page $page of the workspace list for $ORG could not be read as $source_description"
+        break
+    fi
+
+    if ! count=$(printf '%s' "$body" | jq -e '.data | length' 2>/dev/null); then
+        note_unknown "page $page of the workspace list for $ORG was not the expected JSON"
+        break
+    fi
+    ids="$ids $(printf '%s' "$body" | jq -r '.data[].id' 2>/dev/null | tr '\n' ' ')"
+    if [ "$count" -eq 0 ] 2>/dev/null; then
+        # An empty first page means no workspaces. An empty later page means the
+        # set shifted between requests -- deleting an early workspace moves an
+        # entry back across the boundary -- so something may never have been
+        # inspected. Breaking silently would exit 0 on a partial scan.
+        [ "$page" -eq 1 ] || note_unknown "page $page of $ORG came back empty although earlier pages were full, so the workspace list changed mid-scan and some may not have been inspected"
+        break
+    fi
+
+    index=0
+    while [ "$index" -lt "$count" ]; do
+        if ! entry=$(printf '%s' "$body" | jq -e ".data[$index]" 2>/dev/null); then
+            note_unknown "workspace $index on page $page of $ORG could not be read"
+            index=$((index + 1))
+            continue
+        fi
+        # A missing name is recorded but does not skip the entry: its permissions
+        # may still be perfectly readable, and skipping them turned a definite
+        # UNPROTECTED into exit 2 -- which `status` renders as "?, nothing to
+        # fix", hiding known apply access. The id labels the diagnostics instead.
+        if ! name=$(printf '%s' "$entry" | jq -er '.attributes.name' 2>/dev/null); then
+            identity=$(printf '%s' "$entry" | jq -r '.id // empty' 2>/dev/null)
+            name="<unnamed${identity:+ $identity}>"
+            note_unknown "a workspace on page $page of $ORG has no name; its permissions were still checked as $name"
+        fi
+        index=$((index + 1))
+        found=$((found + 1))
+
+        # The type is asserted inside jq, before any conversion. `tostring` alone
+        # renders the JSON string "false" and the boolean false as the same shell
+        # text. `// empty` is also wrong: jq's alternative operator treats false as
+        # absent, which made the state this check confirms read as a missing block.
+        apply=$(boolean "$entry" '.attributes.permissions["can-queue-apply"]')
+        plan=$(boolean "$entry" '.attributes.permissions["can-queue-run"]')
+        update=$(boolean "$entry" '.attributes.permissions["can-update"]')
+        auto=$(boolean "$entry" '.attributes["auto-apply"]')
+
+        for pair in "can-queue-apply:$apply" "can-queue-run:$plan" \
+                    "can-update:$update" "auto-apply:$auto"; do
+            case ${pair#*:} in
+                true|false) : ;;
+                *) note_unknown "workspace '$name' reported ${pair%%:*} as '${pair#*:}', not a boolean" ;;
+            esac
+        done
+
+        [ "$apply" != true ] || broken="${broken}UNPROTECTED: the credential in $source_description can apply runs on workspace '$name'.
+"
+        # can-queue-apply false does not help if the workspace applies on its own:
+        # a plan-capable credential queues a non-speculative run and HCP applies the
+        # successful plan. Phase 1 checks this for the bootstrap pair only, so
+        # workspaces `add` creates later are covered here or nowhere.
+        # Requires can-queue-run too. Auto-apply on a workspace this credential
+        # cannot queue is not reachable by it, and reporting it sent the operator
+        # to change an unrelated workspace's policy.
+        if [ "$auto" = true ] && [ "$plan" = true ]; then
+            broken="${broken}UNPROTECTED: workspace '$name' has auto-apply enabled and this credential can queue runs there, so a run it starts is applied without confirmation.
+"
+        fi
+        # Settings include auto-apply itself, so this is an elevation path even when
+        # the apply permission is denied.
+        [ "$update" != true ] || broken="${broken}UNPROTECTED: the credential can update settings on workspace '$name', including auto-apply, so the boundary is self-removable.
+"
+        # `working-directory` is not unique across an organization: two repos
+        # bootstrapped by this plugin both have terraform/cloudflare. Only count a
+        # directory toward this repo's inventory when the workspace is connected to
+        # this repo.
+        directory=$(printf '%s' "$entry" | jq -r '.attributes["working-directory"] // empty' 2>/dev/null)
+        identifier=$(printf '%s' "$entry" | jq -r '.attributes["vcs-repo"].identifier // empty' 2>/dev/null)
+        ours=false
+        if [ "$identifier" = "$REPO" ]; then
+            ours=true
+            seen_repo_names="$seen_repo_names $name"
+        fi
+
+        # Scoped to this repository, unlike the assertions above. The step needs
+        # Plan only where this repo runs; a workspace the team can merely read
+        # elsewhere in the organization is not this repo's business, and telling
+        # the operator to grant Plan on it would widen access to that workspace's
+        # plans, state and variables for nothing.
+        # Rests on the run permission alone. Requiring apply == false as well
+        # meant a malformed apply field -- recorded as uncertainty -- suppressed
+        # a conclusive verdict, so the script exited 2 and `status` reported
+        # nothing to fix while the credential provably could not queue the plans
+        # this repository needs.
+        if [ "$ours" = true ] && [ "$plan" = false ]; then
+            broken="${broken}OVER-RESTRICTED: the credential cannot queue runs on workspace '$name', which belongs to $REPO, so plan steps cannot work there. Grant the team the workspace 'Plan' permission, not 'Read'.
+"
+        fi
+    done
+
+    # Fail closed, and hand the shell a plain integer. `numbers` accepts 2.0 and
+    # 1e3, and this jq does not normalise them -- `tostring` yields "2.0" and
+    # "1E+3", both of which POSIX `test -lt` rejects as operands. The comparison
+    # then errored and `|| break` read that as "no more pages", truncating the
+    # inventory silently. Integral values are accepted and rendered through
+    # `floor`; genuinely fractional ones are rejected.
+    if ! total_pages=$(printf '%s' "$body" | jq -er '
+            .meta.pagination["total-pages"]
+            | if type == "number" and . == floor and . > 0
+              then (floor | tostring) else empty end
+        ' 2>/dev/null); then
+        note_unknown "page $page of $ORG carried no positive-integer meta.pagination.total-pages, so later pages could not be reached"
+        break
+    fi
+    [ "$page" -lt "$total_pages" ] || break
+    page=$((page + 1))
+done
+
+[ "$found" -gt 0 ] || note_unknown "the credential can see no workspaces in $ORG, so its rights cannot be determined"
+
+# The visible set cannot reveal a workspace hidden by the very grant being checked:
+# omit Plan on one leaf and it vanishes from the list, leaving every visible entry
+# correct. So compare against an inventory derived from the repository instead.
+# A workspace deleted mid-scan shifts later entries onto pages already read, and
+# the skipped one is never inspected; one added after its page was read lands on a
+# page the first scan never requested. Neither shows up as an empty page, and the
+# API offers no snapshot -- so the whole list is read a second time, following
+# pagination afresh, and both the id set and the page count are compared. Running
+# it unconditionally costs one extra request for the handful of workspaces this
+# plugin creates, and an earlier `page > 1` guard meant a single full page that
+# gained a second page was never re-read at all.
+recheck=""
+recheck_failed=""
+verify_page=1
+verify_pages=1
+while : ; do
+    again=$(curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$verify_page" \
+        -H "Authorization: Bearer $token") || {
+            note_unknown "page $verify_page of the workspace list for $ORG could not be re-read for the consistency check"
+            recheck_failed=yes
+            break
+        }
+    page_ids=$(printf '%s' "$again" | jq -er '
+        .data | if type == "array" then map(.id) | join(" ") else empty end
+    ' 2>/dev/null) || {
+        note_unknown "page $verify_page of the workspace list for $ORG was not the expected JSON when re-read for the consistency check"
+        recheck_failed=yes
+        break
+    }
+    recheck="$recheck $page_ids"
+    verify_pages=$(printf '%s' "$again" | jq -er '.meta.pagination["total-pages"]
+                    | if type == "number" and . == floor and . > 0
+                      then (floor | tostring) else empty end' 2>/dev/null) \
+        || {
+            note_unknown "page $verify_page of the workspace list for $ORG carried no positive-integer pagination metadata when re-read for the consistency check"
+            recheck_failed=yes
+            break
+        }
+    [ "$verify_page" -lt "$verify_pages" ] || break
+    verify_page=$((verify_page + 1))
+done
+first_set=$(printf '%s' "$ids" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ')
+again_set=$(printf '%s' "$recheck" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ')
+# Comparing page counts as well was redundant -- a workspace added on a new page
+# changes the id set too -- and `pages_seen` goes stale when the scan breaks
+# early, which would have reported a change that never happened.
+if [ -z "$recheck_failed" ] && [ "$first_set" != "$again_set" ]; then
+    note_unknown "the workspace list in $ORG changed while it was being read, so an entry may have shifted between pages or landed on a page this scan never requested; re-run when the organization is not being modified"
+fi
+
+for leaf in terraform/*/; do
+    [ -d "$leaf" ] || continue    # no terraform/ yet: nothing to compare
+    directory=${leaf%/}
+    # Terraform override files (_override.tf, override.tf) replace matching
+    # blocks from base files, but this parser processes *.tf in glob order and
+    # takes the first value. Refuse to verify rather than risk reading the base
+    # value while Terraform uses the override.
+    override_found=
+    for f in "${leaf}"*.tf; do
+        [ -f "$f" ] || continue
+        case "${f##*/}" in
+            override.tf|*_override.tf) override_found=yes; break ;;
+        esac
+    done
+    if [ -n "$override_found" ]; then
+        note_unknown "$directory has Terraform override files; this parser cannot replicate Terraform's block-merge semantics, so the effective cloud configuration cannot be determined"
+        continue
+    fi
+    # Every permission read above was scoped to $ORG, so a leaf pointed at
+    # another organization proves nothing: a same-named plan-only workspace in
+    # $ORG would satisfy the comparison while Terraform targeted an organization
+    # whose permissions were never inspected.
+    # Host first. Terraform authenticates per service host -- a leaf on
+    # tfe.example.com uses TF_TOKEN_tfe_example_com, not the app.terraform.io
+    # credential resolved above -- so for a non-default host every permission
+    # read here describes a different identity against a different API. A
+    # same-named SaaS workspace would otherwise make this exit 0 while the
+    # credential Terraform really uses can apply.
+    #
+    # Both the leaf's `hostname` and TF_CLOUD_HOSTNAME disqualify. Terraform's
+    # docs do not state which wins when both are set, so neither is assumed to
+    # override the other.
+    settings=$(leaf_cloud_settings "$directory")
+
+    # A leaf may carry its own credential inline. That token is what Terraform
+    # would use for this leaf, and nothing here can read it, so no permission
+    # this check gathered describes it.
+    if [ -n "$(leaf_setting "$settings" token)" ]; then
+        note_unknown "$directory sets a token in its cloud block, so it authenticates with a credential this check cannot see"
+        continue
+    fi
+
+    leaf_host=$(leaf_setting "$settings" hostname)
+    for host in "$leaf_host" "${TF_CLOUD_HOSTNAME:-}"; do
+        [ -n "$host" ] || continue
+        [ "$host" != "app.terraform.io" ] || continue
+        note_unknown "$directory targets Terraform host '$host', not app.terraform.io, so it authenticates with a different credential (TF_TOKEN_$(printf '%s' "$host" | sed 's/-/__/g; s/\./_/g')) against a different API than the one checked here"
+        host_mismatch=yes
+    done
+    if [ "${host_mismatch:-}" = yes ]; then
+        host_mismatch=
+        continue
+    fi
+
+    # The literal argument is optional: a leaf may rely on TF_CLOUD_ORGANIZATION
+    # instead, and accepting an absent argument let a leaf pointed at another
+    # organization pass. As with hostname, the docs do not state which wins when
+    # both are set, so either disqualifies -- and if neither names an
+    # organization, the effective target cannot be proven at all.
+    leaf_org=$(leaf_setting "$settings" organization)
+    if [ -z "$leaf_org" ] && [ -z "${TF_CLOUD_ORGANIZATION:-}" ]; then
+        note_unknown "$directory names no HCP organization, in its cloud block or TF_CLOUD_ORGANIZATION, so the organization it targets cannot be proven to be '$ORG'"
+        continue
+    fi
+    org_mismatch=
+    for candidate in "$leaf_org" "${TF_CLOUD_ORGANIZATION:-}"; do
+        [ -n "$candidate" ] || continue
+        [ "$candidate" != "$ORG" ] || continue
+        note_unknown "$directory targets HCP organization '$candidate', not '$ORG', so the permissions checked here say nothing about the workspace it uses"
+        org_mismatch=yes
+    done
+    [ -z "$org_mismatch" ] || continue
+
+    expected=$(leaf_setting "$settings" workspaces.name)
+    if [ -n "$(leaf_setting "$settings" workspaces.tags)" ]; then
+        note_unknown "$directory selects its workspaces by tags rather than a name, so which workspace it targets cannot be determined from the repository"
+        continue
+    fi
+    if [ -z "$expected" ]; then
+        note_unknown "$directory declares no cloud workspace name, so the workspace it targets cannot be identified"
+        continue
+    fi
+    case " $seen_repo_names " in
+        *" $expected "*) continue ;;
+    esac
+    note_unknown "workspace '$expected', which $directory targets, is not visible to this credential and connected to $REPO: either it does not exist, or the credential lacks the Plan grant on it"
+done
+
+if [ -n "$broken" ]; then
+    printf '%s' "$broken" >&2
+    [ -z "$unknown" ] || printf 'Additionally, evidence that could not be read:\n%s' "$unknown" >&2
+    exit 1
+fi
+if [ -n "$unknown" ]; then
+    # Not via cannot_verify(): command substitution eats the trailing newlines of a
+    # multi-line list, which printed the prefix with an empty body.
+    printf 'CANNOT VERIFY: evidence this check needs could not be read:\n%s' "$unknown" >&2
+    exit 2
+fi

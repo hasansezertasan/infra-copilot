@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:f8668211d4a8f26cf18aed1412516c28ed6a737c71e82ff378e44cde4042ebd3
-Source-Hash: blake3:98bb14f05c8d6bcefb4ce8d00bd80c40e7d048f5d77b97e60fe67cfb258efb49
+Content-Hash: blake3:ec925d5285d6d44567ba53d72323b0a5f9865ff1d6b0d355b86b1285d93fee5b
+Source-Hash: blake3:7e387d59be8a5faafede38d8bd5096e3e23c61447d16a52e8f6048b71a933809
 Schema-Version: v1
 -->
 
@@ -16,20 +16,25 @@ apart. Read this file whenever a skill says "follow the shared protocol."
 ## The one idea
 
 **The human is the browser, keyholder, and reviewer of executable repository trust.
-Everything else scriptable is the agent's.**
+The agent owns everything that does not require those identities or decisions.**
 
-Human steps are limited to actions that require browser identity, secret custody, or an
-independent trust decision. Once an HCP token exists (from `terraform login`), the agent
-creates workspaces, sets variables, reads plans, imports resources, and confirms applies
-**over the API** — no more clicking. The human surface is four action kinds only:
+Human steps are limited to actions that require browser identity, secret custody, an
+independent trust decision, or a privileged HCP mutation after the agent credential has
+been narrowed. During bootstrap, the agent creates the initial workspaces with the user
+token. After `hcp-apply-scope`, it must not reacquire that authority merely to add another
+workspace; the human keyholder runs the canonical helper with a temporary user or
+organization token. The human surface is five action kinds only:
 
 1. **Sign up** for a service (browser-only).
 2. **Mint a credential** in a dashboard (browser-only — no API bootstraps the first token).
 3. **Paste a secret** into HCP (browser-only — the agent must never see the plaintext).
 4. **Choose and review repository tool pins** before trusting executable `mise.toml`
    behavior; the agent that proposes a config must not approve its own trust boundary.
+5. **Run a privileged HCP workspace mutation after credential narrowing**, using the
+   canonical helper without widening or replacing the agent's plan-only identity.
 
-Everything else — verifying, creating workspaces, importing, planning — is the agent's.
+Everything else — repository changes, verification, bootstrap workspace creation,
+imports, and plans — is the agent's.
 
 ## Step 0 — read the repo config (AGENT, always first)
 
@@ -54,7 +59,7 @@ Every step in [`steps.yaml`](steps.yaml) is tagged with who performs it:
 | Tag | Meaning | Behaviour |
 |---|---|---|
 | **`AGENT`** | Agent runs it (shell, `gh`, `terraform`, HCP API). | Execute. Verify with the step's `check`. Continue on green. |
-| **`HUMAN`** | Irreducibly human (signup, dashboard, secret paste, executable-config review). | **Stop.** Emit the handoff block. Wait for `done`. Then run the `check` before continuing. |
+| **`HUMAN`** | Requires signup, dashboard identity, secret custody, executable-config review, or post-handoff HCP authority intentionally withheld from the agent. | **Stop.** Emit the handoff block. Wait for `done`. Then run the `check` before continuing. |
 
 ### The handoff block
 
@@ -196,8 +201,15 @@ instead of creating them.
 Then detect the credential the whole flow pivots on:
 
 ```sh
-jq -e '.credentials["app.terraform.io"].token | strings | length > 0' \
-  ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1 \
-  && echo "HCP token present — agent can drive the API" \
-  || echo "No HCP token yet — the first HUMAN step will mint one"
+# Either source, in terraform's precedence order — see config.md Step 0. A
+# file-only test reports "no token" for anyone using TF_TOKEN_app_terraform_io,
+# which is the route hcp-apply-scope's plan-only handoff may leave in place.
+if [ -n "${TF_TOKEN_app_terraform_io:-}" ] \
+  || jq -e '.credentials["app.terraform.io"].token | strings | length > 0' \
+       ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1
+then
+  echo "HCP token present — agent can drive the API"
+else
+  echo "No HCP token yet — the first HUMAN step will mint one"
+fi
 ```

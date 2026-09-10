@@ -22,7 +22,7 @@ The only unavoidable cold-start. Produces the HCP token that lets the agent scri
 
   ```sh
   # $ORG sourced from config — see config.md
-  HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+  HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
   curl -sf "https://app.terraform.io/api/v2/organizations/$ORG" \
     -H "Authorization: Bearer $HCP_TOKEN" | jq -e '.data.id' \
     && echo "✓ HCP org reachable"
@@ -51,7 +51,12 @@ GitHub↔HCP OAuth connection (browser).
   HTTP status surfaces as an error instead of a silent `jq` crash:
 
   ```sh
-  export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+  # An already-exported HCP_TOKEN wins. Creating a workspace is organization-scoped,
+  # and after the hcp-apply-scope handoff the machine's normal credential is a team
+  # token with no organization permissions — so a human running this supplies an
+  # admin credential deliberately, and resolving from the terraform credential
+  # would overwrite it and fail the POST.
+  export HCP_TOKEN=${HCP_TOKEN:-${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}}
   # $ORG, $REPO sourced from config — see config.md
   : "${ORG:?run Step 0 (read config) first}"
   : "${REPO:?run Step 0 (read config) first}"   # the repo HCP watches via VCS

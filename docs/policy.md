@@ -148,9 +148,14 @@ production.
   `curl` cannot reach an endpoint regardless of which command wraps it. This is the only
   boundary for the **filesystem and unrestricted-network** cases — secret files, and any
   request the plugin can compose. It is outside the plugin's control.
-- **A lower-privilege identity**: the durable answer for apply. A principal without apply
-  permission on those workspaces cannot apply, whatever command is used. Note this is not
-  the token phase 0 mints — see [the HCP token section](#the-hcp-token-what-the-agent-never-sees-secrets-does-and-does-not-cover).
+- **A lower-privilege identity**: the strongest control inside this repository's reach,
+  and the right one for the threat this plugin actually has — but **not** a boundary
+  against a hostile actor. A principal without apply permission cannot call apply,
+  whatever command wraps the request, which removes the direct path and stops an accident.
+  It does not contain someone who controls the Terraform configuration: see
+  [what plan-only does not buy](#what-plan-only-does-not-buy). This is not the token phase
+  0 mints — see [the HCP token section](#the-hcp-token-what-the-agent-never-sees-secrets-does-and-does-not-cover)
+  — so it has to be provisioned deliberately: [A credential that cannot apply](#a-credential-that-cannot-apply).
 
 **And what only narrows.** A read-only subagent (#19) is worth building — it isolates the
 scan's context and removes `Edit` and `Write` — but it does **not** enforce
@@ -159,6 +164,106 @@ runs 21 shell checks: manifest checks, API reads, and a shipped script. It needs
 and bypass 3 above establishes that `Bash` writes files. Remove `Bash` and the scan cannot
 run at all. So the subagent reduces the surface for an accident; only a sandboxed
 command runner turns it into a boundary.
+
+## A credential that cannot apply
+
+The `hcp-apply-scope` step in [`steps.yaml`](../.ai-rulez/skills/infra-copilot/references/steps.yaml)
+owns this. It is a `HUMAN` step, and it stays red until someone does the work — like
+`gcp-decision`, a red here is a standing to-do rather than a fault.
+
+### What plan-only does not buy
+
+HashiCorp is explicit that this is not a security boundary
+([security model](https://developer.hashicorp.com/terraform/cloud-docs/architectural-details/security-model)):
+
+> It's important to note that, from a security perspective, the plan permission is
+> equivalent to the write permission. The plan permission is provided to protect against
+> accidental Terraform runs but is not intended to stop malicious actors from accessing
+> sensitive data within a workspace or Stack.
+
+Because a plan runs arbitrary code from the configuration in the same security context as
+an apply, with access to the full set of workspace variables and state. Anyone who can
+queue a plan and can influence what is in `terraform/` can read every secret the workspace
+holds and can act with the providers' credentials.
+
+So this control is worth having for exactly the reason the rest of this page gives for
+host permission rules: it raises the cost of an **accident**, and the risk here is a
+confused agent rather than a hostile one. Against a hostile actor — or a compromised
+dependency in the configuration — the sandbox row above is still the only boundary. Do not
+read the section below as "the agent cannot change infrastructure"; read it as "the agent
+has no direct apply path, and an accidental apply now takes deliberate steps".
+
+**The rights are separable.** HCP's workspace permissions distinguish them explicitly: the
+`Plan` permission is "read, queue, and comment on Terraform plans" and excludes apply,
+while `Write` includes it. The custom run levels are `Read`, `Plan` and `Apply` for the
+same reason. So plan-only is a supported configuration, not a workaround.
+
+**A team token carries its team's workspace permissions.** HashiCorp's wording: "if a team
+has permission to apply runs on a workspace, the team's token can create runs and
+configuration versions for that workspace via the API." A team granted `Plan` on the two
+workspaces therefore yields a token that plans and cannot apply. Organization tokens are
+not the answer — they are for managing workspaces and teams, and cannot start runs at all.
+
+**The identity is split by phase, not replaced.** Phases 0 and 1 must keep the user token,
+because a team or organization token "authenticates as a synthetic service account that
+cannot complete a personal GitHub OAuth flow", which is exactly what `vcs-connect` needs.
+Everything after phase 1 — `status`, plan verification, day-2 work — is where the
+plan-only token belongs. Anyone reading this as "replace the token in phase 0" will find
+the VCS connect fails.
+
+**It is the credential terraform uses, not `HCP_TOKEN`.** This distinction sank the first
+version of the step. `terraform` never reads `HCP_TOKEN` — that variable exists only for
+this plugin's own `curl` calls. Terraform reads `TF_TOKEN_app_terraform_io`, or failing
+that `~/.terraform.d/credentials.tfrc.json`, and [the environment variable takes
+precedence](https://developer.hashicorp.com/terraform/cli/config/config-file). So a
+plan-only `HCP_TOKEN` sitting beside an apply-capable credentials file leaves the
+Terraform CLI completely unconstrained — the primary path by which anything here would
+apply. The narrowed token has to replace the one in that credential source. Doing it that
+way also makes it durable: `config.md`'s Step 0 derives `HCP_TOKEN` from the same file, so
+every later run picks up the plan-only token with no per-phase selection logic.
+
+**How the step proves it.** It resolves the credential in terraform's own order, then
+lists every workspace that credential can see and requires four things of each:
+`can-queue-run` true, `can-queue-apply` false, `can-update` false — workspace settings
+include `auto-apply`, so settings access makes the boundary self-removable — and
+`auto-apply` itself false, because a credential that may queue a non-speculative run on an
+auto-applying workspace causes an apply without ever holding the apply permission.
+
+A definite verdict outranks uncertainty. If one workspace allows an apply and another
+cannot be read, the check exits 1 and names both, because `status` renders exit 2 as "`?`,
+nothing to fix" — which would bury proof that the boundary is open. Deriving the
+workspace set from the API rather than hardcoding `cloudflare` and `github-org` means
+workspaces the `add` workflow creates later are covered too.
+
+The visible set alone is *not* sufficient scope, though — it cannot reveal a workspace
+hidden by the very grant being checked. So it is cross-checked against an inventory derived
+from the repository: every `terraform/<leaf>/` directory must be matched by a visible
+workspace whose `working-directory` is that leaf **and** whose `vcs-repo.identifier` is
+`$REPO`. Without the identifier check, another repository's workspaces in the same
+organization would satisfy the comparison, since two repos bootstrapped by this plugin both
+have a `terraform/cloudflare`. An unmatched leaf is `CANNOT VERIFY`, not a verdict: without
+an organization-level read this cannot tell a missing grant from a workspace that does not
+exist yet.
+
+If `HCP_TOKEN` is set and is *not* the credential terraform would use, the check fails
+with `SPLIT-BRAIN` rather than passing. Two identities means verifying one says nothing
+about the other.
+
+It deliberately does **not** send a dry `POST /runs/<id>/actions/apply` and check for a
+`403`. That probe was the obvious design and it is unsafe: if the token does hold apply
+rights and the run is confirmable, the probe applies production infrastructure. The check
+would cause the exact thing it exists to detect. The permissions read is direct evidence of
+the same fact and cannot change anything.
+
+**Two limits worth knowing before you rely on this.**
+
+| Limit | Consequence |
+|---|---|
+| The `discard` and `cancel` recipes in [`docs/hcp-api.md`](../.ai-rulez/skills/infra-copilot/references/docs/hcp-api.md) are operator reference, not manifest checks. `Plan` does not include them. | A plan-only identity cannot discard or cancel a run. Nothing in `steps.yaml` needs it; a human with the user token still can. |
+| **The check cannot prove the team holds no organization permissions.** A team with `Manage Workspaces` or `Manage Teams` shows plan-only workspace rights while being able to grant itself `Write` through organization-scoped APIs. Reading that back needs `GET /organizations/<org>/teams`, which the credential should not be able to call — so the check cannot confirm the absence of a permission whose presence is what would let it look. | Getting step 1 of the procedure right — a team with **no** organization permissions — is not machine-verified. The check does catch the two elevation paths it can see: `can-update` on a workspace (settings include auto-apply) and `auto-apply` already enabled. |
+| `vcs-connect`'s check reads `/organizations/<org>/oauth-clients`, which is organization-scoped and unreadable by the plan-only credential. | Handled rather than tolerated: the step is tri-state and falls back to workspace-scoped evidence — a workspace connected to `$REPO`, which is the connection actually in use and a stronger signal. Only if neither is readable does it report `?`. Without this, a resume scan stopped at the first non-zero check and `setup` could not get past phase 1 after the handoff. **Do not** grant the team "Manage version control settings" to turn it green — that is an organization permission, and organization permissions are the self-elevation risk above. |
+| `vcs-connect`'s workspace-scoped fallback cannot establish the VCS **provider family**. A workspace's `vcs-repo` carries no `service-provider` field, and resolving its `oauth-token-id` to a client needs an organization-scoped read the narrowed credential does not have. | An organization holding a GitLab workspace with the same `owner/name` would satisfy the fallback. Accepted deliberately: the primary path checks GitHub specifically, and the fallback runs only after the handoff, when phase 1 is complete and was verified under the user token. |
+| Terraform's docs do not state whether a `credentials` block in `~/.terraformrc` or `TF_CLI_CONFIG_FILE` outranks the `credentials.tfrc.json` that `terraform login` writes. | If such a block exists for `app.terraform.io`, the check reports `CANNOT VERIFY` rather than risk verifying a token terraform would not use. Remove the block, or set `TF_TOKEN_app_terraform_io` so the source is unambiguous. |
 
 ## The HCP token: what "the agent never sees secrets" does and does not cover
 
@@ -177,8 +282,9 @@ It does **not** hold for the HCP token either. Phase 0 has the human run `terraf
 every later step reads the result:
 
 ```sh
-export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' \
-  ~/.terraform.d/credentials.tfrc.json)
+# Same precedence as config.md Step 0; omit if HCP_TOKEN is already exported.
+export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r \
+  '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
 ```
 
 That token is in the agent's environment by design — the pivot the workflow turns on. Do
@@ -191,10 +297,12 @@ API token, and a user token carries that user's permissions — `docs/state.md` 
 plainly: *"the same token authenticates every HCP REST endpoint, so anything you can do in
 the UI you can script."* There is no apply scope to remove from it.
 
-The control is therefore to provision a **different principal** — a user or team without
-apply permission on the `cloudflare` and `github-org` workspaces — and run the agent as
-that identity. Phase 0 neither provisions nor verifies such an identity, so this is
-operator work today, and worth its own issue.
+The control is therefore to provision a **team token** whose team holds only the workspace
+`Plan` permission on this repository's workspaces — never `Write` or `Apply`. The
+`hcp-apply-scope` step in `steps.yaml` verifies this: it reads each workspace's
+`permissions` block under the calling token's own identity and requires `can-queue-run`
+true with `can-queue-apply` false, rejects user tokens outright, and stays red until the
+handoff is done.
 
 ## Claude Code specifics
 

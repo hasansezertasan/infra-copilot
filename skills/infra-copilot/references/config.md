@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:3fb8dc3c7e5653b9ed8882c1ffd72e3df34d7525294bd2043c13ab8f65a32488
-Source-Hash: blake3:98bb14f05c8d6bcefb4ce8d00bd80c40e7d048f5d77b97e60fe67cfb258efb49
+Content-Hash: blake3:42bc7eaf865489941d6913823c46ce335b10b729249cdf5b9bd5b9e58ee3da50
+Source-Hash: blake3:7e387d59be8a5faafede38d8bd5096e3e23c61447d16a52e8f6048b71a933809
 Schema-Version: v1
 -->
 
@@ -58,7 +58,10 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
    export hcp_api=https://app.terraform.io/api/v2
    export INFRA_COPILOT_REFERENCES=<absolute path to this references/ directory>
-   export HCP_TOKEN=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+   # Terraform's own precedence: TF_TOKEN_app_terraform_io wins over the credentials
+   # file. Follow it here, or HCP_TOKEN and `terraform` authenticate as different
+   # identities and `hcp-apply-scope` reports SPLIT-BRAIN.
+   export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
    ```
 
    Do not export `TERRAFORM_VERSION` here. A greenfield repo may not have `mise` or
