@@ -25,6 +25,8 @@ Every `SKILL.md` addresses four concerns (make check fails if missing):
 | guardrails | what it must not do, preconditions |
 | validation | how to know it is done |
 | example | one concrete, worked case |
+
+**Exemption:** The `infra-copilot` hub skill is exempt from `example` — it routes to action skills and performs no work itself (`SECTION_EXEMPTIONS` in `scripts/validate.py`).
 <!-- truth: end -->
 
 ---
