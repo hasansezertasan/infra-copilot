@@ -10,26 +10,10 @@ title: Project Patterns
 > Update this file at flow completion with elevated patterns.
 
 <!-- truth: start -->
-## Code Conventions
+## Authoritative sources
 
-- Conventional Branch names: `<type>/<description>` (e.g., `feature/issue-10-makefile`)
-- Conventional Commits: `<type>(scope): <description>`
-- No AI attribution in commits, PR titles, or bodies
-- Behavior belongs in `.ai-rulez/skills/`; host manifests are adapters only
-
-## Architecture
-
-- Four action skills (setup, import, add, status) are thin routers over one hub skill (infra-copilot)
-- Hub skill's `references/` directory owns the behavior: `steps.yaml`, `protocol.md`, provider deep-dives
-- State is never assumed: every run re-derives it by executing each step's `check`
-- Host packages are adapters and must never become a second behavioral authority
-
-## Gotchas
-
-- Most of the tree is generated - check `.ai-rulez-generated.json` before editing
-- 11 of 34 generated files have no header warning (JSON manifests, shell scripts)
-- Never invoke `npx ai-rulez`, `python3 scripts/validate.py` directly - use `make check`
-- `.agents/plugins/marketplace.json` is tracked and required - never delete `.agents/` wholesale
+- **Code conventions, architecture, gotchas:** See [AGENTS.md](../../../AGENTS.md) and [CONTRIBUTING.md](../../../CONTRIBUTING.md) — those files are the single source of truth for repository rules.
+- **Canonical commands:** Run `make help` or see the Makefile — it is the only definition of tool versions and targets.
 
 ## Skill structure
 

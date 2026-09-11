@@ -17,31 +17,12 @@ title: Project Workflow
 
 ## Canonical commands
 
-```bash
-# setup: (none - no install step needed)
-# regenerate host packages: make generate
-# focused tests: make test
-# lint: make lint
-# validation: make validate
-# aggregate verification: make check
-# full verification with smoke: make check-all
-# release preparation: make release
-```
+Run `make help` for the full target list. The Makefile is the single source of truth for tool versions and commands. Key targets:
 
-Use non-interactive modes in automation. Before claiming a result, run the exact command freshly, read its complete output and exit status, and report limitations.
+- `make check` — CI parity (what the pipeline runs)
+- `make generate` — regenerate host packages from `.ai-rulez/`
 
-## The loop
-
-```bash
-# 1. edit a source under .ai-rulez/
-# 2. regenerate the host packages
-make generate
-# 3. run exactly what CI runs
-make check
-# 4. commit sources AND generated output together
-```
-
-Generated files are committed on purpose, so users can install the plugin without having `ai-rulez`. A commit that changes a source without its regenerated output fails `ai-rulez verify --plugin`.
+See [CONTRIBUTING.md](../../../CONTRIBUTING.md) for the edit-generate-check loop and detailed target descriptions.
 
 ## Direct-read continuity
 

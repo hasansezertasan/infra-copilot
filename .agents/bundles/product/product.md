@@ -10,9 +10,9 @@ Agent-first, human-in-the-loop infrastructure bootstrap and maintenance workflow
 
 **Purpose:** Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure through conversational agent skills.
 
-**Core value:** State is never assumed - every run re-derives it by executing each step's check. The phase-tagged step manifest with explicit checks makes workflows resumable.
+**Core value:** State is never assumed — every run re-derives it by executing each step's check. The phase-tagged step manifest with explicit checks makes workflows resumable.
 
-**Architecture:** Four action skills (setup, import, add, status) are thin routers over one hub skill (infra-copilot), whose references/ directory owns the behavior. Host packages are adapters and must never become a second behavioral authority.
+**Architecture:** See [AGENTS.md](../../../AGENTS.md) for the authoritative architecture paragraph.
 <!-- truth: end -->
 
 ## Target users
