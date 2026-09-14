@@ -64,3 +64,96 @@ Useful for reading plan summaries before merging a PR, confirming applies after 
 ## Migrating away
 
 If HCP ever stops being the right choice: `terraform state pull` from each workspace, `terraform state push` to the new backend. Code stays unchanged except for the `cloud {}` block (replace with `backend "..." {}`). This is the main reason for picking a managed backend now rather than self-hosting state on day one.
+
+---
+
+# Object-storage backend
+
+When `backend: object-storage` is set in [`../config.md`](../config.md), state lives in a cloud storage bucket instead of HCP Terraform. This mode uses GitHub Actions for CI instead of HCP's VCS integration.
+
+## Supported backends
+
+Any Terraform-supported backend works. Common choices:
+
+| Backend | Locking | Region field | Notes |
+|---------|---------|--------------|-------|
+| `gcs` | Native | N/A (bucket location) | Best for GCP-heavy repos |
+| `s3` | DynamoDB table | Required | Set `state_lock_table` |
+| `azurerm` | Native (blob lease) | Required | Azure Storage container |
+| `cos` | Native | N/A | Tencent Cloud |
+| `oss` | Native | N/A | Alibaba Cloud |
+
+## Bucket setup
+
+Create a versioned, private bucket before running `terraform init`:
+
+**GCS:**
+```sh
+gcloud storage buckets create gs://$STATE_BUCKET \
+  --location=us --uniform-bucket-level-access --versioning
+```
+
+**S3 + DynamoDB:**
+```sh
+aws s3api create-bucket --bucket $STATE_BUCKET --region $STATE_REGION
+aws s3api put-bucket-versioning --bucket $STATE_BUCKET \
+  --versioning-configuration Status=Enabled
+aws dynamodb create-table --table-name $STATE_LOCK_TABLE \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST
+```
+
+## Backend configuration
+
+Each leaf needs a `backend.tf` with the backend block. The `state_prefix` config field sets the path prefix; each leaf appends its name:
+
+**GCS example (`terraform/cloudflare/backend.tf`):**
+```hcl
+terraform {
+  backend "gcs" {
+    bucket = "your-org-tf-state"
+    prefix = "terraform/state/cloudflare"
+  }
+}
+```
+
+**S3 example (`terraform/cloudflare/backend.tf`):**
+```hcl
+terraform {
+  backend "s3" {
+    bucket         = "your-org-tf-state"
+    key            = "terraform/state/cloudflare/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-locks"
+    encrypt        = true
+  }
+}
+```
+
+## Variables (secrets)
+
+In object-storage mode, secrets live in **GitHub Actions secrets** instead of HCP workspace variables:
+
+| Secret | Purpose |
+|--------|---------|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare provider auth |
+| `GH_APP_ID` | GitHub App ID |
+| `GH_APP_INSTALLATION_ID` | GitHub App installation ID |
+| `GH_APP_PEM` | GitHub App private key |
+
+For cloud provider auth (GCS, S3, Azure), use Workload Identity Federation where possible — no long-lived credentials to store.
+
+## Access
+
+- **Read state**: Anyone with bucket read access
+- **Trigger plan**: Anyone who can open a PR (GitHub Actions runs on `pull_request`)
+- **Confirm apply**: Reviewers in the GitHub Environment (see [`ci.md#github-actions`](./ci.md#github-actions))
+- **Direct apply**: Anyone with bucket write access + `terraform apply` locally
+
+## Migrating from HCP
+
+1. For each workspace: `terraform state pull > state.json`
+2. Update each leaf's `versions.tf`: remove `cloud {}`, add `backend "..." {}`
+3. Run `terraform init -migrate-state` in each leaf
+4. Delete HCP workspaces after verifying state is intact

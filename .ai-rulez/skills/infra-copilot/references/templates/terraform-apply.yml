@@ -1,0 +1,105 @@
+# Terraform Apply workflow for object-storage backend mode
+# Copy to .github/workflows/terraform-apply.yml and customize for your setup
+name: Terraform Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - 'mise.toml'
+      - 'mise.lock'
+      - '.infra-copilot/config.md'
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_IN_AUTOMATION: true
+  TF_INPUT: false
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      cloudflare: ${{ steps.filter.outputs.cloudflare }}
+      github: ${{ steps.filter.outputs.github }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          base: HEAD~1
+          filters: |
+            cloudflare:
+              - 'terraform/cloudflare/**'
+              - 'terraform/modules/**'
+              - 'mise.toml'
+              - '.infra-copilot/config.md'
+            github:
+              - 'terraform/github/**'
+              - 'terraform/modules/**'
+              - 'mise.toml'
+              - '.infra-copilot/config.md'
+
+  apply-cloudflare:
+    needs: changes
+    if: needs.changes.outputs.cloudflare == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v4
+
+      # Authenticate to cloud provider for state access
+      # Uncomment and configure for your backend:
+      #
+      # GCS:
+      # - uses: google-github-actions/auth@v2
+      #   with:
+      #     workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      #     service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      #
+      # S3:
+      # - uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+      #     aws-region: us-east-1
+
+      - name: Terraform Init
+        working-directory: terraform/cloudflare
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: terraform/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: terraform apply -auto-approve
+
+  apply-github:
+    needs: changes
+    if: needs.changes.outputs.github == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v4
+
+      # Authenticate to cloud provider for state access (same as above)
+
+      - name: Terraform Init
+        working-directory: terraform/github
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: terraform/github
+        env:
+          GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
+          GITHUB_APP_INSTALLATION_ID: ${{ secrets.GH_APP_INSTALLATION_ID }}
+          GITHUB_APP_PEM_FILE: ${{ secrets.GH_APP_PEM }}
+        run: terraform apply -auto-approve

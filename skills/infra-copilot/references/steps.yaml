@@ -16,6 +16,8 @@
 #   why       what this unblocks (goes in the handoff block's "Why:")
 #   run       AGENT steps: the command(s) the agent runs
 #             HUMAN steps: the human_action text (browser instructions)
+#   when      optional shell condition. If present and evaluates false, skip this step.
+#             Use for backend-specific steps: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
 #   tri_state optional. `true` means this check reserves exit 2 for "could not verify"
 #             (see protocol.md). Absent/false: any non-zero exit is red, which is the
 #             default because ordinary tools use 2 for their own errors — jq exits 2 on
@@ -29,35 +31,58 @@
 # RUNNER SETUP — the fields below (org, hcp_api, …) are YAML metadata, NOT shell
 # variables. Before running any `check`/`run`, the agent MUST source the repo-local
 # config per config.md's Step 0: read .infra-copilot/config.md from the consuming
-# repo and export the vars every command below actually references:
-#     export ORG=<hcp_org>
+# repo and export the vars every command below actually references.
+#
+# Common vars (both modes):
+#     export BACKEND=<backend>  # hcp | object-storage (default: hcp if missing)
 #     export GITHUB_ORG=<github_org>
 #     export DOMAIN=<apex_domain>
 #     export CF_ACCOUNT_ID=<cloudflare_account_id>
 #     export CF_ZONE_ID=<cloudflare_zone_id>
 #     export REPO=<managed_repos[0]>
-#     export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
 #     export ADDITIONAL_PROVIDER_NAMES='<additional_providers names as compact JSON>'
+#     export ADDITIONAL_PROVIDER_MISE_TOOLS='<all entry.mise_tools flattened as compact JSON>'
+#     export INFRA_COPILOT_REFERENCES=<absolute path to references/ directory>
+#
+# HCP mode (backend: hcp or missing):
+#     export ORG=<hcp_org>
+#     export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
 #     export ADDITIONAL_PROVIDER_WORKSPACES='<additional_providers workspaces as compact JSON>'
 #     export hcp_api=https://app.terraform.io/api/v2
 #     export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
-# Phase 6 runs its inventory once, then instantiates the remaining steps per entry:
+#
+# Object-storage mode (backend: object-storage):
+#     export STATE_BACKEND=<state_backend>  # gcs | s3 | azurerm | ...
+#     export STATE_BUCKET=<state_bucket>
+#     export STATE_PREFIX=<state_prefix>
+#     export STATE_LOCK_TABLE=<state_lock_table>  # for S3
+#     export STATE_REGION=<state_region>  # for S3/azurerm
+#     export ADDITIONAL_PROVIDER_SECRETS='<additional_providers credential_secrets as compact JSON>'
+#
+# Steps with `when` conditions are skipped when the condition evaluates false.
+#
+# Phase 6 runs its inventory once, then instantiates the remaining steps per entry.
+# Common exports for both modes:
 #     export NEW_PROVIDER=<entry.name>
-#     export NEW_PROVIDER_WORKSPACE=<entry.workspace>
 #     export NEW_PROVIDER_MISE_TOOLS='<entry.mise_tools as compact JSON>'
 #     export NEW_PROVIDER_MISE_CONFIG_BLOB=<entry.mise_config_blob>
 #     export NEW_PROVIDER_MISE_LOCK_BLOB=<entry.mise_lock_blob>
+#     export NEW_PROVIDER_CREDENTIALS_VERIFIED_AT=<entry.credentials_verified_at>
 # The once-per-phase inventory also receives every declared provider tool:
 #     export ADDITIONAL_PROVIDER_MISE_TOOLS='<all entry.mise_tools flattened as compact JSON>'
+#
+# HCP mode Phase 6 exports:
+#     export NEW_PROVIDER_WORKSPACE=<entry.workspace>
 #     export NEW_PROVIDER_FORK_PLANS_DISABLED=<entry.fork_speculative_plans_disabled>
 #     export NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID=<entry.fork_speculative_plans_workspace_id>
-#     export NEW_PROVIDER_CREDENTIALS_VERIFIED_AT=<entry.credentials_verified_at>
 #     export NEW_PROVIDER_CREDENTIALS='<entry.credential_variables as compact JSON>'
+#
+# Object-storage mode Phase 6 exports:
+#     export NEW_PROVIDER_SECRETS='<entry.credential_secrets as compact JSON>'
 # Preflight exports TERRAFORM_VERSION from the validated repository pin before any
 # Phase 1 workspace check or run uses it.
 # Never guess or invent these values — if the config file is missing, treat it as a
 # HUMAN step per config.md. See the "Configuring for your org" section in SKILL.md.
-
 org: $ORG  # sourced from config — see config.md
 domain: $DOMAIN  # sourced from config — see config.md
 hcp_api: https://app.terraform.io/api/v2
@@ -155,7 +180,7 @@ preflight:
     check: "curl --version >/dev/null"   # system-provided; pinning it buys nothing
 
 steps:
-  # ── Phase 0 — HCP bootstrap ─────────────────────────────────────────────
+  # ── Phase 0 — Common bootstrap ──────────────────────────────────────────
   - id: toolchain-pin
     phase: 0
     provider: repo
@@ -220,10 +245,12 @@ steps:
     produces: committed repository literals synchronized from `.infra-copilot/config.md`
     docs: config.md
 
+  # ── Phase 0 — HCP bootstrap (backend: hcp only) ──────────────────────────
   - id: hcp-login
     phase: 0
     provider: hcp
     actor: HUMAN
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Sign up and terraform login (mint the pivot HCP token)
     why: This browser login yields the API token needed to verify the organization and drive every later API step.
     run: |
@@ -292,6 +319,7 @@ steps:
     phase: 0
     provider: hcp
     actor: HUMAN
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Create HCP Terraform org and project
     why: HCP holds all state and secrets; nothing plans without it.
     run: |
@@ -316,6 +344,7 @@ steps:
     phase: 0
     provider: hcp
     actor: AGENT
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Confirm HCP API reachable
     why: Gate — the rest of this skill is HCP API calls.
     run: |
@@ -328,11 +357,12 @@ steps:
     produces: verified API access
     docs: docs/state.md#api-access
 
-  # ── Phase 1 — HCP workspaces ────────────────────────────────────────────
+  # ── Phase 1 — HCP workspaces (backend: hcp only) ─────────────────────────
   - id: vcs-connect
     phase: 1
     provider: hcp
     actor: HUMAN
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Connect GitHub to HCP via OAuth
     why: Workspaces need a VCS provider to run speculative plans on PRs.
     run: |
@@ -442,6 +472,7 @@ steps:
     phase: 1
     provider: hcp
     actor: AGENT
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Create cloudflare + github-org workspaces
     why: One workspace per leaf; carries working dir, path filter, safety toggles.
     run: |
@@ -467,11 +498,223 @@ steps:
     produces: workspaces `cloudflare`, `github-org`
     docs: docs/state.md#workspaces
 
-  # ── Phase 2 — Cloudflare ────────────────────────────────────────────────
+  # ── Phase 0 — Object-storage bootstrap (backend: object-storage only) ───
+  - id: state-bucket
+    phase: 0
+    provider: repo
+    actor: HUMAN
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Create the state storage bucket
+    why: Terraform state needs a durable, versioned bucket before any init.
+    run: |
+      Create the bucket specified in config.md's `state_bucket` field. Requirements:
+      - Versioning enabled (state history for recovery)
+      - Private access only (state contains sensitive data)
+      - For GCS: native locking is automatic
+      - For S3: create a DynamoDB table for locking (record in `state_lock_table`)
+      - For azurerm: native locking is automatic
+
+      Example for GCS:
+        gcloud storage buckets create gs://$STATE_BUCKET \
+          --location=us --uniform-bucket-level-access --versioning
+
+      Example for S3:
+        aws s3api create-bucket --bucket $STATE_BUCKET --region $STATE_REGION
+        aws s3api put-bucket-versioning --bucket $STATE_BUCKET \
+          --versioning-configuration Status=Enabled
+        aws dynamodb create-table --table-name $STATE_LOCK_TABLE \
+          --attribute-definitions AttributeName=LockID,AttributeType=S \
+          --key-schema AttributeName=LockID,KeyType=HASH \
+          --billing-mode PAY_PER_REQUEST
+    check: |
+      case "$STATE_BACKEND" in
+        gcs)
+          gcloud storage buckets describe "gs://$STATE_BUCKET" --format='value(name)' 2>/dev/null \
+            | grep -Fxq "$STATE_BUCKET"
+          ;;
+        s3)
+          aws s3api head-bucket --bucket "$STATE_BUCKET" 2>/dev/null
+          ;;
+        azurerm)
+          az storage container show --name "$STATE_BUCKET" --query name -o tsv 2>/dev/null \
+            | grep -Fxq "$STATE_BUCKET"
+          ;;
+        *)
+          echo "Unsupported state backend: $STATE_BACKEND" >&2; exit 1
+          ;;
+      esac
+    produces: versioned, private state bucket
+    docs: docs/state.md#object-storage-backend
+
+  - id: backend-config
+    phase: 0
+    provider: repo
+    actor: AGENT
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Configure Terraform backend blocks
+    why: Each leaf needs a backend block pointing to the state bucket with a unique key.
+    run: |
+      For each terraform/<leaf>, create a backend.tf with:
+        terraform {
+          backend "<state_backend>" {
+            bucket = "<state_bucket>"
+            prefix = "<state_prefix>/<leaf>"  # or key for S3
+          }
+        }
+      The prefix/key ensures each leaf has isolated state within the shared bucket.
+    check: |
+      for leaf in terraform/cloudflare terraform/github; do
+        test -d "$leaf" || continue
+        grep -q "backend \"$STATE_BACKEND\"" "$leaf"/*.tf 2>/dev/null || exit 1
+      done
+    produces: backend blocks in each Terraform leaf
+    docs: docs/state.md#object-storage-backend
+
+  # ── Phase 1 — GitHub Actions CI (backend: object-storage only) ──────────
+  - id: gha-workflows
+    phase: 1
+    provider: github
+    actor: AGENT
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Create GitHub Actions workflows for plan and apply
+    why: CI replaces HCP's VCS integration — plan on PR, apply on merge.
+    run: |
+      Create .github/workflows/terraform-plan.yml:
+        - Triggers on pull_request to paths terraform/**
+        - Runs init + plan for each changed leaf
+        - Posts plan output as PR comment
+
+      Create .github/workflows/terraform-apply.yml:
+        - Triggers on push to main for paths terraform/**
+        - Requires environment approval (e.g., "production")
+        - Applies changes for each changed leaf
+    check: |
+      test -f .github/workflows/terraform-plan.yml || exit 1
+      test -f .github/workflows/terraform-apply.yml || exit 1
+      git ls-files --error-unmatch \
+        .github/workflows/terraform-plan.yml \
+        .github/workflows/terraform-apply.yml >/dev/null 2>&1
+    produces: GitHub Actions workflows for Terraform CI
+    docs: docs/ci.md#github-actions
+
+  - id: gha-environments
+    phase: 1
+    provider: github
+    actor: HUMAN
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Configure GitHub Environments for apply approval
+    why: Environments gate applies behind human approval, replacing HCP's confirm button.
+    run: |
+      1. Go to repo Settings -> Environments
+      2. Create an environment named "production" (or per your convention)
+      3. Enable "Required reviewers" and add appropriate approvers
+      4. The terraform-apply workflow references this environment
+    check: |
+      gh api "repos/$REPO/environments/production" --silent 2>/dev/null
+    produces: GitHub Environment with required reviewers
+    docs: docs/ci.md#github-actions
+
+  # ── Phase 2 — Cloudflare credentials (backend: object-storage) ──────────
+  - id: cf-token-gha
+    phase: 2
+    provider: cloudflare
+    actor: HUMAN
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Mint Cloudflare token and add as GitHub Actions secret
+    why: The Terraform workflow authenticates to Cloudflare with this token.
+    run: |
+      1. https://dash.cloudflare.com/profile/api-tokens -> Create Token -> Custom token.
+      2. Permissions: Zone·DNS·Edit, Zone·Zone Settings·Edit  (add more as resources grow).
+      3. Account Resources: your account. Zone Resources: Specific zone -> <apex-domain>.
+      4. Copy the token (shown once).
+      5. Repo Settings -> Secrets and variables -> Actions -> New repository secret:
+         Name: CLOUDFLARE_API_TOKEN, paste the value.
+    check: |
+      gh secret list --json name -q '.[].name' 2>/dev/null \
+        | grep -Fxq 'CLOUDFLARE_API_TOKEN'
+    produces: GitHub Actions secret `CLOUDFLARE_API_TOKEN`
+    docs: cloudflare.md
+
+  # ── Phase 3 — GitHub App credentials (backend: object-storage) ──────────
+  - id: gh-app-gha
+    phase: 3
+    provider: github
+    actor: HUMAN
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Create + install GitHub App, add creds as GitHub Actions secrets
+    why: The github-org workflow authenticates as a GitHub App (not a PAT).
+    run: |
+      1. Create the App under your org: https://github.com/organizations/<your-org>/settings/apps/new
+         Permissions: Repo Administration(RW), Contents(R), Metadata(R), Pull requests(RW);
+         Org Members(R), Administration(RW). Install: only on this account.
+      2. Note the App ID. Generate a private key (.pem).
+      3. Install on your org scoped to the repos in managed_repos (see config.md);
+         note the Installation ID from the install URL.
+      4. Repo Settings -> Secrets and variables -> Actions, add secrets:
+         GH_APP_ID, GH_APP_INSTALLATION_ID, GH_APP_PEM (full PEM incl. BEGIN/END lines)
+    check: |
+      secrets=$(gh secret list --json name -q '.[].name' 2>/dev/null)
+      echo "$secrets" | grep -Fxq 'GH_APP_ID' || exit 1
+      echo "$secrets" | grep -Fxq 'GH_APP_INSTALLATION_ID' || exit 1
+      echo "$secrets" | grep -Fxq 'GH_APP_PEM'
+    produces: GitHub Actions secrets for GitHub App authentication
+    docs: github.md
+
+  # ── Phase 4 — First plan (backend: object-storage) ──────────────────────
+  - id: plan-cloudflare-gha
+    phase: 4
+    provider: cloudflare
+    actor: AGENT
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: init + plan (terraform/cloudflare)
+    why: Proves the Cloudflare token and backend configuration end-to-end.
+    run: "cd terraform/cloudflare && terraform init && terraform plan"
+    check: "cd terraform/cloudflare && terraform init -input=false >/dev/null && terraform plan -input=false >/dev/null"
+    produces: green plan for cloudflare
+    docs: docs/state.md#object-storage-backend
+
+  - id: plan-github-gha
+    phase: 4
+    provider: github
+    actor: AGENT
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: init + plan (terraform/github)
+    why: Proves the GitHub App credentials and backend configuration end-to-end.
+    run: "cd terraform/github && terraform init && terraform plan"
+    check: "cd terraform/github && terraform init -input=false >/dev/null && terraform plan -input=false >/dev/null"
+    produces: green plan for github-org
+    docs: docs/state.md#object-storage-backend
+
+  - id: status-check-gha
+    phase: 4
+    provider: github
+    actor: AGENT
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Required status checks match GitHub Actions job names
+    why: Branch protection must reference the actual job names from the workflows.
+    run: |
+      Read the job names from .github/workflows/terraform-plan.yml, then in
+      terraform/github/branch_protection.tf ensure required_status_checks
+      includes those job names.
+    check: |
+      # Extract job names from workflow
+      jobs=$(grep -E '^\s+[a-z_-]+:$' .github/workflows/terraform-plan.yml \
+        | sed 's/://g' | tr -d ' ' | grep -v '^$' || true)
+      test -n "$jobs" || exit 1
+      # Verify at least one is in branch protection
+      for job in $jobs; do
+        grep -q "$job" terraform/github/branch_protection.tf && exit 0
+      done
+      exit 1
+    produces: branch protection references GitHub Actions job names
+    docs: docs/ci.md#github-actions
+
+  # ── Phase 2 — Cloudflare credentials (backend: hcp) ──────────────────────
   - id: cf-token
     phase: 2
     provider: cloudflare
     actor: HUMAN
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Mint Cloudflare token and paste into HCP
     why: The cloudflare workspace authenticates to Cloudflare with this token.
     run: |
@@ -490,11 +733,12 @@ steps:
     produces: sensitive var `cloudflare_api_token`
     docs: cloudflare.md
 
-  # ── Phase 3 — GitHub App ────────────────────────────────────────────────
+  # ── Phase 3 — GitHub App credentials (backend: hcp) ──────────────────────
   - id: gh-app
     phase: 3
     provider: github
     actor: HUMAN
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Create + install GitHub App, paste creds into HCP
     why: The github-org workspace authenticates as a GitHub App (not a PAT).
     run: |
@@ -519,11 +763,12 @@ steps:
     produces: sensitive vars github_app_id / _installation_id / _pem, plus github_owner
     docs: github.md
 
-  # ── Phase 4 — First plan ────────────────────────────────────────────────
+  # ── Phase 4 — First plan (backend: hcp) ──────────────────────────────────
   - id: hcp-apply-scope
     phase: 4
     provider: hcp
     actor: HUMAN
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: The HCP credential this repo uses cannot apply
     why: >-
       docs/policy.md works through every host-level permission control and finds
@@ -603,6 +848,7 @@ steps:
     phase: 4
     provider: cloudflare
     actor: AGENT
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: init + speculative plan (terraform/cloudflare)
     why: Proves the Cloudflare token end-to-end.
     run: "cd terraform/cloudflare && terraform init && terraform plan"
@@ -614,6 +860,7 @@ steps:
     phase: 4
     provider: github
     actor: AGENT
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: init + speculative plan (terraform/github)
     why: Proves the GitHub App credentials end-to-end.
     run: "cd terraform/github && terraform init && terraform plan"
@@ -625,6 +872,7 @@ steps:
     phase: 4
     provider: github
     actor: AGENT
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Required status check context matches what HCP publishes
     why: >-
       A required context HCP no longer posts blocks every PR on
@@ -692,22 +940,27 @@ steps:
     run: |
       For every terraform/<leaf> other than cloudflare and github, add a matching
       `additional_providers` entry to .infra-copilot/config.md. Record the decision
-      and credential-variable inventory there; never delete an entry to hide red state.
+      and credential inventory there; never delete an entry to hide red state.
     check: |
-      jq -ne --argjson names "$ADDITIONAL_PROVIDER_NAMES" \
-        --argjson workspaces "$ADDITIONAL_PROVIDER_WORKSPACES" '
-          ($names | type == "array"
-            and all(.[]; type == "string" and test("^[a-z0-9][a-z0-9-]*$"))
-            and length == (unique | length)
-            and index("cloudflare") == null
-            and index("github") == null
-            and index("modules") == null)
-          and ($workspaces | type == "array"
-            and all(.[]; type == "string" and test("^[a-z0-9][a-z0-9-]*$"))
-            and length == (unique | length)
-            and index("cloudflare") == null
-            and index("github-org") == null)
-          and ($names | length) == ($workspaces | length)' >/dev/null || exit 1
+      # Validate provider names (common to both modes)
+      jq -ne --argjson names "$ADDITIONAL_PROVIDER_NAMES" '
+        $names | type == "array"
+          and all(.[]; type == "string" and test("^[a-z0-9][a-z0-9-]*$"))
+          and length == (unique | length)
+          and index("cloudflare") == null
+          and index("github") == null
+          and index("modules") == null' >/dev/null || exit 1
+      # HCP mode: also validate workspaces
+      if [ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]; then
+        jq -ne --argjson names "$ADDITIONAL_PROVIDER_NAMES" \
+          --argjson workspaces "$ADDITIONAL_PROVIDER_WORKSPACES" '
+            ($workspaces | type == "array"
+              and all(.[]; type == "string" and test("^[a-z0-9][a-z0-9-]*$"))
+              and length == (unique | length)
+              and index("cloudflare") == null
+              and index("github-org") == null)
+            and ($names | length) == ($workspaces | length)' >/dev/null || exit 1
+      fi
       declared_tools=$(printf '%s' "${ADDITIONAL_PROVIDER_MISE_TOOLS:-[]}" | jq -ce '
         select(type == "array")
         | select(all(.[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:/+-]*$")))
@@ -839,33 +1092,38 @@ steps:
     provider: repo
     actor: AGENT
     title: Create the new Terraform leaf
-    why: The workspace and plan need committed provider configuration to target.
+    why: The backend and plan need committed provider configuration to target.
     run: |
-      Create terraform/$NEW_PROVIDER with its
-      versions, provider, and initial resource configuration. Its cloud block must
-      select workspace $NEW_PROVIDER_WORKSPACE by name. Do not create resources
-      before new-provider-decision is green. If the provider runbook requires a new
-      CLI, add `# infra-copilot:provider-cli <key>` immediately before its exact
-      same-name mise pin and refresh the lock, but do not execute the CLI or
-      any later runbook commands until new-provider-toolchain is green. Commit the
-      completed leaf, including the provider selections written to
-      `.terraform.lock.hcl` by `terraform init -backend=false`, before re-running
-      this check; untracked or dirty leaf files are red.
+      Create terraform/$NEW_PROVIDER with its versions, provider, and initial resource
+      configuration. Do not create resources before new-provider-decision is green.
+      - HCP mode: Its cloud block must select workspace $NEW_PROVIDER_WORKSPACE by name.
+      - Object-storage mode: Its backend block must point to $STATE_BUCKET with a unique prefix.
+      If the provider runbook requires a new CLI, add `# infra-copilot:provider-cli <key>`
+      immediately before its exact same-name mise pin and refresh the lock, but
+      do not execute the CLI or any later runbook commands until new-provider-toolchain is green.
+      Commit the completed leaf, including the provider selections written to
+      `.terraform.lock.hcl` by `terraform init -backend=false`, before re-running this check.
     check: |
       test -d "terraform/$NEW_PROVIDER" || exit 1
-      settings=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" \
-        "terraform/$NEW_PROVIDER" all)
-      printf '%s\n' "$settings" | grep -Fx "workspaces.name=$NEW_PROVIDER_WORKSPACE" >/dev/null \
-        || exit 1
-      printf '%s\n' "$settings" | grep -Fx "organization=$ORG" >/dev/null || exit 1
-      hostname=$(printf '%s\n' "$settings" | sed -n 's/^hostname=//p' | head -1)
-      case "$hostname" in ""|app.terraform.io) : ;; *) exit 1 ;; esac
+      if [ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]; then
+        # HCP mode: verify cloud block
+        settings=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" \
+          "terraform/$NEW_PROVIDER" all)
+        printf '%s\n' "$settings" | grep -Fx "workspaces.name=$NEW_PROVIDER_WORKSPACE" >/dev/null \
+          || exit 1
+        printf '%s\n' "$settings" | grep -Fx "organization=$ORG" >/dev/null || exit 1
+        hostname=$(printf '%s\n' "$settings" | sed -n 's/^hostname=//p' | head -1)
+        case "$hostname" in ""|app.terraform.io) : ;; *) exit 1 ;; esac
+      else
+        # Object-storage mode: verify backend block
+        grep -q "backend \"$STATE_BACKEND\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+      fi
       git ls-files "terraform/$NEW_PROVIDER/*.tf" \
         "terraform/$NEW_PROVIDER/*.tf.json" | grep -q . || exit 1
       git ls-files --error-unmatch \
         "terraform/$NEW_PROVIDER/.terraform.lock.hcl" >/dev/null 2>&1 || exit 1
       test -z "$(git --no-optional-locks status --porcelain -- "terraform/$NEW_PROVIDER")"
-    produces: terraform/$NEW_PROVIDER leaf targeting $NEW_PROVIDER_WORKSPACE
+    produces: terraform/$NEW_PROVIDER leaf with appropriate backend configuration
     docs: protocol.md#resume-protocol
 
   - id: new-provider-toolchain
@@ -957,6 +1215,7 @@ steps:
     phase: 6
     provider: hcp
     actor: HUMAN
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Create the workspace and make it visible to the plan-only team
     why: A missing or invisible workspace is expected setup work, not an unverifiable terminal state.
     run: |
@@ -989,6 +1248,7 @@ steps:
     phase: 6
     provider: hcp
     actor: HUMAN
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Create and safely configure the new HCP workspace
     why: The leaf needs a remote, VCS-backed workspace with path-scoped plans and auto-apply disabled.
     run: |
@@ -1040,6 +1300,7 @@ steps:
     phase: 6
     provider: hcp
     actor: HUMAN
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Verify the plan-only team has Plan access and nothing stronger
     why: Workspace visibility alone does not prove that the credential can plan without applying or reconfiguring workspaces.
     run: |
@@ -1056,6 +1317,7 @@ steps:
     phase: 6
     provider: hcp
     actor: HUMAN
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Confirm fork speculative plans are disabled before adding credentials
     why: The fork-specific UI toggle can expose sensitive workspace variables to untrusted fork code.
     run: |
@@ -1085,6 +1347,7 @@ steps:
     phase: 6
     provider: hcp
     actor: HUMAN
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Put the provider credential configuration in HCP
     why: The first plan must authenticate without exposing credential values to the agent or repository.
     run: |
@@ -1161,6 +1424,7 @@ steps:
     phase: 6
     provider: repo
     actor: AGENT
+    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
     title: Run the first plan on the new leaf
     why: This proves the leaf, workspace access, and provider credentials end to end.
     run: |
@@ -1183,3 +1447,83 @@ steps:
     check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh"
     produces: safe green plan, or a safe no-create plan after the adoption has applied resources
     docs: docs/hcp-api.md
+
+  # ── Phase 6 — additional providers (object-storage mode) ────────────────
+  - id: new-provider-secrets-gha
+    phase: 6
+    provider: github
+    actor: HUMAN
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Add the provider credentials as GitHub Actions secrets
+    why: The workflow must authenticate to the provider without exposing credentials.
+    run: |
+      Mint or configure the provider's least-privilege credential as its runbook requires.
+      Go to repo Settings -> Secrets and variables -> Actions and add each secret from
+      the NEW_PROVIDER_SECRETS inventory. After all secrets are installed, record the
+      current UTC time as `credentials_verified_at` in config.md using strict
+      `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and reply `done`.
+    check: |
+      secrets=$(gh secret list --json name -q '.[].name' 2>/dev/null) || exit 1
+      printf '%s' "$NEW_PROVIDER_SECRETS" | jq -r '.[] | select(.required == true) | .name' |
+        while IFS= read -r name; do
+          test -z "$name" && continue
+          echo "$secrets" | grep -Fxq "$name" || exit 1
+        done || exit 1
+      printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \
+        | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' || exit 1
+      printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" | jq -Re '
+        . as $raw
+        | (try fromdateiso8601 catch null) as $epoch
+        | ($epoch != null)
+          and (($epoch | strftime("%Y-%m-%dT%H:%M:%SZ")) == $raw)
+          and ($epoch <= now)' >/dev/null || exit 1
+      git ls-files --error-unmatch .infra-copilot/config.md >/dev/null 2>&1 || exit 1
+      git diff --quiet HEAD -- .infra-copilot/config.md || exit 1
+      git diff --cached --quiet HEAD -- .infra-copilot/config.md
+    produces: GitHub Actions secrets for provider authentication
+    docs: docs/ci.md#github-actions
+
+  - id: new-provider-workflow-gha
+    phase: 6
+    provider: github
+    actor: AGENT
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Update GitHub Actions workflows for the new provider
+    why: The plan and apply workflows must include the new leaf.
+    run: |
+      Update .github/workflows/terraform-plan.yml and terraform-apply.yml to:
+      1. Add a path filter for terraform/$NEW_PROVIDER/**
+      2. Add plan/apply jobs for the new leaf
+      3. Pass the required secrets from NEW_PROVIDER_SECRETS as environment variables
+      Commit the updated workflows before re-running this check.
+    check: |
+      test -f .github/workflows/terraform-plan.yml || exit 1
+      test -f .github/workflows/terraform-apply.yml || exit 1
+      grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-plan.yml || exit 1
+      grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-apply.yml || exit 1
+      git ls-files --error-unmatch \
+        .github/workflows/terraform-plan.yml \
+        .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
+      git diff --quiet HEAD -- .github/workflows/terraform-plan.yml \
+        .github/workflows/terraform-apply.yml || exit 1
+    produces: GitHub Actions workflows updated for new provider
+    docs: docs/ci.md#github-actions
+
+  - id: new-provider-plan-gha
+    phase: 6
+    provider: repo
+    actor: AGENT
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Run the first plan on the new leaf
+    why: This proves the leaf, backend, and provider credentials end to end.
+    run: |
+      Run terraform init and plan locally in terraform/$NEW_PROVIDER. This verifies:
+      - The backend configuration is correct
+      - The provider credentials are accessible
+      - The initial configuration is valid
+    check: |
+      cd "terraform/$NEW_PROVIDER" || exit 1
+      terraform init -input=false >/dev/null 2>&1 || exit 1
+      terraform plan -input=false >/dev/null 2>&1
+    produces: green plan for new provider leaf
+    docs: docs/state.md#object-storage-backend

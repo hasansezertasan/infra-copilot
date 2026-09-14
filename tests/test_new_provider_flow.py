@@ -57,17 +57,23 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertEqual(
             list(self.steps),
             [
+                # Common steps (both modes)
                 "new-provider-inventory",
                 "new-provider-decision",
                 "new-provider-leaf",
                 "new-provider-toolchain",
                 "new-provider-lock",
+                # HCP mode steps
                 "new-provider-workspace-bootstrap",
                 "new-provider-workspace",
                 "new-provider-plan-access",
                 "new-provider-fork-safety",
                 "new-provider-credentials",
                 "new-provider-plan",
+                # Object-storage mode steps
+                "new-provider-secrets-gha",
+                "new-provider-workflow-gha",
+                "new-provider-plan-gha",
             ],
         )
         for name, step in self.steps.items():

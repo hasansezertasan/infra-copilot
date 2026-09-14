@@ -1,0 +1,196 @@
+# Terraform Plan workflow for object-storage backend mode
+# Copy to .github/workflows/terraform-plan.yml and customize for your setup
+name: Terraform Plan
+
+on:
+  pull_request:
+    paths:
+      - 'terraform/**'
+      - 'mise.toml'
+      - 'mise.lock'
+      - '.infra-copilot/config.md'
+      - '.github/workflows/terraform-*.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+env:
+  TF_IN_AUTOMATION: true
+  TF_INPUT: false
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      cloudflare: ${{ steps.filter.outputs.cloudflare }}
+      github: ${{ steps.filter.outputs.github }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            cloudflare:
+              - 'terraform/cloudflare/**'
+              - 'terraform/modules/**'
+              - 'mise.toml'
+              - '.infra-copilot/config.md'
+            github:
+              - 'terraform/github/**'
+              - 'terraform/modules/**'
+              - 'mise.toml'
+              - '.infra-copilot/config.md'
+
+  plan-cloudflare:
+    needs: changes
+    if: needs.changes.outputs.cloudflare == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v4
+
+      # Authenticate to cloud provider for state access
+      # Uncomment and configure for your backend:
+      #
+      # GCS:
+      # - uses: google-github-actions/auth@v2
+      #   with:
+      #     workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      #     service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      #
+      # S3:
+      # - uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+      #     aws-region: us-east-1
+
+      - name: Terraform Init
+        working-directory: terraform/cloudflare
+        run: terraform init
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: terraform/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          terraform plan -no-color -out=tfplan 2>&1 | tee plan.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Post Plan to PR
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('terraform/cloudflare/plan.txt', 'utf8');
+            const maxLength = 65000;
+            const truncated = plan.length > maxLength
+              ? plan.substring(0, maxLength) + '\n\n... (truncated)'
+              : plan;
+
+            const body = `### Terraform Plan: \`cloudflare\`
+
+            <details>
+            <summary>Show Plan</summary>
+
+            \`\`\`
+            ${truncated}
+            \`\`\`
+            </details>`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Check Plan Status
+        if: steps.plan.outputs.exitcode != '0'
+        run: exit 1
+
+  plan-github:
+    needs: changes
+    if: needs.changes.outputs.github == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v4
+
+      # Authenticate to cloud provider for state access (same as above)
+
+      - name: Terraform Init
+        working-directory: terraform/github
+        run: terraform init
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: terraform/github
+        env:
+          GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
+          GITHUB_APP_INSTALLATION_ID: ${{ secrets.GH_APP_INSTALLATION_ID }}
+          GITHUB_APP_PEM_FILE: ${{ secrets.GH_APP_PEM }}
+        run: |
+          terraform plan -no-color -out=tfplan 2>&1 | tee plan.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Post Plan to PR
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('terraform/github/plan.txt', 'utf8');
+            const maxLength = 65000;
+            const truncated = plan.length > maxLength
+              ? plan.substring(0, maxLength) + '\n\n... (truncated)'
+              : plan;
+
+            const body = `### Terraform Plan: \`github\`
+
+            <details>
+            <summary>Show Plan</summary>
+
+            \`\`\`
+            ${truncated}
+            \`\`\`
+            </details>`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Check Plan Status
+        if: steps.plan.outputs.exitcode != '0'
+        run: exit 1
+
+  # Validation jobs run for all PRs including forks (no secrets needed)
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        leaf: [cloudflare, github]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v4
+
+      - name: Terraform Format
+        run: terraform fmt -check -recursive terraform/
+
+      - name: Terraform Init (no backend)
+        working-directory: terraform/${{ matrix.leaf }}
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        working-directory: terraform/${{ matrix.leaf }}
+        run: terraform validate
