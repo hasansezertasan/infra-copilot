@@ -164,7 +164,10 @@ Before running ANY step's `check` or `run`, the agent MUST:
    [`config.md.example`](config.md.example), and wait. Never guess values.
    If the file is **present**, a re-scaffold must respect its customization markers —
    see [Re-scaffolding an existing config](#re-scaffolding-an-existing-config).
-4. If present, export the shell vars the checks reference. First, common vars for both modes:
+4. If present, validate `backend` is either `hcp` or `object-storage`. If `backend` is missing,
+   default it to `hcp`. If `backend` is set to any other value, pause and handoff: emit the
+   handoff block explaining that `backend` must be `hcp` or `object-storage`. Never guess values.
+   Then export the shell vars the checks reference. First, common vars for both modes:
 
    ```sh
    export BACKEND=<backend>  # hcp | object-storage (default: hcp if missing)
@@ -181,6 +184,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    Then, mode-specific vars:
 
    **HCP mode** (`backend: hcp` or missing):
+
    ```sh
    export ORG=<hcp_org>
    export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
@@ -193,12 +197,13 @@ Before running ANY step's `check` or `run`, the agent MUST:
    ```
 
    **Object-storage mode** (`backend: object-storage`):
+
    ```sh
-   export STATE_BACKEND=<state_backend>      # gcs | s3 | azurerm | cos | ...
+   export STATE_BACKEND=<state_backend>      # gcs | s3 | azurerm
    export STATE_BUCKET=<state_bucket>
    export STATE_PREFIX=<state_prefix>        # default: terraform/state
    export STATE_LOCK_TABLE=<state_lock_table>  # for S3; empty for GCS/azurerm
-   export STATE_REGION=<state_region>        # for S3/azurerm; empty for GCS
+   export STATE_REGION=<state_region>        # for S3; empty for GCS/azurerm
    export ADDITIONAL_PROVIDER_SECRETS='<additional_providers credential_secrets as compact JSON>'
    ```
 
@@ -224,6 +229,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    Plus mode-specific vars:
 
    **HCP mode:**
+
    ```sh
    export NEW_PROVIDER_WORKSPACE=<entry.workspace>
    export NEW_PROVIDER_FORK_PLANS_DISABLED=<entry.fork_speculative_plans_disabled>
@@ -232,6 +238,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    ```
 
    **Object-storage mode:**
+
    ```sh
    export NEW_PROVIDER_SECRETS='<entry.credential_secrets as compact JSON>'
    ```

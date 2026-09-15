@@ -12,11 +12,11 @@ hcp_org: your-org
 hcp_status_check_id: ""
 
 # ── Object-storage mode fields (when backend: object-storage) ────────────────
-# state_backend: gcs           # gcs | s3 | azurerm | cos | oss | ...
+# state_backend: gcs           # gcs | s3 | azurerm
 # state_bucket: your-org-tf-state
 # state_prefix: terraform/state
 # state_lock_table: ""         # DynamoDB table for S3; GCS/azurerm have native locking
-# state_region: ""             # for S3/azurerm; GCS uses bucket location
+# state_region: ""             # for S3; GCS/azurerm do not use this in backend blocks
 
 additional_providers: []
 # Replace [] when adopting a provider.

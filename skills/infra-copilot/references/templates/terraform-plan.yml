@@ -4,12 +4,7 @@ name: Terraform Plan
 
 on:
   pull_request:
-    paths:
-      - 'terraform/**'
-      - 'mise.toml'
-      - 'mise.lock'
-      - '.infra-copilot/config.md'
-      - '.github/workflows/terraform-*.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -45,7 +40,7 @@ jobs:
 
   plan-cloudflare:
     needs: changes
-    if: needs.changes.outputs.cloudflare == 'true'
+    if: needs.changes.outputs.cloudflare == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,6 +61,13 @@ jobs:
       #   with:
       #     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
       #     aws-region: us-east-1
+      #
+      # Azure:
+      # - uses: azure/login@v2
+      #   with:
+      #     client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      #     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      #     subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Terraform Init
         working-directory: terraform/cloudflare
@@ -76,6 +78,7 @@ jobs:
         working-directory: terraform/cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           terraform plan -no-color -out=tfplan 2>&1 | tee plan.txt
           echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
@@ -116,7 +119,7 @@ jobs:
 
   plan-github:
     needs: changes
-    if: needs.changes.outputs.github == 'true'
+    if: needs.changes.outputs.github == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -136,6 +139,10 @@ jobs:
           GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
           GITHUB_APP_INSTALLATION_ID: ${{ secrets.GH_APP_INSTALLATION_ID }}
           GITHUB_APP_PEM_FILE: ${{ secrets.GH_APP_PEM }}
+          TF_VAR_github_app_id: ${{ secrets.GH_APP_ID }}
+          TF_VAR_github_app_installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+          TF_VAR_github_app_pem: ${{ secrets.GH_APP_PEM }}
+          TF_VAR_github_owner: ${{ vars.GITHUB_ORG || github.repository_owner }}
         run: |
           terraform plan -no-color -out=tfplan 2>&1 | tee plan.txt
           echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
@@ -194,3 +201,18 @@ jobs:
       - name: Terraform Validate
         working-directory: terraform/${{ matrix.leaf }}
         run: terraform validate
+
+  # Aggregate status check for branch protection
+  plan:
+    needs: [changes, plan-cloudflare, plan-github, validate]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate prerequisite job statuses
+        run: |
+          failures=$(echo '${{ toJson(needs) }}' | jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key')
+          if [ -n "$failures" ]; then
+            echo "Prerequisite job(s) failed or cancelled: $failures"
+            exit 1
+          fi
+          echo "All plan and validation checks passed or were skipped as expected."

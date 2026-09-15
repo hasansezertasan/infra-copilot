@@ -174,7 +174,7 @@ If anything looks off, decline the label and ask for changes.
 
 ---
 
-# GitHub Actions
+## GitHub Actions
 
 When `backend: object-storage` is set in [`../config.md`](../config.md), CI runs entirely in GitHub Actions instead of HCP's VCS integration. This section documents that mode.
 
@@ -212,9 +212,10 @@ This replaces HCP's "confirm apply" button. An apply waits for environment appro
 
 ### Cloud provider (GCS/S3/Azure)
 
-Use Workload Identity Federation — no stored credentials:
+Use Workload Identity Federation / OIDC — no stored credentials:
 
 **GCS:**
+
 ```yaml
 - uses: google-github-actions/auth@v2
   with:
@@ -223,11 +224,22 @@ Use Workload Identity Federation — no stored credentials:
 ```
 
 **AWS:**
+
 ```yaml
 - uses: aws-actions/configure-aws-credentials@v4
   with:
     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
     aws-region: us-east-1
+```
+
+**Azure:**
+
+```yaml
+- uses: azure/login@v2
+  with:
+    client-id: ${{ secrets.AZURE_CLIENT_ID }}
+    tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+    subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 ```
 
 ### Terraform providers
@@ -250,10 +262,9 @@ Required status checks reference GitHub Actions job names, not HCP contexts:
 required_status_checks {
   strict = true
   contexts = [
-    "terraform fmt",
-    "terraform validate (terraform/cloudflare)",
-    "terraform validate (terraform/github)",
-    "plan"  # from terraform-plan.yml
+    "validate (cloudflare)",
+    "validate (github)",
+    "plan"  # aggregate plan check from terraform-plan.yml
   ]
 }
 ```

@@ -239,9 +239,11 @@ steps:
       git ls-files --error-unmatch .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf >/dev/null 2>&1 &&
       git diff --quiet HEAD -- .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf &&
       git diff --cached --quiet HEAD -- .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf &&
-      for config_file in terraform/cloudflare/versions.tf terraform/github/versions.tf; do
-      test -f "$config_file" && grep -Eq "^[[:space:]]*organization[[:space:]]*=[[:space:]]*\"$ORG\"[[:space:]]*$" "$config_file" || exit 1;
-      done
+      if [ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]; then
+        for config_file in terraform/cloudflare/versions.tf terraform/github/versions.tf; do
+          test -f "$config_file" && grep -Eq "^[[:space:]]*organization[[:space:]]*=[[:space:]]*\"$ORG\"[[:space:]]*$" "$config_file" || exit 1;
+        done
+      fi
     produces: committed repository literals synchronized from `.infra-copilot/config.md`
     docs: config.md
 
@@ -520,9 +522,9 @@ steps:
 
       Example for S3:
         aws s3api create-bucket --bucket $STATE_BUCKET --region $STATE_REGION
-        aws s3api put-bucket-versioning --bucket $STATE_BUCKET \
+        aws s3api put-bucket-versioning --bucket "$STATE_BUCKET" \
           --versioning-configuration Status=Enabled
-        aws dynamodb create-table --table-name $STATE_LOCK_TABLE \
+        aws dynamodb create-table --table-name "$STATE_LOCK_TABLE" \
           --attribute-definitions AttributeName=LockID,AttributeType=S \
           --key-schema AttributeName=LockID,KeyType=HASH \
           --billing-mode PAY_PER_REQUEST
@@ -530,14 +532,27 @@ steps:
       case "$STATE_BACKEND" in
         gcs)
           gcloud storage buckets describe "gs://$STATE_BUCKET" --format='value(name)' 2>/dev/null \
-            | grep -Fxq "$STATE_BUCKET"
+            | grep -Fxq "$STATE_BUCKET" || exit 1
+          gcloud storage buckets describe "gs://$STATE_BUCKET" \
+            --format='value(iamConfiguration.uniformBucketLevelAccess.enabled)' 2>/dev/null \
+            | grep -Fxq "True"
           ;;
         s3)
-          aws s3api head-bucket --bucket "$STATE_BUCKET" 2>/dev/null
+          aws s3api head-bucket --bucket "$STATE_BUCKET" 2>/dev/null || exit 1
+          aws s3api get-bucket-versioning --bucket "$STATE_BUCKET" --query "Status" -o text 2>/dev/null \
+            | grep -Fxq "Enabled" || exit 1
+          if [ -n "$STATE_LOCK_TABLE" ]; then
+            aws dynamodb describe-table --table-name "$STATE_LOCK_TABLE" --query "Table.TableStatus" -o text 2>/dev/null \
+              | grep -Fxq "ACTIVE" || exit 1
+          fi
+          aws s3api get-public-access-block --bucket "$STATE_BUCKET" 2>/dev/null \
+            | grep -q '"BlockPublicAcls": true'
           ;;
         azurerm)
           az storage container show --name "$STATE_BUCKET" --query name -o tsv 2>/dev/null \
-            | grep -Fxq "$STATE_BUCKET"
+            | grep -Fxq "$STATE_BUCKET" || exit 1
+          az storage container show --name "$STATE_BUCKET" --query "properties.publicAccess" -o tsv 2>/dev/null \
+            | grep -Eq '^(null|None)?$'
           ;;
         *)
           echo "Unsupported state backend: $STATE_BACKEND" >&2; exit 1
@@ -566,6 +581,9 @@ steps:
       for leaf in terraform/cloudflare terraform/github; do
         test -d "$leaf" || continue
         grep -q "backend \"$STATE_BACKEND\"" "$leaf"/*.tf 2>/dev/null || exit 1
+        grep -q "$STATE_BUCKET" "$leaf"/*.tf 2>/dev/null || exit 1
+        leaf_name=$(basename "$leaf")
+        grep -E "(prefix|key)[[:space:]]*=[[:space:]]*\"[^\"]*$leaf_name" "$leaf"/*.tf 2>/dev/null || exit 1
       done
     produces: backend blocks in each Terraform leaf
     docs: docs/state.md#object-storage-backend
@@ -580,20 +598,28 @@ steps:
     why: CI replaces HCP's VCS integration — plan on PR, apply on merge.
     run: |
       Create .github/workflows/terraform-plan.yml:
-        - Triggers on pull_request to paths terraform/**
+        - Triggers on pull_request (and optional workflow_dispatch)
         - Runs init + plan for each changed leaf
+        - Configures state-backend authentication for $STATE_BACKEND (GCS Workload Identity, AWS assume-role, or Azure login)
         - Posts plan output as PR comment
+        - Emits aggregate plan check
 
       Create .github/workflows/terraform-apply.yml:
         - Triggers on push to main for paths terraform/**
-        - Requires environment approval (e.g., "production")
+        - Requires environment approval ("production")
+        - Concurrency group serialized per state
         - Applies changes for each changed leaf
     check: |
       test -f .github/workflows/terraform-plan.yml || exit 1
       test -f .github/workflows/terraform-apply.yml || exit 1
       git ls-files --error-unmatch \
         .github/workflows/terraform-plan.yml \
-        .github/workflows/terraform-apply.yml >/dev/null 2>&1
+        .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
+      grep -q "pull_request" .github/workflows/terraform-plan.yml || exit 1
+      grep -q "push" .github/workflows/terraform-apply.yml || exit 1
+      grep -q "environment:[[:space:]]*production" .github/workflows/terraform-apply.yml || exit 1
+      grep -q "plan-cloudflare" .github/workflows/terraform-plan.yml || exit 1
+      grep -q "plan-github" .github/workflows/terraform-plan.yml || exit 1
     produces: GitHub Actions workflows for Terraform CI
     docs: docs/ci.md#github-actions
 
@@ -610,7 +636,8 @@ steps:
       3. Enable "Required reviewers" and add appropriate approvers
       4. The terraform-apply workflow references this environment
     check: |
-      gh api "repos/$REPO/environments/production" --silent 2>/dev/null
+      env_json=$(gh api "repos/$REPO/environments/production" 2>/dev/null) || exit 1
+      printf '%s' "$env_json" | jq -e '.protection_rules[]? | select(.type == "required_reviewers")' >/dev/null
     produces: GitHub Environment with required reviewers
     docs: docs/ci.md#github-actions
 
@@ -628,25 +655,23 @@ steps:
       3. Account Resources: your account. Zone Resources: Specific zone -> <apex-domain>.
       4. Copy the token (shown once).
       5. Repo Settings -> Secrets and variables -> Actions -> New repository secret:
-         Name: CLOUDFLARE_API_TOKEN, paste the value.
+         CLOUDFLARE_API_TOKEN, paste value.
     check: |
       gh secret list --json name -q '.[].name' 2>/dev/null \
         | grep -Fxq 'CLOUDFLARE_API_TOKEN'
-    produces: GitHub Actions secret `CLOUDFLARE_API_TOKEN`
+    produces: CLOUDFLARE_API_TOKEN secret in GitHub Actions
     docs: cloudflare.md
 
   # ── Phase 3 — GitHub App credentials (backend: object-storage) ──────────
   - id: gh-app-gha
-    phase: 3
+    phase: 2
     provider: github
     actor: HUMAN
     when: '[ "$BACKEND" = "object-storage" ]'
-    title: Create + install GitHub App, add creds as GitHub Actions secrets
-    why: The github-org workflow authenticates as a GitHub App (not a PAT).
+    title: Configure GitHub App credentials in GitHub Actions secrets
+    why: The Terraform workflow authenticates to GitHub with these App credentials.
     run: |
-      1. Create the App under your org: https://github.com/organizations/<your-org>/settings/apps/new
-         Permissions: Repo Administration(RW), Contents(R), Metadata(R), Pull requests(RW);
-         Org Members(R), Administration(RW). Install: only on this account.
+      1. GitHub Org -> Settings -> Developer settings -> GitHub Apps -> New GitHub App.
       2. Note the App ID. Generate a private key (.pem).
       3. Install on your org scoped to the repos in managed_repos (see config.md);
          note the Installation ID from the install URL.
@@ -666,24 +691,40 @@ steps:
     provider: cloudflare
     actor: AGENT
     when: '[ "$BACKEND" = "object-storage" ]'
-    title: init + plan (terraform/cloudflare)
-    why: Proves the Cloudflare token and backend configuration end-to-end.
-    run: "cd terraform/cloudflare && terraform init && terraform plan"
-    check: "cd terraform/cloudflare && terraform init -input=false >/dev/null && terraform plan -input=false >/dev/null"
-    produces: green plan for cloudflare
-    docs: docs/state.md#object-storage-backend
+    title: verify plan for cloudflare via GitHub Actions
+    why: Proves the Cloudflare token and backend configuration end-to-end via CI.
+    run: |
+      Trigger or inspect the GitHub Actions plan workflow for terraform/cloudflare.
+      You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO"` or open a PR.
+      Verify that the plan-cloudflare job runs and finishes successfully.
+    check: |
+      run_id=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --limit 10 \
+        --json databaseId,status,conclusion -q '.[] | select(.conclusion=="success" or .status=="completed") | .databaseId' 2>/dev/null | head -1)
+      [ -n "$run_id" ] || exit 1
+      gh run view "$run_id" --repo "$REPO" --json jobs \
+        -q '.jobs[] | select(.name=="plan-cloudflare" and .conclusion=="success") | .name' 2>/dev/null | grep -q 'plan-cloudflare'
+    produces: green plan for cloudflare in GitHub Actions
+    docs: docs/ci.md#github-actions
 
   - id: plan-github-gha
     phase: 4
     provider: github
     actor: AGENT
     when: '[ "$BACKEND" = "object-storage" ]'
-    title: init + plan (terraform/github)
-    why: Proves the GitHub App credentials and backend configuration end-to-end.
-    run: "cd terraform/github && terraform init && terraform plan"
-    check: "cd terraform/github && terraform init -input=false >/dev/null && terraform plan -input=false >/dev/null"
-    produces: green plan for github-org
-    docs: docs/state.md#object-storage-backend
+    title: verify plan for github via GitHub Actions
+    why: Proves the GitHub App credentials and backend configuration end-to-end via CI.
+    run: |
+      Trigger or inspect the GitHub Actions plan workflow for terraform/github.
+      You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO"` or open a PR.
+      Verify that the plan-github job runs and finishes successfully.
+    check: |
+      run_id=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --limit 10 \
+        --json databaseId,status,conclusion -q '.[] | select(.conclusion=="success" or .status=="completed") | .databaseId' 2>/dev/null | head -1)
+      [ -n "$run_id" ] || exit 1
+      gh run view "$run_id" --repo "$REPO" --json jobs \
+        -q '.jobs[] | select(.name=="plan-github" and .conclusion=="success") | .name' 2>/dev/null | grep -q 'plan-github'
+    produces: green plan for github in GitHub Actions
+    docs: docs/ci.md#github-actions
 
   - id: status-check-gha
     phase: 4
@@ -693,21 +734,17 @@ steps:
     title: Required status checks match GitHub Actions job names
     why: Branch protection must reference the actual job names from the workflows.
     run: |
-      Read the job names from .github/workflows/terraform-plan.yml, then in
-      terraform/github/branch_protection.tf ensure required_status_checks
-      includes those job names.
+      In terraform/github/branch_protection.tf, ensure required_status_checks
+      includes the published job contexts: "validate (cloudflare)", "validate (github)",
+      and "plan" (the aggregate check from terraform-plan.yml).
     check: |
-      # Extract job names from workflow
-      jobs=$(grep -E '^\s+[a-z_-]+:$' .github/workflows/terraform-plan.yml \
-        | sed 's/://g' | tr -d ' ' | grep -v '^$' || true)
-      test -n "$jobs" || exit 1
-      # Verify at least one is in branch protection
-      for job in $jobs; do
-        grep -q "$job" terraform/github/branch_protection.tf && exit 0
-      done
-      exit 1
+      test -f terraform/github/branch_protection.tf || exit 1
+      contexts=$(sed -n '/required_status_checks/,/}/p' terraform/github/branch_protection.tf)
+      echo "$contexts" | grep -q '"plan"' || exit 1
+      echo "$contexts" | grep -q '"validate (cloudflare)"' || exit 1
+      echo "$contexts" | grep -q '"validate (github)"' || exit 1
     produces: branch protection references GitHub Actions job names
-    docs: docs/ci.md#github-actions
+    docs: docs/ci.md#branch-protection
 
   # ── Phase 2 — Cloudflare credentials (backend: hcp) ──────────────────────
   - id: cf-token
@@ -1031,7 +1068,6 @@ steps:
          NEW_PROVIDER_WORKSPACE, and NEW_PROVIDER_CREDENTIALS, then re-runs this check.
     check: |
       printf '%s' "$NEW_PROVIDER" | grep -Eq '^[a-z0-9][a-z0-9-]*$' || exit 1
-      printf '%s' "$NEW_PROVIDER_WORKSPACE" | grep -Eq '^[a-z0-9][a-z0-9-]*$' || exit 1
       printf '%s' "$NEW_PROVIDER_MISE_TOOLS" | jq -e '
         type == "array"
         and all(.[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9_-]*$"))
@@ -1044,11 +1080,6 @@ steps:
         printf '%s\n' "$NEW_PROVIDER_MISE_LOCK_BLOB" \
           | grep -Eq '^[0-9a-f]{40}([0-9a-f]{24})?$' || exit 1
       fi
-      case "$NEW_PROVIDER_FORK_PLANS_DISABLED" in true|false) : ;; *) exit 1 ;; esac
-      if test -n "$NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID"; then
-        printf '%s\n' "$NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID" \
-          | grep -Eq '^ws-[A-Za-z0-9]+$' || exit 1
-      fi
       if test -n "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT"; then
         printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \
           | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' || exit 1
@@ -1059,14 +1090,30 @@ steps:
             and (($epoch | strftime("%Y-%m-%dT%H:%M:%SZ")) == $raw)
             and ($epoch <= now)' >/dev/null || exit 1
       fi
-      printf '%s' "$NEW_PROVIDER_CREDENTIALS" | jq -e '
-        type == "array" and length > 0
-        and all(.[];
-          (.key | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$"))
-          and (.category == "env" or .category == "terraform")
-          and (.sensitive | type == "boolean"))
-        and length == (map(.category + "\u0000" + .key) | unique | length)' \
-        >/dev/null || exit 1
+      if [ "$BACKEND" = "object-storage" ]; then
+        printf '%s' "$NEW_PROVIDER_SECRETS" | jq -e '
+          type == "array" and length > 0
+          and all(.[];
+            (.name | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$"))
+            and (.required | type == "boolean"))
+          and length == (map(.name) | unique | length)' \
+          >/dev/null || exit 1
+      else
+        printf '%s' "$NEW_PROVIDER_WORKSPACE" | grep -Eq '^[a-z0-9][a-z0-9-]*$' || exit 1
+        case "$NEW_PROVIDER_FORK_PLANS_DISABLED" in true|false) : ;; *) exit 1 ;; esac
+        if test -n "$NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID"; then
+          printf '%s\n' "$NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID" \
+            | grep -Eq '^ws-[A-Za-z0-9]+$' || exit 1
+        fi
+        printf '%s' "$NEW_PROVIDER_CREDENTIALS" | jq -e '
+          type == "array" and length > 0
+          and all(.[];
+            (.key | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$"))
+            and (.category == "env" or .category == "terraform")
+            and (.sensitive | type == "boolean"))
+          and length == (map(.category + "\u0000" + .key) | unique | length)' \
+          >/dev/null || exit 1
+      fi
       awk -F '|' -v provider="$NEW_PROVIDER" '
         function clean(value) {
           gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
@@ -1117,6 +1164,8 @@ steps:
       else
         # Object-storage mode: verify backend block
         grep -q "backend \"$STATE_BACKEND\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+        grep -q "$STATE_BUCKET" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+        grep -E "(prefix|key)[[:space:]]*=[[:space:]]*\"[^\"]*$NEW_PROVIDER" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
       fi
       git ls-files "terraform/$NEW_PROVIDER/*.tf" \
         "terraform/$NEW_PROVIDER/*.tf.json" | grep -q . || exit 1
@@ -1495,6 +1544,7 @@ steps:
       1. Add a path filter for terraform/$NEW_PROVIDER/**
       2. Add plan/apply jobs for the new leaf
       3. Pass the required secrets from NEW_PROVIDER_SECRETS as environment variables
+      4. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
       Commit the updated workflows before re-running this check.
     check: |
       test -f .github/workflows/terraform-plan.yml || exit 1
@@ -1514,16 +1564,17 @@ steps:
     provider: repo
     actor: AGENT
     when: '[ "$BACKEND" = "object-storage" ]'
-    title: Run the first plan on the new leaf
-    why: This proves the leaf, backend, and provider credentials end to end.
+    title: Verify plan on the new leaf in GitHub Actions
+    why: Proves the leaf, backend, and provider credentials end to end in CI.
     run: |
-      Run terraform init and plan locally in terraform/$NEW_PROVIDER. This verifies:
-      - The backend configuration is correct
-      - The provider credentials are accessible
-      - The initial configuration is valid
+      Inspect the GitHub Actions plan workflow for terraform/$NEW_PROVIDER.
+      Trigger via `gh workflow run terraform-plan.yml --repo "$REPO"` or open a PR,
+      and verify the plan job for $NEW_PROVIDER succeeds.
     check: |
-      cd "terraform/$NEW_PROVIDER" || exit 1
-      terraform init -input=false >/dev/null 2>&1 || exit 1
-      terraform plan -input=false >/dev/null 2>&1
-    produces: green plan for new provider leaf
+      run_id=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --limit 10 \
+        --json databaseId,status,conclusion -q '.[] | select(.conclusion=="success" or .status=="completed") | .databaseId' 2>/dev/null | head -1)
+      [ -n "$run_id" ] || exit 1
+      gh run view "$run_id" --repo "$REPO" --json jobs \
+        -q --arg name "plan-$NEW_PROVIDER" '.jobs[] | select(.name==$name and .conclusion=="success") | .name' 2>/dev/null | grep -q "plan-$NEW_PROVIDER"
+    produces: green plan for new provider leaf in GitHub Actions
     docs: docs/state.md#object-storage-backend
