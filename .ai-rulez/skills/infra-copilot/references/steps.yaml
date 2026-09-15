@@ -1083,8 +1083,8 @@ steps:
       Follow docs/import.md: cf-terraforming generate + import (--modern-import-block)
       into terraform/cloudflare/generated.tf, then verify plan shows imports only.
       In HCP mode: run terraform plan locally (credentials are in HCP workspace vars).
-      In object-storage mode: commit generated.tf, trigger the plan workflow via
-      `gh workflow run terraform-plan.yml`, and inspect the workflow run logs.
+      In object-storage mode: commit generated.tf, push, trigger the plan workflow via
+      `gh workflow run terraform-plan.yml --ref "$(git branch --show-current)"`, and inspect the workflow run logs.
     # One plan, captured once to a private mktemp file (0600, auto-removed), not a fixed
     # world-readable /tmp path. Success = at least one import AND zero creates. (If a change
     # legitimately adds a new resource alongside the import, review by hand — this check
