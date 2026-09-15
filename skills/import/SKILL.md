@@ -85,7 +85,8 @@ imports, review by hand (and consider whether that new resource belongs in
 `infra-copilot:add` instead).
 
 Once green: delete the throwaway discovery token, commit `generated.tf`, and the resources
-are under management.
+are under management. After the import PR merges and applies, run `infra-copilot:prune` to
+remove the spent import blocks.
 
 ## Example
 
