@@ -1099,11 +1099,12 @@ steps:
           --json databaseId,conclusion,event \
           -q '.[] | select(.conclusion=="success" and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
         [ -n "$run_id" ] || exit 1
-        # Extract only the plan-cloudflare job logs
-        logs=$(gh run view "$run_id" --repo "$REPO" --json jobs \
-          -q '.jobs[] | select(.name=="plan-cloudflare" and .conclusion=="success") | .name' 2>/dev/null)
-        [ -n "$logs" ] || exit 1
-        job_logs=$(gh run view "$run_id" --repo "$REPO" --log 2>/dev/null | sed -n '/plan-cloudflare/,/^[^ ]/p' | head -n -1)
+        # Get the job ID for plan-cloudflare
+        job_id=$(gh run view "$run_id" --repo "$REPO" --json jobs \
+          -q '.jobs[] | select(.name=="plan-cloudflare" and .conclusion=="success") | .databaseId' 2>/dev/null)
+        [ -n "$job_id" ] || exit 1
+        # Get logs for the specific job (avoids parsing issues with full run logs)
+        job_logs=$(gh run view "$run_id" --repo "$REPO" --job "$job_id" --log 2>/dev/null)
         printf '%s' "$job_logs" | grep -q 'will be imported' || exit 1
         ! printf '%s' "$job_logs" | grep -q 'will be created'
       else

@@ -5,8 +5,8 @@ description: "Provision something new in an already-bootstrapped infra repo: a m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1a82d9aea63bee16b4380ede019f602ee8433bcd083c7be99c343366e7c69b2e
-Source-Hash: blake3:8b7c50bb5c5f40bd4e6bbccd0ac90235a3c98b63e6f0ac6f10060ced4da858eb
+Content-Hash: blake3:5cfa0f88d53b7bee37e8ec5334b390d8d29a9e1945368a1bd4c1d48a3d549d31
+Source-Hash: blake3:6498f2721786e0b60ef8029bc3fa9d0cddcffbee9fd5403b9c50c2325d55578e
 Schema-Version: v1
 -->
 
@@ -48,7 +48,8 @@ Terraform's `github-org` leaf manages repos. To add one:
    [`../infra-copilot/references/github.md`](../infra-copilot/references/github.md).
 3. **Terraform** — add the resource/module in `terraform/github/`, then verify the plan:
    - **HCP mode**: `terraform init` + `plan` locally
-   - **Object-storage mode**: commit the change, trigger `gh workflow run terraform-plan.yml`,
+   - **Object-storage mode**: commit the change, push the branch, trigger
+     `gh workflow run terraform-plan.yml --ref "$(git branch --show-current)"`,
      and verify the plan job shows the expected changes in the workflow logs
    Green plan showing the new repo as **will be created** (or **imported**, if it
    already exists on GitHub — then hand to `infra-copilot:import`).

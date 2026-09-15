@@ -41,7 +41,8 @@ Terraform's `github-org` leaf manages repos. To add one:
    [`../infra-copilot/references/github.md`](../infra-copilot/references/github.md).
 3. **Terraform** — add the resource/module in `terraform/github/`, then verify the plan:
    - **HCP mode**: `terraform init` + `plan` locally
-   - **Object-storage mode**: commit the change, trigger `gh workflow run terraform-plan.yml`,
+   - **Object-storage mode**: commit the change, push the branch, trigger
+     `gh workflow run terraform-plan.yml --ref "$(git branch --show-current)"`,
      and verify the plan job shows the expected changes in the workflow logs
    Green plan showing the new repo as **will be created** (or **imported**, if it
    already exists on GitHub — then hand to `infra-copilot:import`).
