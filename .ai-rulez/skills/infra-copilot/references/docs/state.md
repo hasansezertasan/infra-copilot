@@ -81,7 +81,7 @@ Supported backends with automated verification:
 | `s3` | DynamoDB table | Required | Set `state_lock_table` |
 | `azurerm` | Native (blob lease) | Required (location) | Azure Storage container (set `azure_storage_account`, `azure_resource_group`) |
 
-Cloudflare R2 and other S3-compatible object stores can use `s3` with their respective endpoints configured.
+S3-compatible object stores (Cloudflare R2, MinIO, etc.) are **not currently supported** by automated verification. The `state-bucket` check uses AWS S3 APIs without custom endpoint support, and there is no alternative locking mechanism for stores without DynamoDB. Manual backend configuration may work but will not pass Phase 0 verification.
 
 ## Bucket setup
 

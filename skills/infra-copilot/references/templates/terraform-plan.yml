@@ -209,10 +209,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate prerequisite job statuses
+        env:
+          CLOUDFLARE_CHANGED: ${{ needs.changes.outputs.cloudflare }}
+          GITHUB_CHANGED: ${{ needs.changes.outputs.github }}
         run: |
+          # Check for failures and cancellations
           failures=$(echo '${{ toJson(needs) }}' | jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key')
           if [ -n "$failures" ]; then
             echo "Prerequisite job(s) failed or cancelled: $failures"
             exit 1
           fi
-          echo "All plan and validation checks passed or were skipped as expected."
+          # Ensure changed leaves have successful (not skipped) plans
+          # A skipped plan for a changed leaf means no one reviewed the changes
+          plan_cloudflare_result=$(echo '${{ toJson(needs) }}' | jq -r '.["plan-cloudflare"].result // "skipped"')
+          plan_github_result=$(echo '${{ toJson(needs) }}' | jq -r '.["plan-github"].result // "skipped"')
+          if [ "$CLOUDFLARE_CHANGED" = "true" ] && [ "$plan_cloudflare_result" != "success" ]; then
+            echo "Error: terraform/cloudflare changed but plan-cloudflare did not succeed (result: $plan_cloudflare_result)"
+            echo "This may be a fork PR - fork PRs cannot run authenticated plans."
+            exit 1
+          fi
+          if [ "$GITHUB_CHANGED" = "true" ] && [ "$plan_github_result" != "success" ]; then
+            echo "Error: terraform/github changed but plan-github did not succeed (result: $plan_github_result)"
+            echo "This may be a fork PR - fork PRs cannot run authenticated plans."
+            exit 1
+          fi
+          echo "All plan and validation checks passed."

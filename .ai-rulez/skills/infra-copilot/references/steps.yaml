@@ -155,14 +155,35 @@ preflight:
   - tool: gcloud
     when: >-
       printf '%s' "${NEW_PROVIDER_MISE_TOOLS:-[]}" |
-      jq -e 'index("gcloud") != null' >/dev/null
+      jq -e 'index("gcloud") != null' >/dev/null ||
+      [ "$STATE_BACKEND" = "gcs" ]
     pin: mise.toml#tools.gcloud
     check: >-
-      if ! printf '%s' "${NEW_PROVIDER_MISE_TOOLS:-[]}" |
-      jq -e 'index("gcloud") != null' >/dev/null; then exit 0; fi;
+      needs_gcloud=false;
+      printf '%s' "${NEW_PROVIDER_MISE_TOOLS:-[]}" | jq -e 'index("gcloud") != null' >/dev/null && needs_gcloud=true;
+      [ "$STATE_BACKEND" = "gcs" ] && needs_gcloud=true;
+      [ "$needs_gcloud" = "false" ] && exit 0;
       ver=$(gcloud version --format=json 2>/dev/null |
       jq -r '."Google Cloud SDK" // empty' | tr -d '[:space:]');
       pin=$(mise config get --file ./mise.toml tools.gcloud 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
+  - tool: aws
+    when: '[ "$STATE_BACKEND" = "s3" ]'
+    pin: mise.toml#tools.awscli
+    check: >-
+      [ "$STATE_BACKEND" != "s3" ] && exit 0;
+      ver=$(aws --version 2>&1 | sed -n 's|^aws-cli/\([0-9.]*\).*|\1|p' | head -1);
+      pin=$(mise config get --file ./mise.toml tools.awscli 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
+  - tool: az
+    when: '[ "$STATE_BACKEND" = "azurerm" ]'
+    pin: mise.toml#tools.azure-cli
+    check: >-
+      [ "$STATE_BACKEND" != "azurerm" ] && exit 0;
+      ver=$(az version --query '"azure-cli"' -o tsv 2>/dev/null | tr -d '[:space:]');
+      pin=$(mise config get --file ./mise.toml tools.azure-cli 2>/dev/null | tr -d '[:space:]');
       printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
       [ -n "$ver" ] && [ "$ver" = "$pin" ]
   - tool: infra-copilot-references
@@ -560,8 +581,11 @@ steps:
           aws s3api head-bucket --bucket "$STATE_BUCKET" 2>/dev/null || exit 1
           aws s3api get-bucket-versioning --bucket "$STATE_BUCKET" --query "Status" -o text 2>/dev/null \
             | grep -Fxq "Enabled" || exit 1
-          aws dynamodb describe-table --table-name "$STATE_LOCK_TABLE" --region "$STATE_REGION" --query "Table.TableStatus" -o text 2>/dev/null \
-            | grep -Fxq "ACTIVE" || exit 1
+          # Verify table exists, is active, and has correct key schema (LockID string)
+          table_info=$(aws dynamodb describe-table --table-name "$STATE_LOCK_TABLE" --region "$STATE_REGION" 2>/dev/null) || exit 1
+          printf '%s' "$table_info" | jq -e '.Table.TableStatus == "ACTIVE"' >/dev/null || exit 1
+          printf '%s' "$table_info" | jq -e '.Table.KeySchema == [{"AttributeName":"LockID","KeyType":"HASH"}]' >/dev/null || exit 1
+          printf '%s' "$table_info" | jq -e '.Table.AttributeDefinitions | any(.AttributeName == "LockID" and .AttributeType == "S")' >/dev/null || exit 1
           # Verify all public-access-block settings are enabled
           pab=$(aws s3api get-public-access-block --bucket "$STATE_BUCKET" 2>/dev/null)
           printf '%s' "$pab" | grep -q '"BlockPublicAcls": true' || exit 1
@@ -574,7 +598,7 @@ steps:
           az storage container show --name "$STATE_BUCKET" --account-name "$AZURE_STORAGE_ACCOUNT" --query name -o tsv 2>/dev/null \
             | grep -Fxq "$STATE_BUCKET" || exit 1
           az storage container show --name "$STATE_BUCKET" --account-name "$AZURE_STORAGE_ACCOUNT" --query "properties.publicAccess" -o tsv 2>/dev/null \
-            | grep -Eq '^(null|None)?$'
+            | grep -Eq '^(null|None)?$' || exit 1
           # Verify blob versioning is enabled on the storage account
           az storage account blob-service-properties show --account-name "$AZURE_STORAGE_ACCOUNT" \
             --query "isVersioningEnabled" -o tsv 2>/dev/null | grep -Fxq "true" || exit 1
@@ -637,6 +661,57 @@ steps:
       done
     produces: backend blocks in each Terraform leaf
     docs: docs/state.md#object-storage-backend
+
+  - id: backend-identity
+    phase: 0
+    provider: repo
+    actor: HUMAN
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Configure cloud identity for backend state access
+    why: GitHub Actions needs to authenticate to the state backend; the agent cannot create cloud-side federation or install secrets.
+    run: |
+      Configure Workload Identity Federation (or equivalent) so GitHub Actions can access
+      the state bucket. This varies by backend:
+
+      **GCS (Workload Identity Federation):**
+      1. Create a Workload Identity Pool and Provider in your GCP project
+      2. Grant the service account storage.objectAdmin on the state bucket
+      3. Create GitHub secrets:
+         - GCP_WORKLOAD_IDENTITY_PROVIDER: projects/<id>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
+         - GCP_SERVICE_ACCOUNT: <sa>@<project>.iam.gserviceaccount.com
+
+      **S3 (OIDC assume-role):**
+      1. Create an IAM OIDC provider for GitHub Actions
+      2. Create an IAM role with S3 and DynamoDB permissions, trust policy for your repo
+      3. Create GitHub secrets:
+         - AWS_ROLE_ARN: arn:aws:iam::<account>:role/<role>
+         - AWS_REGION (optional, defaults to state_region)
+
+      **Azure (Federated credentials):**
+      1. Create an App Registration with federated credentials for GitHub
+      2. Grant the service principal Storage Blob Data Contributor on the container
+      3. Create GitHub secrets:
+         - AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+
+      Reply `done` after installing the secrets.
+    check: |
+      # Verify secrets exist in the repo (names only, not values)
+      case "$STATE_BACKEND" in
+        gcs)
+          gh secret list --repo "$REPO" 2>/dev/null | grep -q "GCP_WORKLOAD_IDENTITY_PROVIDER" || exit 1
+          gh secret list --repo "$REPO" 2>/dev/null | grep -q "GCP_SERVICE_ACCOUNT" || exit 1
+          ;;
+        s3)
+          gh secret list --repo "$REPO" 2>/dev/null | grep -q "AWS_ROLE_ARN" || exit 1
+          ;;
+        azurerm)
+          gh secret list --repo "$REPO" 2>/dev/null | grep -q "AZURE_CLIENT_ID" || exit 1
+          gh secret list --repo "$REPO" 2>/dev/null | grep -q "AZURE_TENANT_ID" || exit 1
+          gh secret list --repo "$REPO" 2>/dev/null | grep -q "AZURE_SUBSCRIPTION_ID" || exit 1
+          ;;
+      esac
+    produces: Cloud identity federation and GitHub secrets for backend access
+    docs: docs/state.md#authentication
 
   # ── Phase 1 — GitHub Actions CI (backend: object-storage only) ──────────
   - id: gha-workflows
@@ -1250,10 +1325,20 @@ steps:
         hostname=$(printf '%s\n' "$settings" | sed -n 's/^hostname=//p' | head -1)
         case "$hostname" in ""|app.terraform.io) : ;; *) exit 1 ;; esac
       else
-        # Object-storage mode: verify backend block
+        # Object-storage mode: verify backend block with complete path validation
         grep -q "backend \"$STATE_BACKEND\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
         grep -q "$STATE_BUCKET" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
-        grep -E "(prefix|key)[[:space:]]*=[[:space:]]*\"[^\"]*$NEW_PROVIDER" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+        # Validate complete prefix/key path matches backend-config convention
+        case "$STATE_BACKEND" in
+          gcs)
+            # GCS uses prefix = "STATE_PREFIX/NEW_PROVIDER"
+            grep -E "prefix[[:space:]]*=[[:space:]]*\"$STATE_PREFIX/$NEW_PROVIDER\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+            ;;
+          s3|azurerm)
+            # S3/Azure uses key = "STATE_PREFIX/NEW_PROVIDER/terraform.tfstate"
+            grep -E "key[[:space:]]*=[[:space:]]*\"$STATE_PREFIX/$NEW_PROVIDER/terraform\\.tfstate\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+            ;;
+        esac
       fi
       git ls-files "terraform/$NEW_PROVIDER/*.tf" \
         "terraform/$NEW_PROVIDER/*.tf.json" | grep -q . || exit 1
@@ -1658,22 +1743,21 @@ steps:
           sed -n "/^  plan-$NEW_PROVIDER:/,/^  [a-z][a-z0-9_-]*:/p" .github/workflows/terraform-plan.yml | sed '$d')
         apply_job=$(yq -r ".jobs[\"apply-$NEW_PROVIDER\"]" .github/workflows/terraform-apply.yml 2>/dev/null || \
           sed -n "/^  apply-$NEW_PROVIDER:/,/^  [a-z][a-z0-9_-]*:/p" .github/workflows/terraform-apply.yml | sed '$d')
-        # Check for cloud auth actions OR direct secret usage in env
-        has_auth=false
+        # Check for cloud auth actions in BOTH plan and apply jobs
+        plan_has_auth=false
+        apply_has_auth=false
         for pattern in 'google-github-actions/auth' 'aws-actions/configure-aws-credentials' 'azure/login'; do
-          if printf '%s' "$plan_job" | grep -q "$pattern"; then
-            has_auth=true; break
-          fi
+          printf '%s' "$plan_job" | grep -q "$pattern" && plan_has_auth=true
+          printf '%s' "$apply_job" | grep -q "$pattern" && apply_has_auth=true
         done
         # If no cloud auth action, verify secrets are used in env (for non-cloud providers)
-        if [ "$has_auth" = "false" ]; then
+        if [ "$plan_has_auth" = "false" ] || [ "$apply_has_auth" = "false" ]; then
           for s in $(printf '%s' "$NEW_PROVIDER_SECRETS" | jq -r '.[] | select(.required == true) | .name'); do
-            if printf '%s' "$plan_job" | grep -q "secrets\.$s" && printf '%s' "$apply_job" | grep -q "secrets\.$s"; then
-              has_auth=true; break
-            fi
+            printf '%s' "$plan_job" | grep -q "secrets\.$s" && plan_has_auth=true
+            printf '%s' "$apply_job" | grep -q "secrets\.$s" && apply_has_auth=true
           done
         fi
-        [ "$has_auth" = "true" ] || exit 1
+        [ "$plan_has_auth" = "true" ] && [ "$apply_has_auth" = "true" ] || exit 1
       fi
       # Verify aggregate plan job includes the new provider
       plan_needs=$(yq -r '.jobs.plan.needs | @csv' .github/workflows/terraform-plan.yml 2>/dev/null || \
@@ -1682,9 +1766,13 @@ steps:
       # Verify apply job has production environment
       printf '%s' "$apply_job" | grep -q 'environment:.*production' || exit 1
       # Verify apply workflow has path filter for new provider in changes job
+      # yq extracts the filters value; sed fallback captures from filters: through the indented block
       apply_changes=$(yq -r '.jobs.changes.steps[] | select(.uses | test("dorny/paths-filter")) | .with.filters' .github/workflows/terraform-apply.yml 2>/dev/null || \
-        sed -n '/dorny\/paths-filter/,/filters:/p' .github/workflows/terraform-apply.yml)
-      printf '%s' "$apply_changes" | grep -q "$NEW_PROVIDER:" || exit 1
+        sed -n '/filters:[[:space:]]*|/,/^[[:space:]]*-[[:space:]]*\(uses:\|name:\|id:\|run:\|if:\|with:\|env:\)/{/filters:/,/^[[:space:]]*[a-z]/p;}' .github/workflows/terraform-apply.yml)
+      # If yq/sed extraction failed, fall back to direct grep of the file for the filter pattern
+      if ! printf '%s' "$apply_changes" | grep -q "$NEW_PROVIDER:"; then
+        grep -E "^[[:space:]]+$NEW_PROVIDER:" .github/workflows/terraform-apply.yml >/dev/null || exit 1
+      fi
       git ls-files --error-unmatch \
         .github/workflows/terraform-plan.yml \
         .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1

@@ -1,5 +1,16 @@
 # Terraform Apply workflow for object-storage backend mode
 # Copy to .github/workflows/terraform-apply.yml and customize for your setup
+#
+# IMPORTANT: This workflow runs `terraform apply -auto-approve` which computes a fresh plan.
+# If state or the base branch changed after the PR plan was reviewed, the apply may differ
+# from what was reviewed. The "production" environment approval gate occurs BEFORE the
+# fresh plan, not after.
+#
+# For stricter plan-apply binding:
+# 1. Save the plan as an artifact in terraform-plan.yml (terraform plan -out=tfplan)
+# 2. Download and apply that exact plan here (terraform apply tfplan)
+# 3. Verify the plan commit SHA matches the merge commit
+# This is left to the user to implement based on their risk tolerance.
 name: Terraform Apply
 
 on:
