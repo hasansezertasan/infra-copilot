@@ -233,4 +233,13 @@ jobs:
             echo "This may be a fork PR - fork PRs cannot run authenticated plans."
             exit 1
           fi
+          # IMPORTANT: When adopting additional providers, add similar checks here:
+          # 1. Add the provider to changes job outputs
+          # 2. Add the provider to this job's env block
+          # 3. Add a success check similar to cloudflare/github above
+          # Example for a "gcp" provider:
+          #   if [ "$GCP_CHANGED" = "true" ] && [ "$plan_gcp_result" != "success" ]; then
+          #     echo "Error: terraform/gcp changed but plan-gcp did not succeed"
+          #     exit 1
+          #   fi
           echo "All plan and validation checks passed."
