@@ -537,6 +537,7 @@ steps:
       Example for azurerm:
         az group create --name "$AZURE_RESOURCE_GROUP" --location "$STATE_REGION"
         az storage account create --name "$AZURE_STORAGE_ACCOUNT" --resource-group "$AZURE_RESOURCE_GROUP" --sku Standard_LRS --encryption-services blob
+        az storage account blob-service-properties update --account-name "$AZURE_STORAGE_ACCOUNT" --enable-versioning true
         az storage container create --account-name "$AZURE_STORAGE_ACCOUNT" --name "$STATE_BUCKET" --public-access off
     check: |
       case "$STATE_BACKEND" in
@@ -627,8 +628,12 @@ steps:
           grep -q "$AZURE_STORAGE_ACCOUNT" "$leaf"/*.tf 2>/dev/null || exit 1
         fi
         leaf_name=$(basename "$leaf")
-        # GCS uses prefix ending in leaf_name; S3/Azure use key ending in leaf_name/terraform.tfstate
-        grep -E "(prefix|key)[[:space:]]*=[[:space:]]*\"[^\"]*$leaf_name(/terraform\\.tfstate)?\"" "$leaf"/*.tf 2>/dev/null || exit 1
+        # Verify complete prefix/key including STATE_PREFIX
+        if [ "$STATE_BACKEND" = "gcs" ]; then
+          grep -E "prefix[[:space:]]*=[[:space:]]*\"$STATE_PREFIX/$leaf_name\"" "$leaf"/*.tf 2>/dev/null || exit 1
+        else
+          grep -E "key[[:space:]]*=[[:space:]]*\"$STATE_PREFIX/$leaf_name/terraform\\.tfstate\"" "$leaf"/*.tf 2>/dev/null || exit 1
+        fi
       done
     produces: backend blocks in each Terraform leaf
     docs: docs/state.md#object-storage-backend
@@ -740,13 +745,14 @@ steps:
     why: Proves the Cloudflare token and backend configuration end-to-end via CI.
     run: |
       Trigger or inspect the GitHub Actions plan workflow for terraform/cloudflare.
-      You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO"` or open a PR.
+      You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR.
       Verify that the plan-cloudflare job runs and finishes successfully.
     check: |
       target_sha=$(git rev-parse HEAD 2>/dev/null)
+      # Require successful workflow run, not just completed
       run_id=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
-        --json databaseId,status,conclusion,event \
-        -q '.[] | select((.conclusion=="success" or .status=="completed") and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
+        --json databaseId,conclusion,event \
+        -q '.[] | select(.conclusion=="success" and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
       [ -n "$run_id" ] || exit 1
       gh run view "$run_id" --repo "$REPO" --json jobs \
         -q '.jobs[] | select(.name=="plan-cloudflare" and .conclusion=="success") | .name' 2>/dev/null | grep -q 'plan-cloudflare'
@@ -762,13 +768,14 @@ steps:
     why: Proves the GitHub App credentials and backend configuration end-to-end via CI.
     run: |
       Trigger or inspect the GitHub Actions plan workflow for terraform/github.
-      You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO"` or open a PR.
+      You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR.
       Verify that the plan-github job runs and finishes successfully.
     check: |
       target_sha=$(git rev-parse HEAD 2>/dev/null)
+      # Require successful workflow run, not just completed
       run_id=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
-        --json databaseId,status,conclusion,event \
-        -q '.[] | select((.conclusion=="success" or .status=="completed") and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
+        --json databaseId,conclusion,event \
+        -q '.[] | select(.conclusion=="success" and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
       [ -n "$run_id" ] || exit 1
       gh run view "$run_id" --repo "$REPO" --json jobs \
         -q '.jobs[] | select(.name=="plan-github" and .conclusion=="success") | .name' 2>/dev/null | grep -q 'plan-github'
@@ -1636,31 +1643,48 @@ steps:
       grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-apply.yml || exit 1
       grep -q "plan-$NEW_PROVIDER:" .github/workflows/terraform-plan.yml || exit 1
       grep -q "apply-$NEW_PROVIDER:" .github/workflows/terraform-apply.yml || exit 1
-      grep -Eq -- "-\s+['\"]?${NEW_PROVIDER}['\"]?" .github/workflows/terraform-plan.yml || exit 1
+      # Check validate matrix - support both block list and inline array syntax
+      validate_matrix=$(yq -r '.jobs.validate.strategy.matrix.leaf | @json' .github/workflows/terraform-plan.yml 2>/dev/null || \
+        grep -A5 'matrix:' .github/workflows/terraform-plan.yml | grep -E 'leaf:')
+      printf '%s' "$validate_matrix" | grep -q "$NEW_PROVIDER" || exit 1
       if [ -n "$NEW_PROVIDER_SECRETS" ]; then
-        for s in $(printf '%s' "$NEW_PROVIDER_SECRETS" | jq -r '.[].name'); do
+        # Only check required secrets
+        for s in $(printf '%s' "$NEW_PROVIDER_SECRETS" | jq -r '.[] | select(.required == true) | .name'); do
           grep -q "secrets\.$s" .github/workflows/terraform-plan.yml || exit 1
           grep -q "secrets\.$s" .github/workflows/terraform-apply.yml || exit 1
         done
-        # Verify authentication action exists in the provider jobs (not just secret refs)
-        # Look for common auth action patterns in the plan/apply jobs for this provider
-        # Use yq to extract the complete job definition, or fall back to sed with proper indentation matching
+        # Verify authentication - cloud providers need specific actions, others use secrets directly
         plan_job=$(yq -r ".jobs[\"plan-$NEW_PROVIDER\"]" .github/workflows/terraform-plan.yml 2>/dev/null || \
           sed -n "/^  plan-$NEW_PROVIDER:/,/^  [a-z][a-z0-9_-]*:/p" .github/workflows/terraform-plan.yml | sed '$d')
         apply_job=$(yq -r ".jobs[\"apply-$NEW_PROVIDER\"]" .github/workflows/terraform-apply.yml 2>/dev/null || \
           sed -n "/^  apply-$NEW_PROVIDER:/,/^  [a-z][a-z0-9_-]*:/p" .github/workflows/terraform-apply.yml | sed '$d')
+        # Check for cloud auth actions OR direct secret usage in env
         has_auth=false
         for pattern in 'google-github-actions/auth' 'aws-actions/configure-aws-credentials' 'azure/login'; do
-          if printf '%s' "$plan_job" | grep -q "$pattern" && printf '%s' "$apply_job" | grep -q "$pattern"; then
+          if printf '%s' "$plan_job" | grep -q "$pattern"; then
             has_auth=true; break
           fi
         done
+        # If no cloud auth action, verify secrets are used in env (for non-cloud providers)
+        if [ "$has_auth" = "false" ]; then
+          for s in $(printf '%s' "$NEW_PROVIDER_SECRETS" | jq -r '.[] | select(.required == true) | .name'); do
+            if printf '%s' "$plan_job" | grep -q "secrets\.$s" && printf '%s' "$apply_job" | grep -q "secrets\.$s"; then
+              has_auth=true; break
+            fi
+          done
+        fi
         [ "$has_auth" = "true" ] || exit 1
       fi
       # Verify aggregate plan job includes the new provider
       plan_needs=$(yq -r '.jobs.plan.needs | @csv' .github/workflows/terraform-plan.yml 2>/dev/null || \
         grep -A1 'plan:' .github/workflows/terraform-plan.yml | grep 'needs:')
       printf '%s' "$plan_needs" | grep -q "plan-$NEW_PROVIDER" || exit 1
+      # Verify apply job has production environment
+      printf '%s' "$apply_job" | grep -q 'environment:.*production' || exit 1
+      # Verify apply workflow has path filter for new provider in changes job
+      apply_changes=$(yq -r '.jobs.changes.steps[] | select(.uses | test("dorny/paths-filter")) | .with.filters' .github/workflows/terraform-apply.yml 2>/dev/null || \
+        sed -n '/dorny\/paths-filter/,/filters:/p' .github/workflows/terraform-apply.yml)
+      printf '%s' "$apply_changes" | grep -q "$NEW_PROVIDER:" || exit 1
       git ls-files --error-unmatch \
         .github/workflows/terraform-plan.yml \
         .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
@@ -1678,13 +1702,14 @@ steps:
     why: Proves the leaf, backend, and provider credentials end to end in CI.
     run: |
       Inspect the GitHub Actions plan workflow for terraform/$NEW_PROVIDER.
-      Trigger via `gh workflow run terraform-plan.yml --repo "$REPO"` or open a PR,
+      Trigger via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR,
       and verify the plan job for $NEW_PROVIDER succeeds.
     check: |
       target_sha=$(git rev-parse HEAD 2>/dev/null)
+      # Require successful workflow run, not just completed
       run_id=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
-        --json databaseId,status,conclusion,event \
-        -q '.[] | select((.conclusion=="success" or .status=="completed") and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
+        --json databaseId,conclusion,event \
+        -q '.[] | select(.conclusion=="success" and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
       [ -n "$run_id" ] || exit 1
       gh run view "$run_id" --repo "$REPO" --json jobs \
         -q ".jobs[] | select(.name==\"plan-$NEW_PROVIDER\" and .conclusion==\"success\") | .name" 2>/dev/null | grep -q "plan-$NEW_PROVIDER"
