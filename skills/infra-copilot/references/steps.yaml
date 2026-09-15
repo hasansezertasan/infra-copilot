@@ -552,8 +552,12 @@ steps:
             | grep -Fxq "Enabled" || exit 1
           aws dynamodb describe-table --table-name "$STATE_LOCK_TABLE" --region "$STATE_REGION" --query "Table.TableStatus" -o text 2>/dev/null \
             | grep -Fxq "ACTIVE" || exit 1
-          aws s3api get-public-access-block --bucket "$STATE_BUCKET" 2>/dev/null \
-            | grep -q '"BlockPublicAcls": true'
+          # Verify all public-access-block settings are enabled
+          pab=$(aws s3api get-public-access-block --bucket "$STATE_BUCKET" 2>/dev/null)
+          printf '%s' "$pab" | grep -q '"BlockPublicAcls": true' || exit 1
+          printf '%s' "$pab" | grep -q '"IgnorePublicAcls": true' || exit 1
+          printf '%s' "$pab" | grep -q '"BlockPublicPolicy": true' || exit 1
+          printf '%s' "$pab" | grep -q '"RestrictPublicBuckets": true' || exit 1
           ;;
         azurerm)
           [ -n "$AZURE_STORAGE_ACCOUNT" ] || exit 1
@@ -561,6 +565,9 @@ steps:
             | grep -Fxq "$STATE_BUCKET" || exit 1
           az storage container show --name "$STATE_BUCKET" --account-name "$AZURE_STORAGE_ACCOUNT" --query "properties.publicAccess" -o tsv 2>/dev/null \
             | grep -Eq '^(null|None)?$'
+          # Verify blob versioning is enabled on the storage account
+          az storage account blob-service-properties show --account-name "$AZURE_STORAGE_ACCOUNT" \
+            --query "isVersioningEnabled" -o tsv 2>/dev/null | grep -Fxq "true" || exit 1
           ;;
         *)
           echo "Unsupported state backend: $STATE_BACKEND" >&2; exit 1
@@ -607,7 +614,8 @@ steps:
           grep -q "$AZURE_STORAGE_ACCOUNT" "$leaf"/*.tf 2>/dev/null || exit 1
         fi
         leaf_name=$(basename "$leaf")
-        grep -E "(prefix|key)[[:space:]]*=[[:space:]]*\"[^\"]*$leaf_name" "$leaf"/*.tf 2>/dev/null || exit 1
+        # GCS uses prefix ending in leaf_name; S3/Azure use key ending in leaf_name/terraform.tfstate
+        grep -E "(prefix|key)[[:space:]]*=[[:space:]]*\"[^\"]*$leaf_name(/terraform\\.tfstate)?\"" "$leaf"/*.tf 2>/dev/null || exit 1
       done
     produces: backend blocks in each Terraform leaf
     docs: docs/state.md#object-storage-backend
@@ -978,18 +986,35 @@ steps:
     why: Bring existing zone/records under management without recreating them.
     run: |
       Follow docs/import.md: cf-terraforming generate + import (--modern-import-block)
-      into terraform/cloudflare/generated.tf, then terraform plan.
+      into terraform/cloudflare/generated.tf, then verify plan shows imports only.
+      In HCP mode: run terraform plan locally (credentials are in HCP workspace vars).
+      In object-storage mode: commit generated.tf, trigger the plan workflow via
+      `gh workflow run terraform-plan.yml`, and inspect the workflow run logs.
     # One plan, captured once to a private mktemp file (0600, auto-removed), not a fixed
     # world-readable /tmp path. Success = at least one import AND zero creates. (If a change
     # legitimately adds a new resource alongside the import, review by hand — this check
     # intentionally treats any 'will be created' as not-done.)
     check: |
-      cd terraform/cloudflare
-      p=$(mktemp)
-      trap 'rm -f "$p"' EXIT
-      terraform plan -input=false -no-color >"$p" 2>&1 \
-        && grep -q 'will be imported' "$p" \
-        && ! grep -q 'will be created' "$p"
+      if [ "$BACKEND" = "object-storage" ]; then
+        # In object-storage mode, verify via the GitHub Actions plan workflow
+        git ls-files --error-unmatch terraform/cloudflare/generated.tf >/dev/null 2>&1 || exit 1
+        target_sha=$(git rev-parse HEAD 2>/dev/null)
+        run_id=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
+          --json databaseId,status,conclusion,event \
+          -q '.[] | select((.conclusion=="success" or .status=="completed") and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
+        [ -n "$run_id" ] || exit 1
+        logs=$(gh run view "$run_id" --repo "$REPO" --log 2>/dev/null | grep -A9999 'plan-cloudflare')
+        printf '%s' "$logs" | grep -q 'will be imported' || exit 1
+        ! printf '%s' "$logs" | grep -q 'will be created'
+      else
+        # HCP mode: local terraform plan
+        cd terraform/cloudflare
+        p=$(mktemp)
+        trap 'rm -f "$p"' EXIT
+        terraform plan -input=false -no-color >"$p" 2>&1 \
+          && grep -q 'will be imported' "$p" \
+          && ! grep -q 'will be created' "$p"
+      fi
     produces: generated.tf with import blocks; plan shows imports only
     docs: migration.md
 
@@ -1582,7 +1607,8 @@ steps:
       1. Add a path filter for terraform/$NEW_PROVIDER/**
       2. Add plan/apply jobs for the new leaf
       3. Pass the required secrets from NEW_PROVIDER_SECRETS as environment variables
-      4. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
+      4. Add the provider-specific authentication step before terraform init (e.g., google-github-actions/auth for GCP, aws-actions/configure-aws-credentials for AWS, azure/login for Azure)
+      5. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
       Commit the updated workflows before re-running this check.
     check: |
       test -f .github/workflows/terraform-plan.yml || exit 1
@@ -1591,12 +1617,23 @@ steps:
       grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-apply.yml || exit 1
       grep -q "plan-$NEW_PROVIDER:" .github/workflows/terraform-plan.yml || exit 1
       grep -q "apply-$NEW_PROVIDER:" .github/workflows/terraform-apply.yml || exit 1
-      grep -Eq "-\s+['\"]?${NEW_PROVIDER}['\"]?" .github/workflows/terraform-plan.yml || exit 1
+      grep -Eq -- "-\s+['\"]?${NEW_PROVIDER}['\"]?" .github/workflows/terraform-plan.yml || exit 1
       if [ -n "$NEW_PROVIDER_SECRETS" ]; then
         for s in $(printf '%s' "$NEW_PROVIDER_SECRETS" | jq -r '.[].name'); do
           grep -q "secrets\.$s" .github/workflows/terraform-plan.yml || exit 1
           grep -q "secrets\.$s" .github/workflows/terraform-apply.yml || exit 1
         done
+        # Verify authentication action exists in the provider jobs (not just secret refs)
+        # Look for common auth action patterns in the plan/apply jobs for this provider
+        plan_job=$(sed -n "/plan-$NEW_PROVIDER:/,/^[[:space:]]*[a-z-]*:/p" .github/workflows/terraform-plan.yml)
+        apply_job=$(sed -n "/apply-$NEW_PROVIDER:/,/^[[:space:]]*[a-z-]*:/p" .github/workflows/terraform-apply.yml)
+        has_auth=false
+        for pattern in 'google-github-actions/auth' 'aws-actions/configure-aws-credentials' 'azure/login'; do
+          if printf '%s' "$plan_job" | grep -q "$pattern" && printf '%s' "$apply_job" | grep -q "$pattern"; then
+            has_auth=true; break
+          fi
+        done
+        [ "$has_auth" = "true" ] || exit 1
       fi
       git ls-files --error-unmatch \
         .github/workflows/terraform-plan.yml \

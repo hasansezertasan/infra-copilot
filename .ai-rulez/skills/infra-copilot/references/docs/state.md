@@ -185,7 +185,14 @@ For cloud provider auth (GCS, S3, Azure), use Workload Identity Federation where
 ## Migrating from HCP
 
 1. Ensure each leaf is initialized with the current HCP backend: `terraform init`
-2. For each leaf, pull and save a state backup: `terraform state pull > state.json`
+2. For each leaf, pull and save a state backup outside the repo with restrictive permissions:
+   ```sh
+   umask 077 && terraform state pull > /tmp/$(basename "$PWD")-state.json
+   ```
 3. Update each leaf's `versions.tf`: remove `cloud {}`, add `backend "..." {}`
-4. Run `terraform init -migrate-state` in each leaf (or `terraform init` and `terraform state push state.json` if configuring from scratch)
+4. Run `terraform init -migrate-state` in each leaf (or `terraform init` and `terraform state push /tmp/<leaf>-state.json` if configuring from scratch)
 5. Verify `terraform state list` matches the resources in the destination backend before deleting any HCP workspaces
+6. **Delete the plaintext state backup** — it may contain sensitive values:
+   ```sh
+   rm -f /tmp/*-state.json
+   ```

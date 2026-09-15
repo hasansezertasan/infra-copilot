@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2342e4047810f2def833aa26c106cb31bba512aa75df37fb2a271ff772dcc7ff
-Source-Hash: blake3:c0b087bf1de045580c62108c87050c903681c0483e1f406375b704bac589c5e3
+Content-Hash: blake3:f999d6ff89313de5c20e5e298561743cceebb1ae47b2ec3f979b856df6c8b564
+Source-Hash: blake3:21aeb4edd71692e9937c06d1eaf1a3e5cd7d31eb614df27a46a082fd77cc012b
 Schema-Version: v1
 -->
 
@@ -192,7 +192,14 @@ For cloud provider auth (GCS, S3, Azure), use Workload Identity Federation where
 ## Migrating from HCP
 
 1. Ensure each leaf is initialized with the current HCP backend: `terraform init`
-2. For each leaf, pull and save a state backup: `terraform state pull > state.json`
+2. For each leaf, pull and save a state backup outside the repo with restrictive permissions:
+   ```sh
+   umask 077 && terraform state pull > /tmp/$(basename "$PWD")-state.json
+   ```
 3. Update each leaf's `versions.tf`: remove `cloud {}`, add `backend "..." {}`
-4. Run `terraform init -migrate-state` in each leaf (or `terraform init` and `terraform state push state.json` if configuring from scratch)
+4. Run `terraform init -migrate-state` in each leaf (or `terraform init` and `terraform state push /tmp/<leaf>-state.json` if configuring from scratch)
 5. Verify `terraform state list` matches the resources in the destination backend before deleting any HCP workspaces
+6. **Delete the plaintext state backup** — it may contain sensitive values:
+   ```sh
+   rm -f /tmp/*-state.json
+   ```

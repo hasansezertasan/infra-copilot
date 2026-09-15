@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:c0b087bf1de045580c62108c87050c903681c0483e1f406375b704bac589c5e3",
+  "source_hash": "blake3:21aeb4edd71692e9937c06d1eaf1a3e5cd7d31eb614df27a46a082fd77cc012b",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -27,7 +27,7 @@
       "content_hash": "blake3:a87fe65d162b56a3866cefb870da65e2c9553762db4b6f3d605f46666d41b32d"
     },
     "skills/import/SKILL.md": {
-      "content_hash": "blake3:147f385405e929b7b84da8cf7a0033c45af262589ea20ca82c36bc8f49208da9"
+      "content_hash": "blake3:a0102606b60420f255589c09fa5b92a34326c5b7ac6b4d51e1b201732044b125"
     },
     "skills/infra-copilot/SKILL.md": {
       "content_hash": "blake3:8c4f82b1a117faa49a14b38a822c11c6c1128e273b76d43dd01f4d62c57c5662"
@@ -75,7 +75,7 @@
       "content_hash": "blake3:ee83830b84861e3ca39afc8960079722b5afe21bb4e468dac86bd2338195b109"
     },
     "skills/infra-copilot/references/docs/state.md": {
-      "content_hash": "blake3:2342e4047810f2def833aa26c106cb31bba512aa75df37fb2a271ff772dcc7ff"
+      "content_hash": "blake3:f999d6ff89313de5c20e5e298561743cceebb1ae47b2ec3f979b856df6c8b564"
     },
     "skills/infra-copilot/references/gcp.md": {
       "content_hash": "blake3:42999f709a38908161338dee275cd1728f9784d0747b4bde695d2acfe3171687"
@@ -96,13 +96,13 @@
       "content_hash": "blake3:00b1825065eef954555441e24ba65435b0e4ec2911fe03a2100bd9ac3adc7af4"
     },
     "skills/infra-copilot/references/steps.yaml": {
-      "content_hash": "blake3:a850447f98d87256781155fd5ef623bfc09f66da99f7815212066762e615a5e4"
+      "content_hash": "blake3:9cdadd3b427ead2c1c61685a1bc62ccaea57d369f19f2d28488fe69ef4211db6"
     },
     "skills/infra-copilot/references/templates/terraform-apply.yml": {
-      "content_hash": "blake3:65f0a7224e5188bfbf515b4cc4c3ad128a8bbbdf0484a8353006dab18ab8c6ae"
+      "content_hash": "blake3:39c89bca236e820cbdd039fb6157dde6801a13ee45d4ec6a124c6cfea5af36ba"
     },
     "skills/infra-copilot/references/templates/terraform-plan.yml": {
-      "content_hash": "blake3:33b3bb723ab771031c4c3954793bef1cc8fc1192f699103a132e337a83341ff1"
+      "content_hash": "blake3:3103dc7695913ae4d6c890f38781521bc348ab0805de3fca0cd4873e466a0533"
     },
     "skills/setup/SKILL.md": {
       "content_hash": "blake3:0e77e6a81a46ee0c172b479350b15d294e4e9ed67cc3c3cb8d201a849a15f1d8"

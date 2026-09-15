@@ -5,8 +5,8 @@ description: "Adopt infrastructure that already exists at a provider into Terraf
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:147f385405e929b7b84da8cf7a0033c45af262589ea20ca82c36bc8f49208da9
-Source-Hash: blake3:c0b087bf1de045580c62108c87050c903681c0483e1f406375b704bac589c5e3
+Content-Hash: blake3:a0102606b60420f255589c09fa5b92a34326c5b7ac6b4d51e1b201732044b125
+Source-Hash: blake3:21aeb4edd71692e9937c06d1eaf1a3e5cd7d31eb614df27a46a082fd77cc012b
 Schema-Version: v1
 -->
 
@@ -34,6 +34,12 @@ workspaces exist; in object-storage mode, the state bucket and GitHub Actions wo
 and credentials and first plans are proven on both leaves. If not, run `setup` first; import
 needs the target leaf working (the `cloudflare` leaf for a zone/DNS import, `github` for repos)
 and a green plan to diff the imports against.
+
+**Plan verification differs by backend mode:**
+- **HCP mode**: Run `terraform plan` locally — credentials are in the HCP workspace variables.
+- **Object-storage mode**: Credentials are GitHub Actions secrets; local plans won't authenticate.
+  Commit the generated imports, trigger a workflow run (`gh workflow run terraform-plan.yml`),
+  and inspect the workflow logs for `will be imported` / no `will be created`.
 
 ## Branch on the provider first
 
