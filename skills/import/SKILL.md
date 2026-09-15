@@ -5,8 +5,8 @@ description: "Adopt infrastructure that already exists at a provider into Terraf
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:4309ffc2ca05c4407237902ad5aa8f640af54052d61b10c54f0d13f1a4ae0c81
-Source-Hash: blake3:ca3639d2b11fce5ede28bea9f0d7c8e6094059fcaa7da2527dcbf4c67e73e7fb
+Content-Hash: blake3:147f385405e929b7b84da8cf7a0033c45af262589ea20ca82c36bc8f49208da9
+Source-Hash: blake3:c0b087bf1de045580c62108c87050c903681c0483e1f406375b704bac589c5e3
 Schema-Version: v1
 -->
 
@@ -29,10 +29,11 @@ preflight — lives in [`../infra-copilot/references/protocol.md`](../infra-copi
 
 ## Guardrails
 
-`infra-copilot:setup` phases 0–4 are green — HCP is reachable, both workspaces exist,
-credentials are proven. If not, run `setup` first; import needs the target provider's
-workspace working (the `cloudflare` leaf for a zone/DNS import, `github-org` for repos) and
-a green speculative plan to diff the imports against.
+`infra-copilot:setup` phases 0–4 are green — in HCP mode, HCP is reachable and both
+workspaces exist; in object-storage mode, the state bucket and GitHub Actions workflows exist;
+and credentials and first plans are proven on both leaves. If not, run `setup` first; import
+needs the target leaf working (the `cloudflare` leaf for a zone/DNS import, `github` for repos)
+and a green plan to diff the imports against.
 
 ## Branch on the provider first
 

@@ -5,8 +5,8 @@ description: "Provision something new in an already-bootstrapped infra repo: a m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2630d5cc8a6e285a1cf8bf190552756f6e4f500493bfd72ca11fdeb5b7c31133
-Source-Hash: blake3:ca3639d2b11fce5ede28bea9f0d7c8e6094059fcaa7da2527dcbf4c67e73e7fb
+Content-Hash: blake3:a87fe65d162b56a3866cefb870da65e2c9553762db4b6f3d605f46666d41b32d
+Source-Hash: blake3:c0b087bf1de045580c62108c87050c903681c0483e1f406375b704bac589c5e3
 Schema-Version: v1
 -->
 
@@ -41,7 +41,7 @@ Terraform's `github-org` leaf manages repos. To add one:
 
 1. **Config** — append the repo to `managed_repos` in `.infra-copilot/config.md`
    ([`../infra-copilot/references/config.md`](../infra-copilot/references/config.md)) and re-export `$REPO` if it's the first
-   entry (the VCS repo HCP watches).
+   entry (the VCS repo HCP watches, or target repo for CI).
 2. **GitHub App install scope** (`HUMAN` if the App is installed on selected repos) — the
    App must be able to see the new repo. If install is scoped, a human extends it in the
    org's App-install settings, then replies `done`. See
@@ -61,7 +61,7 @@ workspace/token already exist, so this is pure Terraform:
    [`../infra-copilot/references/cloudflare.md`](../infra-copilot/references/cloudflare.md) and
    [`../infra-copilot/references/docs/secrets.md`](../infra-copilot/references/docs/secrets.md).
 3. `plan` → green with the new resource as **will be created**. `apply` runs through HCP
-   per your normal review flow.
+   (HCP mode) or GitHub Actions on push to main (object-storage mode) per your normal review flow.
 
 ### 3. Adopt a brand-new provider (largest — a design decision)
 
@@ -81,7 +81,7 @@ Template + rationale for the GCP case: [`../infra-copilot/references/gcp.md`](..
 2. **Pick the flavor** above; run `AGENT` steps and stop + hand off on `HUMAN` steps
    (App-scope change, token mint/paste, provider decision). Full actor/handoff/resume
    contract: [`../infra-copilot/references/protocol.md`](../infra-copilot/references/protocol.md).
-3. **Verify with a plan**, then apply through your normal HCP review.
+3. **Verify with a plan**, then apply through your normal HCP review or GitHub Actions apply workflow.
 
 ## Validation
 

@@ -22,10 +22,11 @@ preflight — lives in [`../infra-copilot/references/protocol.md`](../infra-copi
 
 ## Guardrails
 
-`infra-copilot:setup` phases 0–4 are green — HCP is reachable, both workspaces exist,
-credentials are proven. If not, run `setup` first; import needs the target provider's
-workspace working (the `cloudflare` leaf for a zone/DNS import, `github-org` for repos) and
-a green speculative plan to diff the imports against.
+`infra-copilot:setup` phases 0–4 are green — in HCP mode, HCP is reachable and both
+workspaces exist; in object-storage mode, the state bucket and GitHub Actions workflows exist;
+and credentials and first plans are proven on both leaves. If not, run `setup` first; import
+needs the target leaf working (the `cloudflare` leaf for a zone/DNS import, `github` for repos)
+and a green plan to diff the imports against.
 
 ## Branch on the provider first
 

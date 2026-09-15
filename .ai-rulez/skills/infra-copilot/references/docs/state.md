@@ -79,7 +79,7 @@ Supported backends with automated verification:
 |---------|---------|--------------|-------|
 | `gcs` | Native | N/A (bucket location) | Best for GCP-heavy repos |
 | `s3` | DynamoDB table | Required | Set `state_lock_table` |
-| `azurerm` | Native (blob lease) | N/A | Azure Storage container |
+| `azurerm` | Native (blob lease) | Required (location) | Azure Storage container (set `azure_storage_account`, `azure_resource_group`) |
 
 Cloudflare R2 and other S3-compatible object stores can use `s3` with their respective endpoints configured.
 
@@ -106,9 +106,18 @@ aws s3api create-bucket --bucket "$STATE_BUCKET" --region us-east-1
 aws s3api put-bucket-versioning --bucket "$STATE_BUCKET" \
   --versioning-configuration Status=Enabled
 aws dynamodb create-table --table-name "$STATE_LOCK_TABLE" \
+  --region "$STATE_REGION" \
   --attribute-definitions AttributeName=LockID,AttributeType=S \
   --key-schema AttributeName=LockID,KeyType=HASH \
   --billing-mode PAY_PER_REQUEST
+```
+
+**Azure (Blob Storage):**
+
+```sh
+az group create --name "$AZURE_RESOURCE_GROUP" --location "$STATE_REGION"
+az storage account create --name "$AZURE_STORAGE_ACCOUNT" --resource-group "$AZURE_RESOURCE_GROUP" --sku Standard_LRS --encryption-services blob
+az storage container create --account-name "$AZURE_STORAGE_ACCOUNT" --name "$STATE_BUCKET" --public-access off
 ```
 
 ## Backend configuration
@@ -136,6 +145,19 @@ terraform {
     region         = "us-east-1"
     dynamodb_table = "terraform-locks"
     encrypt        = true
+  }
+}
+```
+
+**AzureRM example (`terraform/cloudflare/backend.tf`):**
+
+```hcl
+terraform {
+  backend "azurerm" {
+    resource_group_name  = "your-resource-group"
+    storage_account_name = "yourstorageaccount"
+    container_name       = "your-org-tf-state"
+    key                  = "terraform/state/cloudflare/terraform.tfstate"
   }
 }
 ```
