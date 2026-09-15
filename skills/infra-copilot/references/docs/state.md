@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:f999d6ff89313de5c20e5e298561743cceebb1ae47b2ec3f979b856df6c8b564
-Source-Hash: blake3:21aeb4edd71692e9937c06d1eaf1a3e5cd7d31eb614df27a46a082fd77cc012b
+Content-Hash: blake3:4d7948aa8e370b2d1cd324ac5f59b85170b345dcaa450229af3013f03d4509db
+Source-Hash: blake3:03cd6c236245c6bb34750ea67803b4a6412db7107c4d275d5d74873ccd8268a8
 Schema-Version: v1
 -->
 
@@ -124,6 +124,8 @@ aws dynamodb create-table --table-name "$STATE_LOCK_TABLE" \
 ```sh
 az group create --name "$AZURE_RESOURCE_GROUP" --location "$STATE_REGION"
 az storage account create --name "$AZURE_STORAGE_ACCOUNT" --resource-group "$AZURE_RESOURCE_GROUP" --sku Standard_LRS --encryption-services blob
+# Enable blob versioning for state history recovery
+az storage account blob-service-properties update --account-name "$AZURE_STORAGE_ACCOUNT" --enable-versioning true
 az storage container create --account-name "$AZURE_STORAGE_ACCOUNT" --name "$STATE_BUCKET" --public-access off
 ```
 
@@ -199,7 +201,8 @@ For cloud provider auth (GCS, S3, Azure), use Workload Identity Federation where
 3. Update each leaf's `versions.tf`: remove `cloud {}`, add `backend "..." {}`
 4. Run `terraform init -migrate-state` in each leaf (or `terraform init` and `terraform state push /tmp/<leaf>-state.json` if configuring from scratch)
 5. Verify `terraform state list` matches the resources in the destination backend before deleting any HCP workspaces
-6. **Delete the plaintext state backup** — it may contain sensitive values:
+6. **Delete the plaintext state backups** — they may contain sensitive values:
    ```sh
-   rm -f /tmp/*-state.json
+   # Delete only the backups created in step 2 (cloudflare-state.json, github-state.json, etc.)
+   rm -f /tmp/cloudflare-state.json /tmp/github-state.json
    ```

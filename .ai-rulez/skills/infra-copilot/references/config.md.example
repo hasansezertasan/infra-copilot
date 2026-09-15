@@ -16,7 +16,7 @@ hcp_status_check_id: ""
 # state_bucket: your-org-tf-state
 # state_prefix: terraform/state
 # state_lock_table: ""         # DynamoDB table for S3; GCS/azurerm have native locking
-# state_region: ""             # for S3; GCS/azurerm do not use this in backend blocks
+# state_region: ""             # for S3 backend and Azure resource group creation; GCS uses bucket location
 # azure_storage_account: ""    # storage account name for azurerm backend
 # azure_resource_group: ""     # resource group for azurerm backend
 

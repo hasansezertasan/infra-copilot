@@ -5,8 +5,8 @@ description: "Provision something new in an already-bootstrapped infra repo: a m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:a87fe65d162b56a3866cefb870da65e2c9553762db4b6f3d605f46666d41b32d
-Source-Hash: blake3:21aeb4edd71692e9937c06d1eaf1a3e5cd7d31eb614df27a46a082fd77cc012b
+Content-Hash: blake3:1a82d9aea63bee16b4380ede019f602ee8433bcd083c7be99c343366e7c69b2e
+Source-Hash: blake3:03cd6c236245c6bb34750ea67803b4a6412db7107c4d275d5d74873ccd8268a8
 Schema-Version: v1
 -->
 
@@ -46,8 +46,11 @@ Terraform's `github-org` leaf manages repos. To add one:
    App must be able to see the new repo. If install is scoped, a human extends it in the
    org's App-install settings, then replies `done`. See
    [`../infra-copilot/references/github.md`](../infra-copilot/references/github.md).
-3. **Terraform** — add the resource/module in `terraform/github/`, `terraform init` +
-   `plan`. Green plan showing the new repo as **will be created** (or **imported**, if it
+3. **Terraform** — add the resource/module in `terraform/github/`, then verify the plan:
+   - **HCP mode**: `terraform init` + `plan` locally
+   - **Object-storage mode**: commit the change, trigger `gh workflow run terraform-plan.yml`,
+     and verify the plan job shows the expected changes in the workflow logs
+   Green plan showing the new repo as **will be created** (or **imported**, if it
    already exists on GitHub — then hand to `infra-copilot:import`).
 
 ### 2. Add a resource to an existing provider

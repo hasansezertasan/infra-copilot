@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:879d075b1b647be4f9bb4f91de950a28db791d7ae422c6befe6717b1d964dbc4
-Source-Hash: blake3:21aeb4edd71692e9937c06d1eaf1a3e5cd7d31eb614df27a46a082fd77cc012b
+Content-Hash: blake3:d835a88c9053129176a99c59a04394d7e79039d21c1f2cf12157b2e80f2a4476
+Source-Hash: blake3:03cd6c236245c6bb34750ea67803b4a6412db7107c4d275d5d74873ccd8268a8
 Schema-Version: v1
 -->
 
@@ -68,7 +68,7 @@ state_backend: gcs             # Terraform backend type: gcs | s3 | azurerm | co
 state_bucket: <string>         # bucket name for state files (container name for azurerm)
 state_prefix: terraform/state  # path prefix within bucket (default: terraform/state)
 state_lock_table: ""           # DynamoDB table for S3 locking; GCS/azurerm have native locking
-state_region: ""               # region for S3; GCS uses bucket location
+state_region: ""               # region for S3 and Azure resource group location; GCS uses bucket location
 azure_storage_account: ""      # storage account name for azurerm backend
 azure_resource_group: ""       # resource group for azurerm backend
 # ... common fields ...

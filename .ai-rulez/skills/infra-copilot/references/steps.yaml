@@ -521,7 +521,11 @@ steps:
           --location=us --uniform-bucket-level-access --versioning
 
       Example for S3:
-        aws s3api create-bucket --bucket $STATE_BUCKET --region $STATE_REGION
+        # us-east-1:
+        aws s3api create-bucket --bucket "$STATE_BUCKET" --region us-east-1
+        # Other regions require LocationConstraint:
+        # aws s3api create-bucket --bucket "$STATE_BUCKET" --region "$STATE_REGION" \
+        #   --create-bucket-configuration LocationConstraint="$STATE_REGION"
         aws s3api put-bucket-versioning --bucket "$STATE_BUCKET" \
           --versioning-configuration Status=Enabled
         aws dynamodb create-table --table-name "$STATE_LOCK_TABLE" \
@@ -542,8 +546,13 @@ steps:
           gcloud storage buckets describe "gs://$STATE_BUCKET" \
             --format='value(iamConfiguration.uniformBucketLevelAccess.enabled)' 2>/dev/null \
             | grep -Fxq "True" || exit 1
-          ! gcloud storage buckets get-iam-policy "gs://$STATE_BUCKET" \
-            --format='value(bindings.members)' 2>/dev/null | grep -Eq '(allUsers|allAuthenticatedUsers)'
+          # Verify object versioning is enabled
+          gcloud storage buckets describe "gs://$STATE_BUCKET" \
+            --format='value(versioning.enabled)' 2>/dev/null | grep -Fxiq "true" || exit 1
+          # Require successful IAM policy retrieval before checking for public access
+          iam_policy=$(gcloud storage buckets get-iam-policy "gs://$STATE_BUCKET" \
+            --format='value(bindings.members)' 2>/dev/null) || exit 1
+          ! printf '%s' "$iam_policy" | grep -Eq '(allUsers|allAuthenticatedUsers)'
           ;;
         s3)
           [ -n "$STATE_LOCK_TABLE" ] || exit 1
@@ -584,7 +593,9 @@ steps:
     title: Configure Terraform backend blocks
     why: Each leaf needs a backend block pointing to the state bucket with a unique key.
     run: |
-      For each terraform/<leaf>, create a backend.tf with:
+      For each terraform/<leaf>:
+      1. If migrating from HCP, remove the existing `cloud {}` block from versions.tf
+      2. Create a backend.tf with:
         terraform {
           backend "<state_backend>" {
             # For GCS:
@@ -608,6 +619,8 @@ steps:
         test -d "$leaf" || continue
         grep -q "backend \"$STATE_BACKEND\"" "$leaf"/*.tf 2>/dev/null || exit 1
         grep -q "$STATE_BUCKET" "$leaf"/*.tf 2>/dev/null || exit 1
+        # Ensure old HCP cloud block is removed (cannot have both backend and cloud)
+        ! grep -q 'cloud[[:space:]]*{' "$leaf"/*.tf 2>/dev/null || exit 1
         if [ "$STATE_BACKEND" = "s3" ]; then
           grep -q "$STATE_LOCK_TABLE" "$leaf"/*.tf 2>/dev/null || exit 1
         elif [ "$STATE_BACKEND" = "azurerm" ]; then
@@ -999,13 +1012,18 @@ steps:
         # In object-storage mode, verify via the GitHub Actions plan workflow
         git ls-files --error-unmatch terraform/cloudflare/generated.tf >/dev/null 2>&1 || exit 1
         target_sha=$(git rev-parse HEAD 2>/dev/null)
+        # Require a successful run, not just completed
         run_id=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
-          --json databaseId,status,conclusion,event \
-          -q '.[] | select((.conclusion=="success" or .status=="completed") and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
+          --json databaseId,conclusion,event \
+          -q '.[] | select(.conclusion=="success" and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
         [ -n "$run_id" ] || exit 1
-        logs=$(gh run view "$run_id" --repo "$REPO" --log 2>/dev/null | grep -A9999 'plan-cloudflare')
-        printf '%s' "$logs" | grep -q 'will be imported' || exit 1
-        ! printf '%s' "$logs" | grep -q 'will be created'
+        # Extract only the plan-cloudflare job logs
+        logs=$(gh run view "$run_id" --repo "$REPO" --json jobs \
+          -q '.jobs[] | select(.name=="plan-cloudflare" and .conclusion=="success") | .name' 2>/dev/null)
+        [ -n "$logs" ] || exit 1
+        job_logs=$(gh run view "$run_id" --repo "$REPO" --log 2>/dev/null | sed -n '/plan-cloudflare/,/^[^ ]/p' | head -n -1)
+        printf '%s' "$job_logs" | grep -q 'will be imported' || exit 1
+        ! printf '%s' "$job_logs" | grep -q 'will be created'
       else
         # HCP mode: local terraform plan
         cd terraform/cloudflare
@@ -1609,6 +1627,7 @@ steps:
       3. Pass the required secrets from NEW_PROVIDER_SECRETS as environment variables
       4. Add the provider-specific authentication step before terraform init (e.g., google-github-actions/auth for GCP, aws-actions/configure-aws-credentials for AWS, azure/login for Azure)
       5. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
+      6. Add plan-$NEW_PROVIDER to the aggregate `plan` job's `needs` list
       Commit the updated workflows before re-running this check.
     check: |
       test -f .github/workflows/terraform-plan.yml || exit 1
@@ -1625,8 +1644,11 @@ steps:
         done
         # Verify authentication action exists in the provider jobs (not just secret refs)
         # Look for common auth action patterns in the plan/apply jobs for this provider
-        plan_job=$(sed -n "/plan-$NEW_PROVIDER:/,/^[[:space:]]*[a-z-]*:/p" .github/workflows/terraform-plan.yml)
-        apply_job=$(sed -n "/apply-$NEW_PROVIDER:/,/^[[:space:]]*[a-z-]*:/p" .github/workflows/terraform-apply.yml)
+        # Use yq to extract the complete job definition, or fall back to sed with proper indentation matching
+        plan_job=$(yq -r ".jobs[\"plan-$NEW_PROVIDER\"]" .github/workflows/terraform-plan.yml 2>/dev/null || \
+          sed -n "/^  plan-$NEW_PROVIDER:/,/^  [a-z][a-z0-9_-]*:/p" .github/workflows/terraform-plan.yml | sed '$d')
+        apply_job=$(yq -r ".jobs[\"apply-$NEW_PROVIDER\"]" .github/workflows/terraform-apply.yml 2>/dev/null || \
+          sed -n "/^  apply-$NEW_PROVIDER:/,/^  [a-z][a-z0-9_-]*:/p" .github/workflows/terraform-apply.yml | sed '$d')
         has_auth=false
         for pattern in 'google-github-actions/auth' 'aws-actions/configure-aws-credentials' 'azure/login'; do
           if printf '%s' "$plan_job" | grep -q "$pattern" && printf '%s' "$apply_job" | grep -q "$pattern"; then
@@ -1635,6 +1657,10 @@ steps:
         done
         [ "$has_auth" = "true" ] || exit 1
       fi
+      # Verify aggregate plan job includes the new provider
+      plan_needs=$(yq -r '.jobs.plan.needs | @csv' .github/workflows/terraform-plan.yml 2>/dev/null || \
+        grep -A1 'plan:' .github/workflows/terraform-plan.yml | grep 'needs:')
+      printf '%s' "$plan_needs" | grep -q "plan-$NEW_PROVIDER" || exit 1
       git ls-files --error-unmatch \
         .github/workflows/terraform-plan.yml \
         .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
