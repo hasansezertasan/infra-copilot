@@ -160,6 +160,7 @@ terraform {
     storage_account_name = "yourstorageaccount"
     container_name       = "your-org-tf-state"
     key                  = "terraform/state/cloudflare/terraform.tfstate"
+    use_azuread_auth     = true  # Required for federated identity (no access keys)
   }
 }
 ```

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:c649bb8adc17622e52b9f217c08cbf019e80072e6316c8c7e6c8e260d9c41883
-Source-Hash: blake3:4e0a76147b97d9ab5b9e9af120ca7929b873985f10ae06fa9f1e90ccefa735c5
+Content-Hash: blake3:81e22233ba2e76449053d495d9d89d97b69ba96d30fb7934c3419527dbb2c1cb
+Source-Hash: blake3:279326dfc3b83ecd8da2bf81c99aa58fb4f1a4aa8d9b5a1c360189f069fc984f
 Schema-Version: v1
 -->
 
@@ -167,6 +167,7 @@ terraform {
     storage_account_name = "yourstorageaccount"
     container_name       = "your-org-tf-state"
     key                  = "terraform/state/cloudflare/terraform.tfstate"
+    use_azuread_auth     = true  # Required for federated identity (no access keys)
   }
 }
 ```

@@ -592,12 +592,13 @@ steps:
           aws s3api get-bucket-versioning --bucket "$STATE_BUCKET" --query "Status" --output text 2>/dev/null \
             | grep -Fxq "Enabled" || exit 1
           # Verify table exists, is active, and has correct key schema (LockID string)
-          table_info=$(aws dynamodb describe-table --table-name "$STATE_LOCK_TABLE" --region "$STATE_REGION" 2>/dev/null) || exit 1
+          # Use --output json to avoid depending on user's AWS CLI default output format
+          table_info=$(aws dynamodb describe-table --table-name "$STATE_LOCK_TABLE" --region "$STATE_REGION" --output json 2>/dev/null) || exit 1
           printf '%s' "$table_info" | jq -e '.Table.TableStatus == "ACTIVE"' >/dev/null || exit 1
           printf '%s' "$table_info" | jq -e '.Table.KeySchema == [{"AttributeName":"LockID","KeyType":"HASH"}]' >/dev/null || exit 1
           printf '%s' "$table_info" | jq -e '.Table.AttributeDefinitions | any(.AttributeName == "LockID" and .AttributeType == "S")' >/dev/null || exit 1
           # Verify all public-access-block settings are enabled
-          pab=$(aws s3api get-public-access-block --bucket "$STATE_BUCKET" 2>/dev/null)
+          pab=$(aws s3api get-public-access-block --bucket "$STATE_BUCKET" --output json 2>/dev/null)
           printf '%s' "$pab" | grep -q '"BlockPublicAcls": true' || exit 1
           printf '%s' "$pab" | grep -q '"IgnorePublicAcls": true' || exit 1
           printf '%s' "$pab" | grep -q '"BlockPublicPolicy": true' || exit 1
@@ -661,13 +662,14 @@ steps:
       for leaf in terraform/cloudflare terraform/github; do
         test -d "$leaf" || continue
         grep -q "backend \"$STATE_BACKEND\"" "$leaf"/*.tf 2>/dev/null || exit 1
-        grep -q "$STATE_BUCKET" "$leaf"/*.tf 2>/dev/null || exit 1
+        # Use -F for literal string matching (bucket names may contain regex chars like .)
+        grep -Fq "$STATE_BUCKET" "$leaf"/*.tf 2>/dev/null || exit 1
         # Ensure old HCP cloud block is removed (cannot have both backend and cloud)
         ! grep -q 'cloud[[:space:]]*{' "$leaf"/*.tf 2>/dev/null || exit 1
         if [ "$STATE_BACKEND" = "s3" ]; then
-          grep -q "$STATE_LOCK_TABLE" "$leaf"/*.tf 2>/dev/null || exit 1
+          grep -Fq "$STATE_LOCK_TABLE" "$leaf"/*.tf 2>/dev/null || exit 1
         elif [ "$STATE_BACKEND" = "azurerm" ]; then
-          grep -q "$AZURE_STORAGE_ACCOUNT" "$leaf"/*.tf 2>/dev/null || exit 1
+          grep -Fq "$AZURE_STORAGE_ACCOUNT" "$leaf"/*.tf 2>/dev/null || exit 1
           # Require Azure AD auth for federated identity (no access keys)
           grep -q 'use_azuread_auth[[:space:]]*=[[:space:]]*true' "$leaf"/*.tf 2>/dev/null || exit 1
         fi
@@ -1171,10 +1173,14 @@ steps:
         # Get logs for the specific job (avoids parsing issues with full run logs)
         job_logs=$(gh run view "$run_id" --repo "$REPO" --job "$job_id" --log 2>/dev/null)
         # Completion predicate:
-        # - Reject if plan creates resources (import blocks wrong or resources not imported)
+        # - Reject if plan creates or destroys resources (import must be additive-only)
         # - Accept if 'will be imported' (pending) OR 'No changes' (done - post-apply no-op)
         if printf '%s' "$job_logs" | grep -q 'will be created'; then
           echo "Import check failed: plan would create resources" >&2
+          exit 1
+        fi
+        if printf '%s' "$job_logs" | grep -qE 'will be destroyed|will be deleted'; then
+          echo "Import check failed: plan would destroy resources" >&2
           exit 1
         fi
         # Accept pending imports or completed (no-op plan)
@@ -1193,7 +1199,8 @@ steps:
         trap 'rm -f "$p"' EXIT
         terraform plan -input=false -no-color >"$p" 2>&1 \
           && grep -q 'will be imported' "$p" \
-          && ! grep -q 'will be created' "$p"
+          && ! grep -q 'will be created' "$p" \
+          && ! grep -qE 'will be destroyed|will be deleted' "$p"
       fi
     produces: generated.tf with import blocks; plan shows imports only
     docs: migration.md
@@ -1407,7 +1414,8 @@ steps:
       else
         # Object-storage mode: verify backend block with complete path validation
         grep -q "backend \"$STATE_BACKEND\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
-        grep -q "$STATE_BUCKET" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+        # Use -F for literal string matching (bucket names may contain regex chars like .)
+        grep -Fq "$STATE_BUCKET" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
         # Validate complete prefix/key path matches backend-config convention
         # Escape regex special chars in STATE_PREFIX (e.g., + . *)
         escaped_prefix=$(printf '%s' "$STATE_PREFIX" | sed 's/[.+*?^$[\]\\|(){}]/\\&/g')

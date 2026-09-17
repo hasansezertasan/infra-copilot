@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:4e0a76147b97d9ab5b9e9af120ca7929b873985f10ae06fa9f1e90ccefa735c5",
+  "source_hash": "blake3:279326dfc3b83ecd8da2bf81c99aa58fb4f1a4aa8d9b5a1c360189f069fc984f",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -75,7 +75,7 @@
       "content_hash": "blake3:ee83830b84861e3ca39afc8960079722b5afe21bb4e468dac86bd2338195b109"
     },
     "skills/infra-copilot/references/docs/state.md": {
-      "content_hash": "blake3:c649bb8adc17622e52b9f217c08cbf019e80072e6316c8c7e6c8e260d9c41883"
+      "content_hash": "blake3:81e22233ba2e76449053d495d9d89d97b69ba96d30fb7934c3419527dbb2c1cb"
     },
     "skills/infra-copilot/references/gcp.md": {
       "content_hash": "blake3:42999f709a38908161338dee275cd1728f9784d0747b4bde695d2acfe3171687"
@@ -96,7 +96,7 @@
       "content_hash": "blake3:42f006af03101fdff6659a51c44412f75a8a9f7f218de604aafd85de5b62b76f"
     },
     "skills/infra-copilot/references/steps.yaml": {
-      "content_hash": "blake3:d57ae0c60ad1208e0b58ad0d0179d226b8a3fec559878ff2a3cbb748af63e1b7"
+      "content_hash": "blake3:69afe221178ea6395c0c28e2d07dfeefa1bdeff5f3d8621997e389310a862d64"
     },
     "skills/infra-copilot/references/templates/terraform-apply.yml": {
       "content_hash": "blake3:58f05966aac00db18d13ef6f792ea5de1900255c7f9bf51791b487babeffd723"
@@ -105,7 +105,7 @@
       "content_hash": "blake3:2bc6894cd1bf189eb7a4aaabb90ecafbb9782ecd62b7e6b26f2a5ee9be4e9b8b"
     },
     "skills/setup/SKILL.md": {
-      "content_hash": "blake3:0e77e6a81a46ee0c172b479350b15d294e4e9ed67cc3c3cb8d201a849a15f1d8"
+      "content_hash": "blake3:4151e8bc9ca5274e79f1a006526dca517db2c9fb89a1b9379b829f33bcab0f5e"
     },
     "skills/status/SKILL.md": {
       "content_hash": "blake3:dadc4bf5a553cfc7675e8428f0091d22674633843ed4edcfb10351f974c39faa"

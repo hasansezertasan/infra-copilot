@@ -1,12 +1,12 @@
 ---
 name: setup
-description: "Greenfield bootstrap of a Terraform + HCP Terraform + Cloudflare + GitHub infra repo: wires HCP state, the Cloudflare token and the GitHub App, then reaches a green first plan on both leaves. Use when nothing is wired up yet, even if the user does not name infra-copilot. Not for adopting resources that already exist (infra-copilot:import), nor for provisioning new ones in a working repo (infra-copilot:add)."
+description: "Greenfield bootstrap of a Terraform + Cloudflare + GitHub infra repo with either HCP Terraform (cloud block) or object-storage backend (GCS/S3/Azure + GitHub Actions). Wires state, the Cloudflare token, and the GitHub App, then reaches a green first plan on both leaves. Use when nothing is wired up yet. Not for adopting resources that already exist (infra-copilot:import), nor for provisioning new ones in a working repo (infra-copilot:add)."
 ---
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:0e77e6a81a46ee0c172b479350b15d294e4e9ed67cc3c3cb8d201a849a15f1d8
-Source-Hash: blake3:4e0a76147b97d9ab5b9e9af120ca7929b873985f10ae06fa9f1e90ccefa735c5
+Content-Hash: blake3:4151e8bc9ca5274e79f1a006526dca517db2c9fb89a1b9379b829f33bcab0f5e
+Source-Hash: blake3:279326dfc3b83ecd8da2bf81c99aa58fb4f1a4aa8d9b5a1c360189f069fc984f
 Schema-Version: v1
 -->
 
