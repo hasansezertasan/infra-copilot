@@ -571,10 +571,20 @@ steps:
           # Verify object versioning is enabled
           gcloud storage buckets describe "gs://$STATE_BUCKET" \
             --format='value(versioning.enabled)' 2>/dev/null | grep -Fxiq "true" || exit 1
-          # Require successful IAM policy retrieval before checking for public access
-          iam_policy=$(gcloud storage buckets get-iam-policy "gs://$STATE_BUCKET" \
-            --format='value(bindings.members)' 2>/dev/null) || exit 1
-          ! printf '%s' "$iam_policy" | grep -Eq '(allUsers|allAuthenticatedUsers)'
+          # Require Public Access Prevention to be enforced (blocks inherited project-level grants)
+          pap=$(gcloud storage buckets describe "gs://$STATE_BUCKET" \
+            --format='value(iamConfiguration.publicAccessPrevention)' 2>/dev/null)
+          if [ "$pap" = "enforced" ]; then
+            : # Public Access Prevention enforced - bucket is private
+          else
+            # Fall back to checking bucket-level IAM (may miss inherited grants)
+            iam_policy=$(gcloud storage buckets get-iam-policy "gs://$STATE_BUCKET" \
+              --format='value(bindings.members)' 2>/dev/null) || exit 1
+            ! printf '%s' "$iam_policy" | grep -Eq '(allUsers|allAuthenticatedUsers)' || {
+              echo "Warning: Public Access Prevention not enforced and public members found" >&2
+              exit 1
+            }
+          fi
           ;;
         s3)
           [ -n "$STATE_LOCK_TABLE" ] || exit 1
@@ -620,11 +630,11 @@ steps:
     run: |
       For each terraform/<leaf>:
       1. If migrating from HCP:
-         a. First, transfer existing state to the new backend:
-            - Configure the new backend block (step 2 below)
-            - Run `terraform init -migrate-state` to copy state from HCP to the bucket
-            - Verify state transfer with `terraform state list`
-         b. Only after confirming state transfer, remove the `cloud {}` block from versions.tf
+         a. Backup existing state: `terraform state pull > terraform.tfstate.backup`
+         b. Remove the `cloud {}` block from versions.tf (Terraform rejects both cloud and backend)
+         c. Create the backend.tf (step 2 below)
+         d. Run `terraform init -migrate-state` to copy state from HCP to the bucket
+         e. Verify state transfer: `terraform state list` should match before/after
       2. Create a backend.tf with:
         terraform {
           backend "<state_backend>" {
@@ -799,7 +809,7 @@ steps:
 
   # ── Phase 3 — GitHub App credentials (backend: object-storage) ──────────
   - id: gh-app-gha
-    phase: 2
+    phase: 3
     provider: github
     actor: HUMAN
     when: '[ "$BACKEND" = "object-storage" ]'
@@ -836,11 +846,15 @@ steps:
       # Use newest commit that changed relevant paths (not exact HEAD which may have unrelated changes)
       target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
-      # Require successful workflow run, not just completed
-      run_id=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
+      # Get the NEWEST run for this commit first, then verify it succeeded
+      # (don't filter by success first, which would pick an older success over a newer failure)
+      run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
         --json databaseId,conclusion,event \
-        -q '.[] | select(.conclusion=="success" and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
-      [ -n "$run_id" ] || exit 1
+        -q '[.[] | select(.event=="pull_request" or .event=="workflow_dispatch")][0]' 2>/dev/null)
+      [ -n "$run_info" ] || exit 1
+      run_id=$(printf '%s' "$run_info" | jq -r '.databaseId')
+      conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion')
+      [ "$conclusion" = "success" ] || exit 1
       gh run view "$run_id" --repo "$REPO" --json jobs \
         -q '.jobs[] | select(.name=="plan-cloudflare" and .conclusion=="success") | .name' 2>/dev/null | grep -q 'plan-cloudflare'
     produces: green plan for cloudflare in GitHub Actions
@@ -861,11 +875,14 @@ steps:
       # Use newest commit that changed relevant paths (not exact HEAD which may have unrelated changes)
       target_sha=$(git log --format=%H -1 -- terraform/github terraform/modules .infra-copilot/config.md mise.toml 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
-      # Require successful workflow run, not just completed
-      run_id=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
+      # Get the NEWEST run for this commit first, then verify it succeeded
+      run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
         --json databaseId,conclusion,event \
-        -q '.[] | select(.conclusion=="success" and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
-      [ -n "$run_id" ] || exit 1
+        -q '[.[] | select(.event=="pull_request" or .event=="workflow_dispatch")][0]' 2>/dev/null)
+      [ -n "$run_info" ] || exit 1
+      run_id=$(printf '%s' "$run_info" | jq -r '.databaseId')
+      conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion')
+      [ "$conclusion" = "success" ] || exit 1
       gh run view "$run_id" --repo "$REPO" --json jobs \
         -q '.jobs[] | select(.name=="plan-github" and .conclusion=="success") | .name' 2>/dev/null | grep -q 'plan-github'
     produces: green plan for github in GitHub Actions
@@ -1110,11 +1127,14 @@ steps:
         # Use newest commit that changed relevant paths
         target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml 2>/dev/null)
         [ -n "$target_sha" ] || exit 1
-        # Require a successful run, not just completed
-        run_id=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
+        # Get the NEWEST run for this commit first, then verify it succeeded
+        run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
           --json databaseId,conclusion,event \
-          -q '.[] | select(.conclusion=="success" and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
-        [ -n "$run_id" ] || exit 1
+          -q '[.[] | select(.event=="pull_request" or .event=="workflow_dispatch")][0]' 2>/dev/null)
+        [ -n "$run_info" ] || exit 1
+        run_id=$(printf '%s' "$run_info" | jq -r '.databaseId')
+        conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion')
+        [ "$conclusion" = "success" ] || exit 1
         # Get the job ID for plan-cloudflare
         job_id=$(gh run view "$run_id" --repo "$REPO" --json jobs \
           -q '.jobs[] | select(.name=="plan-cloudflare" and .conclusion=="success") | .databaseId' 2>/dev/null)
@@ -1835,11 +1855,14 @@ steps:
       # Use newest commit that changed relevant paths (not exact HEAD which may have unrelated changes)
       target_sha=$(git log --format=%H -1 -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
-      # Require successful workflow run, not just completed
-      run_id=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
+      # Get the NEWEST run for this commit first, then verify it succeeded
+      run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
         --json databaseId,conclusion,event \
-        -q '.[] | select(.conclusion=="success" and (.event=="pull_request" or .event=="workflow_dispatch")) | .databaseId' 2>/dev/null | head -1)
-      [ -n "$run_id" ] || exit 1
+        -q '[.[] | select(.event=="pull_request" or .event=="workflow_dispatch")][0]' 2>/dev/null)
+      [ -n "$run_info" ] || exit 1
+      run_id=$(printf '%s' "$run_info" | jq -r '.databaseId')
+      conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion')
+      [ "$conclusion" = "success" ] || exit 1
       gh run view "$run_id" --repo "$REPO" --json jobs \
         -q ".jobs[] | select(.name==\"plan-$NEW_PROVIDER\" and .conclusion==\"success\") | .name" 2>/dev/null | grep -q "plan-$NEW_PROVIDER"
     produces: green plan for new provider leaf in GitHub Actions

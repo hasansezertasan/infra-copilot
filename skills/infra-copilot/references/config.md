@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:f304b40eade82c13d44c657543fb51d896556f2a5ac4a77cb2422970ea8a98d0
-Source-Hash: blake3:9b9fd403708713aef64a89e281b1a6807db5009bb737b1f30a786007f03bded0
+Content-Hash: blake3:1f62fb4abcf9b0bfdd53a0b45752f22556ab122fdc43c0129d2202cfb80ed466
+Source-Hash: blake3:cad07cb4bbbc8cb43c2758392700e50b5741c9785cf3e43f3273ef31a57dc796
 Schema-Version: v1
 -->
 
@@ -26,7 +26,7 @@ infra-copilot supports two execution modes:
 | Mode | State backend | CI | Secrets | Plan visibility |
 |------|---------------|-----|---------|-----------------|
 | `hcp` (default) | HCP Terraform `cloud {}` | HCP VCS integration | HCP workspace variables | HCP UI (auth required) |
-| `object-storage` | Any Terraform backend (gcs/s3/azurerm/cos/...) | GitHub Actions | GitHub Actions secrets | PR comment (repo access) |
+| `object-storage` | Cloud storage bucket (gcs/s3/azurerm) | GitHub Actions | GitHub Actions secrets | PR comment (repo access) |
 
 The `backend` field selects the mode. Omit it or set `hcp` for the current behavior.
 Set `object-storage` to use a cloud storage bucket + GitHub Actions CI.
@@ -212,7 +212,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export STATE_BUCKET=<state_bucket>
    export STATE_PREFIX=<state_prefix>        # default: terraform/state
    export STATE_LOCK_TABLE=<state_lock_table>  # for S3; empty for GCS/azurerm
-   export STATE_REGION=<state_region>        # for S3; empty for GCS/azurerm
+   export STATE_REGION=<state_region>        # for S3 and azurerm; empty for GCS
    export AZURE_STORAGE_ACCOUNT=<azure_storage_account>  # for azurerm
    export AZURE_RESOURCE_GROUP=<azure_resource_group>    # for azurerm
    export ADDITIONAL_PROVIDER_SECRETS='<additional_providers credential_secrets as compact JSON>'
