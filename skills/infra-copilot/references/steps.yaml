@@ -851,17 +851,20 @@ steps:
       You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR.
       Verify that the plan-cloudflare job runs and finishes successfully.
     check: |
-      # Use newest commit that changed relevant paths (not exact HEAD which may have unrelated changes)
+      # Find the newest commit that changed relevant paths
       target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
-      # Get the NEWEST run for this commit first, then verify it succeeded
-      # (don't filter by success first, which would pick an older success over a newer failure)
-      run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
-        --json databaseId,conclusion,event \
+      # Get the newest run on the current branch (workflow_dispatch runs at HEAD, not target_sha)
+      branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)
+      run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --branch "$branch" --limit 10 \
+        --json databaseId,conclusion,event,headSha \
         -q '[.[] | select(.event=="pull_request" or .event=="workflow_dispatch")][0]' 2>/dev/null)
       [ -n "$run_info" ] || exit 1
       run_id=$(printf '%s' "$run_info" | jq -r '.databaseId')
+      run_sha=$(printf '%s' "$run_info" | jq -r '.headSha')
       conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion')
+      # Verify the run includes the relevant changes (target_sha is ancestor of or equals run_sha)
+      git merge-base --is-ancestor "$target_sha" "$run_sha" || exit 1
       [ "$conclusion" = "success" ] || exit 1
       gh run view "$run_id" --repo "$REPO" --json jobs \
         -q '.jobs[] | select(.name=="plan-cloudflare" and .conclusion=="success") | .name' 2>/dev/null | grep -q 'plan-cloudflare'
@@ -880,16 +883,20 @@ steps:
       You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR.
       Verify that the plan-github job runs and finishes successfully.
     check: |
-      # Use newest commit that changed relevant paths (not exact HEAD which may have unrelated changes)
+      # Find the newest commit that changed relevant paths
       target_sha=$(git log --format=%H -1 -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
-      # Get the NEWEST run for this commit first, then verify it succeeded
-      run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
-        --json databaseId,conclusion,event \
+      # Get the newest run on the current branch (workflow_dispatch runs at HEAD, not target_sha)
+      branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)
+      run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --branch "$branch" --limit 10 \
+        --json databaseId,conclusion,event,headSha \
         -q '[.[] | select(.event=="pull_request" or .event=="workflow_dispatch")][0]' 2>/dev/null)
       [ -n "$run_info" ] || exit 1
       run_id=$(printf '%s' "$run_info" | jq -r '.databaseId')
+      run_sha=$(printf '%s' "$run_info" | jq -r '.headSha')
       conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion')
+      # Verify the run includes the relevant changes (target_sha is ancestor of or equals run_sha)
+      git merge-base --is-ancestor "$target_sha" "$run_sha" || exit 1
       [ "$conclusion" = "success" ] || exit 1
       gh run view "$run_id" --repo "$REPO" --json jobs \
         -q '.jobs[] | select(.name=="plan-github" and .conclusion=="success") | .name' 2>/dev/null | grep -q 'plan-github'
@@ -1142,16 +1149,20 @@ steps:
       if [ "$BACKEND" = "object-storage" ]; then
         # In object-storage mode, verify via the GitHub Actions plan workflow
         git ls-files --error-unmatch terraform/cloudflare/generated.tf >/dev/null 2>&1 || exit 1
-        # Use newest commit that changed relevant paths
+        # Find the newest commit that changed relevant paths
         target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
         [ -n "$target_sha" ] || exit 1
-        # Get the NEWEST run for this commit first, then verify it succeeded
-        run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
-          --json databaseId,conclusion,event \
+        # Get the newest run on the current branch (workflow_dispatch runs at HEAD, not target_sha)
+        branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)
+        run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --branch "$branch" --limit 10 \
+          --json databaseId,conclusion,event,headSha \
           -q '[.[] | select(.event=="pull_request" or .event=="workflow_dispatch")][0]' 2>/dev/null)
         [ -n "$run_info" ] || exit 1
         run_id=$(printf '%s' "$run_info" | jq -r '.databaseId')
+        run_sha=$(printf '%s' "$run_info" | jq -r '.headSha')
         conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion')
+        # Verify the run includes the relevant changes (target_sha is ancestor of or equals run_sha)
+        git merge-base --is-ancestor "$target_sha" "$run_sha" || exit 1
         [ "$conclusion" = "success" ] || exit 1
         # Get the job ID for plan-cloudflare
         job_id=$(gh run view "$run_id" --repo "$REPO" --json jobs \
@@ -1839,10 +1850,11 @@ steps:
       # Verify the aggregate check has the new provider's env and success predicate
       plan_job_script=$(yq -r '.jobs.plan.steps[0].run' .github/workflows/terraform-plan.yml 2>/dev/null || \
         sed -n '/^  plan:/,/^  [a-z]/p' .github/workflows/terraform-plan.yml)
-      # Check for changes output variable and success predicate for the new provider
-      upper_provider=$(printf '%s' "$NEW_PROVIDER" | tr '[:lower:]' '[:upper:]')
+      # Normalize hyphenated provider slugs for shell identifiers (e.g., new-provider -> new_provider)
+      provider_id=$(printf '%s' "$NEW_PROVIDER" | tr '-' '_')
+      upper_provider=$(printf '%s' "$provider_id" | tr '[:lower:]' '[:upper:]')
       printf '%s' "$plan_job_script" | grep -qE "(${upper_provider}_CHANGED|${NEW_PROVIDER}.*changed)" || exit 1
-      printf '%s' "$plan_job_script" | grep -qE "plan-$NEW_PROVIDER.*success|plan_${NEW_PROVIDER}_result" || exit 1
+      printf '%s' "$plan_job_script" | grep -qE "plan-$NEW_PROVIDER.*success|plan_${provider_id}_result" || exit 1
       # Verify apply job has production environment
       printf '%s' "$apply_job" | grep -q 'environment:.*production' || exit 1
       # Verify apply workflow has path filter for new provider in changes job
@@ -1873,16 +1885,20 @@ steps:
       Trigger via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR,
       and verify the plan job for $NEW_PROVIDER succeeds.
     check: |
-      # Use newest commit that changed relevant paths (not exact HEAD which may have unrelated changes)
+      # Find the newest commit that changed relevant paths
       target_sha=$(git log --format=%H -1 -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
-      # Get the NEWEST run for this commit first, then verify it succeeded
-      run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
-        --json databaseId,conclusion,event \
+      # Get the newest run on the current branch (workflow_dispatch runs at HEAD, not target_sha)
+      branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)
+      run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --branch "$branch" --limit 10 \
+        --json databaseId,conclusion,event,headSha \
         -q '[.[] | select(.event=="pull_request" or .event=="workflow_dispatch")][0]' 2>/dev/null)
       [ -n "$run_info" ] || exit 1
       run_id=$(printf '%s' "$run_info" | jq -r '.databaseId')
+      run_sha=$(printf '%s' "$run_info" | jq -r '.headSha')
       conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion')
+      # Verify the run includes the relevant changes (target_sha is ancestor of or equals run_sha)
+      git merge-base --is-ancestor "$target_sha" "$run_sha" || exit 1
       [ "$conclusion" = "success" ] || exit 1
       gh run view "$run_id" --repo "$REPO" --json jobs \
         -q ".jobs[] | select(.name==\"plan-$NEW_PROVIDER\" and .conclusion==\"success\") | .name" 2>/dev/null | grep -q "plan-$NEW_PROVIDER"
