@@ -53,11 +53,13 @@ jobs:
               - 'terraform/cloudflare/**'
               - 'terraform/modules/**'
               - 'mise.toml'
+              - 'mise.lock'
               - '.infra-copilot/config.md'
             github:
               - 'terraform/github/**'
               - 'terraform/modules/**'
               - 'mise.toml'
+              - 'mise.lock'
               - '.infra-copilot/config.md'
 
   apply-cloudflare:

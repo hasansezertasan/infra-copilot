@@ -589,7 +589,7 @@ steps:
         s3)
           [ -n "$STATE_LOCK_TABLE" ] || exit 1
           aws s3api head-bucket --bucket "$STATE_BUCKET" 2>/dev/null || exit 1
-          aws s3api get-bucket-versioning --bucket "$STATE_BUCKET" --query "Status" -o text 2>/dev/null \
+          aws s3api get-bucket-versioning --bucket "$STATE_BUCKET" --query "Status" --output text 2>/dev/null \
             | grep -Fxq "Enabled" || exit 1
           # Verify table exists, is active, and has correct key schema (LockID string)
           table_info=$(aws dynamodb describe-table --table-name "$STATE_LOCK_TABLE" --region "$STATE_REGION" 2>/dev/null) || exit 1
@@ -630,11 +630,13 @@ steps:
     run: |
       For each terraform/<leaf>:
       1. If migrating from HCP:
-         a. Backup existing state: `terraform state pull > terraform.tfstate.backup`
+         a. Backup existing state to a protected tempfile (state may contain secrets):
+            `(umask 077 && terraform state pull > "$(mktemp -d)/terraform.tfstate.backup")`
          b. Remove the `cloud {}` block from versions.tf (Terraform rejects both cloud and backend)
          c. Create the backend.tf (step 2 below)
          d. Run `terraform init -migrate-state` to copy state from HCP to the bucket
          e. Verify state transfer: `terraform state list` should match before/after
+         f. Delete the backup file after verification (never commit state backups)
       2. Create a backend.tf with:
         terraform {
           backend "<state_backend>" {
@@ -651,6 +653,7 @@ steps:
             storage_account_name = "<azure_storage_account>"
             container_name       = "<state_bucket>"
             key                  = "<state_prefix>/<leaf>/terraform.tfstate"
+            use_azuread_auth     = true  # Required for federated identity (no access keys)
           }
         }
       The prefix/key ensures each leaf has isolated state within the shared bucket.
@@ -665,6 +668,8 @@ steps:
           grep -q "$STATE_LOCK_TABLE" "$leaf"/*.tf 2>/dev/null || exit 1
         elif [ "$STATE_BACKEND" = "azurerm" ]; then
           grep -q "$AZURE_STORAGE_ACCOUNT" "$leaf"/*.tf 2>/dev/null || exit 1
+          # Require Azure AD auth for federated identity (no access keys)
+          grep -q 'use_azuread_auth[[:space:]]*=[[:space:]]*true' "$leaf"/*.tf 2>/dev/null || exit 1
         fi
         leaf_name=$(basename "$leaf")
         # Verify complete prefix/key including STATE_PREFIX
@@ -844,7 +849,7 @@ steps:
       Verify that the plan-cloudflare job runs and finishes successfully.
     check: |
       # Use newest commit that changed relevant paths (not exact HEAD which may have unrelated changes)
-      target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml 2>/dev/null)
+      target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
       # Get the NEWEST run for this commit first, then verify it succeeded
       # (don't filter by success first, which would pick an older success over a newer failure)
@@ -873,7 +878,7 @@ steps:
       Verify that the plan-github job runs and finishes successfully.
     check: |
       # Use newest commit that changed relevant paths (not exact HEAD which may have unrelated changes)
-      target_sha=$(git log --format=%H -1 -- terraform/github terraform/modules .infra-copilot/config.md mise.toml 2>/dev/null)
+      target_sha=$(git log --format=%H -1 -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
       # Get the NEWEST run for this commit first, then verify it succeeded
       run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
@@ -900,11 +905,21 @@ steps:
       includes the published job contexts: "validate (cloudflare)", "validate (github)",
       and "plan" (the aggregate check from terraform-plan.yml).
     check: |
+      # Verify HCL declares the required contexts
       test -f terraform/github/branch_protection.tf || exit 1
       contexts=$(sed -n '/required_status_checks/,/}/p' terraform/github/branch_protection.tf)
       echo "$contexts" | grep -q '"plan"' || exit 1
       echo "$contexts" | grep -q '"validate (cloudflare)"' || exit 1
       echo "$contexts" | grep -q '"validate (github)"' || exit 1
+      # Verify live GitHub settings match (branch protection must be applied)
+      live_checks=$(gh api "repos/$REPO/branches/main/protection/required_status_checks" \
+        --jq '.contexts[]' 2>/dev/null) || {
+        echo "Warning: Could not verify live branch protection - may not be applied yet" >&2
+        exit 0  # Allow HCL-only check during initial setup
+      }
+      echo "$live_checks" | grep -Fxq "plan" || exit 1
+      echo "$live_checks" | grep -Fxq "validate (cloudflare)" || exit 1
+      echo "$live_checks" | grep -Fxq "validate (github)" || exit 1
     produces: branch protection references GitHub Actions job names
     docs: docs/ci.md#branch-protection
 
@@ -1125,7 +1140,7 @@ steps:
         # In object-storage mode, verify via the GitHub Actions plan workflow
         git ls-files --error-unmatch terraform/cloudflare/generated.tf >/dev/null 2>&1 || exit 1
         # Use newest commit that changed relevant paths
-        target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml 2>/dev/null)
+        target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
         [ -n "$target_sha" ] || exit 1
         # Get the NEWEST run for this commit first, then verify it succeeded
         run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
@@ -1794,12 +1809,13 @@ steps:
           printf '%s' "$plan_job" | grep -q "secrets\.$s" || exit 1
           printf '%s' "$apply_job" | grep -q "secrets\.$s" || exit 1
         done
-        # Check for cloud auth actions in BOTH plan and apply jobs
+        # Check for cloud auth actions in BOTH plan and apply jobs (exclude commented lines)
         plan_has_auth=false
         apply_has_auth=false
         for pattern in 'google-github-actions/auth' 'aws-actions/configure-aws-credentials' 'azure/login'; do
-          printf '%s' "$plan_job" | grep -q "$pattern" && plan_has_auth=true
-          printf '%s' "$apply_job" | grep -q "$pattern" && apply_has_auth=true
+          # grep -v '#' filters out commented lines like "# - uses: google-github-actions/auth"
+          printf '%s' "$plan_job" | grep -v '#' | grep -q "$pattern" && plan_has_auth=true
+          printf '%s' "$apply_job" | grep -v '#' | grep -q "$pattern" && apply_has_auth=true
         done
         # If no cloud auth action, secrets check above is sufficient for non-cloud providers
         if [ "$plan_has_auth" = "false" ] || [ "$apply_has_auth" = "false" ]; then
@@ -1853,7 +1869,7 @@ steps:
       and verify the plan job for $NEW_PROVIDER succeeds.
     check: |
       # Use newest commit that changed relevant paths (not exact HEAD which may have unrelated changes)
-      target_sha=$(git log --format=%H -1 -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml 2>/dev/null)
+      target_sha=$(git log --format=%H -1 -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
       # Get the NEWEST run for this commit first, then verify it succeeded
       run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --commit "$target_sha" --limit 10 \
