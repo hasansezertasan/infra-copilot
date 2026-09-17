@@ -673,10 +673,12 @@ steps:
         fi
         leaf_name=$(basename "$leaf")
         # Verify complete prefix/key including STATE_PREFIX
+        # Escape regex special chars in STATE_PREFIX (e.g., + . *)
+        escaped_prefix=$(printf '%s' "$STATE_PREFIX" | sed 's/[.+*?^$[\]\\|(){}]/\\&/g')
         if [ "$STATE_BACKEND" = "gcs" ]; then
-          grep -E "prefix[[:space:]]*=[[:space:]]*\"$STATE_PREFIX/$leaf_name\"" "$leaf"/*.tf 2>/dev/null || exit 1
+          grep -E "prefix[[:space:]]*=[[:space:]]*\"$escaped_prefix/$leaf_name\"" "$leaf"/*.tf 2>/dev/null || exit 1
         else
-          grep -E "key[[:space:]]*=[[:space:]]*\"$STATE_PREFIX/$leaf_name/terraform\\.tfstate\"" "$leaf"/*.tf 2>/dev/null || exit 1
+          grep -E "key[[:space:]]*=[[:space:]]*\"$escaped_prefix/$leaf_name/terraform\\.tfstate\"" "$leaf"/*.tf 2>/dev/null || exit 1
         fi
       done
     produces: backend blocks in each Terraform leaf
@@ -715,19 +717,20 @@ steps:
 
       Reply `done` after installing the secrets.
     check: |
-      # Verify secrets exist in the repo (names only, not values)
+      # Verify secrets exist in the repo (exact name match)
+      secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
       case "$STATE_BACKEND" in
         gcs)
-          gh secret list --repo "$REPO" 2>/dev/null | grep -q "GCP_WORKLOAD_IDENTITY_PROVIDER" || exit 1
-          gh secret list --repo "$REPO" 2>/dev/null | grep -q "GCP_SERVICE_ACCOUNT" || exit 1
+          printf '%s\n' "$secrets" | grep -Fxq "GCP_WORKLOAD_IDENTITY_PROVIDER" || exit 1
+          printf '%s\n' "$secrets" | grep -Fxq "GCP_SERVICE_ACCOUNT" || exit 1
           ;;
         s3)
-          gh secret list --repo "$REPO" 2>/dev/null | grep -q "AWS_ROLE_ARN" || exit 1
+          printf '%s\n' "$secrets" | grep -Fxq "AWS_ROLE_ARN" || exit 1
           ;;
         azurerm)
-          gh secret list --repo "$REPO" 2>/dev/null | grep -q "AZURE_CLIENT_ID" || exit 1
-          gh secret list --repo "$REPO" 2>/dev/null | grep -q "AZURE_TENANT_ID" || exit 1
-          gh secret list --repo "$REPO" 2>/dev/null | grep -q "AZURE_SUBSCRIPTION_ID" || exit 1
+          printf '%s\n' "$secrets" | grep -Fxq "AZURE_CLIENT_ID" || exit 1
+          printf '%s\n' "$secrets" | grep -Fxq "AZURE_TENANT_ID" || exit 1
+          printf '%s\n' "$secrets" | grep -Fxq "AZURE_SUBSCRIPTION_ID" || exit 1
           ;;
       esac
     produces: Cloud identity federation and GitHub secrets for backend access
@@ -1395,14 +1398,16 @@ steps:
         grep -q "backend \"$STATE_BACKEND\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
         grep -q "$STATE_BUCKET" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
         # Validate complete prefix/key path matches backend-config convention
+        # Escape regex special chars in STATE_PREFIX (e.g., + . *)
+        escaped_prefix=$(printf '%s' "$STATE_PREFIX" | sed 's/[.+*?^$[\]\\|(){}]/\\&/g')
         case "$STATE_BACKEND" in
           gcs)
             # GCS uses prefix = "STATE_PREFIX/NEW_PROVIDER"
-            grep -E "prefix[[:space:]]*=[[:space:]]*\"$STATE_PREFIX/$NEW_PROVIDER\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+            grep -E "prefix[[:space:]]*=[[:space:]]*\"$escaped_prefix/$NEW_PROVIDER\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
             ;;
           s3|azurerm)
             # S3/Azure uses key = "STATE_PREFIX/NEW_PROVIDER/terraform.tfstate"
-            grep -E "key[[:space:]]*=[[:space:]]*\"$STATE_PREFIX/$NEW_PROVIDER/terraform\\.tfstate\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+            grep -E "key[[:space:]]*=[[:space:]]*\"$escaped_prefix/$NEW_PROVIDER/terraform\\.tfstate\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
             ;;
         esac
       fi
