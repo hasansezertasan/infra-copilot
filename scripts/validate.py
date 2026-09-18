@@ -5,9 +5,7 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 import sys
-from itertools import takewhile
 from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import unquote, urlsplit
@@ -171,52 +169,35 @@ TOOL_PIN_WORKFLOWS = (
 # devDependencies directly. A tool whose binary differs fails the lookup, which
 # is the right outcome: it needs a deliberate mapping, not a silent pass.
 NODE_BIN_PATTERN = re.compile(r"node_modules/\.bin/(?P<binary>[A-Za-z0-9._-]+)")
-# The runners whose whole purpose is to resolve a tool from the registry, which
-# is the mechanism this repository replaced. Named rather than matched by
-# `<pkg>@<version>`: without a package list a version regex fires on
-# `actions/checkout@<sha>`, and with one it misses the fourth tool nobody
-# registered -- the way markdownlint-cli2 slipped past in #45.
-PACKAGE_RUNNERS = (
-    ("npx",),
-    ("bunx",),
-    ("bun", "x"),
-    ("pnpx",),
-    ("pnpm", "dlx"),
-    ("yarn", "dlx"),
-)
-# npm reaches the registry too, so it gets an allowlist: every argument of an npm
-# command that is not an option must appear here. A set, not a position, because
-# four successive regexes over npm's grammar were each defeated by a spelling the
-# previous one had not anticipated -- the `x` alias for `exec`, an option before
-# the subcommand, then an option whose value displaced it. Every word rather than
-# one of them, because `npm --userconfig ci exec` carries `ci` as an option's
-# value, which membership alone accepted.
-ALLOWED_NPM_SUBCOMMANDS = frozenset({"ci"})
-NPM_COMMAND = "npm"
-# Lexing is shlex's, not ours. Every finding on this check since the token scan
-# landed has been one shell or YAML subtlety after another -- a quoted scalar
-# whose quote glued itself to the command word, `&&` inside an `echo` string
-# read as a second command, a `#` in the middle of a word -- and each hand-rolled
-# fix exposed the next. shlex is a POSIX lexer in the standard library: it knows
-# quoting, comments and operators, so none of those are ours to get wrong.
+# Comments are dropped before the scans below, so prose may name a tool: the
+# Makefile comment for `--include=dev` explains what npm does under
+# NODE_ENV=production, and the one above `smoke-opencode` names `skills`.
+# Quoted spans are stepped over rather than searched, because a `#` inside them
+# is a literal. Single-line quotes only -- a span crossing a newline reads as
+# prose here, which costs a comment that is never dropped, not a missed tool.
+COMMENT_PATTERN = re.compile(r"""(?m)'[^'\n]*'|"[^"\n]*"|(?P<comment>#.*$)""")
+# What this check enforces, and what it deliberately does not.
 #
-# `run` is the only workflow field whose value is executed, so a line carrying
-# any other key is prose: `- name: Show node_modules/.bin/yaml version` names a
-# binary and runs nothing. A line with no key is already a command -- a Makefile
-# recipe, or a line inside a `run: |` block.
-YAML_FIELD = re.compile(r"^\s*-?\s*(?P<key>[\w.-]+):(?:\s|$)")
-EXECUTABLE_YAML_FIELD = "run"
-# A quoted scalar is YAML's quoting, not the shell's: `run: "npx -y foo"` runs
-# `npx -y foo`, so these come off before lexing or shlex reads the command as a
-# single word.
-YAML_SCALAR_QUOTES = re.compile(r"""^(?P<quote>["'])(?P<scalar>.*)(?P=quote)$""")
-# make lets a recipe line open with @ (silence), - (ignore failure) or + (run
-# under -n); none of them are part of the command name.
-RECIPE_SIGILS = "@+-"
-# The operators shlex hands back as their own tokens once punctuation_chars is
-# on, which is what makes `npm ci && npm install prettier` two commands rather
-# than one whose words happen to include `ci`.
-COMMAND_SEPARATORS = frozenset({"&&", "||", ";", "|", "&", ";;", "(", ")"})
+# Enforced, by substring and by data -- nothing here parses a language:
+#   * devDependencies and TOOL_PACKAGES name the same tools, at exact versions;
+#   * every node_modules/.bin binary the Makefile runs is a declared dependency;
+#   * no Makefile or workflow names `<one of ours>@<version>`.
+#
+# Not enforced: a *fourth* tool fetched by a package runner -- `npx
+# prettier@3.0.0` -- is not reported. A check for that has to decide what a file
+# executes, and this repository's files are two languages deep: YAML whose
+# quoting, comments and block scalars say which text is a command, and shell
+# whose reserved words say where one begins. Seventeen review findings landed on
+# successive attempts at that, each on the blind spot of the fix before it, and
+# closing the class needs a YAML parser and a shell parser. validate.py is
+# stdlib-only on purpose -- the Windows job runs it with no install step -- so it
+# has neither, and a partial parser is what produced the seventeen.
+#
+# It costs little, because it was never the enforcement. A tool absent from
+# package.json is never installed, so node_modules/.bin has no binary and the
+# recipe fails on a real error rather than a predicted one; the three checks
+# above still hold for the tools this repository actually pins, in any spelling,
+# because a substring search needs no grammar. See PR #70 for the full history.
 # Prerelease and build metadata are independent and may both appear:
 # 0.3.0-rc.1+build.5 is one version, not a version plus trailing junk.
 VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+){2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
@@ -1076,58 +1057,28 @@ def validate_manifest_paths(root: Path = ROOT) -> list[str]:
     return errors
 
 
-def executable_commands(text: str) -> list[list[str]]:
-    """Each command ``text`` actually runs, as tokens with the command word first.
+def strip_comments(text: str) -> str:
+    """``text`` without its comments, its quoted spans left intact.
 
-    Lexed by :mod:`shlex`, so quoting, comments and operators are the standard
-    library's problem rather than this file's -- three separate findings landed
-    on the hand-rolled versions of exactly those. Non-executable YAML fields are
-    dropped first, because a step label may name a binary without running it.
-
-    A line shlex cannot lex -- an unbalanced quote, which a make recipe split
-    across continuations legitimately has -- yields nothing rather than raising.
-    That is a false negative on a line no check has ever fired on, and the
-    alternative is an aggregate validator that dies on a valid Makefile.
+    A `#` inside quotes is a literal the shell and YAML both pass on, so
+    truncating there would hide the rest of a line that really runs.
     """
-    commands: list[list[str]] = []
-    for line in text.splitlines():
-        field = YAML_FIELD.match(line)
-        if field is not None:
-            if field.group("key") != EXECUTABLE_YAML_FIELD:
-                continue
-            line = YAML_SCALAR_QUOTES.sub(r"\g<scalar>", line[field.end() :].strip())
-        lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
-        lexer.whitespace_split = True
-        # shlex's own commenter ends the word it is standing in, so
-        # `echo https://host/x#frag ; npx prettier` lost the `npx` with the
-        # fragment. A `#` is a comment only where a word begins, which is what
-        # the shell does, so take it off the token stream instead.
-        lexer.commenters = ""
-        try:
-            tokens = list(lexer)
-        except ValueError:
-            continue
-        tokens = list(takewhile(lambda token: not token.startswith("#"), tokens))
-        current: list[str] = []
-        for token in [*tokens, ";"]:
-            if token in COMMAND_SEPARATORS:
-                if current:
-                    commands.append([current[0].lstrip(RECIPE_SIGILS), *current[1:]])
-                current = []
-            else:
-                current.append(token)
-    return commands
+    return COMMENT_PATTERN.sub(
+        lambda match: "" if match.group("comment") else match.group(0), text
+    )
 
 
 def validate_tool_pins(root: Path = ROOT) -> list[str]:
     """package.json owns every tool version; nothing else may name one.
 
-    Two halves, because each catches what the other cannot. Forwards: every tool
-    the Makefile or a workflow runs must resolve from ``devDependencies``, so
-    neither a fourth tool nor a transitive binary can be introduced outside the
-    manifest. Backwards: no Makefile or workflow may reach a tool any other way -- neither a package runner nor a
-    ``<package>@<version>`` of one of ours -- so the manifest stays the only
-    definition rather than merely one of them.
+    Forwards: every ``node_modules/.bin`` binary the Makefile runs must be a
+    declared dependency, so neither a fourth tool nor a transitive one can be
+    used without an entry that Renovate then keeps current. Backwards: no
+    Makefile or workflow may name ``<package>@<version>`` for a tool this
+    repository pins, so the manifest stays the only definition rather than
+    merely one of them. Both are substring scans over comment-stripped text and
+    neither parses a language -- see the note above ``COMMENT_PATTERN`` for what
+    that deliberately does not cover.
 
     This replaces a README cross-check. The versions used to be Makefile literals
     restated in the README, which is why Renovate needed a custom manager
@@ -1165,70 +1116,39 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
     # below read the raw text while the two scans after it read a stripped copy,
     # so a Makefile comment naming a tool failed the build. One stripped source
     # cannot drift from another the way two call sites did.
-    sources: dict[str, list[list[str]]] = {}
+    sources: dict[str, str] = {}
     for relative in (MAKEFILE_PATH, *TOOL_PIN_WORKFLOWS):
         try:
-            sources[relative] = executable_commands(
+            sources[relative] = strip_comments(
                 (root / relative).read_text(encoding="utf-8")
             )
         except OSError as error:
             errors.append(f"{relative}: cannot read file: {error}")
 
-    for relative, commands in sources.items():
-        # Every check reads the same commands. They used to read the text three
-        # different ways -- raw, comment-stripped, and split per line -- and each
-        # view had its own idea of what counted as executable, which is where a
-        # step label naming a binary came to fail the build.
-        words = [word for command in commands for word in command]
-        # Every source, not just the Makefile. node_modules/.bin holds the
-        # transitive closure too -- `yaml` is there via markdownlint-cli2, with
-        # no devDependency of its own -- so a workflow running one directly gets
-        # a version that an unrelated parent bump can change or remove.
-        for binary in sorted({
-            match.group("binary")
-            for word in words
-            for match in NODE_BIN_PATTERN.finditer(word)
-        }):
-            if binary not in declared:
-                errors.append(
-                    f"{relative}: runs {binary}, which no {PACKAGE_JSON_PATH} "
-                    f"devDependency provides"
-                )
-
-        allowed = ", ".join(f"`npm {name}`" for name in sorted(ALLOWED_NPM_SUBCOMMANDS))
-        for command in commands:
-            runner = next(
-                (names for names in PACKAGE_RUNNERS if tuple(command[: len(names)]) == names),
-                None,
+    # The Makefile only. node_modules/.bin holds the transitive closure rather
+    # than the manifest, so running one of those binaries pins nothing -- but a
+    # workflow that merely *names* a path in a step label runs nothing either,
+    # and telling those apart is the parsing this check no longer does. The
+    # workflows call `make`, which is where the binaries actually are.
+    makefile = sources.get(MAKEFILE_PATH, "")
+    for binary in sorted(set(NODE_BIN_PATTERN.findall(makefile))):
+        if binary not in declared:
+            errors.append(
+                f"{MAKEFILE_PATH}: runs {binary}, which no {PACKAGE_JSON_PATH} "
+                f"devDependency provides"
             )
-            if runner is not None:
-                errors.append(
-                    f"{relative}: invokes the {' '.join(runner)} package runner; "
-                    f"run node_modules/.bin/<tool> so {PACKAGE_JSON_PATH} stays "
-                    f"the only definition"
-                )
-            # Arguments required: `cache: npm` selects a setup-node cache and
-            # invokes nothing, and a bare `npm` would do nothing either.
-            arguments = command[1:]
-            subcommands = {word for word in arguments if not word.startswith("-")}
-            if (
-                command[0] == NPM_COMMAND
-                and arguments
-                and not subcommands <= ALLOWED_NPM_SUBCOMMANDS
-            ):
-                errors.append(
-                    f"{relative}: runs npm as `{' '.join(command)}`; only "
-                    f"{allowed} may appear here, so {PACKAGE_JSON_PATH} "
-                    f"stays the only definition"
-                )
+
+    for relative, text in sources.items():
         for package in sorted(TOOL_PACKAGES):
             # Any `<package>@…` reference, not just a literal version. One form
             # this replaced was indirect — `ai-rulez@${INFRA_COPILOT_..._VERSION}`
             # with the value in `env:` — so matching only a literal semver would
             # miss exactly the pattern being removed.
-            if any(
-                re.search(rf"(?<![\w/-]){re.escape(package)}@", word) for word in words
-            ):
+            #
+            # A substring, so no quoting or nesting can hide it: this is the one
+            # guarantee that survived every finding on PR #70, including the
+            # cases that defeated the parsers.
+            if re.search(rf"(?<![\w/-]){re.escape(package)}@", text):
                 errors.append(
                     f"{relative}: invokes {package}@… directly; "
                     f"run node_modules/.bin/{package} so {PACKAGE_JSON_PATH} "

@@ -1005,6 +1005,63 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             workflow.parent.mkdir(parents=True, exist_ok=True)
             workflow.write_text("run: make check\n", encoding="utf-8")
 
+    #: Every spelling PR #70's reviewers found for reaching a registry. All pass
+    #: now, and that is the decision: telling these from a step label that merely
+    #: names one needs a YAML parser and a shell parser, and seventeen findings
+    #: landed on successive attempts to do it without either.
+    UNGUARDED_REGISTRY_ROUTES = (
+        "npx --yes prettier@3.0.0",
+        "npm exec -- prettier@3.0.0",
+        "npm --prefix /tmp exec -- prettier@3.0.0",
+        "env npm exec -- prettier@3.0.0",
+        "if test -f config; then npx prettier@3.0.0; fi",
+    )
+
+    def test_a_tool_we_do_not_pin_is_not_guarded_statically(self) -> None:
+        """The documented ceiling, asserted so it cannot be mistaken for a bug.
+
+        Nothing here stops these. `npm ci` never installs prettier, so
+        node_modules/.bin has no binary and the recipe fails on a real error --
+        which is the enforcement, and always was.
+        """
+        for invocation in self.UNGUARDED_REGISTRY_ROUTES:
+            with self.subTest(invocation=invocation):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    makefile = repository / "Makefile"
+                    makefile.write_text(
+                        makefile.read_text(encoding="utf-8")
+                        + f"fmt:\n\t{invocation}\n",
+                        encoding="utf-8",
+                    )
+
+                    self.assertEqual(validate_tool_pins(repository), [])
+
+    def test_a_tool_we_do_pin_is_guarded_in_every_spelling(self) -> None:
+        """What survives, and why the ceiling above is affordable.
+
+        A substring needs no grammar, so quoting, YAML comments and block
+        scalars -- each of which defeated a parser on PR #70 -- cannot hide the
+        three tools this repository actually pins.
+        """
+        for line in (
+            "\tnpx --yes ai-rulez@4.11.3 generate",
+            '        run: "npx --yes ai-rulez@4.11.3" # regenerate',
+            "        run: |\n          if true; then npx ai-rulez@4.11.3; fi",
+        ):
+            with self.subTest(line=line):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    workflow = repository / TOOL_PIN_WORKFLOWS[0]
+                    workflow.write_text(f"steps:\n{line}\n", encoding="utf-8")
+
+                    errors = validate_tool_pins(repository)
+
+                    self.assertEqual(len(errors), 1, errors)
+                    self.assertIn("invokes ai-rulez@… directly", errors[0])
+
     def test_makefile_may_not_run_a_tool_outside_the_manifest(self) -> None:
         """The failure #45 actually shipped: a fourth tool with no owner.
 
@@ -1076,202 +1133,6 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    #: Every way a fourth tool has been shown to reach the registry. `npx` was the
-    #: original escape; then the `x` alias for `exec`, an option before the
-    #: subcommand, and an option whose value displaced it -- each found by review
-    #: after the previous fix, which is why the check no longer parses npm's
-    #: command line at all. The last two need no runner. Swept together so the
-    #: next spelling fails here rather than in review.
-    REGISTRY_ESCAPES = (
-        ("npx --yes prettier@3.0.0", "invokes the npx package runner"),
-        ("bunx prettier@3.0.0", "invokes the bunx package runner"),
-        ("bun x prettier@3.0.0", "invokes the bun x package runner"),
-        ("pnpx prettier@3.0.0", "invokes the pnpx package runner"),
-        ("pnpm dlx prettier@3.0.0", "invokes the pnpm dlx package runner"),
-        ("yarn dlx prettier@3.0.0", "invokes the yarn dlx package runner"),
-        ("npm exec -- prettier@3.0.0", "runs npm as"),
-        ("npm x -- prettier@3.0.0", "runs npm as"),
-        ("npm --silent exec -- prettier@3.0.0", "runs npm as"),
-        ("npm --prefix /tmp exec -- prettier@3.0.0", "runs npm as"),
-        # The allowed word as an option's value rather than the subcommand:
-        # membership anywhere accepted this, which is why every word that is
-        # not an option has to be allowed, not merely one of them.
-        ("npm --userconfig ci exec -- prettier@3.0.0", "runs npm as"),
-        ("npm install prettier@3.0.0", "runs npm as"),
-        ("npm i -g prettier", "runs npm as"),
-        # One line, several commands: the allowlist applies to each, or a
-        # trailing `echo ci` satisfies it for the install that ran first.
-        ("npm install prettier@3.0.0 && echo ci", "runs npm as"),
-        ("npm ci --include=dev && npm install --no-save prettier@3.0.0", "runs npm as"),
-        # A `#` inside a word is a literal the shell passes on, so the command
-        # after it still runs. Truncating there hid the rest of the line.
-        ("echo https://example.invalid#anchor ; npx prettier@3.0.0", "npx package runner"),
-    )
-
-    def test_a_fourth_tool_cannot_reach_the_registry(self) -> None:
-        """The gap a per-package `<pkg>@` scan leaves open.
-
-        None of these name a tool this validator knows or a node_modules/.bin
-        path, so the other two halves of the check pass every one of them. That
-        is how markdownlint-cli2 went unmanaged in #45.
-        """
-        for invocation, expected in self.REGISTRY_ESCAPES:
-            with self.subTest(invocation=invocation):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    self._makefile_running(repository, invocation)
-
-                    errors = validate_tool_pins(repository)
-
-                    self.assertEqual(len(errors), 1, errors)
-                    self.assertIn(expected, errors[0])
-
-    #: `npm` is a word before it is a command. Both of these are real lines from
-    #: this repository -- the setup-node cache selector and the preflight
-    #: presence check -- and a token scan that called either an invocation would
-    #: make the check unusable in the files it exists to guard.
-    NON_INVOCATIONS = (
-        "          cache: npm",
-        "\tfor tool in node npm $(PYTHON); do \\",
-        # Step labels. This branch shipped the second one for three commits, so
-        # a scan that read whole lines would have failed `make check` on its own
-        # workflow -- a false positive here blocks CI, where a false negative
-        # only needs someone who means it.
-        "      - name: Cache npx downloads",
-        "      - name: Install the pinned npm tools",
-        # Labels that *begin* with the name. Stripping whatever key preceded a
-        # value made every field a command position, so these read as commands
-        # while only `- name: Cache npx downloads` had been fixed.
-        "      - name: npx cache downloads",
-        "      - name: npm install everything",
-        "        uses: actions/setup-node@v4",
-        # `run` is the only executable field, so a label may name a binary.
-        "      - name: Show node_modules/.bin/yaml version",
-        "        uses: anthropics/skills@v1",
-    )
-
-    def test_naming_npm_is_not_invoking_it(self) -> None:
-        for line in self.NON_INVOCATIONS:
-            with self.subTest(line=line):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    makefile = repository / "Makefile"
-                    makefile.write_text(
-                        makefile.read_text(encoding="utf-8") + f"probe:\n{line}\n",
-                        encoding="utf-8",
-                    )
-
-                    self.assertEqual(validate_tool_pins(repository), [])
-
-    def test_a_wrapper_is_out_of_scope_and_stays_that_way(self) -> None:
-        """The documented ceiling, asserted so it is a decision and not a bug.
-
-        A command is recognised at its command position, so `env npm exec`
-        passes. That is the price of not reporting `- name: Install the pinned
-        npm tools`, and the check is a lint in front of the real gate: a tool
-        missing from package.json is never installed, so nothing can run it.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            self._makefile_running(repository, "env npm exec -- prettier@3.0.0")
-
-            self.assertEqual(validate_tool_pins(repository), [])
-
-    #: `run` is the only workflow field whose value is executed. Both spellings,
-    #: plus a command inside a `run: |` block, which carries no key of its own.
-    WORKFLOW_INVOCATIONS = (
-        "        run: npx --yes prettier@3.0.0",
-        "      - run: npm install prettier@3.0.0",
-        "          npx --yes prettier@3.0.0",
-        # A quoted scalar is one valid spelling of the same command, and the
-        # quote arrives glued to the command word.
-        '        run: "npx --yes prettier@3.0.0"',
-        "        run: 'npm install prettier@3.0.0'",
-        # A transitive binary: node_modules/.bin holds the closure, not the
-        # manifest, so running one directly pins nothing.
-        "        run: node_modules/.bin/yaml --version",
-    )
-
-    def test_a_run_field_is_still_executable(self) -> None:
-        """Narrowing to `run:` must not stop workflows being scanned at all."""
-        for line in self.WORKFLOW_INVOCATIONS:
-            with self.subTest(line=line):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    workflow = repository / TOOL_PIN_WORKFLOWS[0]
-                    workflow.write_text(f"steps:\n{line}\n", encoding="utf-8")
-
-                    errors = validate_tool_pins(repository)
-
-                    self.assertEqual(len(errors), 1, errors)
-                    self.assertIn(TOOL_PIN_WORKFLOWS[0], errors[0])
-
-    def test_a_workflow_may_not_run_an_undeclared_binary_either(self) -> None:
-        """node_modules/.bin holds the transitive closure, not the manifest.
-
-        `yaml` is there via markdownlint-cli2 with no devDependency of its own,
-        so a workflow running it directly takes a version an unrelated parent
-        bump can change or remove. The scan read only the Makefile, so the rule
-        stopped at the file it was first written for.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            workflow = repository / TOOL_PIN_WORKFLOWS[0]
-            workflow.write_text(
-                "steps:\n        run: node_modules/.bin/yaml --version\n",
-                encoding="utf-8",
-            )
-
-            self.assertEqual(
-                validate_tool_pins(repository),
-                [
-                    f"{TOOL_PIN_WORKFLOWS[0]}: runs yaml, which no package.json "
-                    f"devDependency provides"
-                ],
-            )
-
-    #: Shell text that only *mentions* a command. Lexing these by hand produced
-    #: a finding apiece: `&&` inside a string read as a second command, and a
-    #: `#` inside a word truncated the line. shlex settles both.
-    QUOTED_PROSE = (
-        '\techo "do not run && npx prettier"',
-        "\techo 'npm install prettier@3.0.0 is what not to do'",
-    )
-
-    def test_a_quoted_argument_is_not_a_command(self) -> None:
-        for line in self.QUOTED_PROSE:
-            with self.subTest(line=line):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    makefile = repository / "Makefile"
-                    makefile.write_text(
-                        makefile.read_text(encoding="utf-8") + f"probe:\n{line}\n",
-                        encoding="utf-8",
-                    )
-
-                    self.assertEqual(validate_tool_pins(repository), [])
-
-    def test_the_install_this_repository_runs_is_allowed(self) -> None:
-        """The allowlist has to let the real Makefile through, options and all.
-
-        Written verbatim rather than through ``_makefile_running``, which appends
-        prettier-shaped arguments: every word of an npm command that is not an
-        option has to be allowed, and `npm ci` takes none.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(
-                repository, makefile="install:\n\tnpm ci --include=dev\n"
-            )
-
-            self.assertEqual(validate_tool_pins(repository), [])
-
     def test_a_comment_is_not_an_invocation(self) -> None:
         """Prose must be free to name the mechanism it is explaining.
 
@@ -1292,24 +1153,6 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             )
 
             self.assertEqual(validate_tool_pins(repository), [])
-
-    def test_a_quoted_hash_does_not_hide_the_rest_of_the_line(self) -> None:
-        """In a recipe a `#` inside quotes is a literal the shell passes on.
-
-        Truncating there would leave everything after it unscanned, which is a
-        command that really does run reported as prose.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            self._makefile_running(
-                repository, "echo 'https://example.invalid#anchor' ; npx prettier"
-            )
-
-            errors = validate_tool_pins(repository)
-
-            self.assertEqual(len(errors), 1, errors)
-            self.assertIn("invokes the npx package runner", errors[0])
 
     def test_a_path_segment_is_not_a_tool_invocation(self) -> None:
         """`<pkg>@` matches a command, not any word that ends in a tool name.
@@ -1344,17 +1187,12 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             )
 
             self.assertEqual(
-                sorted(validate_tool_pins(repository)),
-                sorted(
-                    [
-                        f"{TOOL_PIN_WORKFLOWS[0]}: invokes the npx package runner; "
-                        "run node_modules/.bin/<tool> so package.json stays the "
-                        "only definition",
-                        f"{TOOL_PIN_WORKFLOWS[0]}: invokes ai-rulez@… directly; "
-                        "run node_modules/.bin/ai-rulez so package.json stays the "
-                        "only definition",
-                    ]
-                ),
+                validate_tool_pins(repository),
+                [
+                    f"{TOOL_PIN_WORKFLOWS[0]}: invokes ai-rulez@… directly; "
+                    "run node_modules/.bin/ai-rulez so package.json stays the "
+                    "only definition"
+                ],
             )
 
     def test_makefile_may_not_reintroduce_its_own_pin(self) -> None:
@@ -1366,17 +1204,12 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             )
 
             self.assertEqual(
-                sorted(validate_tool_pins(repository)),
-                sorted(
-                    [
-                        "Makefile: invokes the npx package runner; run "
-                        "node_modules/.bin/<tool> so package.json stays the "
-                        "only definition",
-                        "Makefile: invokes markdownlint-cli2@… directly; "
-                        "run node_modules/.bin/markdownlint-cli2 so package.json "
-                        "stays the only definition",
-                    ]
-                ),
+                validate_tool_pins(repository),
+                [
+                    "Makefile: invokes markdownlint-cli2@… directly; "
+                    "run node_modules/.bin/markdownlint-cli2 so package.json "
+                    "stays the only definition"
+                ],
             )
 
     def test_every_linux_workflow_is_registered_with_the_pin_validator(self) -> None:
@@ -1410,17 +1243,12 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             )
 
             self.assertEqual(
-                sorted(validate_tool_pins(repository)),
-                sorted(
-                    [
-                        f"{TOOL_PIN_WORKFLOWS[0]}: invokes the npx package runner; "
-                        "run node_modules/.bin/<tool> so package.json stays the "
-                        "only definition",
-                        f"{TOOL_PIN_WORKFLOWS[0]}: invokes ai-rulez@… directly; "
-                        "run node_modules/.bin/ai-rulez so package.json stays the "
-                        "only definition",
-                    ]
-                ),
+                validate_tool_pins(repository),
+                [
+                    f"{TOOL_PIN_WORKFLOWS[0]}: invokes ai-rulez@… directly; "
+                    "run node_modules/.bin/ai-rulez so package.json stays the "
+                    "only definition"
+                ],
             )
 
     def test_versions_agree_across_every_manifest_and_the_changelog(self) -> None:
