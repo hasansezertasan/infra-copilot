@@ -53,8 +53,9 @@ oversight. Each item links to the issue that owns it.
   host's native question tool and its modes and choice counts, and the protocol's
   *Asking a decision* rule reads it. Nothing can prove a row is true: no host publishes a
   machine-readable capability record, so validation gates citation and existence only.
-  A wrong row degrades a question to text, which is the safe direction, but it is still
-  wrong. ([#12](https://github.com/hasansezertasan/infra-copilot/issues/12))
+  A row that *understates* a host degrades the question to text, which is the safe
+  direction. A row that *overstates* one does not: the rule sees the request clear the
+  record and issues a native call the host then rejects. ([#12](https://github.com/hasansezertasan/infra-copilot/issues/12))
 - **Per-skill install exists on OpenCode only.** `--skill status --skill infra-copilot`
   installs one skill and its closure there. The other three hosts install the whole
   plugin because their native mechanisms offer no per-skill selection; a repo-specific

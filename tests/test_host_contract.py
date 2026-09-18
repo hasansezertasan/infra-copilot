@@ -29,6 +29,7 @@ HOSTS_TABLE = """# Host capability records
 | Claude Code | `AskUserQuestion` | single | `docs/install-claude-code.md` |
 | Codex CLI | `request_user_input` | single | `docs/install-codex.md` |
 """
+GUIDE = "See [`hosts.md`](../skills/infra-copilot/references/hosts.md)."
 PROTOCOL = """# Protocol
 
 ### Asking a decision
@@ -43,9 +44,12 @@ def build_repository(root: Path, **overrides: str) -> Path:
         "skills/infra-copilot/references/hosts.md": HOSTS_TABLE,
         "skills/infra-copilot/references/protocol.md": PROTOCOL,
         ".ai-rulez/skills/infra-copilot/references/protocol.md": PROTOCOL,
-        "docs/install-claude-code.md": "See references/hosts.md.",
-        "docs/install-codex.md": "See references/hosts.md.",
-        "README.md": "docs/install-claude-code.md docs/install-codex.md",
+        "docs/install-claude-code.md": GUIDE,
+        "docs/install-codex.md": GUIDE,
+        "README.md": (
+            "| [Claude Code](docs/install-claude-code.md) |\n"
+            "| [Codex CLI](docs/install-codex.md) |\n"
+        ),
     }
     files.update(overrides)
     for relative, content in files.items():
@@ -98,7 +102,7 @@ class HostRecordTests(unittest.TestCase):
     def test_rejects_a_guide_absent_from_the_table(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = build_repository(
-                Path(directory), **{"docs/install-emacs.md": "references/hosts.md"}
+                Path(directory), **{"docs/install-emacs.md": GUIDE}
             )
             self.assertIn(
                 "docs/install-emacs.md: install guide is not listed in "
@@ -109,7 +113,8 @@ class HostRecordTests(unittest.TestCase):
     def test_rejects_a_readme_that_does_not_link_a_guide(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = build_repository(
-                Path(directory), **{"README.md": "docs/install-claude-code.md"}
+                Path(directory),
+                **{"README.md": "[Claude Code](docs/install-claude-code.md)"},
             )
             self.assertIn(
                 "README.md: install table does not link docs/install-codex.md",
@@ -132,9 +137,10 @@ class HostRecordTests(unittest.TestCase):
                 },
             )
             self.assertIn(
-                "skills/infra-copilot/references/protocol.md: names no question tool "
-                "from skills/infra-copilot/references/hosts.md; the allowed-tools "
-                "grant in commands/ would have no consumer",
+                "skills/infra-copilot/references/protocol.md: its '### Asking a "
+                "decision' section names no question tool from "
+                "skills/infra-copilot/references/hosts.md; the allowed-tools grant in "
+                "commands/ would have no consumer",
                 validate_host_contract(root),
             )
 
@@ -185,9 +191,10 @@ class HostRecordTests(unittest.TestCase):
                 },
             )
             self.assertIn(
-                "skills/infra-copilot/references/protocol.md: names no question tool "
-                "from skills/infra-copilot/references/hosts.md; the allowed-tools "
-                "grant in commands/ would have no consumer",
+                "skills/infra-copilot/references/protocol.md: its '### Asking a "
+                "decision' section names no question tool from "
+                "skills/infra-copilot/references/hosts.md; the allowed-tools grant in "
+                "commands/ would have no consumer",
                 validate_host_contract(root),
             )
 
@@ -224,6 +231,57 @@ class HostRecordTests(unittest.TestCase):
                 "skills/infra-copilot/references/hosts.md: Codex CLI has no question "
                 "tool in column 2; it must be a backticked identifier such as "
                 "`AskUserQuestion`",
+                validate_host_contract(root),
+            )
+
+    def test_a_bare_path_mention_is_not_a_citation(self) -> None:
+        """"See references/hosts.md" used to pass while the page had no link."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory),
+                **{"docs/install-codex.md": "See references/hosts.md for capabilities."},
+            )
+            self.assertIn(
+                "docs/install-codex.md: does not link references/hosts.md; per-host "
+                "capabilities must be cited there, not restated here",
+                validate_host_contract(root),
+            )
+
+    def test_a_readme_that_only_mentions_a_guide_is_not_linking_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory),
+                **{
+                    "README.md": (
+                        "| [Claude Code](docs/install-claude-code.md) |\n"
+                        "| Codex CLI — see docs/install-codex.md |\n"
+                    )
+                },
+            )
+            self.assertIn(
+                "README.md: install table does not link docs/install-codex.md",
+                validate_host_contract(root),
+            )
+
+    def test_a_tool_named_outside_the_decision_section_does_not_count(self) -> None:
+        """The gate exists so deleting the rule fails; a document-wide search let a
+        mention in any other section stand in for the rule itself."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory),
+                **{
+                    "skills/infra-copilot/references/protocol.md": (
+                        "# Protocol\n\n### Asking a decision\n\n"
+                        "Read [`hosts.md`](hosts.md).\n\n"
+                        "## Preflight\n\nHistorically we used `AskUserQuestion`.\n"
+                    )
+                },
+            )
+            self.assertIn(
+                "skills/infra-copilot/references/protocol.md: its '### Asking a "
+                "decision' section names no question tool from "
+                "skills/infra-copilot/references/hosts.md; the allowed-tools grant in "
+                "commands/ would have no consumer",
                 validate_host_contract(root),
             )
 
@@ -329,6 +387,19 @@ class ClosureCommandTests(unittest.TestCase):
         result = self.run_closure("--closure", "nope")
         self.assertEqual(result.returncode, 2)
         self.assertIn("no skill named 'nope'", result.stderr)
+
+    def test_rejects_a_closure_whose_dependency_is_unshipped(self) -> None:
+        """Only the root was checked, so an unshipped dependency was still printed."""
+        shipped = Path(__file__).resolve().parents[1] / "skills/infra-copilot/SKILL.md"
+        moved = shipped.with_suffix(".md.moved")
+        shipped.rename(moved)
+        try:
+            result = self.run_closure("--closure", "status")
+        finally:
+            moved.rename(shipped)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("skills/infra-copilot", result.stderr)
+        self.assertEqual(result.stdout, "")
 
     def test_rejects_an_unrecognised_flag_instead_of_validating(self) -> None:
         """A typo'd flag used to fall through and print the success banner on stdout,

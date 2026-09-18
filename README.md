@@ -19,8 +19,10 @@ provider's API, pausing only for the irreducibly human steps.
 | [Antigravity](docs/install-antigravity.md) | `agy plugin install https://github.com/hasansezertasan/infra-copilot` | Reinstall the plugin, then restart | `/infra-setup`, `/infra-import`, `/infra-add`, `/infra-status`, or natural language |
 | [OpenCode](docs/install-opencode.md) | `npx skills add hasansezertasan/infra-copilot --agent opencode --skill '*' -y` in the consuming repo, then restart | `npx skills update -p`, then restart | Ask OpenCode to use `infra-copilot`, `setup`, `import`, `add`, or `status`; skills load on demand through the native `skill` tool |
 
-After an update, refresh the host marketplace/plugin and restart the session so changed
-skills are rediscovered.
+On the three marketplace/plugin hosts, refresh the host marketplace or plugin after an
+update and restart the session so changed skills are rediscovered. OpenCode has neither:
+`npx skills update -p` rewrites files inside the consuming repo, so review the diff —
+see [`docs/install-opencode.md`](docs/install-opencode.md).
 
 The table is the index; each host name links to a page with that host's caveats — what
 "update" actually updates, whether a restart is required, how to verify the install, and

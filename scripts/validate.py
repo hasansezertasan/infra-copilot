@@ -980,6 +980,24 @@ HOST_GUIDE_CELL = re.compile(r"\A`(docs/install-[a-z0-9-]+\.md)`\Z")
 HOST_TOOL_CELL = re.compile(r"\A`([A-Za-z_][A-Za-z0-9_]*)`\Z")
 
 
+def link_targets(document: str) -> set[str]:
+    """Every local Markdown link target in ``document``, path only.
+
+    The citation gates below used substring tests, which a bare mention in prose
+    satisfied -- "See references/hosts.md" passed while the page carried no
+    navigable link, so the one thing the gate exists to guarantee was absent.
+    """
+    targets: set[str] = set()
+    for raw in MARKDOWN_LINK.findall(document):
+        parsed = urlsplit(raw.strip().strip("<>"))
+        if parsed.scheme or parsed.netloc:
+            continue
+        path = unquote(parsed.path)
+        if path:
+            targets.add(path)
+    return targets
+
+
 def host_records(root: Path = ROOT) -> dict[str, tuple[str, str]]:
     """Each host row in hosts.md as ``host -> (question tool, install guide)``.
 
@@ -1006,6 +1024,22 @@ def host_records(root: Path = ROOT) -> dict[str, tuple[str, str]]:
         tool = HOST_TOOL_CELL.match(cells[1])
         records[cells[0]] = (tool.group(1) if tool else "", guides[0])
     return records
+
+
+def decision_section(protocol: str) -> str | None:
+    """The body of the decision section, or None when the heading is absent.
+
+    Scoped rather than whole-document: the check exists so that deleting the rule
+    fails here, and a tool named anywhere else in protocol.md -- the preflight, a
+    later note -- would otherwise satisfy it for a document that no longer carries
+    the rule at all.
+    """
+    start = protocol.find(DECISION_HEADING)
+    if start < 0:
+        return None
+    body = protocol[start + len(DECISION_HEADING) :]
+    following = re.search(r"^#{1,6} ", body, re.MULTILINE)
+    return body[: following.start()] if following else body
 
 
 def validate_host_contract(root: Path = ROOT) -> list[str]:
@@ -1041,7 +1075,11 @@ def validate_host_contract(root: Path = ROOT) -> list[str]:
             errors.append(f"{HOSTS_DOCUMENT}: {host} names {guide}, which is missing")
             continue
         # Pointing back is what keeps the guide from becoming a second source of truth.
-        if "references/hosts.md" not in document:
+        # The link has to be a link: docs/ sits at a different depth from both copies
+        # of the references tree, so a reader who cannot click it has to guess.
+        if not any(
+            target.endswith("references/hosts.md") for target in link_targets(document)
+        ):
             errors.append(
                 f"{guide}: does not link references/hosts.md; per-host capabilities "
                 "must be cited there, not restated here"
@@ -1058,10 +1096,11 @@ def validate_host_contract(root: Path = ROOT) -> list[str]:
     if readme is None:
         errors.append("README.md: unreadable, cannot check install-guide links")
     else:
+        linked = link_targets(readme)
         errors.extend(
             f"README.md: install table does not link {guide}"
             for guide in sorted(guides)
-            if guide not in readme
+            if guide not in linked
         )
 
     # #12: the AskUserQuestion grant in command frontmatter had no consumer. The
@@ -1079,12 +1118,14 @@ def validate_host_contract(root: Path = ROOT) -> list[str]:
             continue
         if "hosts.md" not in protocol:
             errors.append(f"{relative}: does not reference hosts.md")
-        if DECISION_HEADING not in protocol:
+        section = decision_section(protocol)
+        if section is None:
             errors.append(f"{relative}: has no {DECISION_HEADING!r} section")
-        elif not tools or not named.search(protocol):
+        elif not tools or not named.search(section):
             errors.append(
-                f"{relative}: names no question tool from {HOSTS_DOCUMENT}; the "
-                "allowed-tools grant in commands/ would have no consumer"
+                f"{relative}: its {DECISION_HEADING!r} section names no question tool "
+                f"from {HOSTS_DOCUMENT}; the allowed-tools grant in commands/ would "
+                "have no consumer"
             )
     return errors
 
@@ -1470,6 +1511,9 @@ def main(argv: list[str] | None = None) -> int:
             print("usage: validate.py [--closure <skill>]", file=sys.stderr)
             return 2
         name = arguments[1]
+        if not (ROOT / ".ai-rulez/skills" / name / "SKILL.md").exists():
+            print(f"--closure: no skill named {name!r}", file=sys.stderr)
+            return 2
         if name in ROUTER_SKILLS:
             print(
                 f"--closure: {name!r} owns no operations; installed alone it routes to "
@@ -1477,14 +1521,25 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-        # Both trees: the closure is derived from .ai-rulez/, but `skills add`
-        # consumes the shipped skills/ tree, so a name present in one and not the
-        # other would print install arguments the installer cannot satisfy.
-        for tree in (".ai-rulez/skills", "skills"):
-            if not (ROOT / tree / name / "SKILL.md").exists():
-                print(f"--closure: no skill named {name!r} in {tree}/", file=sys.stderr)
-                return 2
-        print(" ".join(f"--skill {skill}" for skill in skill_closure(name)))
+        # Every member, both trees: the closure is derived from .ai-rulez/, but
+        # `skills add` consumes the shipped skills/ tree. Checking only the root let
+        # a reachable-but-unshipped dependency be printed as an install argument the
+        # installer cannot satisfy -- which surfaces as a bare installer error.
+        closure = skill_closure(name)
+        missing = [
+            f"{tree}/{skill}"
+            for skill in closure
+            for tree in (".ai-rulez/skills", "skills")
+            if not (ROOT / tree / skill / "SKILL.md").exists()
+        ]
+        if missing:
+            print(
+                f"--closure: {name!r} needs {', '.join(missing)}, which "
+                f"{'does' if len(missing) == 1 else 'do'} not exist",
+                file=sys.stderr,
+            )
+            return 2
+        print(" ".join(f"--skill {skill}" for skill in closure))
         return 0
 
     # Layout is a precondition for everything below: every content validator reads
