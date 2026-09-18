@@ -31,6 +31,11 @@
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
   `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
+- `prune-spent-imports` parses instead of pattern-matching: each committed blob is read
+  once, `jq` decides Terraform JSON and an awk pass that tracks heredoc bodies and `/* */`
+  regions decides HCL. Fixes a multiline JavaScript `import {` in a heredoc reading as a
+  block, and `.tf.json` at four spaces or minified reading as clean, and retires the
+  block-comment and nested-key ceilings the line regex had documented.
 - Scoped pruning to leaves: one-shot blocks under `terraform/modules/` are never removed,
   and `prune-spent-imports` no longer counts them. Every consuming state reads a module's
   blocks separately and that set is not closed, so a `moved` block there is the module's

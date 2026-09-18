@@ -199,6 +199,76 @@ class PruneStepTests(unittest.TestCase):
         self.assertIn("terraform/cloudflare/dns.tf", reported)
         self.assertNotIn("modules", reported)
 
+    def test_a_multiline_heredoc_import_is_not_a_block(self) -> None:
+        """The common JS formatting: `import {` alone on a line, inside a heredoc.
+
+        The end-of-line anchor that fixed the single-line form matches this one
+        exactly; only tracking the heredoc body settles it.
+        """
+        result = self._run(
+            {
+                "terraform/cloudflare/worker.tf": (
+                    'resource "cloudflare_worker_script" "w" {\n'
+                    "  content = <<-EOT\n"
+                    "    import {\n      handler,\n    } from \"./mod.js\"\n"
+                    "  EOT\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_an_unindented_heredoc_import_is_not_a_block_either(self) -> None:
+        """Column 0 inside the body, which no indentation heuristic could exclude."""
+        result = self._run(
+            {
+                "terraform/cloudflare/worker.tf": (
+                    'resource "cloudflare_worker_script" "w" {\n'
+                    "  content = <<EOT\n"
+                    "import {\n  handler,\n} from \"./mod.js\"\n"
+                    "EOT\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_block_comment_is_not_a_block(self) -> None:
+        """Was a documented ceiling: dead commented-out HCL read as live work."""
+        result = self._run(
+            {
+                "terraform/cloudflare/dns.tf": (
+                    "/*\nimport {\n  to = a.b\n  id = \"x\"\n}\n*/\n"
+                    'resource "cloudflare_dns_record" "a" {\n  name = "a"\n}\n'
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_json_indentation_is_not_structure(self) -> None:
+        """Four spaces and minified both used to read green with blocks committed."""
+        for name, body in (
+            ("four", '{\n    "import": [\n        { "to": "a.b", "id": "x" }\n    ]\n}\n'),
+            ("min", '{"import":[{"to":"a.b","id":"x"}]}'),
+        ):
+            with self.subTest(shape=name):
+                result = self._run({f"terraform/cloudflare/{name}.tf.json": body})
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_a_nested_json_key_named_import_is_not_a_block(self) -> None:
+        """The other direction: `locals.import` is configuration, not a leftover."""
+        result = self._run(
+            {
+                "terraform/cloudflare/main.tf.json": (
+                    '{\n  "locals": [\n    { "import": "not a block" }\n  ]\n}\n'
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_unparseable_json_is_not_evidence_either_way(self) -> None:
+        """Terraform would reject it too; exit 2, not a clean bill of health."""
+        result = self._run({"terraform/cloudflare/broken.tf.json": "{ not json\n"})
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
     def test_uncommitted_files_are_not_evidence(self) -> None:
         """The blocks are pruned by a PR, so only committed ones count."""
         result = self._run(

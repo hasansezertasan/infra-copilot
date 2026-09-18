@@ -71,15 +71,19 @@ grep -rnE '^ {0,2}"(import|moved)"[[:space:]]*:' *.tf.json          # JSON leave
 
 A JSON leaf writes the same thing as `"import": [ { "to": …, "id": … } ]`, so a candidate
 there is one array entry to delete, not a block — and deleting the last entry means
-removing the key. Every rule below applies unchanged; only the editing differs. The indent
-bound is what keeps an ordinary nested key named `import` — inside `locals`, say — from
-reading as a one-shot block; confirm the match really is top-level before touching it.
+removing the key. Every rule below applies unchanged; only the editing differs. Only a
+**top-level** key counts: an ordinary nested one named `import` — inside `locals`, say — is
+configuration. `jq -e 'has("import") or has("moved")'` answers that exactly, and the
+indent-matched grep above does not; use it on any JSON leaf you are unsure about.
 
-After the `{`, only whitespace or a comment — that is what a block opener looks like.
-Without that, a heredoc carrying JavaScript (`import { name } from "./x"` in an inline
-Worker script) reads as a pending import. It is a grep, not a parser: a lone `import {`
-inside a `/* … */` block comment still matches, so delete dead commented-out blocks rather
-than trying to prune them.
+**These two commands find lines, not blocks — read each hit before treating it as a
+candidate.** A grep cannot see what a line is inside, and three shapes match without being
+one-shot blocks: a `/* … */` block comment around dead HCL, a heredoc carrying JavaScript
+(`import {` on its own line above `handler,` in an inline Worker script), and a `.tf.json`
+key nested below the top level. Delete commented-out blocks rather than pruning them, and
+leave script content alone. `prune-spent-imports` in [`../steps.yaml`](../steps.yaml) does
+parse these — it tracks heredoc and comment regions and reads JSON with `jq` — so a hit it
+does *not* report is not a candidate here either.
 
 cf-terraforming appends its blocks to the file holding the generated HCL. The runbook in
 [`import.md`](import.md) pipes one zone into a single `generated.tf`, but an adoption that
