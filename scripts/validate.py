@@ -175,16 +175,33 @@ NODE_BIN_PATTERN = re.compile(r"node_modules/\.bin/(?P<binary>[A-Za-z0-9._-]+)")
 # the package to avoid firing on `actions/checkout@<sha>`, and so would miss the
 # fourth tool nobody registered -- the way markdownlint-cli2 slipped past in #45.
 PACKAGE_RUNNER_PATTERN = re.compile(r"(?<![\w-])(?:npx|bunx|(?:pnpm|yarn)\s+dlx)(?![\w-])")
-# npm reaches the registry too, so it gets an allowlist rather than a blocklist of
-# the spellings that do. Three separate escapes were found by review after the
-# blocklist was written -- `npx`, then the `x` alias for `exec`, then options
-# before the subcommand -- and `npm install <pkg>@<version>` was never on it at
-# all. Naming the one subcommand this repository may run ends that class: anything
-# else is reported whether or not anyone anticipated it.
-NPM_SUBCOMMAND_PATTERN = re.compile(
-    r"(?<![\w-])npm(?:\s+-{1,2}[^\s]+)*\s+(?P<subcommand>[a-z][\w-]*)"
-)
+# npm reaches the registry too, so it gets an allowlist: a line invoking npm must
+# also carry one of these as a bare word. Checked on whitespace tokens rather than
+# by a regex over npm's grammar, because four successive attempts at that regex
+# were each defeated by a spelling the previous one had not anticipated -- the `x`
+# alias for `exec`, then an option before the subcommand, then an option that
+# takes a value and displaces it. Token membership does not care where the
+# subcommand sits or what precedes it, which retires that whole class.
 ALLOWED_NPM_SUBCOMMANDS = frozenset({"ci"})
+# What this check is: a guard against the habitual forms of the mechanism this
+# repository just removed -- `npx <tool>@<version>` and its neighbours -- so one
+# cannot come back by reflex or by an agent copying an older README.
+#
+# What it is not: a sandbox. Shell text is not parseable by matching, and
+# `env npm exec`, a PATH assignment, or a helper script the Makefile calls are all
+# still reachable by someone who means it. They are out of scope on purpose, and
+# a finding that only reports another such spelling is not a defect here.
+#
+# It can afford that ceiling because it is not the enforcement. A tool missing
+# from package.json is never installed, so node_modules/.bin has no binary and the
+# recipe fails on its own -- a real error rather than a predicted one. The two
+# checks above are the load-bearing ones; this is the lint in front of them.
+NPM_COMMAND = "npm"
+# `npm` is a word before it is a command: `cache: npm` selects a setup-node cache
+# and `for tool in node npm python3` tests for its presence, and neither invokes
+# anything. An invocation is followed by a subcommand or an option, so require
+# that the next token is one -- a test on a single token, not on npm's grammar.
+NPM_ARGUMENT_PATTERN = re.compile(r"-{1,2}\S+|[a-z][\w-]*")
 # Only executable text is scanned. A comment cannot invoke anything, and the
 # prose here has to be free to name the mechanisms it explains -- the Makefile
 # comment for `--include=dev` says what npm does under NODE_ENV=production.
@@ -1048,6 +1065,22 @@ def validate_manifest_paths(root: Path = ROOT) -> list[str]:
     return errors
 
 
+def npm_invocations(line: str) -> list[list[str]]:
+    """The arguments of each npm invocation on ``line``, in order.
+
+    Whitespace tokens, not a grammar: four successive regexes over npm's command
+    line were each defeated by a spelling the previous one had not anticipated,
+    and membership does not care where the subcommand sits or what precedes it.
+    """
+    tokens = line.split()
+    invocations = []
+    for index, token in enumerate(tokens):
+        arguments = tokens[index + 1 :]
+        if token == NPM_COMMAND and arguments and NPM_ARGUMENT_PATTERN.fullmatch(arguments[0]):
+            invocations.append(arguments)
+    return invocations
+
+
 def validate_tool_pins(root: Path = ROOT) -> list[str]:
     """package.json owns every tool version; nothing else may name one.
 
@@ -1112,15 +1145,14 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
                 f"node_modules/.bin/<tool> so {PACKAGE_JSON_PATH} stays the "
                 f"only definition"
             )
-        subcommands = {
-            match.group("subcommand") for match in NPM_SUBCOMMAND_PATTERN.finditer(text)
-        }
-        for subcommand in sorted(subcommands - ALLOWED_NPM_SUBCOMMANDS):
-            allowed = ", ".join(f"`npm {name}`" for name in sorted(ALLOWED_NPM_SUBCOMMANDS))
-            errors.append(
-                f"{relative}: runs `npm {subcommand}`; only {allowed} may appear "
-                f"here, so {PACKAGE_JSON_PATH} stays the only definition"
-            )
+        allowed = ", ".join(f"`npm {name}`" for name in sorted(ALLOWED_NPM_SUBCOMMANDS))
+        for line in text.splitlines():
+            for arguments in npm_invocations(line):
+                if ALLOWED_NPM_SUBCOMMANDS.isdisjoint(arguments):
+                    errors.append(
+                        f"{relative}: runs npm as `{line.strip()}`; only {allowed} may "
+                        f"appear here, so {PACKAGE_JSON_PATH} stays the only definition"
+                    )
         for package in sorted(TOOL_PACKAGES):
             # Any `<package>@…` reference, not just a literal version. One form
             # this replaced was indirect — `ai-rulez@${INFRA_COPILOT_..._VERSION}`

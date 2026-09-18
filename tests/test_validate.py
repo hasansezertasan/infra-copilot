@@ -1077,18 +1077,23 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         )
 
     #: Every way a fourth tool has been shown to reach the registry. `npx` was the
-    #: original escape, then the `x` alias, then an option before the subcommand --
-    #: each found by review after the previous fix. The last two need no runner at
-    #: all. Swept together so the next spelling fails here rather than in review.
+    #: original escape; then the `x` alias for `exec`, an option before the
+    #: subcommand, and an option whose value displaced it -- each found by review
+    #: after the previous fix, which is why the check no longer parses npm's
+    #: command line at all. The last two need no runner. Swept together so the
+    #: next spelling fails here rather than in review.
     REGISTRY_ESCAPES = (
         ("npx --yes prettier@3.0.0", "invokes the npx package runner"),
         ("bunx prettier@3.0.0", "invokes the bunx package runner"),
         ("pnpm dlx prettier@3.0.0", "invokes the pnpm dlx package runner"),
         ("yarn dlx prettier@3.0.0", "invokes the yarn dlx package runner"),
-        ("npm exec -- prettier@3.0.0", "runs `npm exec`"),
-        ("npm x -- prettier@3.0.0", "runs `npm x`"),
-        ("npm --silent exec -- prettier@3.0.0", "runs `npm exec`"),
-        ("npm install prettier@3.0.0", "runs `npm install`"),
+        ("npm exec -- prettier@3.0.0", "runs npm as"),
+        ("npm x -- prettier@3.0.0", "runs npm as"),
+        ("npm --silent exec -- prettier@3.0.0", "runs npm as"),
+        ("npm --prefix /tmp exec -- prettier@3.0.0", "runs npm as"),
+        ("env npm exec -- prettier@3.0.0", "runs npm as"),
+        ("npm install prettier@3.0.0", "runs npm as"),
+        ("npm i -g prettier", "runs npm as"),
     )
 
     def test_a_fourth_tool_cannot_reach_the_registry(self) -> None:
@@ -1109,6 +1114,29 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
 
                     self.assertEqual(len(errors), 1, errors)
                     self.assertIn(expected, errors[0])
+
+    #: `npm` is a word before it is a command. Both of these are real lines from
+    #: this repository -- the setup-node cache selector and the preflight
+    #: presence check -- and a token scan that called either an invocation would
+    #: make the check unusable in the files it exists to guard.
+    NON_INVOCATIONS = (
+        "          cache: npm",
+        "\tfor tool in node npm $(PYTHON); do \\",
+    )
+
+    def test_naming_npm_is_not_invoking_it(self) -> None:
+        for line in self.NON_INVOCATIONS:
+            with self.subTest(line=line):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    makefile = repository / "Makefile"
+                    makefile.write_text(
+                        makefile.read_text(encoding="utf-8") + f"probe:\n{line}\n",
+                        encoding="utf-8",
+                    )
+
+                    self.assertEqual(validate_tool_pins(repository), [])
 
     def test_the_install_this_repository_runs_is_allowed(self) -> None:
         """The allowlist has to let the real Makefile through, options and all."""
