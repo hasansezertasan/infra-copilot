@@ -1550,16 +1550,20 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
         return [f"{HOSTS_DOCUMENT}: no subagent or hook rows found; the record is unreadable"]
 
     owners = [row for row in agents if _shipped(row[-1])]
-    if len(owners) > 1:
-        # At most one, not exactly one: withdrawing the agent entirely is a state the
-        # record is allowed to express, and the unshipped-path rule below then keeps
-        # the file from lingering. Two is the impossible one -- root agents/ is a
-        # single directory and the dialects are incompatible.
-        errors.append(
-            f"{HOSTS_DOCUMENT}: {len(owners)} subagent rows are marked shipped; root "
-            "agents/ is one directory with incompatible dialects, so at most one may"
-        )
-    owned = {row[1].strip("`") for row in owners}
+    # Per directory, not globally. Claude and Antigravity collide at root agents/ and
+    # only one of them may own it, but .codex/agents/ and .opencode/agents/ are
+    # independent -- a global count would make those rows impossible to graduate.
+    # Zero shipped rows is also legal: withdrawing the agent is a state the record
+    # may express, and the unshipped-path rule then keeps the file from lingering.
+    owned: dict[str, list[str]] = {}
+    for row in owners:
+        owned.setdefault(row[1].strip("`"), []).append(row[0])
+    for directory, sharing in sorted(owned.items()):
+        if len(sharing) > 1:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {sharing} all mark {directory!r} shipped; one "
+                "directory cannot hold incompatible tools dialects, so only one may"
+            )
     for row in agents:
         if len(row) < 5:
             errors.append(f"{HOSTS_DOCUMENT}: subagent row {row[:1]} is missing columns")
@@ -1591,6 +1595,15 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
         if text is None:
             errors.append(f"{relative}: {row[0]} is marked shipped but no manifest is here")
             continue
+        # The host discovers the whole directory, not the one filename this record
+        # names. An unrecorded sibling is an agent nobody reviewed, with whatever
+        # grant it declares -- `agents/rogue.md` carrying `tools: Write` passed.
+        for stray in sorted((root / directory).glob("*")):
+            if stray.is_file() and stray.name != f"{AGENT_STEM}{suffix}":
+                errors.append(
+                    f"{directory.rstrip('/')}/{stray.name}: no subagent row records this "
+                    f"manifest, and {row[0]} discovers every file in {directory!r}"
+                )
         errors.extend(_check_agent(relative, text, row, render))
 
     for row in hooks:
@@ -1611,6 +1624,14 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
 
 def _check_agent(relative: str, text: str, row: list[str], render) -> list[str]:
     errors: list[str] = []
+    if render is None:
+        # TOML, whose tools are inherited: there is no frontmatter, and the name is
+        # a top-level key. Requiring YAML here made the Codex row unable to graduate
+        # in the one format its own record describes.
+        declared = re.search(r'(?m)^name\s*=\s*"([^"]*)"', text)
+        if declared is None or declared.group(1) != AGENT_STEM:
+            errors.append(f"{relative}: must declare name {AGENT_STEM!r}")
+        return errors + _check_agent_body(relative, text)
     front = SKILL_FRONTMATTER.match(text)
     if front is None:
         return [f"{relative}: no YAML frontmatter to read `tools` and `name` from"]
@@ -1644,6 +1665,12 @@ def _check_agent(relative: str, text: str, row: list[str], render) -> list[str]:
                     f"{HOSTS_DOCUMENT}: the shipped subagent row grants {forbidden!r}; the "
                     "scan is read-only and the recorded grant is what says so"
                 )
+    return errors + _check_agent_body(relative, text)
+
+
+def _check_agent_body(relative: str, text: str) -> list[str]:
+    """Rules every dialect shares: delegate, no consumer-relative path, stay small."""
+    errors: list[str] = []
     for marker in AGENT_RUNBOOK:
         if marker not in text:
             errors.append(
@@ -1673,6 +1700,12 @@ def _check_hook(root: Path, relative: str, row: list[str]) -> list[str]:
         entries = payload["hooks"]["SessionStart"]
     except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
         return [f"{relative}: no SessionStart hooks entry to check ({error})"]
+    if set(payload.get("hooks", {})) != {"SessionStart"}:
+        errors.append(
+            f"{relative}: declares hook events {sorted(payload.get('hooks', {}))}; only "
+            "SessionStart is recorded, and a sibling such as PreToolUse would run "
+            "behaviour no capability record authorises"
+        )
     if set(payload) != {"hooks"}:
         errors.append(
             f"{relative}: top-level keys {sorted(payload)} != ['hooks']; a manifest takes "

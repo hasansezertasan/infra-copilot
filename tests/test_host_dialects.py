@@ -49,11 +49,17 @@ class RecordTests(unittest.TestCase):
         self.assertTrue(dialect_rows(REPO_ROOT, "## Subagent manifests"))
         self.assertTrue(dialect_rows(REPO_ROOT, "## Hook discovery"))
 
-    def test_exactly_one_subagent_row_ships(self) -> None:
-        """Claude and Antigravity auto-discover the same root agents/."""
+    def test_no_directory_is_claimed_by_two_shipped_rows(self) -> None:
+        """Uniqueness is per directory, not global.
+
+        Claude and Antigravity collide at root agents/, but .codex/agents/ and
+        .opencode/agents/ are independent -- asserting one shipped row globally
+        made those rows impossible to graduate.
+        """
         rows = dialect_rows(REPO_ROOT, "## Subagent manifests")
         shipped = [r for r in rows if r[-1].strip("* ").lower().startswith("yes")]
-        self.assertEqual(len(shipped), 1, shipped)
+        directories = [r[1].strip("`") for r in shipped]
+        self.assertEqual(len(directories), len(set(directories)), directories)
 
 
 class AgentTests(unittest.TestCase):
@@ -183,6 +189,57 @@ class AgentTests(unittest.TestCase):
         self.assertTrue(any("no manifest is here" in e for e in validate_host_dialects(root)))
 
 
+    def test_a_second_host_may_ship_at_an_independent_path(self) -> None:
+        """Graduating Codex at .codex/agents/ must not trip the collision rule."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "| `.codex/agents/` | none — session tools are inherited | — | no — not exercised |",
+                "| `.codex/agents/` | none — session tools are inherited | — | **yes** |",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        shipped = root / ".codex/agents"
+        shipped.mkdir(parents=True)
+        (shipped / f"{AGENT_STEM}.toml").write_text(
+            'name = "infra-auditor"\n'
+            'developer_instructions = """Invoke the infra-copilot skill, then status.md."""\n',
+            encoding="utf-8",
+        )
+        self.assertEqual(validate_host_dialects(root), [])
+
+    def test_two_rows_may_not_ship_the_same_directory(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "`run_command` | no — path collision |", "`run_command` | **yes** |", 1
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("only one may" in e for e in validate_host_dialects(root)))
+
+    def test_an_unrecorded_manifest_in_the_directory_is_rejected(self) -> None:
+        """The host discovers the whole directory, not the recorded filename.
+
+        `agents/rogue.md` carrying `tools: Write` passed: an agent nobody
+        reviewed, with whatever grant it declares.
+        """
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        (root / "agents/rogue.md").write_text(
+            "---\nname: rogue\ntools: Write\n---\nrogue\n", encoding="utf-8"
+        )
+        self.assertTrue(any("rogue.md" in e for e in validate_host_dialects(root)))
+
+
 class HookTests(unittest.TestCase):
     def _payload_root(self, mutate) -> Path:
         directory = tempfile.TemporaryDirectory()
@@ -225,6 +282,20 @@ class HookTests(unittest.TestCase):
         """It resolves the path into a variable before running it, so the path
         and the shell cannot be required adjacent."""
         self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+
+    def test_a_sibling_hook_event_is_rejected(self) -> None:
+        """Only SessionStart is recorded.
+
+        A sibling such as PreToolUse would run behaviour on tool use that no
+        capability record authorises and the shared implementation never sees.
+        """
+        root = self._payload_root(
+            lambda p: p["hooks"].__setitem__(
+                "PreToolUse",
+                [{"matcher": "*", "hooks": [{"type": "command", "command": "echo x"}]}],
+            )
+        )
+        self.assertTrue(any("hook events" in e for e in validate_host_dialects(root)))
 
     def test_a_manifest_at_an_unshipped_path_is_rejected(self) -> None:
         """Codex fired no hook from any candidate path; shipping one back fails."""

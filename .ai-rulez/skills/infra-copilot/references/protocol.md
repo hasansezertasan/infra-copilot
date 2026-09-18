@@ -225,13 +225,16 @@ a missing or drifted tool pin — the finding that most often explains a plan a 
 cannot reproduce. What isolation removes is the intermediate output — API JSON, per-step
 exit codes — which had no other consumer anyway.
 
-Supporting subagents is not the same as having this one. Only Claude Code ships it: root
-`agents/` is a single directory that Claude and Antigravity both auto-discover with
-incompatible `tools` shapes, so the file carries Claude's dialect and Antigravity silently
-loads nothing from it. Delegating on Antigravity would call an agent that is not there, in
-place of the scan the skill promised. Everywhere else, run the scan inline — the agent is
-an isolation boundary, never a second set of rules, so the inline result is the same
-result.
+Supporting subagents is not the same as having this one. Read the running host's
+subagent row in [`hosts.md`](hosts.md): delegate only where that row is marked shipped,
+and run the scan inline everywhere else. Do not carry a host name in your head for this —
+the row is the authority, and which hosts ship changes as their dialects get exercised.
+
+Where several hosts share one discovery directory, at most one of them can ship, because
+their `tools` dialects are incompatible and the others silently load nothing from it.
+Delegating on such a host would call an agent that is not there, in place of the scan the
+skill promised. Running inline is not a downgrade: the agent is an isolation boundary,
+never a second set of rules, so the inline result is the same result.
 
 `setup`, `import`, and `add` must run their resume scan themselves, even though it looks
 like the same walk. It is not: the auditor follows [`status.md`](status.md), which
