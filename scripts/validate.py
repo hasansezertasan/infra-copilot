@@ -1457,8 +1457,24 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                     f"{HOSTS_DOCUMENT}: {host}'s agent tool_names include {forbidden!r}; "
                     "the scan is read-only and the recorded grant is what says so"
                 )
-        if f"name{' =' if suffix == '.toml' else ':'} " in text and AGENT_STEM not in text:
-            errors.append(f"{relative}: agent name must be {AGENT_STEM!r}")
+        # Parsed and compared exactly. A substring test over the whole document
+        # passed a manifest renamed to `name: wrong-agent`, because the stem still
+        # appeared in the heading and the instructions -- leaving a file that no
+        # longer declares the agent the protocol delegates to.
+        if suffix == ".toml":
+            declared_name = re.search(r'(?m)^name\s*=\s*"([^"]*)"', text)
+        else:
+            front = SKILL_FRONTMATTER.match(text)
+            declared_name = (
+                re.search(r"(?m)^name:\s*(\S+)", front.group("body")) if front else None
+            )
+        if declared_name is None:
+            errors.append(f"{relative}: declares no agent name")
+        elif declared_name.group(1).strip("\"'") != AGENT_STEM:
+            errors.append(
+                f"{relative}: declares name {declared_name.group(1)!r}, not {AGENT_STEM!r}; "
+                "the protocol delegates to that name"
+            )
         for marker in AGENT_RUNBOOK:
             if marker not in text:
                 errors.append(
@@ -1617,6 +1633,11 @@ QUESTION_PROTOCOL_DOCUMENT = (
 #: only when actually available, that the capability record gates it too, and
 #: that there is a text rendering when either gate fails.
 QUESTION_PROTOCOL_MARKERS = ("declared", "allowed", "hosts.yaml", "Other — enter a custom response")
+#: The delegation rule has the same shape as the question rule and the same failure
+#: mode: supporting subagents is not having this one. Antigravity supports them and
+#: silently loads nothing from the shared root agents/, so a rule keyed on "offers
+#: subagents" would call an agent that is not there instead of scanning inline.
+DELEGATION_MARKERS = ("infra-auditor", "verified: true", "inline")
 
 
 def validate_question_protocol(root: Path = ROOT) -> list[str]:
@@ -1642,6 +1663,12 @@ def validate_question_protocol(root: Path = ROOT) -> list[str]:
         if marker not in text:
             errors.append(
                 f"{QUESTION_PROTOCOL_DOCUMENT}: the decision rule is missing {marker!r}"
+            )
+    for marker in DELEGATION_MARKERS:
+        if marker not in text:
+            errors.append(
+                f"{QUESTION_PROTOCOL_DOCUMENT}: the delegation rule is missing {marker!r}; "
+                "it must gate on the recorded agent, not on whether the host has subagents"
             )
 
     records = host_records(root)

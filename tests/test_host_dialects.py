@@ -20,6 +20,7 @@ from pathlib import Path
 
 from scripts.validate import (
     AGENT_STEM,
+    DELEGATION_MARKERS,
     AGENT_FORBIDDEN_PATH,
     EXPECTED_HOSTS,
     HOSTS_DOCUMENT,
@@ -520,6 +521,69 @@ class ThirdReviewRegressionTests(unittest.TestCase):
             self.assertTrue(
                 any("adapter" in e for e in validate_host_dialects(root)),
             )
+
+
+class FourthReviewRegressionTests(unittest.TestCase):
+    """Holes the fourth review round found in the third round's fixes."""
+
+    def test_the_declared_agent_name_is_parsed_not_searched(self) -> None:
+        """A whole-document search passed a renamed manifest.
+
+        `name: wrong-agent` in the frontmatter still matched, because the stem
+        appeared in the heading and the instructions below it -- leaving a file
+        that no longer declares the agent the protocol delegates to.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / AGENT_PATH
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    f"name: {AGENT_STEM}", "name: wrong-agent", 1
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                any("declares name" in e for e in validate_host_dialects(root)),
+            )
+
+    def test_a_manifest_with_no_name_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / AGENT_PATH
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    f"name: {AGENT_STEM}\n", "", 1
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                any("no agent name" in e for e in validate_host_dialects(root)),
+            )
+
+    def test_delegation_is_gated_on_the_recorded_agent(self) -> None:
+        """Supporting subagents is not the same as having this one.
+
+        Antigravity supports them and loads nothing from the shared root
+        agents/, so a rule keyed on "offers subagents" would call an agent that
+        is not there instead of running the scan inline.
+        """
+        for marker in DELEGATION_MARKERS:
+            with self.subTest(marker=marker), tempfile.TemporaryDirectory() as directory:
+                root = build_root(directory)
+                document = root / QUESTION_PROTOCOL_DOCUMENT
+                document.write_text(
+                    document.read_text(encoding="utf-8").replace(marker, "REMOVED"),
+                    encoding="utf-8",
+                )
+                self.assertTrue(
+                    any("delegation rule" in e for e in validate_question_protocol(root)),
+                )
+
+    def test_only_a_verified_agent_host_is_recorded_today(self) -> None:
+        """The protocol's promise and the table must agree on who has the agent."""
+        records = host_records(REPO_ROOT)
+        self.assertTrue(_verified(records["claude"], "agent"))
+        self.assertFalse(_verified(records["antigravity"], "agent"))
 
 
 class QuestionProtocolTests(unittest.TestCase):

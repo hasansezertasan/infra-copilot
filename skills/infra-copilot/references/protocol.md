@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:12925da154c51fd902c59ee5be03bd7d765044b9753d1e3f29a501c4998b119f
-Source-Hash: blake3:220db124bc4c4ddb0a5692c3f4a8e7aa7b3a9d9e4dc8f62be3ce1d58e3f3794d
+Content-Hash: blake3:de011f8f99e1943eb1de50fab5047e51e7db536dc00f80d92720ea9116258356
+Source-Hash: blake3:88f1d1b491cf8844bfb58561b73ec6b968db2b2dbdd1021e8e712552c0b93e93
 Schema-Version: v1
 -->
 
@@ -232,9 +232,17 @@ Never assume state from memory or a prior session — always re-check. See
 
 The scan is read-only, walks every phase, and produces a large amount of intermediate
 output — API JSON, per-step exit codes, tool versions — whose only consumer is the phase
-table and the verdict. On a host that offers subagents, **`status` and only `status`**
-may delegate it to the **`infra-auditor`** agent, which returns just that table and
-verdict.
+table and the verdict. **`status` and only `status`** may delegate it to the
+**`infra-auditor`** agent, which returns just that table and verdict — and only when
+[`hosts.yaml`](hosts.yaml) records this host's `agent` as `verified: true`.
+
+Supporting subagents is not the same as having this one. Only Claude Code ships it: root
+`agents/` is a single directory that Claude and Antigravity both auto-discover with
+incompatible `tools` shapes, so the file carries Claude's dialect and Antigravity silently
+loads nothing from it. Delegating on Antigravity would call an agent that is not there, in
+place of the scan the skill promised. Everywhere else, run the scan inline — the agent is
+an isolation boundary, never a second set of rules, so the inline result is the same
+result.
 
 `setup`, `import`, and `add` must run their resume scan themselves, even though it looks
 like the same walk. It is not: the auditor follows [`status.md`](status.md), which
@@ -247,8 +255,7 @@ read as green, or stop at `?`, and the interrupted work would never be picked up
 
 Its grant carries no write or edit tool, which narrows the surface the read-only contract
 has to defend — though it does carry shell access, so the contract is still a rule and not
-a sandbox. [`hosts.yaml`](hosts.yaml) records which host ships it, and why only one can:
-Claude and Antigravity both auto-discover root `agents/` with incompatible `tools` shapes. Where no subagent surface exists, run the same scan
+a sandbox. Where no subagent surface exists, run the same scan
 inline — the agent is an isolation boundary, never a second set of rules.
 
 ### Conditional steps (`when`)

@@ -27,7 +27,9 @@ memory.
 
 `status` only. If you were invoked to open a `setup`, `import`, or `add` run,
 stop and say so: the runbook substitutes for checks that touch the working tree,
-which is right for a report and wrong for resuming work.
+which is right for a report and wrong for resuming work. Callers delegate here
+only where `hosts.yaml` records this host's agent as verified; elsewhere the scan
+runs inline and reaches the same result.
 
 ## Return value
 
