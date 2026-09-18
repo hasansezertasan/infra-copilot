@@ -1363,6 +1363,48 @@ def _tool_names(block: str) -> list[str]:
     return [name.strip() for name in raw.strip("[]").split(",") if name.strip()]
 
 
+#: Every field a host record must carry. Four findings in a row were the same
+#: defect -- a deleted or nulled field made the rules keyed on it skip rather than
+#: fail, so the table could switch its own gate off. The schema is checked once,
+#: before any consistency rule reads a field.
+REQUIRED_HOST_FIELDS = {
+    "question_tool": ("name", "modes", "choices"),
+    "agent": ("path", "tools_dialect", "tool_names"),
+    "hook": ("path", "matcher"),
+}
+#: What the shipped agent's instructions actually depend on, per host: it is told
+#: to load the runbook through the skill tool, and its scan runs manifest-defined
+#: shell checks, so losing either makes every delegated run fail.
+#:
+#: Deliberately NOT derived from the table. `tool_names` records what is *granted*;
+#: this records what is *needed*. Deriving one from the other would make the check
+#: vacuous -- it would only ever compare the grant with itself.
+AGENT_REQUIRED_TOOLS = {"claude": ("Skill", "Bash")}
+
+
+def validate_host_schema(records: dict[str, str]) -> list[str]:
+    """Every record complete, before any rule reads a field out of it."""
+    errors: list[str] = []
+    for host, block in sorted(records.items()):
+        for section, fields in REQUIRED_HOST_FIELDS.items():
+            state = _verified(block, section)
+            if state is None:
+                errors.append(
+                    f"{HOSTS_DOCUMENT}: {host}.{section} has no usable `verified:` flag; "
+                    "an unstated verification state disables every rule keyed on it"
+                )
+            for field in fields:
+                value = _field(block, section, field)
+                if value is None or not value.strip():
+                    errors.append(f"{HOSTS_DOCUMENT}: {host}.{section} declares no {field}")
+                elif value == "null" and not (section == "hook" and state is False):
+                    errors.append(
+                        f"{HOSTS_DOCUMENT}: {host}.{section}.{field} is null; only an "
+                        "unverified hook may record no path or matcher"
+                    )
+    return errors
+
+
 def validate_host_dialects(root: Path = ROOT) -> list[str]:
     """Shipped per-host artifacts must match what hosts.yaml records.
 
@@ -1385,6 +1427,8 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     records = host_records(root)
     if not records:
         return [f"{HOSTS_DOCUMENT}: no host records found; the capability table is unreadable"]
+    if schema_errors := validate_host_schema(records):
+        return schema_errors
     if missing := EXPECTED_HOSTS - set(records):
         errors.append(
             f"{HOSTS_DOCUMENT}: no record for {sorted(missing)}; every rule here iterates "
@@ -1451,6 +1495,13 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                     f"{render(names)!r} as {HOSTS_DOCUMENT} records it for {host} "
                     f"({dialect}); a wrong dialect fails silently"
                 )
+        for required in AGENT_REQUIRED_TOOLS.get(host, ()):
+            if required not in names:
+                errors.append(
+                    f"{HOSTS_DOCUMENT}: {host}'s agent tool_names omit {required!r}; the "
+                    "shipped manifest tells the agent to load the runbook through the "
+                    "skill tool and its scan runs shell checks, so a delegated run fails"
+                )
         for forbidden in AGENT_FORBIDDEN_TOOLS:
             if forbidden in names:
                 errors.append(
@@ -1493,12 +1544,6 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                 "which resolves into the consuming repository rather than the plugin "
                 "payload; load the skill by name instead"
             )
-        for forbidden in AGENT_FORBIDDEN_TOOLS:
-            if forbidden in names:
-                errors.append(
-                    f"{HOSTS_DOCUMENT}: {host}'s agent tool_names include {forbidden!r}; "
-                    "the scan is read-only and the grant is what says so"
-                )
 
     # A host whose agent record is unverified must not have a manifest sitting at
     # its recorded path -- that is how the Antigravity dialect ended up being the
@@ -1507,14 +1552,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
         _field(records[host], "agent", "path") for host in owners
     }
     for host, block in records.items():
-        state = _verified(block, "agent")
-        if state is None:
-            errors.append(
-                f"{HOSTS_DOCUMENT}: {host}'s agent record has no usable `verified:` flag; "
-                "such a host is neither an owner nor checked for stray wiring"
-            )
-            continue
-        if state is not False or host in owners:
+        if _verified(block, "agent") is not False or host in owners:
             continue
         directory = _field(block, "agent", "path")
         if not directory or directory == "null":
@@ -1542,15 +1580,9 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     # --- hook manifests ---------------------------------------------------------
     for host, block in records.items():
         relative = _field(block, "hook", "path")
-        if relative in (None, "null"):
-            continue
         verified = _verified(block, "hook")
-        if verified is None:
-            errors.append(
-                f"{HOSTS_DOCUMENT}: {host}'s hook record has no usable `verified:` flag; "
-                "an unstated verification state disables every rule keyed on it"
-            )
-            continue
+        if relative == "null":
+            continue  # the schema pass has already confirmed this host is unverified
         exists = (root / relative).exists()
         if verified and not exists:
             errors.append(f"{relative}: {host} records a verified hook path but ships no manifest")
@@ -1664,12 +1696,26 @@ def validate_question_protocol(root: Path = ROOT) -> list[str]:
             errors.append(
                 f"{QUESTION_PROTOCOL_DOCUMENT}: the decision rule is missing {marker!r}"
             )
-    for marker in DELEGATION_MARKERS:
-        if marker not in text:
-            errors.append(
-                f"{QUESTION_PROTOCOL_DOCUMENT}: the delegation rule is missing {marker!r}; "
-                "it must gate on the recorded agent, not on whether the host has subagents"
-            )
+    # Scoped to its own section. Searching the whole document let the delegation
+    # condition be inverted to `verified: false` while the marker stayed satisfied
+    # by the unrelated question-tool section above it -- which would have made an
+    # unverified host eligible to delegate again, with CI reporting parity.
+    section = re.search(
+        r"(?ms)^### Running the scan in an isolated context$(?P<body>.*?)(?=^#{2,3} )", text
+    )
+    if section is None:
+        errors.append(
+            f"{QUESTION_PROTOCOL_DOCUMENT}: no 'Running the scan in an isolated context' "
+            "section; the delegation rule has nowhere to live"
+        )
+    else:
+        for marker in DELEGATION_MARKERS:
+            if marker not in section.group("body"):
+                errors.append(
+                    f"{QUESTION_PROTOCOL_DOCUMENT}: the delegation rule is missing "
+                    f"{marker!r}; it must gate on the recorded agent, not on whether "
+                    "the host has subagents"
+                )
 
     records = host_records(root)
     named = {

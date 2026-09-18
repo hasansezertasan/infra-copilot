@@ -19,6 +19,7 @@ import unittest
 from pathlib import Path
 
 from scripts.validate import (
+    AGENT_REQUIRED_TOOLS,
     AGENT_STEM,
     DELEGATION_MARKERS,
     AGENT_FORBIDDEN_PATH,
@@ -584,6 +585,76 @@ class FourthReviewRegressionTests(unittest.TestCase):
         records = host_records(REPO_ROOT)
         self.assertTrue(_verified(records["claude"], "agent"))
         self.assertFalse(_verified(records["antigravity"], "agent"))
+
+
+class FifthReviewRegressionTests(unittest.TestCase):
+    """One defect, found four ways: a field that goes missing switched off the
+    rules keyed on it instead of failing. A schema pass now runs before any rule
+    reads a field, so these are regression tests for the class, not four patches.
+    """
+
+    def _mutated(self, replacement: tuple[str, str], path: str = HOSTS_DOCUMENT):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / path
+        old, new = replacement
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_a_nulled_hook_path_does_not_disable_its_checks(self) -> None:
+        """Nulling Claude's path skipped the verified and parity checks entirely
+        while hooks/hooks.json still shipped."""
+        root = self._mutated(("      path: hooks/hooks.json", "      path: null"))
+        self.assertTrue(any("is null" in e for e in validate_host_dialects(root)))
+
+    def test_deleted_capability_fields_are_reported(self) -> None:
+        """Both validators skipped the comparison and reported nothing, so the
+        table stopped authorizing claims the protocol still made."""
+        root = self._mutated(
+            (
+                "      modes: [binary, single, multi]\n      choices: [2, 4]\n      verified: true  # declared",
+                "      verified: true  # declared",
+            )
+        )
+        errors = validate_host_dialects(root)
+        self.assertTrue(any("declares no modes" in e for e in errors), errors)
+        self.assertTrue(any("declares no choices" in e for e in errors), errors)
+
+    def test_the_agent_must_keep_the_tools_its_instructions_need(self) -> None:
+        """It is told to load the runbook through the skill tool, and its scan
+        runs shell checks; dropping either made every delegated run fail."""
+        for required in AGENT_REQUIRED_TOOLS["claude"]:
+            with self.subTest(tool=required):
+                root = self._mutated(
+                    (
+                        "tool_names: [Read, Bash, Glob, Grep, Skill]",
+                        "tool_names: ["
+                        + ", ".join(
+                            n for n in ("Read", "Bash", "Glob", "Grep", "Skill") if n != required
+                        )
+                        + "]",
+                    )
+                )
+                self.assertTrue(
+                    any(f"omit {required!r}" in e for e in validate_host_dialects(root)),
+                )
+
+    def test_the_delegation_gate_is_read_from_its_own_section(self) -> None:
+        """Inverting the condition to `verified: false` left the marker satisfied
+        by the unrelated question-tool section, re-permitting an unverified host."""
+        root = self._mutated(
+            (
+                "records this host's `agent` as `verified: true`",
+                "records this host's `agent` as `verified: false`",
+            ),
+            QUESTION_PROTOCOL_DOCUMENT,
+        )
+        self.assertTrue(
+            any("delegation rule" in e for e in validate_question_protocol(root)),
+        )
 
 
 class QuestionProtocolTests(unittest.TestCase):
