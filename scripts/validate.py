@@ -1315,6 +1315,7 @@ def host_records(root: Path = ROOT) -> dict[str, str]:
         return {}
     blocks: dict[str, list[str]] = {}
     duplicates: set[str] = set()
+    seen_hosts = False
     current: str | None = None
     in_hosts = False
     for line in text.splitlines():
@@ -1330,6 +1331,10 @@ def host_records(root: Path = ROOT) -> dict[str, str]:
             # Exact, not a prefix: `hosts: nonsense` is a scalar, and the indented
             # records that follow it are not valid YAML -- yet the prefix test walked
             # into them and validated a document no consumer could read.
+            if line.startswith("hosts:"):
+                if seen_hosts:
+                    duplicates.add("hosts")
+                seen_hosts = True
             in_hosts = re.fullmatch(r"hosts:\s*", line) is not None
             current = None
             continue
@@ -1411,6 +1416,17 @@ AGENT_REQUIRED_TOOLS = {"claude": ("Skill", "Bash")}
 #: The single shell script every host's hook manifest must invoke. Adapters carry
 #: the discovery path and the matcher; the behaviour is shared.
 HOOK_IMPLEMENTATION = "hooks/session-start.sh"
+#: A command names the implementation *and* hands it to a shell. The shipped
+#: manifests resolve the path into a variable first --
+#: `s="${r%/}/hooks/session-start.sh"; ... sh "$s"` -- so the two cannot be
+#: required adjacent.
+#:
+#: ponytail: substring + shell-present, not a shell parse. It rejects the failure
+#: that actually happens (a no-op adapter that merely mentions the path, which
+#: `echo hooks/session-start.sh` passed); a command contriving to run an unrelated
+#: shell alongside the path would still pass. Parse the command if that ever
+#: becomes a real adapter rather than a hypothetical.
+HOOK_SHELL = re.compile(r"(?:^|[;&|]|\s)(?:ba|z|da)?sh\s")
 
 
 def _list_items(value: str) -> list[str]:
@@ -1709,10 +1725,14 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
             ]
             if not commands:
                 errors.append(f"{relative}: a SessionStart entry declares no hooks to run")
-            elif not all(HOOK_IMPLEMENTATION in command for command in commands):
+            elif not all(
+                HOOK_IMPLEMENTATION in command and HOOK_SHELL.search(command)
+                for command in commands
+            ):
                 errors.append(
-                    f"{relative}: a SessionStart command does not invoke "
-                    f"{HOOK_IMPLEMENTATION}; every host runs the one implementation"
+                    f"{relative}: a SessionStart command does not hand "
+                    f"{HOOK_IMPLEMENTATION} to a shell; naming the path is not running "
+                    "it, and `echo <path>` passed while the implementation never ran"
                 )
 
     # No hook manifest takes a sibling of "hooks". Antigravity counts every
@@ -1898,7 +1918,9 @@ def validate_question_protocol(root: Path = ROOT) -> list[str]:
                     if word in cell and word not in values
                 ]
             else:
-                mismatch = [v for v in values if v not in cell]
+                # Endpoints as values, not substrings: "12-40" contains both "2"
+                # and "4", so the cell could advertise a range the tool cannot take.
+                mismatch = [] if re.findall(r"\d+", cell) == values else [cell]
             if mismatch:
                 errors.append(
                     f"{QUESTION_PROTOCOL_DOCUMENT}: {host}'s {key} cell {cell!r} does not "

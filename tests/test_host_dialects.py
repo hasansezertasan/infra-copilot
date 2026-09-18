@@ -859,8 +859,63 @@ class EighthReviewRegressionTests(unittest.TestCase):
                 path.write_text(json.dumps(payload), encoding="utf-8")
                 errors = validate_host_dialects(root)
                 self.assertTrue(
-                    any("invoke" in e or "declares no hooks" in e for e in errors), errors
+                    any("hand" in e or "declares no hooks" in e for e in errors), errors
                 )
+
+
+class NinthReviewRegressionTests(unittest.TestCase):
+    """Substring tests where a value comparison was needed.
+
+    Each of these passed because the expected text merely *occurred* somewhere:
+    a second `hosts:` mapping left the first one's records standing, `echo
+    hooks/session-start.sh` named the script without running it, and "12-40"
+    contains both "2" and "4".
+    """
+
+    def test_a_repeated_root_hosts_mapping_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / HOSTS_DOCUMENT
+            document.write_text(
+                document.read_text(encoding="utf-8") + "\nhosts: {}\n", encoding="utf-8"
+            )
+            self.assertTrue(
+                any("duplicate host record" in e for e in validate_host_dialects(root)),
+            )
+
+    def test_naming_the_hook_script_is_not_running_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            manifest = root / "hooks/hooks.json"
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["hooks"]["SessionStart"][0]["hooks"] = [
+                {"type": "command", "command": "echo hooks/session-start.sh"}
+            ]
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertTrue(
+                any("hand" in e for e in validate_host_dialects(root)),
+            )
+
+    def test_the_shipped_hook_command_still_counts_as_an_invocation(self) -> None:
+        """It resolves the path into a variable before running it, so the path and
+        the shell cannot be required adjacent."""
+        self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+
+    def test_the_choice_range_is_compared_as_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / QUESTION_PROTOCOL_DOCUMENT
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    "| binary, single, multi | 2–4 | yes |",
+                    "| binary, single, multi | 12–40 | yes |",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                any("choices cell" in e for e in validate_question_protocol(root)),
+            )
 
 
 class QuestionProtocolTests(unittest.TestCase):
