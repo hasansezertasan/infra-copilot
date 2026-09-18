@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:0282ae6e2645a11be7fa2d1e463553b1535c4f2b332d0bbcc203b2875ff8bcff
-Source-Hash: blake3:faadd1a460c28e6a6e293ff8f4b3d184b8f8448c6bcbe6a969f4f4c64f18c356
+Content-Hash: blake3:4ba2b860a50fc3dd274f55981bd9bc65924c5a6244ff20ca4bffd09a8400f8d9
+Source-Hash: blake3:22be82fe229a301d56ddb5ecbf71556345fa3d0af9fa3d7dddf93a82ae9e99b6
 Schema-Version: v1
 -->
 
@@ -154,6 +154,8 @@ terraform plan      # expect: every existing resource shown as "will import", no
 ```
 
 `terraform plan` from the CLI is allowed against a VCS-connected HCP workspace (it runs as a speculative plan in HCP); `terraform apply` from the CLI is intentionally blocked. The plan output streams back to your terminal with a link to the HCP run.
+
+Commit the reviewed HCL once this plan looks right: the `migrate-import` step refuses a dirty leaf, since a local plan reads your working tree while the run applies the commit. Committing does not apply anything.
 
 If `plan` shows any `create` for a resource that already exists, the resource name or import ID in `generated.tf` is wrong — fix before opening a PR. The real apply happens when the PR merges and a maintainer confirms in HCP (or scripts the confirm via `POST /api/v2/runs/<id>/actions/apply`).
 

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:5c5c0b7d73e5ebc7bbc1165f468ee2bf1705ec1d3dbe0eb731d2c83e0188d917
-Source-Hash: blake3:faadd1a460c28e6a6e293ff8f4b3d184b8f8448c6bcbe6a969f4f4c64f18c356
+Content-Hash: blake3:ef6e1e67817529f37f8315fd66ff713ca47128da56cff8e47daf528f48acac9a
+Source-Hash: blake3:22be82fe229a301d56ddb5ecbf71556345fa3d0af9fa3d7dddf93a82ae9e99b6
 Schema-Version: v1
 -->
 
@@ -52,12 +52,14 @@ applies:
 ```sh
 cd terraform/<leaf>
 grep -rnE '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*((#|//).*)?$' *.tf
-grep -rnE '^[[:space:]]*"(import|moved)"[[:space:]]*:' *.tf.json    # JSON leaves
+grep -rnE '^ {0,2}"(import|moved)"[[:space:]]*:' *.tf.json          # JSON leaves
 ```
 
 A JSON leaf writes the same thing as `"import": [ { "to": …, "id": … } ]`, so a candidate
 there is one array entry to delete, not a block — and deleting the last entry means
-removing the key. Every rule below applies unchanged; only the editing differs.
+removing the key. Every rule below applies unchanged; only the editing differs. The indent
+bound is what keeps an ordinary nested key named `import` — inside `locals`, say — from
+reading as a one-shot block; confirm the match really is top-level before touching it.
 
 After the `{`, only whitespace or a comment — that is what a block opener looks like.
 Without that, a heredoc carrying JavaScript (`import { name } from "./x"` in an inline
@@ -72,17 +74,36 @@ runs it per zone or per resource type ends up with several (`generated_dns.tf`,
 
 ## Prove each block is spent
 
-A clean plan is **not** evidence. A speculative plan is equally clean when the imports have
-already run and when they are still pending — the difference is only visible in state.
+Two questions, and they need different instruments:
 
-`terraform state list` reads the **backend**, not the provider: in HCP mode the workspace
-token is enough, and in object-storage mode you need read access to the state bucket but
-none of the provider credentials the plan would want. Avoiding provider auth is not
-avoiding backend auth, though. Where the bucket is reachable only from CI — WIF/OIDC
-federated to the workflow, no local credential by design — this cannot run on a laptop at
-all, and belongs either inside the authenticated plan workflow or with someone who has
-bucket read. What you must not do is skip it: if you cannot read state, **stop**. There is
-no substitute, and every rule below depends on it.
+1. **Has this block already run?** Terraform answers it, in a plan.
+2. **Is this block one I may touch at all?** State membership answers it, cheaply,
+   before you spend a plan on a leaf full of pending work.
+
+### The plan pair decides
+
+A block that has **not** run still appears in the plan: a pending `import` prints
+`will be imported`, a pending `moved` prints its rename. A block that **has** run
+contributes nothing. So bracket the edit with two plans, in this order:
+
+```sh
+terraform plan          # 1. before: no `will be imported`, no pending move, nothing
+                        #    else outstanding -- otherwise stop, the work is unfinished
+# remove the candidate blocks, and nothing else
+terraform plan          # 2. after:  No changes. Your infrastructure matches the
+                        #    configuration.  <- the blocks were inert
+```
+
+Anything other than `No changes.` in the second plan means at least one block was still
+doing work: **restore it** and leave the leaf alone. This is the authority for every shape
+the address rules below cannot settle, because Terraform parses its own addresses —
+aggregate module targets, `count`/`for_each` in either direction, chains, expressions,
+JSON leaves. When the two disagree, the plan is right.
+
+For a block inside a shared module, run the pair in **every consuming leaf** — see the
+next section. One leaf's `No changes.` says nothing about another's.
+
+### State membership filters first
 
 ```sh
 terraform init -input=false              # a fresh checkout has no backend configured
@@ -91,7 +112,7 @@ terraform state list > "$state"          # still someone else's to overwrite
 
 # held: this address, or anything under it. `terraform state list` never prints a bare
 # aggregate -- a module is `module.m.aws_instance.x`, a count/for_each resource is
-# `aws_instance.x[0]` -- so an aggregate `to` has to be matched through its descendants.
+# `aws_instance.x[0]` -- so an aggregate address has to be matched through descendants.
 # The boundary test (next character `.` or `[`) keeps `module.new` off `module.newer`.
 held() {
   awk -v a="$1" '$0 == a || index($0, a ".") == 1 || index($0, a "[") == 1 {f=1}
@@ -109,52 +130,47 @@ held_under() {
                   END { exit !f }' "$2"
 }
 
-# exactly: this address and nothing under it. Needed where the descendant rule would
-# answer the wrong question -- see the index rows below.
+# exactly: this address and nothing under it.
 exactly() { grep -Fxq "$1" "$2"; }
 ```
 
 Keep `$state` until every check below has run — the helpers read it each time — and
 `rm -f "$state"` at the end, after the plan.
 
-| Block | Spent when |
+| Block | Looks spent when |
 |---|---|
 | `import` | `held <to>` |
 | `moved`, distinct addresses | `held <new>` **and not** `held <old>` |
 | `moved` **adding** an index (`x` → `x[0]`) | `held <new>` alone |
-| `moved` **removing** an index (`x[0]` → `x`) | `exactly <new>` **and not** `exactly <old>` |
+| `moved` **removing** a resource index (`x[0]` → `x`) | `exactly <new>` **and not** `exactly <old>` |
 | anything written inside a module | `held_under`, in **every** consuming leaf |
 
-The two index rows are not one rule, and the difference has teeth. **Adding** an index
-makes the old address a prefix of the new, so `held <old>` is satisfied by
-`aws_instance.web[0]` — the very instance that proves the move happened. Asking for the old
-address to be absent would reject an applied move forever, and state cannot hold a bare
-aggregate anyway, so the new address being held is the whole of the evidence.
-
-**Removing** one inverts that, and the descendant rule becomes dangerous rather than
-merely useless: before the apply, state still holds `aws_instance.web[0]`, and `held
-aws_instance.web` says *true* on the strength of the instance the move is supposed to
-rename. Declaring that spent and deleting the block sets up a replace of a live resource.
-Both sides must be exact there: the bare address present, the indexed one gone.
+The two index rows are not one rule. **Adding** an index makes the old address a prefix of
+the new, so `held <old>` is satisfied by `aws_instance.web[0]` — the very instance that
+proves the move happened; asking for the old address to be absent would reject an applied
+move forever. **Removing** one inverts that: before the apply, state still holds
+`aws_instance.web[0]`, and `held aws_instance.web` says *true* on the strength of the
+instance the move is supposed to rename, so both sides must be exact there.
 
 Query a single keyed instance **whole** — `cloudflare_dns_record.this["www"]`, not
 `cloudflare_dns_record.this`. The bare name asks the aggregate question, so one applied
 record would vouch for every still-pending one.
 
-Any address that is not held means that block is still pending. Leave it, and every other
-block in that leaf, alone: finish the import first.
+**Where the table runs out, stop reading it and plan.** Each of these looks spent, or looks
+pending, for reasons that have nothing to do with whether it ran:
 
-**Chained moves resolve to their last address.** `a → b` followed by `b → c` applies as one
-hop: state ends up holding `c`, and `b` never appears. Judged one block at a time the first
-looks pending forever and the leaf stays unprunable. When one block's `to` is another's
-`from`, follow the chain to its terminal address and validate it as a unit — terminal held,
-every earlier address in the chain absent — then remove the chain together or not at all.
+- **An index removed from a *module* call** (`module.app[0]` → `module.app`). State never
+  prints a bare `module.app`, only its descendants, so `exactly` can never succeed.
+- **A same-named address under a different call.** `held_under` deliberately forgets which
+  call path it matched, so an unrelated module's `aws_instance.web["blue"]` answers for
+  yours.
+- **Chained moves.** `a → b` then `b → c` applies as one hop: state holds only `c`, and `b`
+  never appears, so the first block looks pending forever.
+- **An expression target** — `this[each.key]`, `…[count.index]` — is not an address until
+  the configuration expands, so nothing in state can match it.
 
-**A `to` written as an expression** — `cloudflare_dns_record.this[each.key]`,
-`…[count.index]` — is not an address until the configuration expands, so nothing in state
-can match it. Compare instances instead: the addresses state reports for that resource,
-against the keys the config expands to. If you cannot enumerate them confidently, treat the
-block as pending. This is the one case where "not in state" is evidence of nothing.
+In all four, the plan pair is the decision and the table is noise. Treat a block the table
+cannot settle as pending until a plan says otherwise; never the reverse.
 
 **Held proves the address is managed**, not that what sits there is the object the block
 named. The two diverge only if something *created* a resource at that address instead of
@@ -192,10 +208,10 @@ the block. Plan every consuming leaf, not just one, before opening the PR.
 
 ## Refuse on a dirty plan
 
-Before editing, the leaf must plan cleanly apart from the blocks being removed — imports
-pending for the addresses you verified, and nothing else. If the plan carries an unrelated
-create, change, or destroy, **stop and report**. Pruning into an unrelated diff makes the
-`No changes.` evidence unreadable and buries somebody else's pending change in a chore PR.
+That first plan has a second job: the leaf must be otherwise quiet. If it carries an
+unrelated create, change, or destroy, **stop and report**. Pruning into an unrelated diff
+makes the `No changes.` evidence unreadable and buries somebody else's pending change in a
+chore PR.
 
 ## Remove, plan, open the PR
 

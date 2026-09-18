@@ -5,8 +5,8 @@ description: "Adopt infrastructure that already exists at a provider into Terraf
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:51f9e4568d7b1ba1dd738b6bd830c869d4aef848eaab6d2d5b404261eaa90938
-Source-Hash: blake3:faadd1a460c28e6a6e293ff8f4b3d184b8f8448c6bcbe6a969f4f4c64f18c356
+Content-Hash: blake3:5d95f035af46b31ab07de3684ebff9ab4efe43e2e8e7524a06b0790e2e44a81e
+Source-Hash: blake3:22be82fe229a301d56ddb5ecbf71556345fa3d0af9fa3d7dddf93a82ae9e99b6
 Schema-Version: v1
 -->
 
@@ -104,8 +104,13 @@ resource and would duplicate it. If a change *legitimately* adds a new resource 
 imports, review by hand (and consider whether that new resource belongs in
 `infra-copilot:add` instead).
 
-Once green: delete the throwaway discovery token, commit the generated HCL, and the
-resources are under management.
+**Commit the reviewed HCL before expecting the step to go green.** The check plans what is
+committed and refuses a dirty `terraform/cloudflare`, because a local plan reads the
+working tree while HCP applies the commit. So the order is: generate, review, `terraform
+plan` by hand to see the imports, commit, then run the check. Committing is not applying —
+the apply still happens on merge, confirmed by a human.
+
+Once green: delete the throwaway discovery token, and the resources are under management.
 
 **Then hand off to `infra-copilot:prune`** — but only after this PR has merged *and
 applied*. The `import` blocks are one-shot; once the run executes them they are inert, and

@@ -97,8 +97,13 @@ resource and would duplicate it. If a change *legitimately* adds a new resource 
 imports, review by hand (and consider whether that new resource belongs in
 `infra-copilot:add` instead).
 
-Once green: delete the throwaway discovery token, commit the generated HCL, and the
-resources are under management.
+**Commit the reviewed HCL before expecting the step to go green.** The check plans what is
+committed and refuses a dirty `terraform/cloudflare`, because a local plan reads the
+working tree while HCP applies the commit. So the order is: generate, review, `terraform
+plan` by hand to see the imports, commit, then run the check. Committing is not applying —
+the apply still happens on merge, confirmed by a human.
+
+Once green: delete the throwaway discovery token, and the resources are under management.
 
 **Then hand off to `infra-copilot:prune`** — but only after this PR has merged *and
 applied*. The `import` blocks are one-shot; once the run executes them they are inert, and

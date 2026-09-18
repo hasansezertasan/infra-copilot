@@ -313,7 +313,18 @@ class RunbookHelperTests(unittest.TestCase):
     def test_the_runbook_separates_the_two_index_directions(self) -> None:
         text = RUNBOOK.read_text(encoding="utf-8")
         self.assertIn("`moved` **adding** an index", text)
-        self.assertIn("`moved` **removing** an index", text)
+        self.assertIn("`moved` **removing** a resource index", text)
+
+    def test_a_plan_pair_outranks_the_address_table(self) -> None:
+        """The table is a filter; Terraform parses its own addresses, awk does not."""
+        text = RUNBOOK.read_text(encoding="utf-8")
+        self.assertIn("The plan pair decides", text)
+        self.assertLess(
+            text.index("The plan pair decides"),
+            text.index("State membership filters first"),
+            "the authority must be stated before the heuristic",
+        )
+        self.assertIn("the plan pair is the decision and the table is noise", text)
 
     def test_the_state_snapshot_outlives_the_helpers(self) -> None:
         """Deleting it in the helper block leaves every later check reading nothing."""
