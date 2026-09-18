@@ -1,6 +1,6 @@
 ---
 name: import
-description: "Adopt infrastructure that already exists at a provider into Terraform without recreating it, verifying the plan shows imports rather than creates. Cloudflare has a scripted cf-terraforming flow; every other provider uses the same import-block pattern by hand. Use when a plan wants to create things that are already live. Runs after infra-copilot:setup reaches green plans; for things that do not exist yet use infra-copilot:add."
+description: "Adopt infrastructure that already exists at a provider into Terraform without recreating it, verifying the plan shows imports rather than creates. Use when a plan wants to create things that are already live; runs after infra-copilot:setup reaches green plans. Not for things that do not exist yet (infra-copilot:add), nor for removing the spent blocks afterwards (infra-copilot:prune)."
 ---
 
 # infra-copilot: import
@@ -61,6 +61,11 @@ write `terraform/cloudflare/generated.tf` for repos that live in the GitHub leaf
 The manifest's phase-5 steps are Cloudflare-specific — for other providers, there's no
 `check` to resume against; verify by hand with the same imports-not-creates plan diff.
 
+Phase 5 has a third step, `prune-spent-imports`, which is provider-neutral and **not this
+skill's**: it reads red while one-shot blocks are still committed, and
+[`../prune/SKILL.md`](../prune/SKILL.md) owns it. Leave it red here — it only clears after
+this import applies.
+
 ## Workflow
 
 1. **Read config first** (shared protocol, Step 0) and export the org vars —
@@ -85,8 +90,13 @@ resource and would duplicate it. If a change *legitimately* adds a new resource 
 imports, review by hand (and consider whether that new resource belongs in
 `infra-copilot:add` instead).
 
-Once green: delete the throwaway discovery token, commit `generated.tf`, and the resources
-are under management.
+Once green: delete the throwaway discovery token, commit the generated HCL, and the
+resources are under management.
+
+**Then hand off to `infra-copilot:prune`** — but only after this PR has merged *and
+applied*. The `import` blocks are one-shot; once the run executes them they are inert, and
+[`../prune/SKILL.md`](../prune/SKILL.md) removes them in a second PR that ends on
+`No changes.` Removing them any earlier turns every pending import into a create.
 
 ## Example
 

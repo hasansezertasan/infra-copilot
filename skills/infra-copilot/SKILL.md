@@ -1,12 +1,12 @@
 ---
 name: infra-copilot
-description: "Route infrastructure work to the correct infra-copilot workflow: setup for a greenfield bootstrap, import for existing resources, add for new resources or providers, and status for a read-only health check. Use when the user asks generally for infra-copilot or the correct workflow is unclear."
+description: "Route infrastructure work to the correct infra-copilot workflow: setup for a greenfield bootstrap, import for existing resources, prune for the spent blocks an import leaves behind, add for new resources or providers, and status for a read-only health check. Use when the request names infra-copilot generally, or the right workflow is unclear."
 ---
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:8c4f82b1a117faa49a14b38a822c11c6c1128e273b76d43dd01f4d62c57c5662
-Source-Hash: blake3:4e913414ac187d6593fd935dd54c48e686d5aa998476920bb62f54f6a3edbd3e
+Content-Hash: blake3:ebe0d48ed33faf07cde281151c4471287fe9fe608e0391d15226642362c9d063
+Source-Hash: blake3:abfa10ee9d7f628a60ca99630b9965cebc415db2264e95a3720a1eb12bcb52f1
 Schema-Version: v1
 -->
 
@@ -20,6 +20,7 @@ Choose the smallest workflow that matches the request, then load its skill:
 |---|---|
 | Bootstrap an empty infrastructure repository | [`../setup/SKILL.md`](../setup/SKILL.md) |
 | Adopt resources that already exist | [`../import/SKILL.md`](../import/SKILL.md) |
+| Remove the spent `import {}` / `moved {}` blocks an adoption left behind | [`../prune/SKILL.md`](../prune/SKILL.md) |
 | Add a new resource, repository, or provider | [`../add/SKILL.md`](../add/SKILL.md) |
 | Inspect current state without changing anything | [`../status/SKILL.md`](../status/SKILL.md) |
 
@@ -32,9 +33,10 @@ host package. Host-specific commands and manifests are adapters only.
 This skill owns no operations. It selects one workflow and hands off — it never reads
 config, runs a check, or mutates anything itself. If a request spans two workflows, route
 to the earlier one and let it name its successor: `setup` ends by pointing at `import`,
-and `import` and `add` each say when the other applies.
+`import` at `prune` once its apply has landed, and `import` and `add` each say when the
+other applies.
 
 ## Validation
 
 Exactly one skill is selected, and the reason it was selected is stated. If none of the
-four fits, say so rather than choosing the closest.
+five fits, say so rather than choosing the closest.

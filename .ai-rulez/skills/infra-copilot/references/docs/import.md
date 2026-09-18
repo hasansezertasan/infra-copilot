@@ -154,6 +154,8 @@ If `plan` shows any `create` for a resource that already exists, the resource na
 
 Re-run `cf-terraforming generate` whenever new resources appear in Cloudflare that you want Terraform to manage. The cleanest workflow is to write new resources directly in Terraform from the start; cf-terraforming is for one-time onboarding of legacy state, not steady-state operations.
 
+The `import {}` blocks it emits are one-shot in the same way: after the run that applies them, they are inert instructions sitting in the leaf. Removing them is a separate PR with its own preconditions — [`prune.md`](prune.md), the `infra-copilot:prune` skill. Do not fold it into the import PR; the apply has to land first.
+
 > Note: cf-terraforming is **not** intended for use in CI. It runs locally during onboarding, output is reviewed by a human, then committed.
 
 ## Worked example

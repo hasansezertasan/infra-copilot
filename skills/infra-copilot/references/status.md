@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7d770fd366c441e1480f19112bd4db540c72956f4531ee70ea1ec4fa2af69056
-Source-Hash: blake3:4e913414ac187d6593fd935dd54c48e686d5aa998476920bb62f54f6a3edbd3e
+Content-Hash: blake3:b86f7c1c4cd2e40d3e84ea106dfd3aac6dbffd90b3a6633ce15f840d02f97df5
+Source-Hash: blake3:abfa10ee9d7f628a60ca99630b9965cebc415db2264e95a3720a1eb12bcb52f1
 Schema-Version: v1
 -->
 
@@ -62,8 +62,10 @@ preflight — is in
    on this:
 
    - **Non-mutating checks** (API reads, file existence, tool versions — phases 0–3;
-     phase 4's `status-check-context` and `hcp-apply-scope`; and every Phase 6 step,
-     including the read-only `new-provider-plan` evidence check) — run them directly.
+     phase 4's `status-check-context` and `hcp-apply-scope`; phase 5's
+     `prune-spent-imports`, which is a `git ls-files` read and a `grep` over tracked
+     `.tf` files; and every Phase 6 step, including the read-only `new-provider-plan`
+     evidence check) — run them directly.
      `status-check-context` is two `gh api` reads and a comparison in `$TMPDIR`;
      `hcp-apply-scope` lists workspaces and reads the permissions HCP reports for the
      current credential, and deliberately never posts an apply. Neither touches the
@@ -135,27 +137,38 @@ preflight — is in
    or any plan containing a destroy, is `✗`. This content predicate applies to both
    `planned_and_finished` and `applied` runs; never substitute the generic `green` flag.
 
-   **Completion vs. not-started (phase 5).** The `migrate-import` check only goes green while
-   a plan still shows `will be imported`; once imports are **applied**, the plan is a no-op
-   and that check reads red even though the work is done. So don't equate red-phase-5 with
-   "import needed." Do not read the inverse into a clean run either: a speculative
+   **Completion vs. not-started (phase 5).** The `migrate-import` check accepts a plan with
+   pending imports **or** a no-op plan — the post-apply, post-prune state is the correct
+   terminal one, and an earlier version of this check demanded `will be imported` and so
+   read red exactly once the migration was finished. Green there therefore does not say
+   *which* of the two it is. Do not read that into a clean run either: a speculative
    `planned_and_finished` run is "clean" *and* can still carry `will be imported`, which
    means the imports are pending, not finished. A successful plan is evidence the config is
    valid, never evidence that it was applied.
 
+   `prune-spent-imports` is the separate, cheap signal: red while `import {}` / `moved {}`
+   blocks are still committed anywhere under `terraform/`. It cannot tell a pending block
+   from a spent one either — that needs state membership, which needs an init — so read it
+   together with the run evidence below: spent blocks after an applied run route to
+   `infra-copilot:prune`, the same blocks before one mean the import is unfinished.
+
    Infer *done* from committed state plus the latest run for the current revision:
-   `terraform/cloudflare/generated.tf` exists (committed), **and** that run either carries
-   status `applied` — it executed its plan, imports included — or its plan summary reports
-   `imports: 0`. Read the summary with the plan-summary helper in
-   [`docs/hcp-api.md`](docs/hcp-api.md).
+   a committed `terraform/cloudflare/generated*.tf` exists — cf-terraforming output is
+   split by zone and resource type, so match the glob rather than a single
+   `generated.tf` — **and** that run either carries status `applied` — it executed its
+   plan, imports included — or its plan summary reports `imports: 0`. Read the summary
+   with the plan-summary helper in [`docs/hcp-api.md`](docs/hcp-api.md).
 
    Both halves of that disjunction matter. Applying a run does **not** rewrite its stored
    plan, so an applied import run still lists the imports it just performed; demanding
    `imports: 0` there would report a finished migration as unfinished indefinitely, because
-   the normal merge workflow never produces a second no-op run for the same commit. Phase 5
+   the normal merge workflow never produces a second no-op run for the same commit — until
+   the prune PR does, which is why the `imports: 0` half exists at all and why it is the
+   stronger evidence once `prune-spent-imports` is green. Phase 5
    is **incomplete** only when the latest run has *not* applied and its plan still counts
    imports, or when you cannot read that evidence at all. Only call phase 5 actionable when
-   resources demonstrably exist at the provider but aren't in state.
+   resources demonstrably exist at the provider but aren't in state, or when spent blocks
+   are still committed.
 
 ## Validation
 
@@ -197,6 +210,7 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 | `status-check-context` exit 1 (phase 4) | **Nothing — fix it directly**, not via `setup`. For `BLOCKED`, replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keep every other required context, and follow the break-glass sequence ([`docs/ci.md`](docs/ci.md#hcp-status-check-context)). For `UNDERPROTECTED`, re-apply `branch_protection.tf` so an HCP context is required again. |
 | Other steps in phases 0–4 | **infra-copilot:setup** |
 | Phase 5 (migrate-*) | **infra-copilot:import** — only relevant if adopting pre-existing resources |
+| `prune-spent-imports` (phase 5) | **infra-copilot:prune** — if the import already applied. If it has not, the blocks are pending, not spent: finish `infra-copilot:import` first. |
 | Phase 6 (`new-provider-*`) | **infra-copilot:add** — and only after the design decision |
 | All green | Nothing — repo is set up. |
 

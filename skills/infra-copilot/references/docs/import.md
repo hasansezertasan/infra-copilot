@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1b365d4269f42cf7f108194e03616513e2f9d7050e9c94aac12a5f11e5363542
-Source-Hash: blake3:4e913414ac187d6593fd935dd54c48e686d5aa998476920bb62f54f6a3edbd3e
+Content-Hash: blake3:0282ae6e2645a11be7fa2d1e463553b1535c4f2b332d0bbcc203b2875ff8bcff
+Source-Hash: blake3:abfa10ee9d7f628a60ca99630b9965cebc415db2264e95a3720a1eb12bcb52f1
 Schema-Version: v1
 -->
 
@@ -160,6 +160,8 @@ If `plan` shows any `create` for a resource that already exists, the resource na
 ## When to re-run
 
 Re-run `cf-terraforming generate` whenever new resources appear in Cloudflare that you want Terraform to manage. The cleanest workflow is to write new resources directly in Terraform from the start; cf-terraforming is for one-time onboarding of legacy state, not steady-state operations.
+
+The `import {}` blocks it emits are one-shot in the same way: after the run that applies them, they are inert instructions sitting in the leaf. Removing them is a separate PR with its own preconditions — [`prune.md`](prune.md), the `infra-copilot:prune` skill. Do not fold it into the import PR; the apply has to land first.
 
 > Note: cf-terraforming is **not** intended for use in CI. It runs locally during onboarding, output is reviewed by a human, then committed.
 

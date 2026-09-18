@@ -1,6 +1,7 @@
-# Machine-readable manifest shared by the infra-copilot skills (setup/import/add/status).
+# Machine-readable manifest shared by the infra-copilot skills
+# (setup/import/prune/add/status).
 #
-# Read this alongside protocol.md and whichever action skill (setup/import/add/status)
+# Read this alongside protocol.md and whichever action skill (setup/import/prune/add/status)
 # routes into it. An agent walks these steps
 # top-to-bottom. On every run it FIRST executes each step's `check` to find where
 # setup already is (resume protocol), then resumes at the first red check.
@@ -1164,7 +1165,9 @@ steps:
     check: |
       if [ "$BACKEND" = "object-storage" ]; then
         # In object-storage mode, verify via the GitHub Actions plan workflow
-        git ls-files --error-unmatch terraform/cloudflare/generated.tf >/dev/null 2>&1 || exit 1
+        # A real cf-terraforming adoption splits its output by zone and resource type, so
+        # `generated.tf` is one possible name among several, not the name.
+        [ -n "$(git --no-optional-locks ls-files -- ':/terraform/cloudflare/generated*.tf')" ] || exit 1
         # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
         # Fail closed: if git status fails, treat as dirty rather than clean
         dirty_status=$(git status --porcelain -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock) || {
@@ -1247,18 +1250,76 @@ steps:
         echo "Import check failed: expected 'will be imported' or 'No changes'" >&2
         exit 1
       else
-        # HCP mode: local terraform plan
+        # HCP mode: local terraform plan. Accept EITHER pending imports OR a no-op plan:
+        # once the import applies -- and especially once prune-spent-imports removes the
+        # spent blocks -- the plan reads 'No changes.', which is the correct terminal
+        # state. Demanding 'will be imported' made this step green only while work was
+        # outstanding and permanently red once it was finished.
         cd terraform/cloudflare
         p=$(mktemp)
         trap 'rm -f "$p"' EXIT
-        terraform plan -input=false -no-color >"$p" 2>&1 \
-          && grep -q 'will be imported' "$p" \
-          && ! grep -q 'will be created' "$p" \
-          && ! grep -qE 'will be destroyed|will be deleted' "$p" \
-          && ! grep -qE 'will no longer be managed|will be forgotten' "$p"
+        terraform plan -input=false -no-color >"$p" 2>&1 || exit 1
+        grep -q 'will be created' "$p" && exit 1
+        grep -qE 'will be destroyed|will be deleted' "$p" && exit 1
+        grep -qE 'will no longer be managed|will be forgotten' "$p" && exit 1
+        grep -q 'will be imported' "$p" && exit 0
+        grep -qE 'No changes|Your infrastructure matches the configuration' "$p" || exit 1
+        # A no-op plan alone proves nothing was adopted OR that everything was; the
+        # committed generated HCL is what separates them, exactly as the object-storage
+        # branch above requires. Without it a zone full of unadopted live records reads
+        # green. Root-anchored because of the `cd` two lines up.
+        [ -n "$(git --no-optional-locks ls-files -- ':/terraform/cloudflare/generated*.tf')" ]
       fi
-    produces: generated.tf with import blocks; plan shows imports only
+    produces: committed generated*.tf; a plan showing imports, or none left to make
     docs: migration.md
+
+  - id: prune-spent-imports
+    phase: 5
+    provider: repo
+    actor: AGENT
+    title: No spent one-shot import/moved blocks left committed
+    why: >-
+      import/moved blocks execute once and go inert; nothing else removes them, so they
+      accumulate in the consuming repo and the manifest cannot see them.
+    run: |
+      Follow docs/prune.md, one leaf per PR: for every `import {}` / `moved {}` block,
+      prove `terraform state list` already holds the `to =` address (for `moved`, the new
+      address present and the old absent), then delete only that block and plan.
+      Success is `No changes.` — capture it for the PR body.
+      If an address is NOT in state the apply has not landed: stop, and finish the import.
+    # Pure git read: no terraform, no network, nothing written -- so status may run it
+    # directly, unlike the migrate-import check above.
+    #
+    # It greps HEAD, not the working tree, because the claim is "still committed": a file
+    # deleted on disk but not yet committed is a prune in progress, not a finished one.
+    # The pathspec is root-anchored (`:/`) so the answer does not depend on the working
+    # directory -- migrate-import above ends with a bare `cd terraform/cloudflare`, and a
+    # runner that shares one shell across checks would otherwise silently scan one leaf.
+    #
+    # Deliberate ceiling: this asserts the blocks are GONE, not that the ones present are
+    # spent, because spent-ness needs `terraform state list` (an init, i.e. a mutating
+    # check status could not run). So a repo mid-import -- blocks written, apply not yet
+    # landed -- also reads red here; the message names both readings, and the prune skill
+    # itself refuses to remove a block whose address is missing from state. Tighten only
+    # by teaching status to read state membership without touching the working tree.
+    check: |
+      # No commits at all: nothing can be committed, so nothing is left to prune.
+      git --no-optional-locks rev-parse --verify --quiet HEAD >/dev/null || exit 0
+      left=$(git --no-optional-locks grep --full-name -lE \
+        '^[[:space:]]*(import|moved)[[:space:]]*\{' HEAD -- ':/terraform/*.tf')
+      rc=$?
+      [ "$rc" -eq 1 ] && exit 0          # git grep: 1 means no match
+      if [ "$rc" -ne 0 ]; then
+        echo "git grep failed - cannot verify what is committed" >&2
+        exit 1
+      fi
+      echo "one-shot import/moved blocks still committed in:" >&2
+      printf '%s\n' "$left" >&2
+      echo "If their apply has landed they are spent: infra-copilot:prune removes them." >&2
+      echo "If it has not, they are still pending: finish infra-copilot:import first." >&2
+      exit 1
+    produces: a leaf whose plan is `No changes.` with no inert instruction blocks left
+    docs: docs/prune.md
 
   # ── Phase 6 — additional providers (parameterized; optional) ────────────
   # Run the inventory once, then instantiate the remaining sequence once per

@@ -24,16 +24,15 @@ Content-Hash: blake3:…
 -->
 ```
 
-Twenty-two of the 36 have no such header — `.claude-plugin/marketplace.json`,
-`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `config.md.example`,
-`decisions.md.example`, `steps.yaml`, `checks/status-check-context.sh`,
-`checks/hcp-apply-scope.sh`, `checks/hcp-bootstrap-workspaces.sh`,
-`checks/leaf-cloud.sh`, `checks/hcp-current-plan.sh`, `templates/terraform-apply.yml`,
-`templates/terraform-plan.yml`, `commands/infra-add.md`, `commands/infra-import.md`,
-`commands/infra-setup.md`, `commands/infra-status.md`, and five `SKILL.md` files — so a
-missing header proves nothing.
+Thirteen of the 39 have no such header — the outputs that are not Markdown:
+`.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`,
+`.codex-plugin/plugin.json`, `config.md.example`, `decisions.md.example`, `steps.yaml`,
+`checks/status-check-context.sh`, `checks/hcp-apply-scope.sh`,
+`checks/hcp-bootstrap-workspaces.sh`, `checks/leaf-cloud.sh`,
+`checks/hcp-current-plan.sh`, `templates/terraform-apply.yml`, and
+`templates/terraform-plan.yml` — so a missing header proves nothing.
 
-`.ai-rulez-generated.json` is the authoritative list — 36 paths today. If a file is in
+`.ai-rulez-generated.json` is the authoritative list — 39 paths today. If a file is in
 there, edit its source instead.
 
 ### What is *not* generated

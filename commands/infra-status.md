@@ -5,8 +5,8 @@ allowed-tools: Read, Bash, Glob, Grep
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:49ac5b0da06f1eb0af226bc68306b4cd8e17a1aa9810266ffc31bf78ee4d0889
-Source-Hash: blake3:4e913414ac187d6593fd935dd54c48e686d5aa998476920bb62f54f6a3edbd3e
+Content-Hash: blake3:232f69cc7ff5d5e4fc12eb5797123178ee3a4c4aa16403f1b4f4bab928ef14eb
+Source-Hash: blake3:abfa10ee9d7f628a60ca99630b9965cebc415db2264e95a3720a1eb12bcb52f1
 Schema-Version: v1
 -->
 
@@ -26,7 +26,7 @@ Load `../skills/status/SKILL.md` and drive it:
 3. **Full resume scan** over all phases of [`steps.yaml`](../skills/infra-copilot/references/steps.yaml). Run
    `check`s only — never a step's `run`, never a handoff block.
 4. **Report** the phase-by-phase table and a verdict mapping the first red step to the
-   skill that fixes it (setup / import / add). Three exceptions the skill defines, and it owns
+   skill that fixes it (setup / import / prune / add). Three exceptions the skill defines, and it owns
    the detail: phases 5–6 red is expected for most repos — say so, don't flag as failure;
    `status-check-context` exiting 1 maps to **no skill**, because it is fixed directly in
    `terraform/github/branch_protection.tf`; and `status-check-context` exiting 2 is
