@@ -1091,7 +1091,6 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         ("npm x -- prettier@3.0.0", "runs npm as"),
         ("npm --silent exec -- prettier@3.0.0", "runs npm as"),
         ("npm --prefix /tmp exec -- prettier@3.0.0", "runs npm as"),
-        ("env npm exec -- prettier@3.0.0", "runs npm as"),
         ("npm install prettier@3.0.0", "runs npm as"),
         ("npm i -g prettier", "runs npm as"),
         # One line, several commands: the allowlist applies to each, or a
@@ -1126,6 +1125,12 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
     NON_INVOCATIONS = (
         "          cache: npm",
         "\tfor tool in node npm $(PYTHON); do \\",
+        # Step labels. This branch shipped the second one for three commits, so
+        # a scan that read whole lines would have failed `make check` on its own
+        # workflow -- a false positive here blocks CI, where a false negative
+        # only needs someone who means it.
+        "      - name: Cache npx downloads",
+        "      - name: Install the pinned npm tools",
     )
 
     def test_naming_npm_is_not_invoking_it(self) -> None:
@@ -1141,6 +1146,21 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                     )
 
                     self.assertEqual(validate_tool_pins(repository), [])
+
+    def test_a_wrapper_is_out_of_scope_and_stays_that_way(self) -> None:
+        """The documented ceiling, asserted so it is a decision and not a bug.
+
+        A command is recognised at its command position, so `env npm exec`
+        passes. That is the price of not reporting `- name: Install the pinned
+        npm tools`, and the check is a lint in front of the real gate: a tool
+        missing from package.json is never installed, so nothing can run it.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository)
+            self._makefile_running(repository, "env npm exec -- prettier@3.0.0")
+
+            self.assertEqual(validate_tool_pins(repository), [])
 
     def test_the_install_this_repository_runs_is_allowed(self) -> None:
         """The allowlist has to let the real Makefile through, options and all."""

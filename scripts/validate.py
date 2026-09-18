@@ -169,48 +169,49 @@ TOOL_PIN_WORKFLOWS = (
 # devDependencies directly. A tool whose binary differs fails the lookup, which
 # is the right outcome: it needs a deliberate mapping, not a silent pass.
 NODE_BIN_PATTERN = re.compile(r"node_modules/\.bin/(?P<binary>[A-Za-z0-9._-]+)")
-# A package runner resolves a tool straight from the registry, which is the whole
-# mechanism this change removes. Matched by name rather than by `<pkg>@<version>`
-# because only the runner generalises: a literal-version regex would have to know
-# the package to avoid firing on `actions/checkout@<sha>`, and so would miss the
-# fourth tool nobody registered -- the way markdownlint-cli2 slipped past in #45.
-PACKAGE_RUNNER_PATTERN = re.compile(r"(?<![\w-])(?:npx|bunx|(?:pnpm|yarn)\s+dlx)(?![\w-])")
-# npm reaches the registry too, so it gets an allowlist: a line invoking npm must
-# also carry one of these as a bare word. Checked on whitespace tokens rather than
-# by a regex over npm's grammar, because four successive attempts at that regex
-# were each defeated by a spelling the previous one had not anticipated -- the `x`
-# alias for `exec`, then an option before the subcommand, then an option that
-# takes a value and displaces it. Token membership does not care where the
-# subcommand sits or what precedes it, which retires that whole class.
+# The runners whose whole purpose is to resolve a tool from the registry, which
+# is the mechanism this repository replaced. Named rather than matched by
+# `<pkg>@<version>`: without a package list a version regex fires on
+# `actions/checkout@<sha>`, and with one it misses the fourth tool nobody
+# registered -- the way markdownlint-cli2 slipped past in #45.
+PACKAGE_RUNNERS = (("npx",), ("bunx",), ("pnpm", "dlx"), ("yarn", "dlx"))
+# npm reaches the registry too, so it gets an allowlist: an npm command must
+# carry one of these among its arguments. Membership, not position, because four
+# successive regexes over npm's grammar were each defeated by a spelling the
+# previous one had not anticipated -- the `x` alias for `exec`, an option before
+# the subcommand, then an option whose value displaced it.
 ALLOWED_NPM_SUBCOMMANDS = frozenset({"ci"})
+NPM_COMMAND = "npm"
+# One line can hold several commands, and the allowlist applies to each: without
+# this, `npm install prettier && npm ci` is one command whose tokens contain
+# `ci`. A closed set of operators, unlike npm's open-ended option grammar.
+COMMAND_SEPARATORS = re.compile(r"&&|\|\||[;|&]")
+# Only the command position counts, because a runner's name is also an ordinary
+# word. `- name: Cache npx downloads` and `- name: Install the pinned npm tools`
+# are step labels -- this branch shipped the second one for three commits, and
+# both were reported as invocations while the scan read whole lines. YAML puts a
+# key before the command and make allows @ - + sigils, so both come off first.
+YAML_KEY_PREFIX = re.compile(r"^\s*-?\s*[\w.-]+:\s*")
+RECIPE_SIGILS = "@+-"
+# Only executable text is scanned. A comment cannot invoke anything, and the
+# prose here has to be free to name the mechanisms it explains -- the Makefile
+# comment for `--include=dev` says what npm does under NODE_ENV=production.
+COMMENT_PATTERN = re.compile(r"(?m)#.*$")
 # What this check is: a guard against the habitual forms of the mechanism this
 # repository just removed -- `npx <tool>@<version>` and its neighbours -- so one
 # cannot come back by reflex or by an agent copying an older README.
 #
-# What it is not: a sandbox. Shell text is not parseable by matching, and
-# `env npm exec`, a PATH assignment, or a helper script the Makefile calls are all
-# still reachable by someone who means it. They are out of scope on purpose, and
-# a finding that only reports another such spelling is not a defect here.
+# What it is not: a sandbox. A command is recognised at its command position, so
+# a wrapper (`env npm exec`), a PATH assignment, or a helper script the Makefile
+# calls all reach the registry unreported. They are out of scope on purpose: a
+# false negative there needs someone who means it, while a false positive blocks
+# `make check` on a step label. A finding that only reports another such
+# spelling is not a defect here.
 #
 # It can afford that ceiling because it is not the enforcement. A tool missing
 # from package.json is never installed, so node_modules/.bin has no binary and the
 # recipe fails on its own -- a real error rather than a predicted one. The two
 # checks above are the load-bearing ones; this is the lint in front of them.
-NPM_COMMAND = "npm"
-# `npm` is a word before it is a command: `cache: npm` selects a setup-node cache
-# and `for tool in node npm python3` tests for its presence, and neither invokes
-# anything. An invocation is followed by a subcommand or an option, so require
-# that the next token is one -- a test on a single token, not on npm's grammar.
-NPM_ARGUMENT_PATTERN = re.compile(r"-{1,2}\S+|[a-z][\w-]*")
-# One line can hold several commands, and the allowlist applies to each. Without
-# this, `npm install prettier && npm ci` reads as one command whose tokens do
-# contain `ci`. Splitting on shell operators is not a return to parsing npm --
-# these are a closed set of five, where npm's option grammar was open-ended.
-COMMAND_SEPARATORS = re.compile(r"&&|\|\||[;|&]")
-# Only executable text is scanned. A comment cannot invoke anything, and the
-# prose here has to be free to name the mechanisms it explains -- the Makefile
-# comment for `--include=dev` says what npm does under NODE_ENV=production.
-COMMENT_PATTERN = re.compile(r"(?m)#.*$")
 # Prerelease and build metadata are independent and may both appear:
 # 0.3.0-rc.1+build.5 is one version, not a version plus trailing junk.
 VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+){2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
@@ -1070,20 +1071,20 @@ def validate_manifest_paths(root: Path = ROOT) -> list[str]:
     return errors
 
 
-def npm_invocations(line: str) -> list[list[str]]:
-    """The arguments of each npm invocation on ``line``, in order.
+def shell_commands(line: str) -> list[list[str]]:
+    """The tokens of each command on ``line``, command word first.
 
     Whitespace tokens, not a grammar: four successive regexes over npm's command
-    line were each defeated by a spelling the previous one had not anticipated,
-    and membership does not care where the subcommand sits or what precedes it.
+    line were each defeated by a spelling the previous one had not anticipated.
+    A command starts a segment, so a name appearing later in one is a word in
+    prose -- which is what a step label is.
     """
-    tokens = line.split()
-    invocations = []
-    for index, token in enumerate(tokens):
-        arguments = tokens[index + 1 :]
-        if token == NPM_COMMAND and arguments and NPM_ARGUMENT_PATTERN.fullmatch(arguments[0]):
-            invocations.append(arguments)
-    return invocations
+    commands = []
+    for segment in COMMAND_SEPARATORS.split(line):
+        tokens = YAML_KEY_PREFIX.sub("", segment, count=1).split()
+        if tokens:
+            commands.append([tokens[0].lstrip(RECIPE_SIGILS), *tokens[1:]])
+    return commands
 
 
 def validate_tool_pins(root: Path = ROOT) -> list[str]:
@@ -1144,22 +1145,32 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
 
     for relative, source in sources.items():
         text = COMMENT_PATTERN.sub("", source)
-        for runner in sorted(set(PACKAGE_RUNNER_PATTERN.findall(text))):
-            errors.append(
-                f"{relative}: invokes the {runner} package runner; run "
-                f"node_modules/.bin/<tool> so {PACKAGE_JSON_PATH} stays the "
-                f"only definition"
-            )
         allowed = ", ".join(f"`npm {name}`" for name in sorted(ALLOWED_NPM_SUBCOMMANDS))
         for line in text.splitlines():
-            for command in COMMAND_SEPARATORS.split(line):
-                for arguments in npm_invocations(command):
-                    if ALLOWED_NPM_SUBCOMMANDS.isdisjoint(arguments):
-                        errors.append(
-                            f"{relative}: runs npm as `{command.strip()}`; only "
-                            f"{allowed} may appear here, so {PACKAGE_JSON_PATH} "
-                            f"stays the only definition"
-                        )
+            for command in shell_commands(line):
+                runner = next(
+                    (names for names in PACKAGE_RUNNERS if tuple(command[: len(names)]) == names),
+                    None,
+                )
+                if runner is not None:
+                    errors.append(
+                        f"{relative}: invokes the {' '.join(runner)} package runner; "
+                        f"run node_modules/.bin/<tool> so {PACKAGE_JSON_PATH} stays "
+                        f"the only definition"
+                    )
+                # Arguments required: `cache: npm` selects a setup-node cache and
+                # invokes nothing, and a bare `npm` would do nothing either.
+                arguments = command[1:]
+                if (
+                    command[0] == NPM_COMMAND
+                    and arguments
+                    and ALLOWED_NPM_SUBCOMMANDS.isdisjoint(arguments)
+                ):
+                    errors.append(
+                        f"{relative}: runs npm as `{' '.join(command)}`; only "
+                        f"{allowed} may appear here, so {PACKAGE_JSON_PATH} "
+                        f"stays the only definition"
+                    )
         for package in sorted(TOOL_PACKAGES):
             # Any `<package>@…` reference, not just a literal version. One form
             # this replaced was indirect — `ai-rulez@${INFRA_COPILOT_..._VERSION}`
