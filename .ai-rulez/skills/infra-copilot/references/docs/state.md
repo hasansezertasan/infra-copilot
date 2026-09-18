@@ -105,6 +105,9 @@ aws s3api create-bucket --bucket "$STATE_BUCKET" --region us-east-1
 
 aws s3api put-bucket-versioning --bucket "$STATE_BUCKET" \
   --versioning-configuration Status=Enabled
+aws s3api put-public-access-block --bucket "$STATE_BUCKET" \
+  --public-access-block-configuration \
+  "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
 aws dynamodb create-table --table-name "$STATE_LOCK_TABLE" \
   --region "$STATE_REGION" \
   --attribute-definitions AttributeName=LockID,AttributeType=S \
