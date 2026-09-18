@@ -151,18 +151,24 @@ JSON_MANIFESTS = (
     "plugin.json",
 )
 MAKEFILE_PATH = "Makefile"
-TOOL_PIN_SPECS = {
-    "ai-rulez": "AI_RULEZ_VERSION",
-    "skills": "SKILLS_VERSION",
-    "markdownlint-cli2": "MARKDOWNLINT_VERSION",
-}
-# Workflows call `make check` and must not carry their own copy of a pin; a
-# second definition is exactly the drift this check exists to prevent.
+PACKAGE_JSON_PATH = "package.json"
+# The tools package.json must pin. Listed here as well as there so deleting one
+# from devDependencies fails loudly instead of quietly narrowing the check (#22);
+# the two are asserted equal, so adding a tool means adding it in both places.
+TOOL_PACKAGES = frozenset({"ai-rulez", "markdownlint-cli2", "skills"})
+# The Makefile and the workflows call `node_modules/.bin/<tool>` and must not
+# carry a version of their own; a second definition is exactly the drift this
+# check exists to prevent.
 TOOL_PIN_WORKFLOWS = (
     ".github/workflows/check.yml",
     ".github/workflows/release.yml",
     ".github/workflows/upstream.yml",
 )
+# The Makefile names each tool by the binary npm links into node_modules/.bin,
+# which for all three equals the package name -- so a binary can be looked up in
+# devDependencies directly. A tool whose binary differs fails the lookup, which
+# is the right outcome: it needs a deliberate mapping, not a silent pass.
+NODE_BIN_PATTERN = re.compile(r"node_modules/\.bin/(?P<binary>[A-Za-z0-9._-]+)")
 # Prerelease and build metadata are independent and may both appear:
 # 0.3.0-rc.1+build.5 is one version, not a version plus trailing junk.
 VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+){2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
@@ -1023,49 +1029,67 @@ def validate_manifest_paths(root: Path = ROOT) -> list[str]:
 
 
 def validate_tool_pins(root: Path = ROOT) -> list[str]:
-    """The Makefile owns every tool pin; README must document the same versions.
+    """package.json owns every tool version; nothing else may name one.
 
-    Previously each workflow carried its own copy of both versions, so the two
-    could drift apart silently. The Makefile is now the single definition, and
-    the workflows are asserted not to reintroduce one.
+    Two halves, because each catches what the other cannot. Forwards: every tool
+    the Makefile runs must resolve from ``devDependencies``, so a fourth tool
+    cannot be introduced outside the manifest. Backwards: no Makefile or workflow
+    may invoke ``<package>@<version>``, so the manifest stays the only definition
+    rather than merely one of them.
+
+    This replaces a README cross-check. The versions used to be Makefile literals
+    restated in the README, which is why Renovate needed a custom manager
+    scanning both files; with npm resolving them there is nothing to restate.
     """
     errors: list[str] = []
-    makefile = (root / MAKEFILE_PATH).read_text(encoding="utf-8")
-    readme = (root / "README.md").read_text(encoding="utf-8")
-    for package, variable in TOOL_PIN_SPECS.items():
-        match = re.search(
-            rf"^{re.escape(variable)}\s*:?=\s*(?P<version>{VERSION_PATTERN})\s*$",
-            makefile,
-            re.MULTILINE,
+    try:
+        manifest = load_json(PACKAGE_JSON_PATH, root)
+    except (OSError, json.JSONDecodeError) as error:
+        return [f"{PACKAGE_JSON_PATH}: cannot read the tool manifest: {error}"]
+    declared = manifest.get("devDependencies")
+    if not isinstance(declared, dict):
+        return [f"{PACKAGE_JSON_PATH}: missing a devDependencies table"]
+
+    for package in sorted(TOOL_PACKAGES - set(declared)):
+        errors.append(f"{PACKAGE_JSON_PATH}: missing devDependency {package}")
+    for package in sorted(set(declared) - TOOL_PACKAGES):
+        errors.append(
+            f"{package}: in {PACKAGE_JSON_PATH} but not TOOL_PACKAGES; "
+            f"add it there so scripts/validate.py guards it too"
         )
-        if match is None:
-            errors.append(f"{MAKEFILE_PATH}: missing {variable}")
-            continue
-        pinned = match.group("version")
-        documented = set(
-            re.findall(rf"{re.escape(package)}@(?P<version>{VERSION_PATTERN})", readme)
-        )
-        if not documented:
-            errors.append(f"README.md: missing pinned {package} command")
-        elif documented != {pinned}:
-            details = ", ".join(sorted(documented))
+    # Exact, not a range: a caret would let CI resolve a version no one reviewed,
+    # which is the property the Makefile literals had and must not lose.
+    for package, specifier in sorted(declared.items()):
+        if not re.fullmatch(VERSION_PATTERN, str(specifier)):
             errors.append(
-                f"{package}: README documents {details}, {MAKEFILE_PATH} pins {pinned}"
+                f"{package}: {PACKAGE_JSON_PATH} pins {specifier!r}; "
+                f"use an exact version, not a range"
             )
-        for relative in TOOL_PIN_WORKFLOWS:
-            try:
-                workflow = (root / relative).read_text(encoding="utf-8")
-            except OSError as error:
-                errors.append(f"{relative}: cannot read workflow: {error}")
-                continue
-            # Any `<package>@…` reference, not just a literal version. The form
+
+    makefile = (root / MAKEFILE_PATH).read_text(encoding="utf-8")
+    for binary in sorted(set(NODE_BIN_PATTERN.findall(makefile))):
+        if binary not in declared:
+            errors.append(
+                f"{MAKEFILE_PATH}: runs {binary}, which no {PACKAGE_JSON_PATH} "
+                f"devDependency provides"
+            )
+
+    for relative in (MAKEFILE_PATH, *TOOL_PIN_WORKFLOWS):
+        try:
+            text = (root / relative).read_text(encoding="utf-8")
+        except OSError as error:
+            errors.append(f"{relative}: cannot read file: {error}")
+            continue
+        for package in sorted(TOOL_PACKAGES):
+            # Any `<package>@…` reference, not just a literal version. One form
             # this replaced was indirect — `ai-rulez@${INFRA_COPILOT_..._VERSION}`
             # with the value in `env:` — so matching only a literal semver would
             # miss exactly the pattern being removed.
-            if re.search(rf"(?<![\w-]){re.escape(package)}@", workflow):
+            if re.search(rf"(?<![\w-]){re.escape(package)}@", text):
                 errors.append(
                     f"{relative}: invokes {package}@… directly; "
-                    f"call `make` so {MAKEFILE_PATH} stays the only definition"
+                    f"run node_modules/.bin/{package} so {PACKAGE_JSON_PATH} "
+                    f"stays the only definition"
                 )
     return errors
 
@@ -1254,6 +1278,8 @@ def validate_layout() -> list[str]:
         "docs/roadmap.md",
         "docs/policy.md",
         ".github/renovate.json",
+        "package.json",
+        "package-lock.json",
         ".github/workflows/check.yml",
         ".github/workflows/release.yml",
         ".github/workflows/upstream.yml",

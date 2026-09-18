@@ -161,10 +161,12 @@ Versions that are only illustrative are deliberately not tracked — the worked 
 in the setup runbook names example versions whose requirement is being *exact*, not being
 *newest*, and gating them produced recurring failures with no decision attached.
 
-`Makefile` is the single definition of the tool versions this repository invokes —
-currently `ai-rulez@4.11.3`, `skills@1.5.23` and `markdownlint-cli2@0.23.2`.
-`scripts/validate.py` asserts this README documents the same versions and that no
-workflow reintroduces its own copy.
+[`package.json`](package.json) is the single definition of the tool versions this
+repository invokes; `npm ci` installs them and the `Makefile` runs them from
+`node_modules/.bin`. Renovate's native npm manager keeps them current, so a tool added to
+`devDependencies` is covered the moment it lands. `scripts/validate.py` asserts every tool
+the `Makefile` runs resolves from `devDependencies`, and that no `Makefile` or workflow
+reintroduces a `<tool>@<version>` of its own.
 
 `make check` deliberately excludes `smoke-opencode`, which downloads the `skills`
 installer: on one run the tests finished in 65 seconds and that download took 421. It is

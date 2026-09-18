@@ -12,7 +12,7 @@ from pathlib import Path
 from scripts.validate import (
     JSON_MANIFESTS,
     MAX_DESCRIPTION_BUDGET,
-    TOOL_PIN_SPECS,
+    TOOL_PACKAGES,
     TOOL_PIN_WORKFLOWS,
     VERSIONLESS_MANIFESTS,
     collect_manifest_errors,
@@ -695,18 +695,15 @@ class SingleVersionAuthorityTests(unittest.TestCase):
     def test_unreadable_workflow_is_reported_not_raised(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            (repository / "Makefile").write_text(
-                "AI_RULEZ_VERSION := 4.11.3\nSKILLS_VERSION := 1.5.23\n", encoding="utf-8"
+            (repository / "package.json").write_text(
+                json.dumps({"devDependencies": dict.fromkeys(TOOL_PACKAGES, "1.0.0")}),
+                encoding="utf-8",
             )
-            (repository / "README.md").write_text(
-                "ai-rulez@4.11.3 skills@1.5.23\n", encoding="utf-8"
-            )
+            (repository / "Makefile").write_text("lint:\n", encoding="utf-8")
 
             errors = validate_tool_pins(repository)
 
-            self.assertTrue(
-                any("cannot read workflow" in error for error in errors), errors
-            )
+            self.assertTrue(any("cannot read file" in error for error in errors), errors)
 
     def test_unknown_entry_raises_rather_than_defaulting(self) -> None:
         with self.assertRaises(KeyError):
@@ -981,34 +978,25 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
     def test_manifest_paths_stay_inside_repository(self) -> None:
         self.assertEqual(validate_manifest_paths(), [])
 
-    def test_makefile_and_documentation_tool_pins_match(self) -> None:
+    def test_repository_tool_pins_are_consistent(self) -> None:
         self.assertEqual(validate_tool_pins(), [])
 
-    #: Fixture versions per package, one deliberately overridable via readme_version.
-    PIN_FIXTURE = {"ai-rulez": "4.11.3", "skills": "1.5.23", "markdownlint-cli2": "0.23.2"}
+    def _pin_workspace(self, root: Path, *, makefile: str | None = None) -> None:
+        """A self-consistent pin workspace, derived from TOOL_PACKAGES.
 
-    def _pin_workspace(self, root: Path, *, readme_version: str) -> None:
-        """A self-consistent pin workspace, derived from TOOL_PIN_SPECS.
-
-        Hard-coding the pins here meant adding a fourth tool broke three
-        unrelated tests with a message about a missing variable.
+        Derived rather than hard-coded: adding a fourth tool once broke three
+        unrelated tests with a message about a missing Makefile variable.
         """
-        versions = dict(self.PIN_FIXTURE)
-        self.assertEqual(
-            set(versions), set(TOOL_PIN_SPECS), "PIN_FIXTURE must cover every pinned tool"
-        )
-        (root / "Makefile").write_text(
-            "".join(
-                f"{variable} := {versions[package]}\n"
-                for package, variable in TOOL_PIN_SPECS.items()
-            ),
+        (root / "package.json").write_text(
+            json.dumps({"devDependencies": dict.fromkeys(sorted(TOOL_PACKAGES), "1.0.0")}),
             encoding="utf-8",
         )
-        versions["ai-rulez"] = readme_version
-        (root / "README.md").write_text(
-            "".join(
-                f"npx --yes {package}@{version} run\n"
-                for package, version in versions.items()
+        (root / "Makefile").write_text(
+            makefile
+            if makefile is not None
+            else "".join(
+                f"run-{package}:\n\t$(CURDIR)/node_modules/.bin/{package}\n"
+                for package in sorted(TOOL_PACKAGES)
             ),
             encoding="utf-8",
         )
@@ -1017,27 +1005,80 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             workflow.parent.mkdir(parents=True, exist_ok=True)
             workflow.write_text("run: make check\n", encoding="utf-8")
 
-    def test_readme_pin_must_match_the_makefile(self) -> None:
+    def test_makefile_may_not_run_a_tool_outside_the_manifest(self) -> None:
+        """The failure #45 actually shipped: a fourth tool with no owner.
+
+        markdownlint-cli2 was added to the Makefile and to nothing else, so
+        Renovate never saw it and nothing failed. Running an unmanifested binary
+        is now the error.
+        """
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            self._pin_workspace(repository, readme_version="4.10.0")
+            self._pin_workspace(
+                repository,
+                makefile="lint:\n\t$(CURDIR)/node_modules/.bin/some-new-tool\n",
+            )
 
             self.assertEqual(
                 validate_tool_pins(repository),
-                ["ai-rulez: README documents 4.10.0, Makefile pins 4.11.3"],
+                [
+                    "Makefile: runs some-new-tool, which no package.json "
+                    "devDependency provides"
+                ],
+            )
+
+    def test_manifest_entry_outside_the_guarded_set_is_reported(self) -> None:
+        """Both directions, so neither list can drift ahead of the other."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository)
+            manifest = repository / "package.json"
+            declared = dict.fromkeys(sorted(TOOL_PACKAGES), "1.0.0")
+            del declared["skills"]
+            declared["prettier"] = "1.0.0"
+            manifest.write_text(
+                json.dumps({"devDependencies": declared}), encoding="utf-8"
+            )
+
+            self.assertEqual(
+                sorted(validate_tool_pins(repository)),
+                sorted(
+                    [
+                        "package.json: missing devDependency skills",
+                        "prettier: in package.json but not TOOL_PACKAGES; "
+                        "add it there so scripts/validate.py guards it too",
+                        "Makefile: runs skills, which no package.json "
+                        "devDependency provides",
+                    ]
+                ),
+            )
+
+    def test_a_range_is_not_a_pin(self) -> None:
+        """A caret lets CI resolve a version nobody reviewed."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository)
+            declared = dict.fromkeys(sorted(TOOL_PACKAGES), "1.0.0")
+            declared["skills"] = "^1.0.0"
+            (repository / "package.json").write_text(
+                json.dumps({"devDependencies": declared}), encoding="utf-8"
+            )
+
+            self.assertEqual(
+                validate_tool_pins(repository),
+                ["skills: package.json pins '^1.0.0'; use an exact version, not a range"],
             )
 
     def test_workflow_may_not_reintroduce_its_own_pin(self) -> None:
-        """The Makefile is the only definition; a second one is the drift itself.
+        """package.json is the only definition; a second one is the drift itself.
 
         Both workflows previously carried their own copy of each version, which
         is why they could disagree.
         """
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            self._pin_workspace(repository, readme_version="4.11.3")
-            reintroduced = repository / TOOL_PIN_WORKFLOWS[0]
-            reintroduced.write_text(
+            self._pin_workspace(repository)
+            (repository / TOOL_PIN_WORKFLOWS[0]).write_text(
                 "run: npx --yes ai-rulez@4.9.0 validate\n", encoding="utf-8"
             )
 
@@ -1045,7 +1086,25 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                 validate_tool_pins(repository),
                 [
                     f"{TOOL_PIN_WORKFLOWS[0]}: invokes ai-rulez@… directly; "
-                    "call `make` so Makefile stays the only definition"
+                    "run node_modules/.bin/ai-rulez so package.json stays the "
+                    "only definition"
+                ],
+            )
+
+    def test_makefile_may_not_reintroduce_its_own_pin(self) -> None:
+        """The Makefile is scanned too — it is where the pins used to live."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(
+                repository, makefile="lint:\n\tnpx --yes markdownlint-cli2@0.23.2\n"
+            )
+
+            self.assertEqual(
+                validate_tool_pins(repository),
+                [
+                    "Makefile: invokes markdownlint-cli2@… directly; "
+                    "run node_modules/.bin/markdownlint-cli2 so package.json "
+                    "stays the only definition"
                 ],
             )
 
@@ -1073,7 +1132,7 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            self._pin_workspace(repository, readme_version="4.11.3")
+            self._pin_workspace(repository)
             (repository / TOOL_PIN_WORKFLOWS[0]).write_text(
                 "env:\n  PIN: 4.9.0\nrun: npx --yes ai-rulez@${PIN} validate\n",
                 encoding="utf-8",
@@ -1083,7 +1142,8 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                 validate_tool_pins(repository),
                 [
                     f"{TOOL_PIN_WORKFLOWS[0]}: invokes ai-rulez@… directly; "
-                    "call `make` so Makefile stays the only definition"
+                    "run node_modules/.bin/ai-rulez so package.json stays the "
+                    "only definition"
                 ],
             )
 

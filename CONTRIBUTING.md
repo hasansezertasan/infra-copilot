@@ -128,20 +128,21 @@ difference is whether the resource already exists at the provider.
 
 ## Tool versions
 
-`Makefile` is the **only** definition of the versions this repository invokes
-(`AI_RULEZ_VERSION`, `SKILLS_VERSION`). `scripts/validate.py` asserts that `README.md`
-documents the same versions, and rejects any workflow that reintroduces its own pin.
+`package.json` is the **only** definition of the versions this repository invokes. The
+`Makefile` runs `node_modules/.bin/<tool>`, so it names tools and never versions;
+`scripts/validate.py` asserts every tool it runs resolves from `devDependencies`, and
+rejects any `Makefile` or workflow that reintroduces a `<tool>@<version>` of its own.
 
-Bump them in the `Makefile` and update the README in the same commit.
+Bump with `npm install <tool>@<version> --save-exact --save-dev` and commit
+`package-lock.json` alongside — Renovate's native npm manager does the same, so a new
+`devDependencies` entry is kept current without anyone registering it anywhere.
 
 ## Releasing
 
 `make release` regenerates the host packages, refuses to continue if generation left the
 worktree dirty, runs **`check-all`**, and prints the tag command. `check-all` rather than
 `check` because it includes the OpenCode smoke test that `release.yml` runs — so a green
-`make release` means the release workflow will not fail on it. That test downloads the
-`skills` installer, so `make release` needs network and can take minutes when the registry
-is slow.
+`make release` means the release workflow will not fail on it.
 
 It does not bump anything — the bump is one edit to `[plugin].version` in
 `.ai-rulez/config.toml`, after which `ai-rulez` propagates it to the three generated

@@ -9,6 +9,6 @@
 # PYTHONDONTWRITEBYTECODE=1, but not everyone goes through make.
 __pycache__/
 
-# npx --yes caches outside the repo, but a contributor running npm/bun install
-# locally would create this. validate.py already skips it when walking Markdown.
+# Where `npm ci` installs the tools package.json pins; the Makefile runs them from
+# node_modules/.bin. validate.py already skips it when walking Markdown.
 node_modules/
