@@ -1260,6 +1260,13 @@ steps:
         # spent blocks -- the plan reads 'No changes.', which is the correct terminal
         # state. Demanding 'will be imported' made this step green only while work was
         # outstanding and permanently red once it was finished.
+        # Committed HCL first, for BOTH outcomes below. A local plan reads the working
+        # tree, so uncommitted generated HCL plans pending imports that no run can ever
+        # apply -- and prune-spent-imports, which reads HEAD, would be green too, leaving
+        # phase 5 all green with nothing committed. For the no-op outcome the same file is
+        # what separates "everything was adopted" from "nothing ever was". Root-anchored,
+        # because the plan below runs from inside the leaf.
+        [ -n "$(git --no-optional-locks ls-files -- ':/terraform/cloudflare/generated*.tf')" ] || exit 1
         cd terraform/cloudflare
         p=$(mktemp)
         trap 'rm -f "$p"' EXIT
@@ -1268,12 +1275,7 @@ steps:
         grep -qE 'will be destroyed|will be deleted' "$p" && exit 1
         grep -qE 'will no longer be managed|will be forgotten' "$p" && exit 1
         grep -q 'will be imported' "$p" && exit 0
-        grep -qE 'No changes|Your infrastructure matches the configuration' "$p" || exit 1
-        # A no-op plan alone proves nothing was adopted OR that everything was; the
-        # committed generated HCL is what separates them, exactly as the object-storage
-        # branch above requires. Without it a zone full of unadopted live records reads
-        # green. Root-anchored because of the `cd` two lines up.
-        [ -n "$(git --no-optional-locks ls-files -- ':/terraform/cloudflare/generated*.tf')" ]
+        grep -qE 'No changes|Your infrastructure matches the configuration' "$p"
       fi
     # Green means the COMMITTED config has no pending imports -- never that the provider
     # holds nothing else worth adopting: Terraform cannot see an unmanaged object, so a

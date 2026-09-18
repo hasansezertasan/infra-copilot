@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:afa13158b6739f1017ff52f2696813c312d3dec59d5067d10fd7e58e4d21a7bc
-Source-Hash: blake3:3aec1b2ad2b67dd0edd9c46c79633bf3e29f9cbf56c725f42c6b7c6d824e1b48
+Content-Hash: blake3:6ef02e34c5d4005e684c6e7072480125a9b10177a300a5134fb7762bb9188f74
+Source-Hash: blake3:85ed16473b38f11a302d67301a847ea11fed63fa048bd05f5ad785344d74267f
 Schema-Version: v1
 -->
 
@@ -52,7 +52,12 @@ applies:
 ```sh
 cd terraform/<leaf>
 grep -rnE '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*((#|//).*)?$' *.tf
+grep -rnE '^[[:space:]]*"(import|moved)"[[:space:]]*:' *.tf.json    # JSON leaves
 ```
+
+A JSON leaf writes the same thing as `"import": [ { "to": …, "id": … } ]`, so a candidate
+there is one array entry to delete, not a block — and deleting the last entry means
+removing the key. Every rule below applies unchanged; only the editing differs.
 
 After the `{`, only whitespace or a comment — that is what a block opener looks like.
 Without that, a heredoc carrying JavaScript (`import { name } from "./x"` in an inline
@@ -145,8 +150,16 @@ module — `aws_instance.new` — while a consumer's state reports the absolute
 worse, a same-named resource in the consumer's *root* module would satisfy it and vouch
 for a move that never happened. Prefix each module call:
 
+A leaf can also reach the module *through another module* — it calls `modules/parent`,
+and `parent` calls `../child`. A grep for `modules/child` finds no leaf at all, and the
+consumer you would then skip is a real one. So walk the graph, don't grep once: find the
+direct callers, and for each caller that is itself under `terraform/modules/`, find *its*
+callers, until every path ends at a leaf. If the graph is deeper than you can enumerate
+confidently, leave the block — an unfound consumer is the destroy/create above.
+
 ```sh
-grep -rl 'modules/<name>' terraform/*/ --include='*.tf'   # every leaf that uses it
+grep -rl 'modules/<name>' terraform/ --include='*.tf'     # direct callers: leaves AND modules
+# repeat for each caller under terraform/modules/, until only leaves remain
 
 # per leaf, the call addresses. A module may be called more than once; for_each/count
 # calls appear as module.<call>["a"]; and a transitively consumed module is nested, so
