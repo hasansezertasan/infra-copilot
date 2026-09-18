@@ -1,6 +1,6 @@
 ---
 name: infra-auditor
-description: "Read-only infra-copilot status scan in an isolated context. Walks every phase of the step manifest, runs only non-mutating checks, and returns just the phase table and first-red verdict. Changes nothing."
+description: "Read-only infra-copilot status scan in an isolated context. Walks every phase of the step manifest, runs only non-mutating checks, and returns the runbook report in full — preflight, phase table, verdict. Changes nothing."
 tools: Read, Bash, Glob, Grep, Skill
 ---
 

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:de011f8f99e1943eb1de50fab5047e51e7db536dc00f80d92720ea9116258356
-Source-Hash: blake3:e0d3c3126b86b048cba8dfe596e51364c04d5e2e4d7cc3e35a7033a635fa6a55
+Content-Hash: blake3:9361b4c574e91f6e2dbd57181c4508542fed09956ef2726a3fb4be7a70ac0e64
+Source-Hash: blake3:b8f979c9b45704dc137a1beef30e6d304e0a734798d9dd6e6aa4887d9884f5b5
 Schema-Version: v1
 -->
 
@@ -233,8 +233,15 @@ Never assume state from memory or a prior session — always re-check. See
 The scan is read-only, walks every phase, and produces a large amount of intermediate
 output — API JSON, per-step exit codes, tool versions — whose only consumer is the phase
 table and the verdict. **`status` and only `status`** may delegate it to the
-**`infra-auditor`** agent, which returns just that table and verdict — and only when
-[`hosts.yaml`](hosts.yaml) records this host's `agent` as `verified: true`.
+**`infra-auditor`** agent — and only when [`hosts.yaml`](hosts.yaml) records this host's
+`agent` as `verified: true`.
+
+What the agent returns is [`status.md`](status.md)'s report **in full**: the preflight
+line, the phase table, and the verdict. Delegation moves where the scan runs, never what
+it reports. The preflight line is the part most easily lost that way, and losing it hides
+a missing or drifted tool pin — the finding that most often explains a plan a reviewer
+cannot reproduce. What isolation removes is the intermediate output — API JSON, per-step
+exit codes — which had no other consumer anyway.
 
 Supporting subagents is not the same as having this one. Only Claude Code ships it: root
 `agents/` is a single directory that Claude and Antigravity both auto-discover with

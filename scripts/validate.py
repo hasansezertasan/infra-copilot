@@ -1815,12 +1815,15 @@ def validate_question_protocol(root: Path = ROOT) -> list[str]:
 def validate_layout() -> list[str]:
     """Artifacts whose absence no other validator would explain.
 
-    The agent manifest is deliberately NOT here: validate_host_dialects already
-    requires one for whichever host records `agent.verified: true`, at the path
-    that record names. Listing it again would have pinned the old path, so
-    revoking or relocating the agent could not be expressed in the table without
+    Neither the agent manifest nor any hook manifest is here: validate_host_dialects
+    already requires one for whichever host records that artifact `verified: true`,
+    at the path that record names. Listing them again pinned the old paths, so
+    revoking or relocating either could not be expressed in the table without
     failing `make check` -- and main() short-circuits on layout errors, so the
     capability-aware rule would never have run to say otherwise.
+
+    `hooks/session-start.sh` stays: it is the one implementation every manifest
+    runs, not a per-host discovery path the table records.
     """
     required = (
         "Makefile",
@@ -1834,7 +1837,6 @@ def validate_layout() -> list[str]:
         ".github/workflows/release.yml",
         ".github/workflows/upstream.yml",
         "hooks/session-start.sh",
-        "hooks/hooks.json",
         "scripts/upstream.json",
         "scripts/check_upstream.py",
         ".claude-plugin/marketplace.json",

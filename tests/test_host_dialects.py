@@ -13,6 +13,7 @@ table, not a hypothetical.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import tempfile
 import unittest
@@ -648,8 +649,10 @@ class FifthReviewRegressionTests(unittest.TestCase):
         by the unrelated question-tool section, re-permitting an unverified host."""
         root = self._mutated(
             (
-                "records this host's `agent` as `verified: true`",
-                "records this host's `agent` as `verified: false`",
+                # Wrap-independent: the sentence is re-flowed whenever the section
+                # is edited, and the test should track the condition, not the line.
+                "`agent` as `verified: true`",
+                "`agent` as `verified: false`",
             ),
             QUESTION_PROTOCOL_DOCUMENT,
         )
@@ -711,6 +714,55 @@ class SixthReviewRegressionTests(unittest.TestCase):
         for command, tools in COMMAND_TOOLS.items():
             with self.subTest(command=command):
                 self.assertEqual("Task" in tools, command == "infra-status.md")
+
+
+class SeventhReviewRegressionTests(unittest.TestCase):
+    def test_the_table_can_revoke_the_hook(self) -> None:
+        """Layout pinned hooks/hooks.json the way it pinned the agent.
+
+        Revoking the record and removing the manifest is the valid table-driven
+        state; the fixed list made it fail `make check` first.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            (root / "hooks/hooks.json").unlink()
+            document = root / HOSTS_DOCUMENT
+            text = document.read_text(encoding="utf-8")
+            start = text.index("      path: hooks/hooks.json")
+            flag = text.index("      verified: true", start)
+            document.write_text(
+                text[:flag] + "      verified: false" + text[flag + len("      verified: true") :],
+                encoding="utf-8",
+            )
+            self.assertEqual(validate_host_dialects(root), [])
+
+    def test_a_verified_hook_still_requires_its_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            (root / "hooks/hooks.json").unlink()
+            self.assertTrue(
+                any("ships no manifest" in e for e in validate_host_dialects(root)),
+            )
+
+    def test_the_delegation_rule_does_not_narrow_the_report(self) -> None:
+        """Delegation moves where the scan runs, never what it reports.
+
+        The runbook's report is preflight, phase table and verdict; saying the
+        agent returns "just" the table and verdict let the preflight line be
+        dropped, which is where a missing or drifted tool pin shows up.
+        """
+        protocol = (REPO_ROOT / QUESTION_PROTOCOL_DOCUMENT).read_text(encoding="utf-8")
+        section = protocol[protocol.index("### Running the scan in an isolated context") :]
+        section = section[: section.index("\n### ", 1)]
+        self.assertIn("in full", section)
+        self.assertIn("preflight", section.lower())
+        self.assertNotIn("just that table", section)
+
+    def test_the_agent_description_promises_the_whole_report(self) -> None:
+        agent = (REPO_ROOT / AGENT_PATH).read_text(encoding="utf-8")
+        description = re.search(r"^description:\s*(.+)$", agent, re.MULTILINE).group(1)
+        self.assertIn("in full", description)
+        self.assertNotIn("just the phase table", description)
 
 
 class QuestionProtocolTests(unittest.TestCase):

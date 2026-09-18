@@ -226,8 +226,15 @@ Never assume state from memory or a prior session — always re-check. See
 The scan is read-only, walks every phase, and produces a large amount of intermediate
 output — API JSON, per-step exit codes, tool versions — whose only consumer is the phase
 table and the verdict. **`status` and only `status`** may delegate it to the
-**`infra-auditor`** agent, which returns just that table and verdict — and only when
-[`hosts.yaml`](hosts.yaml) records this host's `agent` as `verified: true`.
+**`infra-auditor`** agent — and only when [`hosts.yaml`](hosts.yaml) records this host's
+`agent` as `verified: true`.
+
+What the agent returns is [`status.md`](status.md)'s report **in full**: the preflight
+line, the phase table, and the verdict. Delegation moves where the scan runs, never what
+it reports. The preflight line is the part most easily lost that way, and losing it hides
+a missing or drifted tool pin — the finding that most often explains a plan a reviewer
+cannot reproduce. What isolation removes is the intermediate output — API JSON, per-step
+exit codes — which had no other consumer anyway.
 
 Supporting subagents is not the same as having this one. Only Claude Code ships it: root
 `agents/` is a single directory that Claude and Antigravity both auto-discover with
