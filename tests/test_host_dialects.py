@@ -19,7 +19,7 @@ import unittest
 from pathlib import Path
 
 from scripts.validate import (
-    AGENT_FILENAME,
+    AGENT_STEM,
     AGENT_FORBIDDEN_PATH,
     EXPECTED_HOSTS,
     HOSTS_DOCUMENT,
@@ -39,14 +39,14 @@ FIXTURE_PATHS = (
     QUESTION_PROTOCOL_DOCUMENT,
     "hooks/hooks.json",
     "hooks/session-start.sh",
-    f"agents/{AGENT_FILENAME}",
+    f"agents/{AGENT_STEM}.md",
 )
 #: The single host whose agent actually ships. Read from the table rather than
 #: named here, so this file cannot drift from it either.
 AGENT_HOST = next(
     host for host, block in host_records(REPO_ROOT).items() if _verified(block, "agent")
 )
-AGENT_PATH = f"{_field(host_records(REPO_ROOT)[AGENT_HOST], 'agent', 'path').rstrip('/')}/{AGENT_FILENAME}"
+AGENT_PATH = f"{_field(host_records(REPO_ROOT)[AGENT_HOST], 'agent', 'path').rstrip('/')}/{AGENT_STEM}.md"
 
 
 def build_root(directory: str) -> Path:
@@ -342,34 +342,6 @@ class SecondReviewRegressionTests(unittest.TestCase):
                 any("usable `verified:` flag" in e for e in validate_host_dialects(root)),
             )
 
-    def test_a_second_host_may_own_an_independent_agent_path(self) -> None:
-        """Uniqueness is per directory, not global.
-
-        Claude and Antigravity collide at root agents/, but .codex/agents/ is
-        independent -- a global one-owner count made those rows impossible to
-        graduate once their wiring was finally exercised.
-        """
-        with tempfile.TemporaryDirectory() as directory:
-            root = build_root(directory)
-            document = root / HOSTS_DOCUMENT
-            document.write_text(
-                document.read_text(encoding="utf-8").replace(
-                    """      path: .codex/agents/          # <name>.toml, body under developer_instructions
-      tools_dialect: toml_inherited # no tools key; the session's tools are inherited
-      tool_names: []
-      verified: false""",
-                    """      path: .codex/agents/
-      tools_dialect: comma_string
-      tool_names: [Read, Bash, Glob, Grep, Skill]
-      verified: true""",
-                ),
-                encoding="utf-8",
-            )
-            shipped = root / ".codex/agents"
-            shipped.mkdir(parents=True)
-            shutil.copy(root / AGENT_PATH, shipped / AGENT_FILENAME)
-            self.assertEqual(validate_host_dialects(root), [])
-
     def test_two_hosts_may_not_own_the_same_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = build_root(directory)
@@ -401,6 +373,152 @@ class SecondReviewRegressionTests(unittest.TestCase):
             (root / "hooks.json").write_text('{"hooks": {}}', encoding="utf-8")
             self.assertTrue(
                 any("hooks.json" in e and "unverified" in e for e in validate_host_dialects(root)),
+            )
+
+
+class ThirdReviewRegressionTests(unittest.TestCase):
+    """Holes the third review round found in the gate."""
+
+    def test_the_grant_is_read_from_frontmatter_not_the_whole_document(self) -> None:
+        """A whole-file search let the frontmatter grant `Write`.
+
+        The expected line sitting anywhere in the prose satisfied it, and the
+        forbidden-tool check looked only at hosts.yaml -- so Claude would have
+        loaded a write-capable auditor behind a green gate.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / AGENT_PATH
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    "tools: Read, Bash, Glob, Grep, Skill", "tools: Write", 1
+                )
+                + "\n\nFor reference: tools: Read, Bash, Glob, Grep, Skill\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                any("frontmatter tools" in e for e in validate_host_dialects(root)),
+            )
+
+    def test_codex_can_graduate_in_its_own_recorded_format(self) -> None:
+        """`toml_inherited` names no tools on purpose, and its file is .toml.
+
+        Rejecting the empty list as incomplete -- and then assuming Claude's .md
+        filename -- meant the row could only pass by falsifying hosts.yaml.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / HOSTS_DOCUMENT
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    """      tools_dialect: toml_inherited # no tools key; the session's tools are inherited
+      tool_names: []
+      verified: false""",
+                    """      tools_dialect: toml_inherited # no tools key; the session's tools are inherited
+      tool_names: []
+      verified: true""",
+                ),
+                encoding="utf-8",
+            )
+            shipped = root / ".codex/agents"
+            shipped.mkdir(parents=True)
+            (shipped / f"{AGENT_STEM}.toml").write_text(
+                'name = "infra-auditor"\n'
+                'developer_instructions = """Invoke the infra-copilot skill, then status.md."""\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(validate_host_dialects(root), [])
+
+    def test_a_dialect_that_renders_tools_may_not_leave_them_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / HOSTS_DOCUMENT
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    "tool_names: [Read, Bash, Glob, Grep, Skill]", "tool_names: []", 1
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                any("names no tools" in e for e in validate_host_dialects(root)),
+            )
+
+    def test_the_protocol_table_must_match_the_records(self) -> None:
+        """The protocol reproduces the table as prose a reader acts on.
+
+        Flipping a host's `verified` left `make check` green while the protocol
+        still advertised the old capability -- two documents disagreeing about
+        whether the native question call is permitted.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / HOSTS_DOCUMENT
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    "      verified: true  # declared in commands/*.md allowed-tools and available in-session",
+                    "      verified: false",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                any("permits the native" in e for e in validate_question_protocol(root)),
+            )
+
+    def test_narrowing_recorded_modes_fails_the_protocol_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / HOSTS_DOCUMENT
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    "      modes: [binary, single, multi]\n      choices: [2, 4]\n      verified: true",
+                    "      modes: [binary, single]\n      choices: [2, 4]\n      verified: true",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                any("modes cell" in e for e in validate_question_protocol(root)),
+            )
+
+    def test_hook_root_variables_come_from_every_recorded_manifest(self) -> None:
+        """A hardcoded path pair skipped Codex's manifest once it graduated."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / HOSTS_DOCUMENT
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    '      matcher: "*"\n      verified: false\n      # NOT SHIPPED. Codex 0.154.0',
+                    '      matcher: "*"\n      verified: true\n      # graduated. Codex 0.154.0',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            (root / "hooks/hooks-codex.json").write_text(
+                json.dumps(
+                    {"hooks": {"SessionStart": [{"matcher": "*", "hooks": [
+                        {"type": "command", "command": 'r="${NOVEL_PLUGIN_ROOT:-}"; sh "$r/x"'}
+                    ]}]}}
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                any("wrong shape" in e for e in validate_host_dialects(root)),
+            )
+
+    def test_the_agent_manifest_stays_an_adapter(self) -> None:
+        """The runbook owns scope, guardrails and the report contract.
+
+        A manifest with room to restate them will, and then drift from them.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / AGENT_PATH
+            document.write_text(
+                document.read_text(encoding="utf-8") + "\n" * 45, encoding="utf-8"
+            )
+            self.assertTrue(
+                any("adapter" in e for e in validate_host_dialects(root)),
             )
 
 

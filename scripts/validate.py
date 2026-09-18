@@ -1261,19 +1261,21 @@ EXPECTED_HOSTS = frozenset({"claude", "antigravity", "codex", "opencode"})
 #: there is no generator to hold them to the table. This mapping is the parity
 #: gate that replaces one -- it is the reason hosts.yaml is authoritative rather
 #: than merely descriptive.
-#: The one agent manifest that ships, and the dialect its `tools` key must take.
-#: Only the *shape* lives here; the path and the tool names are read from
-#: hosts.yaml, so the table stays authoritative rather than merely descriptive.
+#: How each host spells a subagent manifest: the filename it must use, and how its
+#: recorded tool_names render as a `tools` field. Only the *shape* lives here --
+#: the path, the dialect and the names come from hosts.yaml, so the table stays
+#: authoritative rather than merely descriptive.
 #:
-#: Exactly one host can be served: Claude and Antigravity both auto-discover root
-#: agents/ and neither honours an override, so the file is written in whichever
-#: dialect the host recorded `verified: true` uses. hosts.yaml carries the evidence.
-AGENT_FILENAME = "infra-auditor.md"
-TOOLS_DIALECTS = {
-    # dialect -> renders a host's recorded tool_names as the frontmatter it requires
-    "comma_string": lambda names: "tools: " + ", ".join(names),
-    "yaml_list": lambda names: "tools:\n" + "\n".join(f"  - {name}" for name in names),
-    "bool_map": lambda names: "tools:\n" + "\n".join(f"  {name}: true" for name in names),
+#: `toml_inherited` renders nothing on purpose: Codex agents are TOML and inherit
+#: the session's tools, so an empty `tool_names` is the correct record rather than
+#: an incomplete one. It is also why the read-only grant cannot be expressed there
+#: -- a fact the record carries rather than something this gate can enforce.
+AGENT_STEM = "infra-auditor"
+AGENT_DIALECTS = {
+    "comma_string": (".md", lambda names: "tools: " + ", ".join(names)),
+    "yaml_list": (".md", lambda names: "tools:\n" + "\n".join(f"  - {n}" for n in names)),
+    "bool_map": (".md", lambda names: "tools:\n" + "\n".join(f"  {n}: true" for n in names)),
+    "toml_inherited": (".toml", None),
 }
 AGENT_NAME = "infra-auditor"
 #: What the agent must delegate to rather than restate. An agent carrying its own
@@ -1286,6 +1288,10 @@ AGENT_NAME = "infra-auditor"
 #: nothing -- it only looks right when run from a source checkout of this repo.
 AGENT_RUNBOOK = ("infra-copilot", "status.md")
 AGENT_FORBIDDEN_PATH = "skills/infra-copilot/references/"
+#: An adapter budget, in the spirit of MAX_DESCRIPTION_BUDGET: the runbook owns
+#: scope, guardrails and the report contract, and a manifest with room to restate
+#: them will.
+AGENT_MAX_LINES = 40
 #: Tools that would make the read-only contract unenforceable. The point of the
 #: agent is that the guarantee is a capability boundary, not a promise in prose.
 AGENT_FORBIDDEN_TOOLS = ("Write", "Edit", "NotebookEdit", "replace_file_content")
@@ -1404,34 +1410,67 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
         directory = _field(block, "agent", "path")
         dialect = _field(block, "agent", "tools_dialect")
         names = _tool_names(block)
-        if directory is None or dialect is None or not names:
+        if directory is None or dialect is None:
             errors.append(f"{HOSTS_DOCUMENT}: {host}'s agent record is incomplete")
             continue
-        if dialect not in TOOLS_DIALECTS:
+        if dialect not in AGENT_DIALECTS:
             errors.append(f"{HOSTS_DOCUMENT}: {host} declares unknown dialect {dialect!r}")
             continue
-        relative = f"{directory.rstrip('/')}/{AGENT_FILENAME}"
+        suffix, render = AGENT_DIALECTS[dialect]
+        if render is not None and not names:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {host}'s {dialect} agent record names no tools; only "
+                "a dialect that inherits the session's tools may leave them empty"
+            )
+            continue
+        relative = f"{directory.rstrip('/')}/{AGENT_STEM}{suffix}"
         text = read_document(root / relative)
         if text is None:
             errors.append(f"{relative}: {host} records a verified agent but ships no manifest")
             continue
-        expected = TOOLS_DIALECTS[dialect](names)
-        # Anchored, and followed by end-of-block: a plain substring test passed
-        # "tools: Read, Bash, Glob" against a file declaring "...,  Grep", so
-        # dropping a tool from either side went unseen.
-        if re.search(rf"(?m)^{re.escape(expected)}\s*$", text) is None:
-            errors.append(
-                f"{relative}: does not carry {host}'s {dialect} tools dialect as "
-                f"{HOSTS_DOCUMENT} records it; a wrong dialect fails silently"
+        if render is not None:
+            # Compared against the frontmatter's own `tools` field, not the document.
+            # A whole-file search passed a manifest whose frontmatter granted `Write`
+            # while the expected line sat in the prose below it -- Claude would have
+            # loaded a write-capable auditor behind a green gate.
+            front = SKILL_FRONTMATTER.match(text)
+            if front is None:
+                errors.append(f"{relative}: no YAML frontmatter to read `tools` from")
+                continue
+            declared = re.findall(
+                r"^tools:.*?(?=^\S|\Z)", front.group("body") + "\n", re.MULTILINE | re.DOTALL
             )
-        if f"name: {AGENT_NAME}" not in text:
-            errors.append(f"{relative}: agent name must be {AGENT_NAME!r}")
+            if len(declared) != 1:
+                errors.append(
+                    f"{relative}: frontmatter declares {len(declared)} `tools` fields; "
+                    "exactly one is required for the grant to be unambiguous"
+                )
+            elif declared[0].strip() != render(names):
+                errors.append(
+                    f"{relative}: frontmatter tools {declared[0].strip()!r} != "
+                    f"{render(names)!r} as {HOSTS_DOCUMENT} records it for {host} "
+                    f"({dialect}); a wrong dialect fails silently"
+                )
+        for forbidden in AGENT_FORBIDDEN_TOOLS:
+            if forbidden in names:
+                errors.append(
+                    f"{HOSTS_DOCUMENT}: {host}'s agent tool_names include {forbidden!r}; "
+                    "the scan is read-only and the recorded grant is what says so"
+                )
+        if f"name{' =' if suffix == '.toml' else ':'} " in text and AGENT_STEM not in text:
+            errors.append(f"{relative}: agent name must be {AGENT_STEM!r}")
         for marker in AGENT_RUNBOOK:
             if marker not in text:
                 errors.append(
                     f"{relative}: must delegate to the {marker!r} runbook; an agent that "
                     "restates the scan becomes a second behavioural authority"
                 )
+        if len(text.splitlines()) > AGENT_MAX_LINES:
+            errors.append(
+                f"{relative}: {len(text.splitlines())} lines > {AGENT_MAX_LINES}; a host "
+                "manifest is an adapter, and one long enough to restate the runbook's "
+                "scope, guardrails or report contract becomes a second authority"
+            )
         if AGENT_FORBIDDEN_PATH in text:
             errors.append(
                 f"{relative}: carries the repo-relative path {AGENT_FORBIDDEN_PATH!r}, "
@@ -1546,11 +1585,17 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     # script recognises, or the hook fires and emits the wrong host's shape.
     script = read_document(root / "hooks/session-start.sh")
     if script is not None:
+        # Every recorded manifest, not a second hand-kept list: when Codex's
+        # hooks/hooks-codex.json graduates it resolves its own root variable, and a
+        # hardcoded pair would have let it emit the wrong host's output shape.
         declared = {
             variable
-            for relative in ("hooks.json", "hooks/hooks.json")
+            for relative in {_field(block, "hook", "path") for block in records.values()}
+            - {None, "null"}
             if (root / relative).exists()
-            for variable in re.findall(r"([A-Z_]*PLUGIN_ROOT)", (root / relative).read_text(encoding="utf-8"))
+            for variable in re.findall(
+                r"([A-Z_]*PLUGIN_ROOT)", (root / relative).read_text(encoding="utf-8")
+            )
         }
         for variable in sorted(declared):
             # Match the expansion the branch actually tests, not the name. A bare
@@ -1575,12 +1620,19 @@ QUESTION_PROTOCOL_MARKERS = ("declared", "allowed", "hosts.yaml", "Other — ent
 
 
 def validate_question_protocol(root: Path = ROOT) -> list[str]:
-    """The AskUserQuestion grant must have a consumer, and a fallback.
+    """The AskUserQuestion grant must have a consumer, a fallback, and honest rows.
 
     Three commands have declared AskUserQuestion since before this check, and
     validate_command_tools pinned that exact string -- while nothing in any
     skill, reference or protocol document ever told the agent to use it. A
     permission grant with no consumer is not a capability; it is a claim.
+
+    The protocol also reproduces the capability table as prose a reader acts on,
+    so the copy is checked against the record. Flipping a host to
+    `verified: false`, dropping `multi`, or narrowing `choices` otherwise left
+    `make check` green while the protocol still advertised the old capability --
+    two documents giving contradictory instructions about whether a native
+    question call is permitted.
     """
     errors: list[str] = []
     text = read_document(root / QUESTION_PROTOCOL_DOCUMENT)
@@ -1592,13 +1644,11 @@ def validate_question_protocol(root: Path = ROOT) -> list[str]:
                 f"{QUESTION_PROTOCOL_DOCUMENT}: the decision rule is missing {marker!r}"
             )
 
-    # Every question tool a command grants has to be a tool some host record
-    # actually names, so the allowlist and the capability table cannot drift.
     records = host_records(root)
     named = {
-        match.group(1)
+        name
         for block in records.values()
-        for match in re.finditer(r"^      name:\s*(\S+)\s*$", block, re.MULTILINE)
+        if (name := _field(block, "question_tool", "name"))
     }
     granted = {
         tool.strip()
@@ -1617,6 +1667,53 @@ def validate_question_protocol(root: Path = ROOT) -> list[str]:
                 f"{QUESTION_PROTOCOL_DOCUMENT}: {tool!r} is granted but the protocol "
                 "never says when to use it"
             )
+
+    # The table row each host gets in the protocol, checked field by field against
+    # its record. Rows are `| Display | `tool` | modes | choices | verified |`.
+    for host, block in sorted(records.items()):
+        name = _field(block, "question_tool", "name")
+        if name is None:
+            errors.append(f"{HOSTS_DOCUMENT}: {host} records no question_tool name")
+            continue
+        row = re.search(rf"(?m)^\|[^|\n]*\|\s*`{re.escape(name)}`\s*\|(?P<rest>.*)$", text)
+        if row is None:
+            errors.append(
+                f"{QUESTION_PROTOCOL_DOCUMENT}: no table row for {host}'s {name!r}; the "
+                "rule sends the reader here to decide whether the native call is allowed"
+            )
+            continue
+        cells = [cell.strip() for cell in row.group("rest").split("|")]
+        while cells and not cells[-1]:
+            cells.pop()  # the row's trailing pipe leaves an empty final cell
+        verified = _verified(block, "question_tool")
+        if verified is None:
+            errors.append(f"{HOSTS_DOCUMENT}: {host}'s question_tool has no `verified:` flag")
+            continue
+        stated = cells[-1].strip("* ").lower() if len(cells) >= 3 else ""
+        if stated not in {"yes", "no"} or (stated == "yes") != verified:
+            errors.append(
+                f"{QUESTION_PROTOCOL_DOCUMENT}: {host}'s row says verified {stated!r} but "
+                f"{HOSTS_DOCUMENT} records {verified}; the protocol permits the native "
+                "call on exactly that basis"
+            )
+        for index, key in ((0, "modes"), (1, "choices")):
+            recorded = (_field(block, "question_tool", key) or "").strip("[]")
+            values = [part.strip() for part in recorded.split(",") if part.strip()]
+            if not values or index >= len(cells):
+                continue
+            cell = cells[index]
+            if key == "modes":
+                mismatch = [v for v in values if v not in cell] or [
+                    word for word in ("binary", "single", "multi")
+                    if word in cell and word not in values
+                ]
+            else:
+                mismatch = [v for v in values if v not in cell]
+            if mismatch:
+                errors.append(
+                    f"{QUESTION_PROTOCOL_DOCUMENT}: {host}'s {key} cell {cell!r} does not "
+                    f"match the recorded {recorded!r} ({mismatch})"
+                )
     return errors
 
 
