@@ -1360,15 +1360,23 @@ steps:
       # keeps `# Example: <<EOF` and `cmd = "cat <<EOF"` from opening a phantom heredoc
       # that swallows the rest of the file.
       #
-      # /* */ is handled only WITHIN a line, statelessly: `import /* see #123 */ {` is a
-      # legal header and must still match. An unterminated `/*` is left alone rather than
-      # opening a region, which is the whole point -- tracking regions across lines lasted
-      # one round and cost more than it bought, because an unquoted `/*` search cannot
-      # tell a comment opener from an ordinary Cloudflare value (`target =
-      # "example.com/*"` is the canonical page-rule glob) and one of those silently
-      # discarded every line after it, block included. So dead HCL inside a multi-line
-      # /* */ still reports as a leftover: the harmless direction, and arguably the right
-      # one, since a spent block commented out rather than deleted is still cleanup.
+      # /* */ is handled in two bounded places, never as a general region. Within a line
+      # it is stripped outright, so `import /* see #123 */ {` matches. Across lines it is
+      # followed ONLY from a line already shaped like a header -- `^(import|moved)[ \t]*/\*`
+      # -- via `hdr`, because HCL admits exactly one cross-line header form. Verified
+      # against terraform 1.16.1 fmt: `import` with `{` on the next line is rejected, and
+      # so is a comment on its own line between them, while `import /* a\n b */ {` is
+      # valid. So the keyword and the `/*` always share a line, and that entry condition
+      # is complete for the grammar rather than a guess.
+      #
+      # What is deliberately NOT done is a general region: `c=1` on any `/*` lasted one
+      # round and cost more than it bought, because an unquoted `/*` search cannot tell a
+      # comment opener from an ordinary Cloudflare value (`target = "example.com/*"` is
+      # the canonical page-rule glob) and one of those silently discarded every line
+      # after it, block included. `hdr` cannot do that: no assignment line can enter it.
+      # So dead HCL inside a free-standing multi-line /* */ still reports as a leftover --
+      # the harmless direction, and arguably the right one, since a spent block commented
+      # out rather than deleted is still cleanup.
       #
       # The heredoc tag is unquoted by spec -- Terraform's heredoc is `<<` or `<<-` plus a
       # bare identifier, never `<<"EOT"`. Allowing an optional quote there was borrowed
@@ -1413,12 +1421,16 @@ steps:
         { sub(/\r$/, "") }
         h != "" { t=$0; sub(/^[ \t]+/,"",t); sub(/[ \t]+$/,"",t); if (t == h) h=""; next }
         { line=$0
+          if (hdr) { i = index(line, "*/"); if (i == 0) next
+                     line = "import " substr(line, i+2) }
           while ((i = index(line, "/*")) > 0) {
             rest = substr(line, i+2); j = index(rest, "*/")
             if (j == 0) break
             line = substr(line, 1, i-1) " " substr(rest, j+2) }
           sub(/[#].*$/, "", line); sub(/\/\/.*$/, "", line)
           if (line ~ /^[ \t]*(import|moved)[ \t]*\{[ \t]*$/) { f=1; exit }
+          if (line ~ /^[ \t]*(import|moved)[ \t]*\/\*/) { hdr=1; next }
+          hdr=0
           if (match(line, /<<[-~]?[A-Za-z_][A-Za-z0-9_]*[ \t]*$/)) {
             m=substr(line, RSTART, RLENGTH)
             sub(/^<<[-~]?/, "", m); sub(/[ \t]*$/, "", m); h=m } }

@@ -346,6 +346,43 @@ class PruneStepTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
 
+    def test_a_multiline_comment_in_a_header_is_still_a_block(self) -> None:
+        """The one cross-line header HCL admits.
+
+        Verified against terraform 1.16.1 `fmt -check`: `import` with `{` on the
+        next line is rejected, and so is a comment on its own line between them,
+        so a header comment always starts on the keyword's line. That makes the
+        entry condition complete for the grammar rather than a heuristic.
+        """
+        result = self._run(
+            {
+                "terraform/cloudflare/a.tf": (
+                    "import /* imported\n in #123 */ {\n"
+                    "  to = cloudflare_dns_record.www\n  id = \"abc\"\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_a_glob_cannot_enter_the_header_comment_state(self) -> None:
+        """The guard against re-introducing the region tracking that ate files.
+
+        `hdr` is entered only from a line already shaped like a header, so an
+        assignment carrying `/*` cannot start it however many follow.
+        """
+        result = self._run(
+            {
+                "terraform/cloudflare/pr.tf": (
+                    'resource "cloudflare_page_rule" "a" {\n'
+                    '  target = "example.com/*"\n}\n\n'
+                    'resource "cloudflare_page_rule" "b" {\n'
+                    '  target = "other.example/*"\n}\n\n'
+                    "moved {\n  from = a.b\n  to = a.c\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
     def test_uncommitted_files_are_not_evidence(self) -> None:
         """The blocks are pruned by a PR, so only committed ones count."""
         result = self._run(

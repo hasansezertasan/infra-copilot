@@ -31,6 +31,11 @@
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
   `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
+- Header block comments are followed across lines, but only from a line already shaped
+  like a one-shot header. Terraform 1.16.1 `fmt` rejects `import` with the brace on the
+  next line and rejects a comment line between them, so `import /* a\n b */ {` is the only
+  cross-line header HCL admits and that entry condition is complete for the grammar —
+  an assignment carrying `/*` still cannot start a region.
 - The heredoc tag is matched unquoted, as Terraform's spec defines it (`<<`/`<<-` plus a
   bare identifier, never `<<"EOT"`): the optional quote was borrowed from shell and let
   `command = "cat <<EOF"` match on the string's own closing quote and hide every block
