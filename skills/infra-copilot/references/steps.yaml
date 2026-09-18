@@ -1344,7 +1344,7 @@ steps:
       git --no-optional-locks rev-parse --git-dir >/dev/null 2>&1 || exit 2
       # A repository with no commits yet: nothing CAN be committed, so nothing is left.
       git --no-optional-locks rev-parse --verify --quiet HEAD >/dev/null || exit 0
-      # Structure is parsed, not pattern-matched. Five review rounds of regex trades --
+      # Structure is parsed, not pattern-matched. Seven review rounds of regex trades --
       # a block comment matching, an inline comment after `{` not matching, JSON at four
       # spaces missed, minified JSON missed, a nested `locals` key matching, a multiline
       # JavaScript `import {` in a heredoc matching -- were all one defect: a line regex
@@ -1352,6 +1352,20 @@ steps:
       # candidate blob is read once: `jq` decides JSON, and an awk pass that tracks
       # heredoc bodies and /* */ regions decides HCL. Both surfaces, because phase 6
       # already accepts `*.tf.json` as leaf configuration.
+      #
+      # The awk pass strips CR first (a consuming repo need not normalize line endings,
+      # and a trailing \r defeats both the opener match and the terminator match), then
+      # line comments, and only then looks for a heredoc opener -- anchored at end of
+      # line, because HCL requires the body to start on the next one. That anchor is what
+      # keeps `# Example: <<EOF` and `cmd = "cat <<EOF"` from opening a phantom heredoc
+      # that swallows the rest of the file.
+      #
+      # ponytail: a scanner, not an HCL lexer, and it stops here deliberately. Nothing
+      # destructive hangs off this step -- it routes status, it does not gate a deletion.
+      # A false positive sends someone to a runbook that finds nothing; a false negative
+      # leaves inert blocks unflagged. The gate that matters is the plan pair in
+      # docs/prune.md, which Terraform itself evaluates. Reach for a real parser only if
+      # this ever gates something that writes.
       #
       # terraform/modules/ is excluded: one-shot blocks there are not this step's to call
       # leftover. Each consuming state reads them separately, so `moved` is the module's
@@ -1380,6 +1394,7 @@ steps:
       # An `import`/`moved` block opener, ignoring heredoc bodies and /* */ regions. HCL
       # has no nested one-shot blocks, so any surviving opener is top-level by definition.
       hcl_scan='
+        { sub(/\r$/, "") }
         h != "" { t=$0; sub(/^[ \t]+/,"",t); sub(/[ \t]+$/,"",t); if (t == h) h=""; next }
         { line=$0
           while (1) {
@@ -1389,10 +1404,11 @@ steps:
                      rest=substr(line,i+2); line=substr(line,1,i-1)
                      j=index(rest,"*/"); if (j==0) { c=1; break }
                      line=line substr(rest,j+2) } }
-          if (line ~ /^[ \t]*(import|moved)[ \t]*\{[ \t]*((#|\/\/).*)?$/) { f=1; exit }
-          if (match(line, /<<[-~]?[ \t]*"?[A-Za-z_][A-Za-z0-9_]*"?/)) {
+          sub(/[#].*$/, "", line); sub(/\/\/.*$/, "", line)
+          if (line ~ /^[ \t]*(import|moved)[ \t]*\{[ \t]*$/) { f=1; exit }
+          if (match(line, /<<[-~]?"?[A-Za-z_][A-Za-z0-9_]*"?[ \t]*$/)) {
             m=substr(line, RSTART, RLENGTH)
-            sub(/^<<[-~]?[ \t]*"?/, "", m); sub(/"$/, "", m); h=m } }
+            sub(/^<<[-~]?"?/, "", m); sub(/"?[ \t]*$/, "", m); h=m } }
         END { exit !f }'
       # Both lists are files, not shell strings: a literal newline inside a string -- or a
       # heredoc terminator, which must sit at column 0 -- dedents out of this YAML block

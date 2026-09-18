@@ -269,6 +269,31 @@ class PruneStepTests(unittest.TestCase):
         result = self._run({"terraform/cloudflare/broken.tf.json": "{ not json\n"})
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
 
+    def test_crlf_line_endings_do_not_hide_a_block(self) -> None:
+        """A consuming repo need not normalize; a trailing \\r defeated both matches."""
+        result = self._run(
+            {
+                "terraform/cloudflare/crlf.tf": (
+                    'import {\r\n  to = a.b\r\n  id = "x"\r\n}\r\n'
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_a_heredoc_marker_in_a_comment_or_string_opens_nothing(self) -> None:
+        """A phantom heredoc swallows the rest of the file, block included."""
+        result = self._run(
+            {
+                "terraform/cloudflare/a.tf": (
+                    "# Example: <<EOF is how you write a heredoc\n"
+                    'resource "null_resource" "r" {\n'
+                    '  triggers = { cmd = "cat <<EOF" }\n}\n\n'
+                    "import {\n  to = cloudflare_dns_record.www\n  id = \"abc\"\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
     def test_uncommitted_files_are_not_evidence(self) -> None:
         """The blocks are pruned by a PR, so only committed ones count."""
         result = self._run(
