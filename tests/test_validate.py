@@ -1180,6 +1180,10 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         "        run: npx --yes prettier@3.0.0",
         "      - run: npm install prettier@3.0.0",
         "          npx --yes prettier@3.0.0",
+        # A quoted scalar is one valid spelling of the same command, and the
+        # quote arrives glued to the command word.
+        '        run: "npx --yes prettier@3.0.0"',
+        "        run: 'npm install prettier@3.0.0'",
     )
 
     def test_a_run_field_is_still_executable(self) -> None:
@@ -1196,6 +1200,31 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
 
                     self.assertEqual(len(errors), 1, errors)
                     self.assertIn(TOOL_PIN_WORKFLOWS[0], errors[0])
+
+    def test_a_workflow_may_not_run_an_undeclared_binary_either(self) -> None:
+        """node_modules/.bin holds the transitive closure, not the manifest.
+
+        `yaml` is there via markdownlint-cli2 with no devDependency of its own,
+        so a workflow running it directly takes a version an unrelated parent
+        bump can change or remove. The scan read only the Makefile, so the rule
+        stopped at the file it was first written for.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository)
+            workflow = repository / TOOL_PIN_WORKFLOWS[0]
+            workflow.write_text(
+                "steps:\n        run: node_modules/.bin/yaml --version\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                validate_tool_pins(repository),
+                [
+                    f"{TOOL_PIN_WORKFLOWS[0]}: runs yaml, which no package.json "
+                    f"devDependency provides"
+                ],
+            )
 
     def test_the_install_this_repository_runs_is_allowed(self) -> None:
         """The allowlist has to let the real Makefile through, options and all.

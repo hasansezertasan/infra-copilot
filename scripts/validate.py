@@ -1110,7 +1110,15 @@ def shell_commands(line: str) -> list[list[str]]:
     """
     commands = []
     for segment in COMMAND_SEPARATORS.split(line):
-        tokens = YAML_RUN_PREFIX.sub("", segment, count=1).split()
+        # Quotes come off every token, not just the first. `run: "npx --yes
+        # prettier@3.0.0"` is one valid YAML scalar whose command word arrives as
+        # `"npx`, and the closing quote rides the last argument the same way.
+        # Stripping is safe where splitting on them would not be: the checks ask
+        # whether a word *is* a command name, and no quote belongs to one.
+        tokens = [
+            token.strip("\"'")
+            for token in YAML_RUN_PREFIX.sub("", segment, count=1).split()
+        ]
         if tokens:
             commands.append([tokens[0].lstrip(RECIPE_SIGILS), *tokens[1:]])
     return commands
@@ -1120,9 +1128,9 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
     """package.json owns every tool version; nothing else may name one.
 
     Two halves, because each catches what the other cannot. Forwards: every tool
-    the Makefile runs must resolve from ``devDependencies``, so a fourth tool
-    cannot be introduced outside the manifest. Backwards: no Makefile or workflow
-    may reach a tool any other way -- neither a package runner nor a
+    the Makefile or a workflow runs must resolve from ``devDependencies``, so
+    neither a fourth tool nor a transitive binary can be introduced outside the
+    manifest. Backwards: no Makefile or workflow may reach a tool any other way -- neither a package runner nor a
     ``<package>@<version>`` of one of ours -- so the manifest stays the only
     definition rather than merely one of them.
 
@@ -1171,15 +1179,18 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
         except OSError as error:
             errors.append(f"{relative}: cannot read file: {error}")
 
-    makefile = sources.get(MAKEFILE_PATH, "")
-    for binary in sorted(set(NODE_BIN_PATTERN.findall(makefile))):
-        if binary not in declared:
-            errors.append(
-                f"{MAKEFILE_PATH}: runs {binary}, which no {PACKAGE_JSON_PATH} "
-                f"devDependency provides"
-            )
-
     for relative, text in sources.items():
+        # Every source, not just the Makefile. node_modules/.bin holds the
+        # transitive closure too -- `yaml` is there via markdownlint-cli2, with
+        # no devDependency of its own -- so a workflow running one directly gets
+        # a version that an unrelated parent bump can change or remove.
+        for binary in sorted(set(NODE_BIN_PATTERN.findall(text))):
+            if binary not in declared:
+                errors.append(
+                    f"{relative}: runs {binary}, which no {PACKAGE_JSON_PATH} "
+                    f"devDependency provides"
+                )
+
         allowed = ", ".join(f"`npm {name}`" for name in sorted(ALLOWED_NPM_SUBCOMMANDS))
         for line in text.splitlines():
             for command in shell_commands(line):
