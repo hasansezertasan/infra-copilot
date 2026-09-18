@@ -434,6 +434,9 @@ class ThirdReviewRegressionTests(unittest.TestCase):
             self.assertEqual(validate_host_dialects(root), [])
 
     def test_a_dialect_that_renders_tools_may_not_leave_them_empty(self) -> None:
+        """The schema pass now owns this: `[]` is rejected as an empty list before
+        the owner loop runs, which also covers the dialects this test cannot reach.
+        """
         with tempfile.TemporaryDirectory() as directory:
             root = build_root(directory)
             document = root / HOSTS_DOCUMENT
@@ -443,8 +446,9 @@ class ThirdReviewRegressionTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            errors = validate_host_dialects(root)
             self.assertTrue(
-                any("names no tools" in e for e in validate_host_dialects(root)),
+                any("empty list" in e or "names no tools" in e for e in errors), errors
             )
 
     def test_the_protocol_table_must_match_the_records(self) -> None:
@@ -763,6 +767,100 @@ class SeventhReviewRegressionTests(unittest.TestCase):
         description = re.search(r"^description:\s*(.+)$", agent, re.MULTILINE).group(1)
         self.assertIn("in full", description)
         self.assertNotIn("just the phase table", description)
+
+
+class EighthReviewRegressionTests(unittest.TestCase):
+    """What a hand-written reader owes a real YAML parser.
+
+    It is not one, so it has to refuse what it cannot resolve the same way: a
+    repeated key (we take the first, PyYAML takes the last, strict parsers
+    reject), a scalar where a mapping belongs, an empty list that looks like a
+    value, a path that only resolves in a checkout.
+    """
+
+    def _mutate(self, old: str, new: str, path: str = HOSTS_DOCUMENT):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / path
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_a_repeated_field_in_a_section_is_rejected(self) -> None:
+        root = self._mutate(
+            "      matcher: startup|resume|clear|compact\n      verified: true",
+            "      matcher: startup|resume|clear|compact\n      verified: true\n      verified: false",
+        )
+        self.assertTrue(any("repeats" in e for e in validate_host_dialects(root)))
+
+    def test_a_field_repeated_across_sections_is_allowed(self) -> None:
+        """`path` legitimately appears in both agent and hook."""
+        self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+
+    def test_an_empty_capability_list_is_rejected(self) -> None:
+        """`[]` looks like a value and disabled the checks keyed on it."""
+        for field, value in (("modes", "[binary, single, multi]"), ("choices", "[2, 4]")):
+            with self.subTest(field=field):
+                root = self._mutate(f"      {field}: {value}", f"      {field}: []")
+                self.assertTrue(
+                    any("empty list" in e for e in validate_host_dialects(root)),
+                )
+
+    def test_inherited_tools_may_still_record_an_empty_list(self) -> None:
+        """The one list that legitimately names nothing."""
+        self.assertIn("tool_names: []", (REPO_ROOT / HOSTS_DOCUMENT).read_text(encoding="utf-8"))
+        self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+
+    def test_a_scalar_hosts_header_yields_no_records(self) -> None:
+        """`hosts: nonsense` is a scalar; the records under it are not valid YAML."""
+        root = self._mutate("\nhosts:\n", "\nhosts: nonsense\n")
+        self.assertEqual(host_records(root), {})
+        self.assertTrue(validate_host_dialects(root))
+
+    def test_a_recorded_path_may_not_escape_the_plugin_root(self) -> None:
+        """A traversal resolves in this checkout and finds nothing when installed."""
+        for value, needle in (("../x/agents/", "escapes"), ("/tmp/agents/", "absolute")):
+            with self.subTest(path=value):
+                root = self._mutate("      path: agents/\n", f"      path: {value}\n")
+                self.assertTrue(
+                    any(needle in e for e in validate_host_dialects(root)),
+                )
+
+    def test_a_protocol_row_must_name_its_own_host(self) -> None:
+        """Matching the tool alone let a row be relabelled to another host."""
+        root = self._mutate(
+            "| Claude Code | `AskUserQuestion`",
+            "| OpenCode | `AskUserQuestion`",
+            QUESTION_PROTOCOL_DOCUMENT,
+        )
+        self.assertTrue(
+            any("no table row pairing" in e for e in validate_question_protocol(root)),
+        )
+
+    def test_every_hook_manifest_runs_the_shared_implementation(self) -> None:
+        """The matcher says when it fires; this says what fires.
+
+        Without it an adapter can carry the right matcher and run something else,
+        becoming a second behavioural authority by omission.
+        """
+        manifest = "hooks/hooks.json"
+        for label, mutate in (
+            ("replaced", lambda p: p["hooks"]["SessionStart"][0].__setitem__(
+                "hooks", [{"type": "command", "command": "echo unrelated"}])),
+            ("removed", lambda p: p["hooks"]["SessionStart"][0].pop("hooks")),
+        ):
+            with self.subTest(callback=label), tempfile.TemporaryDirectory() as directory:
+                root = build_root(directory)
+                path = root / manifest
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                mutate(payload)
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                errors = validate_host_dialects(root)
+                self.assertTrue(
+                    any("invoke" in e or "declares no hooks" in e for e in errors), errors
+                )
 
 
 class QuestionProtocolTests(unittest.TestCase):

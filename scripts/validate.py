@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 from urllib.parse import unquote, urlsplit
 
@@ -1327,7 +1327,10 @@ def host_records(root: Path = ROOT) -> dict[str, str]:
             # A new top-level key. Only `hosts:` opens the mapping we read; anything
             # else closes it, so a same-named key nested under a later mapping cannot
             # reset a real record to empty and silence every rule keyed on it.
-            in_hosts = line.startswith("hosts:")
+            # Exact, not a prefix: `hosts: nonsense` is a scalar, and the indented
+            # records that follow it are not valid YAML -- yet the prefix test walked
+            # into them and validated a document no consumer could read.
+            in_hosts = re.fullmatch(r"hosts:\s*", line) is not None
             current = None
             continue
         if not in_hosts:
@@ -1364,6 +1367,14 @@ def _verified(block: str, section: str) -> bool | None:
     return None if flag is None else flag.group(1) == "true"
 
 
+def _section(block: str, section: str) -> str | None:
+    """The indented body of one section of a host block."""
+    match = re.search(
+        rf"^    {section}:$(?P<body>(?:\n(?:      .*)?)*)", block, re.MULTILINE
+    )
+    return None if match is None else match.group("body")
+
+
 def _field(block: str, section: str, key: str) -> str | None:
     """A scalar field of a host block, with any trailing comment stripped."""
     match = re.search(
@@ -1397,6 +1408,28 @@ REQUIRED_HOST_FIELDS = {
 #: this records what is *needed*. Deriving one from the other would make the check
 #: vacuous -- it would only ever compare the grant with itself.
 AGENT_REQUIRED_TOOLS = {"claude": ("Skill", "Bash")}
+#: The single shell script every host's hook manifest must invoke. Adapters carry
+#: the discovery path and the matcher; the behaviour is shared.
+HOOK_IMPLEMENTATION = "hooks/session-start.sh"
+
+
+def _list_items(value: str) -> list[str]:
+    """Items of an inline YAML list, or [] for `[]` and for a non-list scalar."""
+    return [part.strip() for part in value.strip("[]").split(",") if part.strip()]
+
+
+def _unsafe_path(value: str) -> str | None:
+    """Why a recorded path may not be used, or None when it is fine.
+
+    Paths are joined to the plugin root at runtime. A traversal resolves back to
+    a real file in this checkout and passes, while an installed plugin looks
+    outside its own payload and the verified artifact simply is not there.
+    """
+    if value.startswith(("/", "~")):
+        return "is absolute"
+    if PurePosixPath(value).is_absolute() or ".." in PurePosixPath(value).parts:
+        return "escapes the plugin root"
+    return None
 
 
 def validate_host_schema(records: dict[str, str]) -> list[str]:
@@ -1408,6 +1441,24 @@ def validate_host_schema(records: dict[str, str]) -> list[str]:
             "read would return the first occurrence while a YAML parser may take the last"
         ]
     for host, block in sorted(records.items()):
+        # This reader is not a YAML parser, so it has to refuse what it cannot
+        # resolve the way one would. A repeated key is the clearest case: we take
+        # the first, PyYAML takes the last, and strict parsers reject the document
+        # -- so the protocol could act on one value while the gate validated another.
+        sections = re.findall(r"(?m)^    ([a-z_]+):\s*$", block)
+        scopes = [("", sections)] + [
+            (f"{name}.", re.findall(r"(?m)^      ([a-z_]+):", body))
+            for name in REQUIRED_HOST_FIELDS
+            if (body := _section(block, name)) is not None
+        ]
+        for prefix, keys in scopes:
+            for name in sorted({k for k in keys if keys.count(k) > 1}):
+                errors.append(
+                    f"{HOSTS_DOCUMENT}: {host} repeats {prefix}{name!r}; every read here "
+                    "returns the first, while a YAML consumer may take the last"
+                )
+        if not re.search(r"(?m)^    display_name:\s*\S", block):
+            errors.append(f"{HOSTS_DOCUMENT}: {host} declares no display_name")
         for section, fields in REQUIRED_HOST_FIELDS.items():
             state = _verified(block, section)
             if state is None:
@@ -1423,6 +1474,22 @@ def validate_host_schema(records: dict[str, str]) -> list[str]:
                     errors.append(
                         f"{HOSTS_DOCUMENT}: {host}.{section}.{field} is null; only an "
                         "unverified hook may record no path or matcher"
+                    )
+                elif value.startswith("[") and not _list_items(value) and not (
+                    # `tool_names: []` is the correct record for a dialect whose
+                    # tools are inherited; every other list must name something.
+                    field == "tool_names"
+                    and _field(block, section, "tools_dialect") == "toml_inherited"
+                ):
+                    errors.append(
+                        f"{HOSTS_DOCUMENT}: {host}.{section}.{field} is an empty list; "
+                        "it looks like a value but disables the checks keyed on it"
+                    )
+                elif field == "path" and (problem := _unsafe_path(value)):
+                    errors.append(
+                        f"{HOSTS_DOCUMENT}: {host}.{section}.path {value!r} {problem}; an "
+                        "installed plugin resolves it against its own payload, where a "
+                        "path that escapes finds nothing -- it only works in a checkout"
                     )
     return errors
 
@@ -1630,6 +1697,23 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                 f"{relative}: SessionStart matcher {sorted(actual)} != {recorded!r} as "
                 f"{HOSTS_DOCUMENT} records it for {host}"
             )
+        # The matcher says when it fires; this says what fires. Without it a host
+        # adapter can carry the right matcher and run something else entirely, or
+        # nothing at all, and become a second behavioural authority by omission.
+        for entry in entries:
+            callbacks = entry.get("hooks") if isinstance(entry, dict) else None
+            commands = [
+                callback.get("command", "")
+                for callback in (callbacks or [])
+                if isinstance(callback, dict)
+            ]
+            if not commands:
+                errors.append(f"{relative}: a SessionStart entry declares no hooks to run")
+            elif not all(HOOK_IMPLEMENTATION in command for command in commands):
+                errors.append(
+                    f"{relative}: a SessionStart command does not invoke "
+                    f"{HOOK_IMPLEMENTATION}; every host runs the one implementation"
+                )
 
     # No hook manifest takes a sibling of "hooks". Antigravity counts every
     # top-level key as a hook -- a "_comment" array beside it was reported as a
@@ -1770,11 +1854,22 @@ def validate_question_protocol(root: Path = ROOT) -> list[str]:
         if name is None:
             errors.append(f"{HOSTS_DOCUMENT}: {host} records no question_tool name")
             continue
-        row = re.search(rf"(?m)^\|[^|\n]*\|\s*`{re.escape(name)}`\s*\|(?P<rest>.*)$", text)
+        display = re.search(r"(?m)^    display_name:\s*(.+?)\s*$", block)
+        if display is None:
+            errors.append(f"{HOSTS_DOCUMENT}: {host} declares no display_name")
+            continue
+        # Anchored on the host as well as the tool. Matching the tool alone let a
+        # row be relabelled, so the table could hand another host's name a verified
+        # capability and point the reader at the wrong native path.
+        row = re.search(
+            rf"(?m)^\|\s*{re.escape(display.group(1))}\s*\|\s*`{re.escape(name)}`\s*\|(?P<rest>.*)$",
+            text,
+        )
         if row is None:
             errors.append(
-                f"{QUESTION_PROTOCOL_DOCUMENT}: no table row for {host}'s {name!r}; the "
-                "rule sends the reader here to decide whether the native call is allowed"
+                f"{QUESTION_PROTOCOL_DOCUMENT}: no table row pairing {display.group(1)!r} "
+                f"with {name!r}; the rule sends the reader here to decide whether the "
+                "native call is allowed"
             )
             continue
         cells = [cell.strip() for cell in row.group("rest").split("|")]
