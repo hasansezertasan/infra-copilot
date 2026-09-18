@@ -1228,7 +1228,13 @@ steps:
           # The weaker test is still safe here, because a plan with pending imports says
           # 'will be imported' and a premature prune says 'will be created'; both are
           # rejected above, so only a genuinely realized leaf reaches this point.
-          apply_runs=$(gh run list --repo "$REPO" --workflow terraform-apply.yml --branch main --limit 10 \
+          # --limit caps what is FETCHED, before any filtering, and the apply workflow
+          # runs for every terraform/** push -- so ten runs of history can easily predate
+          # nothing at all. A prune deferred by a couple of weeks needs to still find the
+          # import's apply. --status success spends the budget only on runs that can
+          # match; beyond 100, this reports red and a human confirms the apply.
+          apply_runs=$(gh run list --repo "$REPO" --workflow terraform-apply.yml --branch main \
+            --status success --limit 100 \
             --json databaseId,conclusion,headSha \
             -q '[.[] | select(.conclusion=="success")]' 2>/dev/null)
           found_valid_apply=false
