@@ -176,6 +176,12 @@ NODE_BIN_PATTERN = re.compile(r"node_modules/\.bin/(?P<binary>[A-Za-z0-9._-]+)")
 # be a third grammar, so require the paths to stay written out instead -- the
 # convention the Makefile already follows, now enforced rather than assumed.
 NODE_BIN_UNNAMED = re.compile(r"node_modules/\.bin(?!/[A-Za-z0-9._-])")
+# node_modules entries that are not the dot-directories npm maintains: reaching
+# into a package's own files -- `node node_modules/yaml/bin.mjs` -- runs a
+# transitive CLI without going through the .bin link the scan above reads. The
+# dot-entries are ours to use (.bin holds the links, .install-stamp records the
+# install); anything else is a package's internals and gets named as such.
+NODE_MODULES_PACKAGE_PATH = re.compile(r"node_modules/(?![.])(?P<package>[^\s/]+)")
 # Comments are dropped before the scans below, so prose may name a tool: the
 # Makefile comment for `--include=dev` explains what npm does under
 # NODE_ENV=production, and the one above `smoke-opencode` names `skills`.
@@ -187,8 +193,13 @@ NODE_BIN_UNNAMED = re.compile(r"node_modules/\.bin(?!/[A-Za-z0-9._-])")
 # crossing a newline reads as prose here, which costs a comment that is never
 # dropped, not a missed tool.
 COMMENT_PATTERN = re.compile(
-    r"""(?m)'[^'\n]*'|"[^"\n]*"|(?P<comment>(?:(?<=\s)|(?<=^))#.*$)"""
+    r"""(?m)'[^'\n]*'|"(?:\\.|[^"\\\n])*"|(?P<comment>(?:(?<=\s)|(?<=^))#.*$)"""
 )
+# Quoting is the shell's way of writing one word in pieces, so `ai-rulez'@'4.9.0`
+# is the same token as `ai-rulez@4.9.0`. Dropping the quote characters puts the
+# pieces back together for the scan below without interpreting any of them --
+# two adjacent fragments are what concatenation *is*, and nothing else changes.
+SHELL_QUOTES = re.compile(r"""['"]""")
 # What this check enforces, and what it deliberately does not.
 #
 # Enforced, by substring and by data -- nothing here parses a language:
@@ -1144,6 +1155,13 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
     # and telling those apart is the parsing this check no longer does. The
     # workflows call `make`, which is where the binaries actually are.
     makefile = sources.get(MAKEFILE_PATH, "")
+    for package in sorted({
+        match.group("package") for match in NODE_MODULES_PACKAGE_PATH.finditer(makefile)
+    }):
+        errors.append(
+            f"{MAKEFILE_PATH}: reaches into node_modules/{package}; run tools "
+            f"through node_modules/.bin/<tool> so this check can see them"
+        )
     if NODE_BIN_UNNAMED.search(makefile):
         errors.append(
             f"{MAKEFILE_PATH}: names node_modules/.bin without a binary after it; "
@@ -1167,7 +1185,7 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
             # A substring, so no quoting or nesting can hide it: this is the one
             # guarantee that survived every finding on PR #70, including the
             # cases that defeated the parsers.
-            if re.search(rf"(?<![\w/-]){re.escape(package)}@", text):
+            if re.search(rf"(?<![\w/-]){re.escape(package)}@", SHELL_QUOTES.sub("", text)):
                 errors.append(
                     f"{relative}: invokes {package}@… directly; "
                     f"run node_modules/.bin/{package} so {PACKAGE_JSON_PATH} "

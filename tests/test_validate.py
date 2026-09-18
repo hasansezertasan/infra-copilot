@@ -1068,6 +1068,73 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                 ],
             )
 
+    #: Ways of writing a pinned invocation that a substring scan could miss.
+    #: Each defeated the scan once: a hash mid-word, a hash after an escaped
+    #: quote, and the token split across shell-quoted fragments. The guarantee
+    #: the parser removal rests on is that none of these hides a pinned tool.
+    OBSCURED_PINS = (
+        "\techo https://example.invalid#anchor; npx ai-rulez@4.11.3",
+        '\techo "foo \\" # literal"; npx ai-rulez@4.11.3',
+        "\tnpx ai-rulez'@'4.9.0",
+        '\tnpx "ai-rulez"@4.9.0',
+    )
+
+    def test_quoting_cannot_hide_a_tool_we_pin(self) -> None:
+        for line in self.OBSCURED_PINS:
+            with self.subTest(line=line):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    makefile = repository / "Makefile"
+                    makefile.write_text(
+                        makefile.read_text(encoding="utf-8") + f"probe:\n{line}\n",
+                        encoding="utf-8",
+                    )
+
+                    errors = validate_tool_pins(repository)
+
+                    self.assertEqual(len(errors), 1, errors)
+                    self.assertIn("invokes ai-rulez@… directly", errors[0])
+
+    def test_a_package_may_not_be_run_past_its_bin_link(self) -> None:
+        """`node node_modules/yaml/bin.mjs` runs a transitive CLI unseen.
+
+        The binary scan reads .bin links, so reaching into a package's own files
+        skips it entirely -- and `yaml` is installed transitively with no
+        devDependency, so nothing else would notice either.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository)
+            makefile = repository / "Makefile"
+            makefile.write_text(
+                makefile.read_text(encoding="utf-8")
+                + "probe:\n\tnode node_modules/yaml/bin.mjs --version\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                validate_tool_pins(repository),
+                [
+                    "Makefile: reaches into node_modules/yaml; run tools through "
+                    "node_modules/.bin/<tool> so this check can see them"
+                ],
+            )
+
+    def test_the_dot_entries_npm_maintains_are_not_packages(self) -> None:
+        """`.bin` holds the links and `.install-stamp` records the install."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository)
+            makefile = repository / "Makefile"
+            makefile.write_text(
+                makefile.read_text(encoding="utf-8")
+                + "probe:\n\ttouch node_modules/.install-stamp\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(validate_tool_pins(repository), [])
+
     def test_a_tool_we_do_not_pin_is_not_guarded_statically(self) -> None:
         """The documented ceiling, asserted so it cannot be mistaken for a bug.
 
