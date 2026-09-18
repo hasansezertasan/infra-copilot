@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:18e6b46d8bfae0f6b4fe5768ab88d01bcba60d100a4c56fe1bb69ff48aca44ef",
+  "source_hash": "blake3:14452478ecc80fb58ff455357bbbb87fea12e411ae48da69b96d0d1ed00ca14f",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -96,7 +96,7 @@
       "content_hash": "blake3:42f006af03101fdff6659a51c44412f75a8a9f7f218de604aafd85de5b62b76f"
     },
     "skills/infra-copilot/references/steps.yaml": {
-      "content_hash": "blake3:d50ea65ee740933140afb675522f651cb15890f5f6d6ca7f424a6f7a27593d09"
+      "content_hash": "blake3:bc6f8d17dae75fc7b856255e9eee2b66c8a54ca582d9ade58c1a8d558d1e1797"
     },
     "skills/infra-copilot/references/templates/terraform-apply.yml": {
       "content_hash": "blake3:58f05966aac00db18d13ef6f792ea5de1900255c7f9bf51791b487babeffd723"

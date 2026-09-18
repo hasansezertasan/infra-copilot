@@ -776,6 +776,22 @@ steps:
           sed -n "/^  $job:/,/^  [a-z][a-z0-9_-]*:/p" .github/workflows/terraform-apply.yml | sed '$d')
         printf '%s' "$job_content" | grep -q 'environment:.*production' || exit 1
       done
+      # Verify backend-specific auth in BOTH base apply jobs (auth is job-scoped)
+      for job in apply-cloudflare apply-github; do
+        job_content=$(yq -r ".jobs[\"$job\"]" .github/workflows/terraform-apply.yml 2>/dev/null || \
+          sed -n "/^  $job:/,/^  [a-z][a-z0-9_-]*:/p" .github/workflows/terraform-apply.yml | sed '$d')
+        case "$STATE_BACKEND" in
+          gcs)
+            printf '%s' "$job_content" | grep -v '#' | grep -q 'google-github-actions/auth' || exit 1
+            ;;
+          s3)
+            printf '%s' "$job_content" | grep -v '#' | grep -q 'aws-actions/configure-aws-credentials' || exit 1
+            ;;
+          azurerm)
+            printf '%s' "$job_content" | grep -v '#' | grep -q 'azure/login' || exit 1
+            ;;
+        esac
+      done
       grep -q "plan-cloudflare" .github/workflows/terraform-plan.yml || exit 1
       grep -q "plan-github" .github/workflows/terraform-plan.yml || exit 1
     produces: GitHub Actions workflows for Terraform CI
@@ -790,7 +806,7 @@ steps:
     why: Environments gate applies behind human approval, replacing HCP's confirm button.
     run: |
       1. Go to repo Settings -> Environments
-      2. Create an environment named "production" (or per your convention)
+      2. Create an environment named "production"
       3. Enable "Required reviewers" and add appropriate approvers
       4. The terraform-apply workflow references this environment
     check: |
