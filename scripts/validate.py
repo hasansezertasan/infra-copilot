@@ -1066,7 +1066,16 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
                 f"use an exact version, not a range"
             )
 
-    makefile = (root / MAKEFILE_PATH).read_text(encoding="utf-8")
+    # Read once, and report an unreadable file rather than raising out of an
+    # aggregate validator: a traceback here would hide every other diagnostic.
+    sources: dict[str, str] = {}
+    for relative in (MAKEFILE_PATH, *TOOL_PIN_WORKFLOWS):
+        try:
+            sources[relative] = (root / relative).read_text(encoding="utf-8")
+        except OSError as error:
+            errors.append(f"{relative}: cannot read file: {error}")
+
+    makefile = sources.get(MAKEFILE_PATH, "")
     for binary in sorted(set(NODE_BIN_PATTERN.findall(makefile))):
         if binary not in declared:
             errors.append(
@@ -1074,12 +1083,7 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
                 f"devDependency provides"
             )
 
-    for relative in (MAKEFILE_PATH, *TOOL_PIN_WORKFLOWS):
-        try:
-            text = (root / relative).read_text(encoding="utf-8")
-        except OSError as error:
-            errors.append(f"{relative}: cannot read file: {error}")
-            continue
+    for relative, text in sources.items():
         for package in sorted(TOOL_PACKAGES):
             # Any `<package>@…` reference, not just a literal version. One form
             # this replaced was indirect — `ai-rulez@${INFRA_COPILOT_..._VERSION}`
