@@ -81,19 +81,22 @@ missing config (`setup`), whether a discovered resource is adopted or excluded
 
 Ask exactly one logical decision and wait for its result. Use the host's native question
 tool only when that named tool is currently declared **and** allowed **and** its
-capability record in [`hosts.md`](hosts.md) supports the request's mode and choice count,
-counting the mandatory `Other` option below. Otherwise render the identical request as
-text.
+capability record in [`hosts.md`](hosts.md) supports the request's mode and choice count.
+Otherwise render the identical request as text.
+
+The ceiling counts **the choices you send**. Where `hosts.md` records custom input as
+`host-supplied` the tool appends `Other` itself and you must not list one, so three
+explicit options is three choices; everywhere else you send `Other` and it counts.
 
 Two consequences of that rule worth stating, because they are the ones that bite:
 
 - The tool names differ per host — `AskUserQuestion`, `request_user_input`,
   `ask_question`, `question` — so never name one in a skill body. Read
   [`hosts.md`](hosts.md) for the running host and use what it lists, or fall back.
-- A mode recorded as absent or `not recorded` means fall back, not improvise. Three
-  options plus `Other` is four choices, so on a host recorded for 2–3 it is a text
-  question. `not recorded` **custom input** is the one exception: it does not force the
-  fallback, it forces `Other` into the choice list.
+- A mode recorded as absent or `not recorded` means fall back, not improvise — a
+  multi-select request on a host recorded for binary and single is a text question.
+  `not recorded` **custom input** never forces the fallback; it only means you supply
+  `Other` yourself and count it.
 
 The text fallback is the same request, rendered:
 
@@ -108,8 +111,8 @@ The text fallback is the same request, rendered:
 └───────────────────────────────────────────────────
 ```
 
-Always offer `Other — enter a custom response`, in the fallback and as an explicit choice
-when the host's custom-input support is `not recorded`. A decision the agent forces into
+Always offer `Other — enter a custom response` in the fallback, and as an explicit choice
+on any host whose custom input is not `host-supplied`. A decision the agent forces into
 its own list is a decision it made.
 
 ## Resume protocol

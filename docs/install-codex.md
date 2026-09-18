@@ -40,6 +40,7 @@ documented, not a broken install; see the `Plugin slash commands` column in
 
 ## Verify
 
-Ask for infra status in any directory. In a repo with no config it reports a
-**config-missing** verdict and offers to scaffold one. That is a working install — no
-response at all means the plugin was added but never enabled, or the session predates it.
+Ask for infra status in any directory. In a repo with no config it reports the config as
+missing and stops, naming `setup` as the skill that creates one — `status` is read-only
+and never offers to scaffold. No response at all means the plugin was added but never
+enabled, or the session predates it.

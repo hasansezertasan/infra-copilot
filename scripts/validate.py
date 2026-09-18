@@ -1094,6 +1094,12 @@ def validate_host_contract(root: Path = ROOT) -> list[str]:
 #: skill it does not need installed -- so matching `references/` keeps the arrow
 #: pointing the right way and the hub's closure at one node.
 SKILL_DEPENDENCY = re.compile(r"\.\./(?P<skill>[a-z0-9-]+)/references/")
+#: Skills that own no operations of their own. `infra-copilot` selects a workflow and
+#: hands off, so installed alone it is a router with nothing to route to. They are
+#: valid closure *members* -- that is the whole point of the hub -- but never roots.
+#: Listed rather than derived: "nothing else depends on it" would also reject a future
+#: skill that is legitimately both an entry point and a dependency.
+ROUTER_SKILLS = frozenset({"infra-copilot"})
 
 
 def skill_closure(name: str, root: Path = ROOT) -> list[str]:
@@ -1464,6 +1470,13 @@ def main(argv: list[str] | None = None) -> int:
             print("usage: validate.py [--closure <skill>]", file=sys.stderr)
             return 2
         name = arguments[1]
+        if name in ROUTER_SKILLS:
+            print(
+                f"--closure: {name!r} owns no operations; installed alone it routes to "
+                "nothing. Name the action skill you want -- its closure includes the hub.",
+                file=sys.stderr,
+            )
+            return 2
         # Both trees: the closure is derived from .ai-rulez/, but `skills add`
         # consumes the shipped skills/ tree, so a name present in one and not the
         # other would print install arguments the installer cannot satisfy.

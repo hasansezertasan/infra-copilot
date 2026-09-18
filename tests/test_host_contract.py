@@ -7,11 +7,15 @@ keeps the single copy single.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from scripts.validate import (
+    ROUTER_SKILLS,
     host_records,
     skill_closure,
     validate_host_contract,
@@ -289,8 +293,50 @@ class ShippedClosureTests(unittest.TestCase):
             with self.subTest(skill=skill):
                 self.assertEqual(skill_closure(skill), sorted([skill, "infra-copilot"]))
 
-    def test_the_hub_installs_alone(self) -> None:
+    def test_the_hub_contributes_only_itself_as_a_dependency(self) -> None:
+        """As a closure *member* the hub adds nothing else; as a root it is rejected.
+
+        Both halves matter: routing links must not inflate an action skill's closure
+        to all five, and `--closure infra-copilot` must not hand back an install that
+        is a router with nothing to route to.
+        """
         self.assertEqual(skill_closure("infra-copilot"), ["infra-copilot"])
+        self.assertIn("infra-copilot", ROUTER_SKILLS)
+
+
+class ClosureCommandTests(unittest.TestCase):
+    @staticmethod
+    def run_closure(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "scripts/validate.py", *arguments],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[1],
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+
+    def test_prints_install_arguments_for_an_action_skill(self) -> None:
+        result = self.run_closure("--closure", "status")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "--skill infra-copilot --skill status")
+
+    def test_rejects_the_router_as_a_root(self) -> None:
+        result = self.run_closure("--closure", "infra-copilot")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("owns no operations", result.stderr)
+
+    def test_rejects_an_unknown_skill(self) -> None:
+        result = self.run_closure("--closure", "nope")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("no skill named 'nope'", result.stderr)
+
+    def test_rejects_an_unrecognised_flag_instead_of_validating(self) -> None:
+        """A typo'd flag used to fall through and print the success banner on stdout,
+        which `make smoke-closure` would have captured as the closure."""
+        result = self.run_closure("--clsoure", "status")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("usage:", result.stderr)
+        self.assertEqual(result.stdout, "")
 
 
 if __name__ == "__main__":

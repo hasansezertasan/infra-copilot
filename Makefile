@@ -79,6 +79,12 @@ smoke-opencode:  ## Install into a throwaway copy and assert the OpenCode skill 
 #
 # A separate copy because the target above already installed all five: `skills add` adds,
 # so a subset install into the same tree would find them and prove nothing.
+# AGENTS.md rule 2: documentation names make targets, never `python3 scripts/validate.py`
+# directly. README.md and docs/install-opencode.md point here.
+.PHONY: closure
+closure:  ## Print install arguments for a skill and its dependencies (SKILL=status)
+	@$(PYTHON) scripts/validate.py --closure $(SKILL)
+
 .PHONY: smoke-closure
 smoke-closure:  ## Install one skill's derived closure and assert it resolves exactly
 	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \

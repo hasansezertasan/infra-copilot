@@ -31,8 +31,8 @@ rather than restating it.
 On OpenCode you can install a single skill and its dependencies rather than all five —
 `--skill status --skill infra-copilot` is the read-only audit install, since every action
 skill is a router over the `infra-copilot` hub and is inert without it. See
-[`docs/install-opencode.md`](docs/install-opencode.md); `python3 scripts/validate.py
---closure <skill>` prints any skill's closure, derived from the links in its `SKILL.md`.
+[`docs/install-opencode.md`](docs/install-opencode.md); `make closure SKILL=<name>`
+prints any skill's closure, derived from the links in its `SKILL.md`.
 
 ### Session announcement
 

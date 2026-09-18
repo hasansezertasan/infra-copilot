@@ -69,4 +69,5 @@ npx skills list
 ```
 
 The skills you named should be listed. Then ask for infra status: in a repo with no
-config it reports a **config-missing** verdict and offers to scaffold one.
+config it reports the config as missing and stops, naming `setup` as the skill that
+creates one — `status` is read-only and never offers to scaffold.

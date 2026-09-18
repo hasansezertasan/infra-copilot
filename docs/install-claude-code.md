@@ -32,6 +32,7 @@ A `SessionStart` hook announces the plugin when the working directory carries
 
 ## Verify
 
-Run `/infra-status` in any directory. In a repo with no config it reports a
-**config-missing** verdict and offers to scaffold one. That is a working install — a
-silent no-op or an unknown-command error is not.
+Run `/infra-status` in any directory. In a repo with no config it reports the config as
+missing and stops, naming `setup` as the skill that creates one — `status` is read-only
+and never offers to scaffold. That report is a working install; a silent no-op or an
+unknown-command error is not.
