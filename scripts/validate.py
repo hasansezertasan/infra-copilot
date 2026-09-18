@@ -193,13 +193,15 @@ NODE_MODULES_PACKAGE_PATH = re.compile(r"node_modules/(?![.])(?P<package>[^\s/]+
 # crossing a newline reads as prose here, which costs a comment that is never
 # dropped, not a missed tool.
 COMMENT_PATTERN = re.compile(
-    r"""(?m)'[^'\n]*'|"(?:\\.|[^"\\\n])*"|(?P<comment>(?:(?<=\s)|(?<=^))#.*$)"""
+    r"""(?m)'[^'\n]*'|"(?:\\.|[^"\\\n])*"|(?P<comment>(?:(?<=\s)|(?<=^)|(?<=[;&|(]))#.*$)"""
 )
-# Quoting is the shell's way of writing one word in pieces, so `ai-rulez'@'4.9.0`
-# is the same token as `ai-rulez@4.9.0`. Dropping the quote characters puts the
-# pieces back together for the scan below without interpreting any of them --
-# two adjacent fragments are what concatenation *is*, and nothing else changes.
-SHELL_QUOTES = re.compile(r"""['"]""")
+# Quoting and escaping are the shell's ways of writing one word in pieces, so
+# `ai-rulez'@'4.9.0` and `ai-rulez\@4.9.0` are both the token `ai-rulez@4.9.0`
+# -- verified against bash, which prints the same word for each. Dropping the
+# delimiters puts the pieces back together for the scan below without
+# interpreting any of them: adjacent fragments are what concatenation *is*, and
+# a backslash before a character is that character.
+SHELL_WORD_DELIMITERS = re.compile(r"""['"\\]""")
 # What this check enforces, and what it deliberately does not.
 #
 # Enforced, by substring and by data -- nothing here parses a language:
@@ -1185,7 +1187,7 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
             # A substring, so no quoting or nesting can hide it: this is the one
             # guarantee that survived every finding on PR #70, including the
             # cases that defeated the parsers.
-            if re.search(rf"(?<![\w/-]){re.escape(package)}@", SHELL_QUOTES.sub("", text)):
+            if re.search(rf"(?<![\w/-]){re.escape(package)}@", SHELL_WORD_DELIMITERS.sub("", text)):
                 errors.append(
                     f"{relative}: invokes {package}@… directly; "
                     f"run node_modules/.bin/{package} so {PACKAGE_JSON_PATH} "

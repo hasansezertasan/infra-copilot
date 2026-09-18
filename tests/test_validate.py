@@ -1077,6 +1077,10 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         '\techo "foo \\" # literal"; npx ai-rulez@4.11.3',
         "\tnpx ai-rulez'@'4.9.0",
         '\tnpx "ai-rulez"@4.9.0',
+        # A backslash before a character is that character: bash prints
+        # `ai-rulez@4.9.0` for both of these.
+        "\tnpx ai-rulez\\@4.9.0",
+        "\tnpx ai-rule\\z@4.9.0",
     )
 
     def test_quoting_cannot_hide_a_tool_we_pin(self) -> None:
@@ -1134,6 +1138,30 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             )
 
             self.assertEqual(validate_tool_pins(repository), [])
+
+    #: A `#` opens a comment at the start of a word, and a control operator ends
+    #: the word before it -- `echo ok;#` is a comment in bash. Treating only
+    #: whitespace as the boundary made a recipe that mentions an old command in
+    #: a comment fail the build.
+    COMMENTS_AFTER_OPERATORS = (
+        "\techo ok;# old form: npx ai-rulez@4.9.0",
+        "\ttrue &&# npx ai-rulez@4.9.0",
+        "\ttrue |# npx ai-rulez@4.9.0",
+    )
+
+    def test_an_operator_also_begins_a_comment(self) -> None:
+        for line in self.COMMENTS_AFTER_OPERATORS:
+            with self.subTest(line=line):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    makefile = repository / "Makefile"
+                    makefile.write_text(
+                        makefile.read_text(encoding="utf-8") + f"probe:\n{line}\n",
+                        encoding="utf-8",
+                    )
+
+                    self.assertEqual(validate_tool_pins(repository), [])
 
     def test_a_tool_we_do_not_pin_is_not_guarded_statically(self) -> None:
         """The documented ceiling, asserted so it cannot be mistaken for a bug.
