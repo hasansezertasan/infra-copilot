@@ -274,7 +274,9 @@ class RunbookHelperTests(unittest.TestCase):
         # Each helper runs from its `name() {` line to the first `}` in column 0.
         found = re.findall(r"^(held(?:_under)?\(\) \{\n.*?\n\})$", text, re.S | re.M)
         self.assertEqual(len(found), 2, f"expected both helpers, got {found}")
-        self.helpers = "\n".join(found)
+        oneline = re.findall(r"^(exactly\(\) \{.*\})$", text, re.M)
+        self.assertEqual(len(oneline), 1, f"expected `exactly`, got {oneline}")
+        self.helpers = "\n".join(found + oneline)
 
     def _ask(self, call: str) -> bool:
         with tempfile.TemporaryDirectory() as directory:
@@ -301,6 +303,27 @@ class RunbookHelperTests(unittest.TestCase):
 
     def test_held_under_does_not_match_a_longer_sibling(self) -> None:
         self.assertFalse(self._ask("held_under 'aws_instance.newer'"))
+
+    def test_removing_an_index_needs_exact_matching_both_ways(self) -> None:
+        """`x[0]` -> `x` pre-apply: `held x` is true on the strength of `x[0]` itself."""
+        self.assertTrue(self._ask("held 'aws_instance.web'"))          # why it is unsafe
+        self.assertFalse(self._ask("exactly 'aws_instance.web'"))      # not applied yet
+        self.assertTrue(self._ask("exactly 'aws_instance.web[0]'"))    # old still there
+
+    def test_the_runbook_separates_the_two_index_directions(self) -> None:
+        text = RUNBOOK.read_text(encoding="utf-8")
+        self.assertIn("`moved` **adding** an index", text)
+        self.assertIn("`moved` **removing** an index", text)
+
+    def test_the_state_snapshot_outlives_the_helpers(self) -> None:
+        """Deleting it in the helper block leaves every later check reading nothing."""
+        text = RUNBOOK.read_text(encoding="utf-8")
+        self.assertLess(
+            text.index("held_under() {"),
+            text.rindex('rm -f "$state"'),
+            "the snapshot is removed before the checks that read it",
+        )
+        self.assertEqual(text.count('rm -f "$state"'), 2)  # the instruction, and the step
 
     def test_an_unmigrated_address_is_reported_absent(self) -> None:
         self.assertFalse(self._ask("held_under 'aws_instance.old'"))

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:fcc9983181c3c92a66f961d1f61e30c1324724cebeeccd07008b09b29362ceec
-Source-Hash: blake3:8db545a50e7636724dbd90b4614161d9f8cb93df5be72af247b1a8fc5a28e56e
+Content-Hash: blake3:5c5c0b7d73e5ebc7bbc1165f468ee2bf1705ec1d3dbe0eb731d2c83e0188d917
+Source-Hash: blake3:faadd1a460c28e6a6e293ff8f4b3d184b8f8448c6bcbe6a969f4f4c64f18c356
 Schema-Version: v1
 -->
 
@@ -109,21 +109,33 @@ held_under() {
                   END { exit !f }' "$2"
 }
 
-rm -f "$state"
+# exactly: this address and nothing under it. Needed where the descendant rule would
+# answer the wrong question -- see the index rows below.
+exactly() { grep -Fxq "$1" "$2"; }
 ```
+
+Keep `$state` until every check below has run — the helpers read it each time — and
+`rm -f "$state"` at the end, after the plan.
 
 | Block | Spent when |
 |---|---|
 | `import` | `held <to>` |
 | `moved`, distinct addresses | `held <new>` **and not** `held <old>` |
-| `moved` that only adds or removes an index (`x` → `x[0]`) | `held <new>` alone |
+| `moved` **adding** an index (`x` → `x[0]`) | `held <new>` alone |
+| `moved` **removing** an index (`x[0]` → `x`) | `exactly <new>` **and not** `exactly <old>` |
 | anything written inside a module | `held_under`, in **every** consuming leaf |
 
-The indexing row is not a shortcut. When the move adds `count` or `for_each` to the same
-resource, the old address is a *prefix* of the new one, so `held <old>` is satisfied by
+The two index rows are not one rule, and the difference has teeth. **Adding** an index
+makes the old address a prefix of the new, so `held <old>` is satisfied by
 `aws_instance.web[0]` — the very instance that proves the move happened. Asking for the old
-address to be absent would reject an applied move forever. State cannot hold a bare
+address to be absent would reject an applied move forever, and state cannot hold a bare
 aggregate anyway, so the new address being held is the whole of the evidence.
+
+**Removing** one inverts that, and the descendant rule becomes dangerous rather than
+merely useless: before the apply, state still holds `aws_instance.web[0]`, and `held
+aws_instance.web` says *true* on the strength of the instance the move is supposed to
+rename. Declaring that spent and deleting the block sets up a replace of a live resource.
+Both sides must be exact there: the bare address present, the indexed one gone.
 
 Query a single keyed instance **whole** — `cloudflare_dns_record.this["www"]`, not
 `cloudflare_dns_record.this`. The bare name asks the aggregate question, so one applied
@@ -193,6 +205,7 @@ at, and leave the file in place even if it ends up holding only HCL.
 ```sh
 terraform fmt
 terraform plan   # expect: No changes. Your infrastructure matches the configuration.
+rm -f "$state"   # the snapshot has done its job
 ```
 
 In object-storage mode, local plans do not authenticate: commit, push, and read the plan

@@ -1267,6 +1267,18 @@ steps:
         # what separates "everything was adopted" from "nothing ever was". Root-anchored,
         # because the plan below runs from inside the leaf.
         [ -n "$(git --no-optional-locks ls-files -- ':/terraform/cloudflare/generated*.tf')" ] || exit 1
+        # Tracked is not committed: an edit to a tracked file still plans locally while
+        # HEAD -- the thing CI applies, and the thing prune-spent-imports reads -- knows
+        # nothing about it. Fail closed if the status read itself fails, as the
+        # object-storage branch above does.
+        dirty=$(git --no-optional-locks status --porcelain -- ':/terraform/cloudflare' ':/terraform/modules') || {
+          echo "git status failed - cannot verify the plan matches the commit" >&2
+          exit 1
+        }
+        [ -z "$dirty" ] || {
+          echo "uncommitted changes under terraform/cloudflare - commit before the plan is evidence" >&2
+          exit 1
+        }
         cd terraform/cloudflare
         p=$(mktemp)
         trap 'rm -f "$p"' EXIT
