@@ -33,7 +33,7 @@ is only a convenience.
 | Codex marketplace | `.agents/plugins/marketplace.json` | hand-authored — edit directly |
 | Repository validators | `scripts/validate.py`, `tests/` | `make check` |
 | The SessionStart hook | `hooks/session-start.sh`, `hooks/hooks.json` | hand-authored — `ai-rulez` has no hook support |
-| Tool pins | `Makefile` + `README.md` together | `make check` |
+| Tool pins | `package.json` — commit `package-lock.json` with it | `make check` |
 
 ## Rule 2: run `make check`
 

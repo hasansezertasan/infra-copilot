@@ -175,7 +175,7 @@ NODE_BIN_PATTERN = re.compile(r"node_modules/\.bin/(?P<binary>[A-Za-z0-9._-]+)")
 # the package to avoid firing on `actions/checkout@<sha>`, and so would miss the
 # fourth tool nobody registered -- the way markdownlint-cli2 slipped past in #45.
 PACKAGE_RUNNER_PATTERN = re.compile(
-    r"(?<![\w-])(?:npx|bunx|(?:pnpm|yarn)\s+dlx|npm\s+exec)(?![\w-])"
+    r"(?<![\w-])(?:npx|bunx|(?:pnpm|yarn)\s+dlx|npm\s+(?:exec|x))(?![\w-])"
 )
 # Prerelease and build metadata are independent and may both appear:
 # 0.3.0-rc.1+build.5 is one version, not a version plus trailing junk.

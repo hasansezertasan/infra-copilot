@@ -1096,6 +1096,41 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                 ],
             )
 
+    def test_every_package_runner_alias_is_rejected(self) -> None:
+        """`npm x` is `npm exec`, so listing one spelling guards nothing.
+
+        Each of these reaches the registry, which is the mechanism the manifest
+        replaces; a runner the pattern does not know is a fourth tool nobody
+        registered, by another name.
+        """
+        for invocation, reported in (
+            ("npx --yes prettier@3.0.0", "npx"),
+            ("bunx prettier@3.0.0", "bunx"),
+            ("pnpm dlx prettier@3.0.0", "pnpm dlx"),
+            ("yarn dlx prettier@3.0.0", "yarn dlx"),
+            ("npm exec -- prettier@3.0.0", "npm exec"),
+            ("npm x -- prettier@3.0.0", "npm x"),
+        ):
+            with self.subTest(invocation=invocation):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    makefile = repository / "Makefile"
+                    makefile.write_text(
+                        makefile.read_text(encoding="utf-8")
+                        + f"fmt:\n\t{invocation} --write .\n",
+                        encoding="utf-8",
+                    )
+
+                    self.assertEqual(
+                        validate_tool_pins(repository),
+                        [
+                            f"Makefile: invokes the {reported} package runner; run "
+                            "node_modules/.bin/<tool> so package.json stays the "
+                            "only definition"
+                        ],
+                    )
+
     def test_workflow_may_not_reintroduce_its_own_pin(self) -> None:
         """package.json is the only definition; a second one is the drift itself.
 
