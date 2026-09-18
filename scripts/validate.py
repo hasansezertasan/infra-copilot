@@ -197,7 +197,7 @@ NODE_MODULES_PACKAGE_PATH = re.compile(r"node_modules/(?![.])(?P<package>[^\s/]+
 #
 # `<` and `>` are excluded on that evidence: after a redirection operator the
 # hash continues the filename word. A hash inside a word is a literal either way.
-COMMENT_BOUNDARY = r"(?:(?<=\s)|(?<=^)|(?<=[;&|()]))"
+COMMENT_BOUNDARY = r"(?:(?<=^)|(?<=[\s;&|()])(?<!\\[\s;&|()]))"
 COMMENT_PATTERN = re.compile(
     r"""(?m)'[^'\n]*'|"(?:\\.|[^"\\\n])*"|(?P<comment>""" + COMMENT_BOUNDARY + r"""#.*$)"""
 )

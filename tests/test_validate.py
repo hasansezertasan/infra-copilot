@@ -1086,6 +1086,33 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
 
                     self.assertEqual(validate_tool_pins(repository), [])
 
+    def test_an_escaped_delimiter_does_not_begin_a_comment(self) -> None:
+        """The boundary character has to be unescaped to be one.
+
+        Escaping it makes it part of the word, so the hash is mid-word and the
+        command after it runs -- `echo foo\\ #bar; npx ...` prints `foo #bar`
+        and then invokes npx. The delimiter set was verified a round earlier;
+        this interaction with escaping was not, which is why "complete set" is
+        no longer claimed for it.
+        """
+        for delimiter in (" ", ";", "&", "|", "(", ")"):
+            with self.subTest(delimiter=delimiter):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    makefile = repository / "Makefile"
+                    makefile.write_text(
+                        makefile.read_text(encoding="utf-8")
+                        + f"probe:\n\techo foo\\{delimiter}#bar; "
+                        "npx ai-rulez@4.9.0\n",
+                        encoding="utf-8",
+                    )
+
+                    errors = validate_tool_pins(repository)
+
+                    self.assertEqual(len(errors), 1, errors)
+                    self.assertIn("invokes ai-rulez@… directly", errors[0])
+
     def test_a_hash_inside_a_word_is_still_a_literal(self) -> None:
         """The constraint that keeps the boundary set from swallowing the check.
 
