@@ -36,8 +36,13 @@ class SessionHookTests(unittest.TestCase):
             elif marker == "terraform":
                 (root / "terraform").mkdir()
             env = {**os.environ, **(host_env or {})}
+            # Every root variable the script's host branch tests, PLUGIN_ROOT
+            # included: the fixture inherits os.environ, so a maintainer with one
+            # exported turned the unrecognised-host case into a recognised one and
+            # failed a test that has nothing to do with their environment.
             for unset in ("CLAUDE_PLUGIN_ROOT", "CODEX_PLUGIN_ROOT",
-                          "ANTIGRAVITY_PLUGIN_ROOT", "AGY_PLUGIN_ROOT"):
+                          "ANTIGRAVITY_PLUGIN_ROOT", "AGY_PLUGIN_ROOT",
+                          "PLUGIN_ROOT"):
                 if not (host_env or {}).get(unset):
                     env.pop(unset, None)
             if disabled:
@@ -68,7 +73,8 @@ class SessionHookTests(unittest.TestCase):
 
     def test_host_output_shapes(self) -> None:
         for variable in ("CLAUDE_PLUGIN_ROOT", "CODEX_PLUGIN_ROOT",
-                         "ANTIGRAVITY_PLUGIN_ROOT", "AGY_PLUGIN_ROOT"):
+                         "ANTIGRAVITY_PLUGIN_ROOT", "AGY_PLUGIN_ROOT",
+                         "PLUGIN_ROOT"):
             with self.subTest(host=variable):
                 payload = json.loads(
                     self.run_hook(marker="config", host_env={variable: "/x"})

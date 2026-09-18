@@ -1,0 +1,785 @@
+"""The subagent and hook sections of hosts.md, and the artifacts they govern.
+
+`hosts.md` owns the per-host record; `validate_host_contract` gates its question
+tool rows, and this covers the two sections added for #19 and #42. What can be
+gated is that a row marked shipped has its artifact in that host's dialect, and
+that a row marked unshipped has no artifact at all.
+
+Every case below is a failure that actually happened while establishing those
+rows, not a hypothetical. Both dialects fail *silently* when wrong -- Antigravity
+reported "agents: 1 processed" for an agent in Claude's comma-string form and
+then never listed it in `agy agent` -- which is why the parity gate exists.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import tempfile
+import unittest
+from pathlib import Path
+
+from scripts.validate import (
+    AGENT_STEM,
+    PROTOCOL_DOCUMENTS,
+    _runs_implementation,
+    HOSTS_DOCUMENT,
+    dialect_rows,
+    validate_host_dialects,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+AGENT_PATH = f"agents/{AGENT_STEM}.md"
+HOOK_PATH = "hooks/hooks.json"
+FIXTURE_PATHS = (
+    HOSTS_DOCUMENT,
+    AGENT_PATH,
+    HOOK_PATH,
+    "hooks/session-start.sh",
+    # The delegation rule lives here and is asserted alongside the artifacts, so a
+    # fixture without it is not a repository this validator can judge.
+    *PROTOCOL_DOCUMENTS,
+)
+
+
+def build_root(directory: str) -> Path:
+    root = Path(directory)
+    for relative in FIXTURE_PATHS:
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(REPO_ROOT / relative, destination)
+    return root
+
+
+class RecordTests(unittest.TestCase):
+    def test_the_repository_matches_its_own_record(self) -> None:
+        self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+
+    def test_both_sections_are_readable(self) -> None:
+        self.assertTrue(dialect_rows(REPO_ROOT, "## Subagent manifests"))
+        self.assertTrue(dialect_rows(REPO_ROOT, "## Hook discovery"))
+
+    def test_no_directory_is_claimed_by_two_shipped_rows(self) -> None:
+        """Uniqueness is per directory, not global.
+
+        Claude and Antigravity collide at root agents/, but .codex/agents/ and
+        .opencode/agents/ are independent -- asserting one shipped row globally
+        made those rows impossible to graduate.
+        """
+        rows = dialect_rows(REPO_ROOT, "## Subagent manifests")
+        shipped = [r for r in rows if r[-1].strip("* ").lower().startswith("yes")]
+        directories = [r[1].strip("`") for r in shipped]
+        self.assertEqual(len(directories), len(set(directories)), directories)
+
+
+class AgentTests(unittest.TestCase):
+    def _root(self, old: str, new: str, path: str = HOSTS_DOCUMENT) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / path
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_a_foreign_dialect_in_the_shipped_slot_is_rejected(self) -> None:
+        """The silent failure the whole record exists for, in both directions.
+
+        `claude plugin details` showed "Agents (1)" for an Antigravity-dialect
+        file at root agents/ -- an agent whose whole tool grant is names Claude
+        does not have.
+        """
+        root = self._root(
+            "tools: Read, Bash, Glob, Grep, Skill",
+            "tools:\n  - view_file\n  - grep_search\n  - run_command",
+            AGENT_PATH,
+        )
+        self.assertTrue(any("frontmatter tools" in e for e in validate_host_dialects(root)))
+
+    def test_the_grant_is_read_from_frontmatter_not_the_document(self) -> None:
+        """A whole-file search let the frontmatter grant `Write` while the
+        expected line sat in the prose below it."""
+        root = self._root("tools: Read, Bash, Glob, Grep, Skill", "tools: Write", AGENT_PATH)
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8")
+            + "\n\nFor reference: tools: Read, Bash, Glob, Grep, Skill\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any("frontmatter tools" in e for e in validate_host_dialects(root)))
+
+    def test_the_declared_name_is_parsed_not_searched(self) -> None:
+        """A substring test passed `name: wrong-agent`, because the stem still
+        appeared in the heading and the instructions."""
+        root = self._root(f"name: {AGENT_STEM}", "name: wrong-agent", AGENT_PATH)
+        self.assertTrue(any("must declare name" in e for e in validate_host_dialects(root)))
+
+    def test_a_write_tool_in_the_record_is_rejected(self) -> None:
+        root = self._root("`Grep`, `Skill` |", "`Grep`, `Skill`, `Write` |")
+        self.assertTrue(any("Write" in e for e in validate_host_dialects(root)))
+
+    def test_the_tools_the_instructions_need_are_required(self) -> None:
+        """It loads the runbook through the skill tool and runs shell checks."""
+        for tool, old, new in (
+            ("Skill", ", `Skill` |", " |"),
+            ("Bash", "`Bash`, ", ""),
+        ):
+            with self.subTest(tool=tool):
+                root = self._root(old, new)
+                self.assertTrue(any("omits" in e for e in validate_host_dialects(root)))
+
+    def test_an_agent_that_restates_the_scan_is_rejected(self) -> None:
+        root = self._root("status.md", "my own inlined procedure", AGENT_PATH)
+        self.assertTrue(
+            any("status.md" in e for e in validate_host_dialects(root)),
+            "removing the runbook must be reported",
+        )
+
+    def test_a_repo_relative_runbook_path_is_rejected(self) -> None:
+        """The agent's working directory is the CONSUMING repository, while the
+        runbooks ship in the plugin payload."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8")
+            + "\nAlso read skills/infra-copilot/references/status.md directly.\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("consuming repository" in e for e in validate_host_dialects(root))
+        )
+
+    def test_the_manifest_stays_an_adapter(self) -> None:
+        """The runbook owns scope, guardrails and the report contract."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8") + "\n" * 45, encoding="utf-8"
+        )
+        self.assertTrue(any("adapter" in e for e in validate_host_dialects(root)))
+
+    def test_wiring_at_an_unshipped_path_is_rejected(self) -> None:
+        """Codex records `.codex/agents/` and ships nothing there."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        shipped = root / ".codex/agents"
+        shipped.mkdir(parents=True)
+        (shipped / f"{AGENT_STEM}.toml").write_text('name = "x"\n', encoding="utf-8")
+        self.assertTrue(any(".codex/agents" in e for e in validate_host_dialects(root)))
+
+    def test_the_shared_directory_is_not_reported_twice(self) -> None:
+        """Antigravity's unshipped path IS Claude's shipped one; reporting it
+        would make the documented collision unshippable rather than recorded."""
+        self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+
+    def test_the_record_can_revoke_the_agent(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        (root / AGENT_PATH).unlink()
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "`Grep`, `Skill` | **yes** |",
+                "`Grep`, `Skill` | no — withdrawn |",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertEqual(validate_host_dialects(root), [])
+
+    def test_a_shipped_row_still_requires_its_manifest(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        (root / AGENT_PATH).unlink()
+        self.assertTrue(any("no manifest is here" in e for e in validate_host_dialects(root)))
+
+
+    def test_a_second_host_may_ship_at_an_independent_path(self) -> None:
+        """Graduating Codex at .codex/agents/ must not trip the collision rule."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "| `.codex/agents/` | none — session tools are inherited | — | no — not exercised |",
+                "| `.codex/agents/` | none — session tools are inherited | — | **yes** |",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        shipped = root / ".codex/agents"
+        shipped.mkdir(parents=True)
+        (shipped / f"{AGENT_STEM}.toml").write_text(
+            'name = "infra-auditor"\n'
+            'developer_instructions = """Invoke the infra-copilot skill, then follow status.md."""\n',
+            encoding="utf-8",
+        )
+        self.assertEqual(validate_host_dialects(root), [])
+
+    def test_two_rows_may_not_ship_the_same_directory(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "`run_command` | no — path collision |", "`run_command` | **yes** |", 1
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("only one may" in e for e in validate_host_dialects(root)))
+
+    def test_an_unrecorded_manifest_in_the_directory_is_rejected(self) -> None:
+        """The host discovers the whole directory, not the recorded filename.
+
+        `agents/rogue.md` carrying `tools: Write` passed: an agent nobody
+        reviewed, with whatever grant it declares.
+        """
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        (root / "agents/rogue.md").write_text(
+            "---\nname: rogue\ntools: Write\n---\nrogue\n", encoding="utf-8"
+        )
+        self.assertTrue(any("rogue.md" in e for e in validate_host_dialects(root)))
+
+
+class HookTests(unittest.TestCase):
+    def _payload_root(self, mutate) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        mutate(payload)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return root
+
+    def test_a_contradicting_matcher_is_rejected(self) -> None:
+        """A manifest with the wrong matcher is discovered and never fires."""
+        root = self._payload_root(
+            lambda p: p["hooks"]["SessionStart"][0].__setitem__("matcher", "nope")
+        )
+        self.assertTrue(any("matcher" in e for e in validate_host_dialects(root)))
+
+    def test_a_sibling_of_hooks_is_rejected(self) -> None:
+        """Antigravity counted a `_comment` beside `hooks` as a second hook."""
+        root = self._payload_root(lambda p: p.__setitem__("_comment", ["why"]))
+        self.assertTrue(any("top-level keys" in e for e in validate_host_dialects(root)))
+
+    def test_naming_the_script_is_not_running_it(self) -> None:
+        """`echo hooks/session-start.sh` passed a substring test."""
+        root = self._payload_root(
+            lambda p: p["hooks"]["SessionStart"][0].__setitem__(
+                "hooks", [{"type": "command", "command": "echo hooks/session-start.sh"}]
+            )
+        )
+        self.assertTrue(any("hand" in e for e in validate_host_dialects(root)))
+
+    def test_an_entry_with_no_callback_is_rejected(self) -> None:
+        root = self._payload_root(lambda p: p["hooks"]["SessionStart"][0].pop("hooks"))
+        self.assertTrue(
+            any("declares no hooks" in e for e in validate_host_dialects(root))
+        )
+
+    def test_the_shipped_command_counts_as_an_invocation(self) -> None:
+        """It resolves the path into a variable before running it, so the path
+        and the shell cannot be required adjacent."""
+        self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+
+    def test_a_sibling_hook_event_is_rejected(self) -> None:
+        """Only SessionStart is recorded.
+
+        A sibling such as PreToolUse would run behaviour on tool use that no
+        capability record authorises and the shared implementation never sees.
+        """
+        root = self._payload_root(
+            lambda p: p["hooks"].__setitem__(
+                "PreToolUse",
+                [{"matcher": "*", "hooks": [{"type": "command", "command": "echo x"}]}],
+            )
+        )
+        self.assertTrue(any("hook events" in e for e in validate_host_dialects(root)))
+
+    def test_a_manifest_at_an_unshipped_path_is_rejected(self) -> None:
+        """Codex fired no hook from any candidate path; shipping one back fails."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        (root / "hooks/hooks-codex.json").write_text("{}", encoding="utf-8")
+        self.assertTrue(
+            any("hooks-codex.json" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_shipped_row_requires_its_manifest(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        (root / HOOK_PATH).unlink()
+        self.assertTrue(any("no manifest is here" in e for e in validate_host_dialects(root)))
+
+
+class MalformedRecordTests(unittest.TestCase):
+    """A record that is wrong in shape must be reported, not crash or be trusted."""
+
+    def _root(self, old: str, new: str) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / HOSTS_DOCUMENT
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_a_short_row_is_reported_not_raised(self) -> None:
+        """`| yes |` entered the shipped list and then indexed off the end,
+        raising IndexError before the missing-column diagnostic could run."""
+        root = self._root(
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | no — not exercised |",
+            "| yes |",
+        )
+        self.assertTrue(any("missing columns" in e for e in validate_host_dialects(root)))
+
+    def test_a_hook_path_may_not_escape_the_plugin_root(self) -> None:
+        """Containment was applied to agent paths only, so a hook row of
+        `../escape.json` had the validator read and accept an off-tree file."""
+        root = self._root("| Claude Code | `hooks/hooks.json` |", "| Claude Code | `../escape.json` |")
+        (root.parent / "escape.json").write_text("{}", encoding="utf-8")
+        self.assertTrue(any("escapes" in e for e in validate_host_dialects(root)))
+
+    def test_an_echo_prefixed_command_does_not_count(self) -> None:
+        """`echo sh hooks/session-start.sh` satisfied "path present and shell
+        token present" while executing only `echo`."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["hooks"]["SessionStart"][0]["hooks"] = [
+            {"type": "command", "command": "echo sh hooks/session-start.sh"}
+        ]
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertTrue(any("hand" in e for e in validate_host_dialects(root)))
+
+    def test_a_callback_that_is_not_a_command_is_rejected(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["hooks"]["SessionStart"][0]["hooks"][0]["type"] = "prompt"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertTrue(any("type 'command'" in e for e in validate_host_dialects(root)))
+
+
+class CoverageAndGrantTests(unittest.TestCase):
+    """A row a host would act on must exist, be unambiguous, and be reachable."""
+
+    def _root(self, old: str, new: str, path: str = HOSTS_DOCUMENT) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / path
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_both_sections_cover_every_recorded_host(self) -> None:
+        """The protocol sends a run to its own host's row, so a missing row
+        leaves that run with no delegation or hook decision at all."""
+        root = self._root(
+            "| Codex CLI | `.codex/agents/` | none — session tools are inherited | — | no — not exercised |\n",
+            "",
+        )
+        self.assertTrue(
+            any("not the recorded hosts" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_duplicate_name_field_is_rejected(self) -> None:
+        """Duplicate YAML keys are ambiguous: a first-match read saw the right
+        name while the host could register the wrong one, or none."""
+        root = self._root(
+            f"name: {AGENT_STEM}", f"name: {AGENT_STEM}\nname: wrong-agent", AGENT_PATH
+        )
+        self.assertTrue(
+            any("name" in e for e in validate_host_dialects(root)),
+            "a duplicate name must be reported",
+        )
+
+    def test_a_negated_instruction_is_not_delegation(self) -> None:
+        """"Never invoke `infra-copilot` or `status.md`" carried both names and
+        told every delegated run not to load the canonical workflow."""
+        root = self._root(
+            "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+            "`status.md`, `protocol.md`, and `steps.yaml`.",
+            "Never invoke `infra-copilot` or `status.md`.",
+            AGENT_PATH,
+        )
+        self.assertTrue(
+            any("no instruction to invoke" in e for e in validate_host_dialects(root))
+        )
+
+    def test_an_unshipped_directory_is_enumerated_too(self) -> None:
+        """The host discovers the directory, shipped or not."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        rogue = root / ".codex/agents"
+        rogue.mkdir(parents=True)
+        (rogue / "rogue.toml").write_text('name = "rogue"\n', encoding="utf-8")
+        self.assertTrue(any("rogue.toml" in e for e in validate_host_dialects(root)))
+
+    def test_required_tools_use_each_dialect_spelling(self) -> None:
+        """OpenCode's native grant is lowercase, so one global Claude-cased pair
+        made that row unsatisfiable however it was written."""
+        root = self._root(
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | no — not exercised |",
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash`, `skill` | **yes** |",
+        )
+        shipped = root / ".opencode/agents"
+        shipped.mkdir(parents=True)
+        (shipped / f"{AGENT_STEM}.md").write_text(
+            "---\nname: infra-auditor\ndescription: \"Read-only scan.\"\n"
+            "mode: subagent\ntools:\n  read: true\n"
+            "  grep: true\n  glob: true\n  bash: true\n  skill: true\n---\n"
+            "Invoke the `infra-copilot` skill, then follow status.md.\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(validate_host_dialects(root), [])
+
+    def test_the_shell_must_receive_the_script(self) -> None:
+        """`x=hooks/session-start.sh; sh -c true` mentions the path and runs a
+        shell, and does neither thing together."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["hooks"]["SessionStart"][0]["hooks"] = [
+            {"type": "command", "command": "x=hooks/session-start.sh; sh -c true"}
+        ]
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertTrue(any("hand" in e for e in validate_host_dialects(root)))
+
+    def test_a_non_string_command_is_reported_not_raised(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["hooks"]["SessionStart"][0]["hooks"] = [
+            {"type": "command", "command": 123}
+        ]
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertTrue(any("not a string" in e for e in validate_host_dialects(root)))
+
+
+class AmbiguityTests(unittest.TestCase):
+    """A record or manifest that says two things must not be read as saying one."""
+
+    def _root(self, old: str, new: str, path: str = HOSTS_DOCUMENT) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / path
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_a_negated_imperative_is_not_a_directive(self) -> None:
+        """"Never Invoke the infra-copilot skill" matched the imperative."""
+        for phrase in (
+            "Never Invoke the `infra-copilot` skill, nor follow",
+            "Do not Invoke the `infra-copilot` skill, nor follow",
+        ):
+            with self.subTest(phrase=phrase):
+                root = self._root(
+                    "Invoke the `infra-copilot` skill, then follow", phrase, AGENT_PATH
+                )
+                self.assertTrue(
+                    any("no instruction to invoke" in e for e in validate_host_dialects(root))
+                )
+
+    def test_duplicate_toml_names_are_rejected(self) -> None:
+        """A duplicate key makes the document invalid TOML, so the host registers
+        nothing -- while a first-match read saw the right name."""
+        root = self._root(
+            "| `.codex/agents/` | none — session tools are inherited | — | no — not exercised |",
+            "| `.codex/agents/` | none — session tools are inherited | — | **yes** |",
+        )
+        shipped = root / ".codex/agents"
+        shipped.mkdir(parents=True)
+        (shipped / f"{AGENT_STEM}.toml").write_text(
+            'name = "infra-auditor"\nname = "wrong-agent"\n'
+            'developer_instructions = """Invoke the infra-copilot skill, then follow status.md."""\n',
+            encoding="utf-8",
+        )
+        self.assertTrue(any("`name` keys" in e for e in validate_host_dialects(root)))
+
+    def test_a_repeated_capability_heading_is_rejected(self) -> None:
+        """A second table was ignored while a reader sees two competing records."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8")
+            + "\n## Subagent manifests (second)\n\n| Host | A | B | C | D |\n"
+            "|---|---|---|---|---|\n| Claude Code | `nowhere/` | comma string | `Write` | **yes** |\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any("occurs 2 times" in e for e in validate_host_dialects(root)))
+
+
+class HookCommandTests(unittest.TestCase):
+    """The shell must be *given* the script.
+
+    A regex over the whole command was defeated four times, each patch matching
+    one more spelling of "the path and a shell both appear somewhere". These are
+    every spelling that got through, plus the forms that must keep working.
+    """
+
+    def test_accepted_forms(self) -> None:
+        for label, command in (
+            (
+                "shipped",
+                'r="${CLAUDE_PLUGIN_ROOT:-}"; [ -n "$r" ] || exit 0; '
+                's="${r%/}/hooks/session-start.sh"; [ -f "$s" ] || exit 0; sh "$s"',
+            ),
+            ("direct", "sh hooks/session-start.sh"),
+            ("bash quoted", 'bash "hooks/session-start.sh"'),
+        ):
+            with self.subTest(form=label):
+                self.assertTrue(_runs_implementation(command), command)
+
+    def test_rejected_forms(self) -> None:
+        for label, command in (
+            ("mention only", "echo sh hooks/session-start.sh"),
+            ("shell runs something else", "x=hooks/session-start.sh; sh -c true"),
+            ("child shell echoes it", """s=hooks/session-start.sh; sh -c 'echo "$s"'"""),
+            ("reassigned", 's=hooks/session-start.sh; s=/bin/true; sh "$s"'),
+            ("no shell at all", 's="hooks/session-start.sh"'),
+            ("a different file", "sh hooks/session-start.sh.bak"),
+            ("outside the payload", "sh /tmp/hooks/session-start.sh"),
+            ("outside via variable", 's=/tmp/hooks/session-start.sh; sh "$s"'),
+            ("unreachable after exit", "exit 0; sh hooks/session-start.sh"),
+            ("guarded by &&", "false && sh hooks/session-start.sh"),
+            ("guarded by ||", "true || sh hooks/session-start.sh"),
+            ("root variable reassigned", 'PLUGIN_ROOT=/tmp; sh "${PLUGIN_ROOT}/hooks/session-start.sh"'),
+        ):
+            with self.subTest(form=label):
+                self.assertFalse(_runs_implementation(command), command)
+
+
+class DialectAndShapeTests(unittest.TestCase):
+    """Per-host spellings, exact affirmatives, and shapes that used to crash."""
+
+    def _root(self, old: str, new: str, path: str = HOSTS_DOCUMENT) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / path
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_forbidden_tools_use_each_dialect_spelling(self) -> None:
+        """One Claude-cased tuple let OpenCode's lowercase `write` through,
+        handing a read-only auditor a direct write capability."""
+        root = self._root(
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | no — not exercised |",
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash`, `skill`, `write` | **yes** |",
+        )
+        shipped = root / ".opencode/agents"
+        shipped.mkdir(parents=True)
+        (shipped / f"{AGENT_STEM}.md").write_text(
+            "---\nname: infra-auditor\ndescription: \"Read-only scan.\"\n"
+            "mode: subagent\ntools:\n  read: true\n"
+            "  grep: true\n  glob: true\n  bash: true\n  skill: true\n  write: true\n"
+            "---\nInvoke the `infra-copilot` skill, then follow status.md.\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any("write" in e for e in validate_host_dialects(root)))
+
+    def test_a_negated_runbook_directive_is_rejected(self) -> None:
+        """"then do not follow status.md" named the runbook and skipped it."""
+        root = self._root(
+            "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+            "`status.md`, `protocol.md`, and `steps.yaml`.",
+            "Invoke the `infra-copilot` skill, then do not follow `status.md`.",
+            AGENT_PATH,
+        )
+        self.assertTrue(
+            any("un-negated instruction" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_negator_on_a_previous_line_does_not_disqualify(self) -> None:
+        """The clause bound matters: the shipped manifest's own heading reads
+        "Load it by name, not by path" directly above the imperative."""
+        self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+
+    def test_a_shipped_cell_must_be_the_exact_affirmative(self) -> None:
+        """`yes — withdrawn` read as shipped, so a trailing comment could turn a
+        refusal into a capability claim."""
+        root = self._root("`Grep`, `Skill` | **yes** |", "`Grep`, `Skill` | yes — withdrawn |")
+        self.assertTrue(
+            any("neither the affirmative" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_non_list_sessionstart_is_reported_not_raised(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["hooks"]["SessionStart"] = None
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertTrue(any("not a list" in e for e in validate_host_dialects(root)))
+
+
+class ShapeTests(unittest.TestCase):
+    """Containers and documents that are valid JSON or Markdown but wrong."""
+
+    def test_equivalent_paths_are_one_directory(self) -> None:
+        """`agents/` and `./agents/` are the same discovery directory, and keying
+        ownership by the raw spelling let two rows own it while each looked
+        unique."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "| Antigravity | `agents/` | YAML list | `view_file`, `grep_search`, "
+                "`find_by_name`, `run_command` | no — path collision |",
+                "| Antigravity | `./agents/` | comma string | `Read`, `Bash`, `Glob`, "
+                "`Grep`, `Skill` | **yes** |",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("only one may" in e for e in validate_host_dialects(root)))
+
+    def test_a_non_list_nested_hooks_is_reported_not_raised(self) -> None:
+        """The outer container was checked and the nested one was not."""
+        for value in (1, True, "x"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                root = build_root(directory)
+                path = root / HOOK_PATH
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                payload["hooks"]["SessionStart"][0]["hooks"] = value
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                self.assertTrue(
+                    any("not a list" in e for e in validate_host_dialects(root))
+                )
+
+    def test_malformed_frontmatter_is_rejected(self) -> None:
+        """The host parses the whole document before it discovers the agent, so
+        one bad field removes it while the protocol keeps delegating."""
+        for label, replacement in (
+            ("unclosed flow sequence", 'description: [\nbroken: "x"'),
+            ("unbalanced quote", 'description: "oops\n'),
+        ):
+            with self.subTest(defect=label), tempfile.TemporaryDirectory() as directory:
+                root = build_root(directory)
+                document = root / AGENT_PATH
+                document.write_text(
+                    document.read_text(encoding="utf-8").replace(
+                        'description: "Read-only', replacement + '\nold: "Read-only', 1
+                    ),
+                    encoding="utf-8",
+                )
+                self.assertTrue(
+                    any("not well formed" in e for e in validate_host_dialects(root))
+                )
+
+    def test_the_shipped_frontmatter_is_well_formed(self) -> None:
+        self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+
+
+class DirectiveAndFrontmatterTests(unittest.TestCase):
+    """The last places a mention was accepted as an instruction, or a malformed
+    document as a valid one."""
+
+    def _agent(self, old: str, new: str) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / AGENT_PATH
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_a_descriptive_mention_is_not_a_directive(self) -> None:
+        """"The file status.md exists" named the runbook and instructed nothing."""
+        root = self._agent(
+            "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+            "`status.md`, `protocol.md`, and `steps.yaml`.",
+            "Invoke the `infra-copilot` skill. The file `status.md` exists.",
+        )
+        self.assertTrue(
+            any("un-negated instruction" in e for e in validate_host_dialects(root))
+        )
+
+    def test_frontmatter_is_held_to_a_fixed_shape(self) -> None:
+        """A balance check passed `description: [foo,,bar]`; the contract is three
+        known keys, so the shape is checkable exactly without a YAML parser."""
+        for label, replacement in (
+            ("flow collection", "description: [foo,,bar]"),
+            ("unknown key", 'extra: "x"'),
+        ):
+            with self.subTest(defect=label):
+                root = self._agent('description: "Read-only', replacement + '\nold: "Read-only')
+                self.assertTrue(
+                    any("not well formed" in e for e in validate_host_dialects(root))
+                )
+
+    def test_a_missing_required_key_is_rejected(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / AGENT_PATH
+        lines = [
+            line
+            for line in document.read_text(encoding="utf-8").splitlines(keepends=True)
+            if not line.startswith("description:")
+        ]
+        document.write_text("".join(lines), encoding="utf-8")
+        self.assertTrue(
+            any("missing ['description']" in e for e in validate_host_dialects(root))
+        )
+
+    def test_delegation_requires_both_gates(self) -> None:
+        """A shipped row says the agent exists, never that this session can reach
+        it -- hosts gate tools per session, so a denied Task must fall back inline
+        rather than fail the scan."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        for relative in PROTOCOL_DOCUMENTS:
+            document = root / relative
+            document.write_text(
+                document.read_text(encoding="utf-8").replace("currently declared", "pigs fly"),
+                encoding="utf-8",
+            )
+        self.assertTrue(
+            any("delegation rule is missing" in e for e in validate_host_dialects(root))
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

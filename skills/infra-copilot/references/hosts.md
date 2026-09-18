@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7c71517bdebe4952e3181f9a46fcfc15eb1695c0c31c841bebb69a8e9e04121c
-Source-Hash: blake3:211018040308a43d41444d0ef87deb5d5b10c68fa32cefc61fc8394cf36c58e6
+Content-Hash: blake3:e9935eddcb9312fa86862dbe90fa899cbd4f4de5edffcec7f7e4c4f02518a6e4
+Source-Hash: blake3:f05c95924d359be3b9b1df5176db65ffaf06269e2715aa8e1fa6f7298feb574b
 Schema-Version: v1
 -->
 
@@ -35,6 +35,73 @@ is different — the request does not clear the record, so it is rendered as tex
 natural-language spellings are the entire public interface — `/infra-setup` does not
 exist there, and reporting that as a broken install is the most likely false bug report.
 
+## Subagent manifests ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
+
+One agent ships — `infra-auditor`, which runs the read-only `status` scan in its own
+context. Every host below discovers subagents; they disagree on where and in what
+dialect, and a wrong dialect **fails silently** on both hosts that were tested.
+
+| Host | Discovery path | `tools` dialect | Tool names | Shipped |
+|---|---|---|---|---|
+| Claude Code | `agents/` | comma string | `Read`, `Bash`, `Glob`, `Grep`, `Skill` | **yes** |
+| Antigravity | `agents/` | YAML list | `view_file`, `grep_search`, `find_by_name`, `run_command` | no — path collision |
+| Codex CLI | `.codex/agents/` | none — session tools are inherited | — | no — not exercised |
+| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | no — not exercised |
+
+**Only one host can be served.** Claude and Antigravity both auto-discover the *same*
+root `agents/` directory and neither honours an override — an `agents` key in the
+hand-authored root `plugin.json` was ignored by `agy plugin install`, and `ai-rulez`
+silently drops one from the generated `.claude-plugin/plugin.json`. The directory
+therefore carries Claude's dialect, and Antigravity loads nothing from it. That absence is
+silent and harmless; shipping the YAML list instead would hand Claude an agent whose whole
+tool grant is names it does not have.
+
+How each was established, since a wrong dialect raises no error:
+
+- Claude reads **root `agents/`**, not `.claude-plugin/agents/`. With
+  `claude plugin details infra-copilot`, hiding `.claude-plugin/agents/` still reported
+  `Agents (1)`; hiding root `agents/` reported `Agents (0)`.
+- Antigravity needs the **YAML list**. A probe plugin written in Claude's comma-string
+  form was reported `agents: 1 processed` by `agy plugin validate` and then never appeared
+  in `agy agent`; re-authored as the list above, it appeared.
+
+## Hook discovery ([#42](https://github.com/hasansezertasan/infra-copilot/issues/42))
+
+The `SessionStart` announcement ships on Claude Code only. Every other row records a
+discovery fact that was established and an execution fact that was not — discovery is not
+execution, and shipping a manifest that never fires is indistinguishable from one that
+works until someone needs it.
+
+| Host | Manifest path | Matcher | Shipped |
+|---|---|---|---|
+| Claude Code | `hooks/hooks.json` | `startup{pipe}resume{pipe}clear{pipe}compact` | **yes** |
+| Antigravity | `hooks.json` (repository **root**, not `hooks/`) | `*` | no — never observed firing |
+| Codex CLI | `hooks/hooks-codex.json` | `*` | no — gated, never observed firing |
+| OpenCode | — | — | no mechanism |
+
+`{pipe}` stands for a literal `|` in the matcher: a Markdown table cell cannot carry one,
+and escaping it (`\|`) would put an escape into a value that is compared byte-for-byte
+against the shipped manifest.
+
+- **Antigravity** discovers the root manifest: `agy plugin validate` reports
+  `hooks: skipped (not found)` for this repository's `hooks/hooks.json` and
+  `hooks: 1 processed` once a root `hooks.json` exists. Execution could not be shown — a
+  probe reduced to `touch <sentinel>` never fired under `agy -p`, nor in an interactive
+  TUI session driven through a pty that initialised and created a conversation. The root
+  manifest also takes **no top-level keys besides `hooks`**: a `_comment` array beside it
+  was counted as a second hook (`hooks: 2 processed`), which is why this rationale lives
+  here rather than in that file.
+- **Codex** fired no `SessionStart` hook from root `hooks.json`, `hooks/hooks.json`, or
+  `hooks/hooks-codex.json`, with and without `--enable plugin_hooks`, and with
+  `"hooks": "./hooks.json"` in `.codex-plugin/plugin.json`. Plugin hooks are gated behind
+  that experimental flag *and* an interactive trust review ("hooks need review before they
+  can run") that a non-interactive session cannot satisfy.
+- **OpenCode** has no hook manifest at all; it installs by copying skills into the
+  consuming repository, so there is no plugin root to discover one from.
+
+Every host's manifest runs the one shared implementation, `hooks/session-start.sh`.
+Adapters carry the discovery path and the matcher; the behaviour is not theirs to restate.
+
 ## Maintaining this table
 
 Hand-authored: no host publishes a machine-readable capability record, so there is
@@ -51,7 +118,9 @@ A row is **not** permission to assume the tool is available. Hosts gate tools pe
 session, so the rule in `protocol.md` requires the named tool to be currently declared
 *and* allowed before this table's capabilities matter at all.
 
-This is also the table to extend for other per-host dialects — subagent manifests
-([#19](https://github.com/hasansezertasan/infra-copilot/issues/19)) and hook discovery
-paths ([#42](https://github.com/hasansezertasan/infra-copilot/issues/42)) — as a column
-or a sibling section here, rather than as a second per-host table somewhere else.
+The subagent and hook sections above were added as sibling sections here, rather than as
+a second per-host table elsewhere, for the reason this file already gives: one place to
+change when a host changes. `scripts/validate.py` holds the shipped artifacts to them —
+the agent manifest's dialect and declared name, each hook manifest's matcher and that it
+hands `hooks/session-start.sh` to a shell — and refuses a manifest at any path a row
+records as unshipped, so wiring cannot appear on a guess.
