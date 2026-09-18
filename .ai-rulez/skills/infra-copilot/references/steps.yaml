@@ -1889,8 +1889,9 @@ steps:
       grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-plan.yml || exit 1
       grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-apply.yml || exit 1
       # Verify apply job has environment protection (same gate as core apply jobs)
-      # Extract the apply job section and check for environment: production
-      awk "/^[[:space:]]*apply-$NEW_PROVIDER:$/,/^[[:space:]]*[a-zA-Z_-]+:$/" \
+      # Use sed to extract the apply job section (from job name to next top-level key or EOF)
+      # The pattern excludes the terminating line to avoid matching the start line itself
+      sed -n "/^[[:space:]]*apply-$NEW_PROVIDER:/,/^[[:space:]]*[a-zA-Z_-]*:/{/^[[:space:]]*apply-$NEW_PROVIDER:/p;/^[[:space:]]*[a-zA-Z_-]*:/!p;}" \
         .github/workflows/terraform-apply.yml | grep -qE 'environment:[[:space:]]*production|environment:.*name:[[:space:]]*production' || exit 1
     produces: GitHub Actions workflows updated for new provider
     docs: docs/ci.md#github-actions
