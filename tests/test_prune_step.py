@@ -84,6 +84,21 @@ class PruneStepTests(unittest.TestCase):
                 text=True,
             )
 
+    def test_a_non_repository_cannot_be_verified(self) -> None:
+        """Exit 2, not 1: ignorance must not route anyone to `prune`."""
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                ["/bin/sh", "-c", self.check],
+                cwd=directory,
+                env={**os.environ, "GIT_CEILING_DIRECTORIES": directory},
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
+    def test_the_step_declares_itself_tri_state(self) -> None:
+        self.assertIn("tri_state: true", step("prune-spent-imports"))
+
     def test_green_when_no_terraform_tree_exists(self) -> None:
         result = self._run({"README.md": "nothing here\n"})
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -70,6 +70,8 @@ cannot read state at all, **stop** — there is no substitute, and every rule be
 on it.
 
 ```sh
+terraform init -input=false              # a fresh checkout has no backend configured,
+                                         # and `state list` fails without one
 state=$(mktemp) && chmod 600 "$state"    # addresses are not secret; a shared /tmp path is
 terraform state list > "$state"          # still someone else's to overwrite
 
@@ -105,15 +107,34 @@ would vouch for every still-pending one.
 Any address that is not held means that block is still pending. Leave it, and every other
 block in that leaf, alone: finish the import first.
 
+Held proves the **address** is managed, not that what sits there is the object the block
+named. They diverge only if something created a resource at that address instead of
+importing it — an apply made outside this workflow, since the import check rejects any
+plan containing a create. If you have reason to suspect that, run
+`terraform state show <address>` and compare it against the block's `id` before removing
+anything; a prune would otherwise certify the duplicate it exists to prevent.
+
 **A block under `terraform/modules/` is not one leaf's to prune.** A shared module is an
 input to several workspaces, each with its own state, and each applies the move on its own
 next run. The new address showing up in the leaf you happen to be in proves nothing about
 the others — and deleting the block turns an unmigrated consumer's next plan into a
 destroy/create. Enumerate the consumers and check each one's state before touching it:
 
+Their addresses also need qualifying. A block inside a module is written relative to that
+module — `aws_instance.new` — while a consumer's state reports the absolute
+`module.<call>.aws_instance.new`. Comparing the bare address holds nothing forever, and
+worse, a same-named resource in the consumer's *root* module would satisfy it and vouch
+for a move that never happened. Prefix each module call:
+
 ```sh
 grep -rl 'modules/<name>' terraform/*/ --include='*.tf'   # every leaf that uses it
-# then, per leaf: terraform state list, same two rules as above
+
+# per leaf, the call addresses -- a module block may be called more than once, and
+# for_each/count calls appear as module.<call>["a"]:
+terraform state list | sed -n 's/^\(module\.[^.]*\)\..*/\1/p' | sort -u
+
+# then, per call, the same two rules with the call prefixed:
+held "module.<call>.<new address>" "$state" && ! held "module.<call>.<old address>" "$state"
 ```
 
 If any consumer is unmigrated or unreadable, leave the block. Plan every consuming leaf,

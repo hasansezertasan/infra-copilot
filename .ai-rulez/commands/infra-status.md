@@ -20,7 +20,9 @@ Load `../skills/status/SKILL.md` and drive it:
    `check`s only — never a step's `run`, never a handoff block.
 4. **Report** the phase-by-phase table and a verdict mapping the first red step to the
    skill that fixes it (setup / import / prune / add). Three exceptions the skill defines, and it owns
-   the detail: phases 5–6 red is expected for most repos — say so, don't flag as failure;
+   the detail: a red *migration* step in phases 5–6 is expected for most repos — say so,
+   don't flag as failure — but a red `prune-spent-imports` is actionable and routes to
+   `prune`, so never fold it into that exemption;
    `status-check-context` exiting 1 maps to **no skill**, because it is fixed directly in
    `terraform/github/branch_protection.tf`; and `status-check-context` exiting 2 is
    `CANNOT VERIFY` — report it as `?` with its cause and route nowhere, since an

@@ -56,8 +56,8 @@ preflight — is in
 
    - **Non-mutating checks** (API reads, file existence, tool versions — phases 0–3;
      phase 4's `status-check-context` and `hcp-apply-scope`; phase 5's
-     `prune-spent-imports`, which is a `git ls-files` read and a `grep` over tracked
-     `.tf` files; and every Phase 6 step, including the read-only `new-provider-plan`
+     `prune-spent-imports`, which is one `git grep` over `HEAD` (tri-state: exit 2 means
+     git was unreadable, report `?`); and every Phase 6 step, including the read-only `new-provider-plan`
      evidence check) — run them directly.
      `status-check-context` is two `gh api` reads and a comparison in `$TMPDIR`;
      `hcp-apply-scope` lists workspaces and reads the permissions HCP reports for the
@@ -219,6 +219,7 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 | `status-check-context` exit 1 (phase 4) | **Nothing — fix it directly**, not via `setup`. For `BLOCKED`, replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keep every other required context, and follow the break-glass sequence ([`docs/ci.md`](docs/ci.md#hcp-status-check-context)). For `UNDERPROTECTED`, re-apply `branch_protection.tf` so an HCP context is required again. |
 | Other steps in phases 0–4 | **infra-copilot:setup** |
 | Phase 5 (migrate-*) | **infra-copilot:import** — only relevant if adopting pre-existing resources |
+| `prune-spent-imports` exit 2 (`CANNOT VERIFY`) | **Nothing to fix in the repo.** The check could not read git — not a repository, or unreadable metadata. Report `?` and name the cause; an unreadable check is not evidence that blocks remain, so do not route to `prune`. |
 | `prune-spent-imports` (phase 5) | **infra-copilot:prune** — if the import already applied. If it has not, the blocks are pending, not spent: finish `infra-copilot:import` first. Route on the leaf holding the blocks, not on Cloudflare's `migrate-import`. |
 | Phase 6 (`new-provider-*`) | **infra-copilot:add** — and only after the design decision |
 | All green | Nothing — repo is set up. |

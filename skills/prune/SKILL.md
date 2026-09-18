@@ -6,7 +6,7 @@ description: "Remove spent one-shot `import {}` and `moved {}` blocks after thei
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:d88eb919fdad0a8bcff6bb9da361bbeb4ffe14f1c5bf27c8f5b5623961757967
-Source-Hash: blake3:7f930ba8238ac4dc49c2938c956d7588c474495c43249f619729118eb9d37ea5
+Source-Hash: blake3:1e5d0b03a23a248f8dc480c80773d3adf04f3f34a02c94849c5fdedab7523586
 Schema-Version: v1
 -->
 

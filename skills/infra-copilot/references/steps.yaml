@@ -1312,8 +1312,12 @@ steps:
     # landed -- also reads red here; the message names both readings, and the prune skill
     # itself refuses to remove a block whose address is missing from state. Tighten only
     # by teaching status to read state membership without touching the working tree.
+    tri_state: true   # exit 2 = could not verify; see protocol.md
     check: |
-      # No commits at all: nothing can be committed, so nothing is left to prune.
+      # Not a repository, or one whose metadata cannot be read: that is ignorance, not
+      # evidence, so it is exit 2 rather than a red step routing anyone to prune.
+      git --no-optional-locks rev-parse --git-dir >/dev/null 2>&1 || exit 2
+      # A repository with no commits yet: nothing CAN be committed, so nothing is left.
       git --no-optional-locks rev-parse --verify --quiet HEAD >/dev/null || exit 0
       # After the `{` only whitespace or an HCL comment may follow -- that is what a block
       # opener looks like, while a heredoc carrying JavaScript (`import { name } from
@@ -1329,7 +1333,7 @@ steps:
       [ "$rc" -eq 1 ] && exit 0          # git grep: 1 means no match
       if [ "$rc" -ne 0 ]; then
         echo "git grep failed - cannot verify what is committed" >&2
-        exit 1
+        exit 2                           # unreadable, not proof that blocks remain
       fi
       echo "one-shot import/moved blocks still committed in:" >&2
       printf '%s\n' "$left" >&2
