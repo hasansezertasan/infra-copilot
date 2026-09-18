@@ -1005,40 +1005,6 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             workflow.parent.mkdir(parents=True, exist_ok=True)
             workflow.write_text("run: make check\n", encoding="utf-8")
 
-    #: Every spelling PR #70's reviewers found for reaching a registry. All pass
-    #: now, and that is the decision: telling these from a step label that merely
-    #: names one needs a YAML parser and a shell parser, and seventeen findings
-    #: landed on successive attempts to do it without either.
-    UNGUARDED_REGISTRY_ROUTES = (
-        "npx --yes prettier@3.0.0",
-        "npm exec -- prettier@3.0.0",
-        "npm --prefix /tmp exec -- prettier@3.0.0",
-        "env npm exec -- prettier@3.0.0",
-        "if test -f config; then npx prettier@3.0.0; fi",
-    )
-
-    def test_a_hash_inside_a_word_does_not_hide_the_rest_of_the_line(self) -> None:
-        """The shell passes a mid-word `#` through, so the command after it runs.
-
-        Truncating there dropped a pinned invocation from the scan, which is the
-        one guarantee the parser removal rests on.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            makefile = repository / "Makefile"
-            makefile.write_text(
-                makefile.read_text(encoding="utf-8")
-                + "probe:\n\techo https://example.invalid#anchor; "
-                "npx ai-rulez@4.11.3\n",
-                encoding="utf-8",
-            )
-
-            errors = validate_tool_pins(repository)
-
-            self.assertEqual(len(errors), 1, errors)
-            self.assertIn("invokes ai-rulez@… directly", errors[0])
-
     def test_the_bin_directory_may_not_be_factored_into_a_variable(self) -> None:
         """`BIN := …/node_modules/.bin` then `$(BIN)/yaml` runs an unseen tool.
 
@@ -1068,23 +1034,68 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                 ],
             )
 
-    #: Ways of writing a pinned invocation that a substring scan could miss.
-    #: Each defeated the scan once: a hash mid-word, a hash after an escaped
-    #: quote, and the token split across shell-quoted fragments. The guarantee
-    #: the parser removal rests on is that none of these hides a pinned tool.
-    OBSCURED_PINS = (
-        "\techo https://example.invalid#anchor; npx ai-rulez@4.11.3",
-        '\techo "foo \\" # literal"; npx ai-rulez@4.11.3',
-        "\tnpx ai-rulez'@'4.9.0",
-        '\tnpx "ai-rulez"@4.9.0',
-        # A backslash before a character is that character: bash prints
-        # `ai-rulez@4.9.0` for both of these.
-        "\tnpx ai-rulez\\@4.9.0",
-        "\tnpx ai-rule\\z@4.9.0",
+    #: Bash's five quoting forms, each of which it prints as `ai-rulez@4.9.0`,
+    #: plus the plain spelling. Enumerated from the shell rather than from review
+    #: -- four of these arrived one per round as "fresh evidence" before the set
+    #: was checked against bash and found to be closed.
+    QUOTED_PIN_FORMS = (
+        "ai-rulez@4.9.0",
+        "ai-rulez'@'4.9.0",
+        'ai-rulez"@"4.9.0',
+        "ai-rulez\\@4.9.0",
+        "ai-rulez$'@'4.9.0",
+        'ai-rulez$"@"4.9.0',
     )
 
-    def test_quoting_cannot_hide_a_tool_we_pin(self) -> None:
-        for line in self.OBSCURED_PINS:
+    def test_no_quoting_form_hides_a_tool_we_pin(self) -> None:
+        for token in self.QUOTED_PIN_FORMS:
+            with self.subTest(token=token):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    makefile = repository / "Makefile"
+                    makefile.write_text(
+                        makefile.read_text(encoding="utf-8")
+                        + f"probe:\n\tnpx {token}\n",
+                        encoding="utf-8",
+                    )
+
+                    errors = validate_tool_pins(repository)
+
+                    self.assertEqual(len(errors), 1, errors)
+                    self.assertIn("invokes ai-rulez@… directly", errors[0])
+
+    def test_a_hash_after_any_word_delimiter_is_a_comment(self) -> None:
+        """Bash's complete set, not the characters review reached.
+
+        A comment may follow whitespace or any of `; & | ( )`. Each arrived as
+        its own finding until the set was taken from the shell instead.
+        """
+        for delimiter in (" ", ";", "&", "|", "(", ")"):
+            with self.subTest(delimiter=delimiter):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    makefile = repository / "Makefile"
+                    command = "true" if delimiter in "|&" else "echo ok"
+                    makefile.write_text(
+                        makefile.read_text(encoding="utf-8")
+                        + f"probe:\n\t{command} {delimiter}# npx ai-rulez@4.9.0\n",
+                        encoding="utf-8",
+                    )
+
+                    self.assertEqual(validate_tool_pins(repository), [])
+
+    def test_a_hash_inside_a_word_is_still_a_literal(self) -> None:
+        """The constraint that keeps the boundary set from swallowing the check.
+
+        `>` and `<` are excluded deliberately: `true >/dev/null# c` names the
+        file `dev/null#`, so the hash is mid-word and the command after it runs.
+        """
+        for line in (
+            "\techo https://example.invalid#anchor; npx ai-rulez@4.11.3",
+            "\ttrue >/dev/null# npx ai-rulez@4.9.0",
+        ):
             with self.subTest(line=line):
                 with tempfile.TemporaryDirectory() as temporary_directory:
                     repository = Path(temporary_directory)
@@ -1139,29 +1150,17 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
 
             self.assertEqual(validate_tool_pins(repository), [])
 
-    #: A `#` opens a comment at the start of a word, and a control operator ends
-    #: the word before it -- `echo ok;#` is a comment in bash. Treating only
-    #: whitespace as the boundary made a recipe that mentions an old command in
-    #: a comment fail the build.
-    COMMENTS_AFTER_OPERATORS = (
-        "\techo ok;# old form: npx ai-rulez@4.9.0",
-        "\ttrue &&# npx ai-rulez@4.9.0",
-        "\ttrue |# npx ai-rulez@4.9.0",
+    #: Every spelling PR #70's reviewers found for reaching a registry. All pass
+    #: now, and that is the decision: telling these from a step label that merely
+    #: names one needs a YAML parser and a shell parser, and seventeen findings
+    #: landed on successive attempts to do it without either.
+    UNGUARDED_REGISTRY_ROUTES = (
+        "npx --yes prettier@3.0.0",
+        "npm exec -- prettier@3.0.0",
+        "npm --prefix /tmp exec -- prettier@3.0.0",
+        "env npm exec -- prettier@3.0.0",
+        "if test -f config; then npx prettier@3.0.0; fi",
     )
-
-    def test_an_operator_also_begins_a_comment(self) -> None:
-        for line in self.COMMENTS_AFTER_OPERATORS:
-            with self.subTest(line=line):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    makefile = repository / "Makefile"
-                    makefile.write_text(
-                        makefile.read_text(encoding="utf-8") + f"probe:\n{line}\n",
-                        encoding="utf-8",
-                    )
-
-                    self.assertEqual(validate_tool_pins(repository), [])
 
     def test_a_tool_we_do_not_pin_is_not_guarded_statically(self) -> None:
         """The documented ceiling, asserted so it cannot be mistaken for a bug.

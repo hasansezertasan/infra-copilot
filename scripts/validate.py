@@ -186,22 +186,34 @@ NODE_MODULES_PACKAGE_PATH = re.compile(r"node_modules/(?![.])(?P<package>[^\s/]+
 # Makefile comment for `--include=dev` explains what npm does under
 # NODE_ENV=production, and the one above `smoke-opencode` names `skills`.
 #
-# A `#` opens a comment only where a word begins, which is what the shell does:
-# `echo https://host/x#frag; npx ai-rulez@4.11.3` passes that hash through as a
-# literal, and truncating there dropped the pinned invocation after it. Quoted
-# spans are stepped over for the same reason. Single-line quotes only -- a span
-# crossing a newline reads as prose here, which costs a comment that is never
-# dropped, not a missed tool.
+# A `#` opens a comment where a word begins, so the boundary is bash's complete
+# set of word-delimiting metacharacters -- whitespace, line start, and ; & | ( )
+# -- rather than the ones review happened to report. Checked rather than assumed,
+# because the set has a surprise in it:
+#
+#   (true)# c              -> comment          )  delimits
+#   echo ok;# c            -> comment          ;  delimits
+#   true >/dev/null# c     -> file "dev/null#"  >  does NOT
+#
+# `<` and `>` are excluded on that evidence: after a redirection operator the
+# hash continues the filename word. A hash inside a word is a literal either way.
+COMMENT_BOUNDARY = r"(?:(?<=\s)|(?<=^)|(?<=[;&|()]))"
 COMMENT_PATTERN = re.compile(
-    r"""(?m)'[^'\n]*'|"(?:\\.|[^"\\\n])*"|(?P<comment>(?:(?<=\s)|(?<=^)|(?<=[;&|(]))#.*$)"""
+    r"""(?m)'[^'\n]*'|"(?:\\.|[^"\\\n])*"|(?P<comment>""" + COMMENT_BOUNDARY + r"""#.*$)"""
 )
-# Quoting and escaping are the shell's ways of writing one word in pieces, so
-# `ai-rulez'@'4.9.0` and `ai-rulez\@4.9.0` are both the token `ai-rulez@4.9.0`
-# -- verified against bash, which prints the same word for each. Dropping the
-# delimiters puts the pieces back together for the scan below without
-# interpreting any of them: adjacent fragments are what concatenation *is*, and
-# a backslash before a character is that character.
-SHELL_WORD_DELIMITERS = re.compile(r"""['"\\]""")
+# Quoting and escaping are how the shell writes one word in pieces, so the pieces
+# are put back together before the pin scan by dropping the delimiters -- no
+# interpretation, since adjacent fragments are what concatenation is and a
+# backslash before a character is that character.
+#
+# Bash has exactly five of these forms, and all five reduce to removing ' " \ $:
+#
+#   ai-rulez'@'4.9.0   ai-rulez"@"4.9.0   ai-rulez\@4.9.0
+#   ai-rulez$'@'4.9.0  ai-rulez$"@"4.9.0
+#
+# each of which bash prints as ai-rulez@4.9.0. There is no sixth, so this set is
+# complete rather than the longest one review has reached so far.
+SHELL_WORD_DELIMITERS = re.compile(r"""['"\\$]""")
 # What this check enforces, and what it deliberately does not.
 #
 # Enforced, by substring and by data -- nothing here parses a language:
