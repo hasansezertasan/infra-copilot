@@ -38,23 +38,29 @@ oversight. Each item links to the issue that owns it.
   a **separate lower-privilege HCP principal** — not a scope removed from the user token
   `terraform login` mints, which has none ([#52](https://github.com/hasansezertasan/infra-copilot/issues/52)).
   Per-plugin restriction on Codex and Antigravity is separately unverified.
-- **`status`'s read-only promise is unenforced, and a subagent will not fix that.** The
+- **`status`'s read-only promise is unenforced, and the subagent did not fix that.** The
   scan runs manifest-defined shell checks, so it needs `Bash`, and `Bash` writes files — removing
   `Edit`/`Write` narrows the surface without creating a boundary, and removing `Bash`
-  stops the scan working. Worth building for context isolation (#19); only a sandboxed
-  command runner would enforce the promise.
+  stops the scan working. `infra-auditor` shipped for the context isolation (#19); only a
+  sandboxed command runner would enforce the promise.
   ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
-- **The SessionStart hook is Claude-only.** It ships and is auto-discovered there (#18),
-  but Codex, Antigravity and OpenCode wiring is unverified and not shipped.
+- **Codex and OpenCode have no SessionStart wiring.** Claude and Antigravity ship one
+  each (#18, #42). Codex gates plugin hooks behind an experimental flag *and* an
+  interactive trust review, and none fired from any candidate path in a real session;
+  OpenCode has no hook mechanism. Both are recorded `verified: false` in `hosts.yaml`
+  with the evidence, and a test fails if a manifest is added back on a guess.
   ([#42](https://github.com/hasansezertasan/infra-copilot/issues/42))
-- **No subagents.** The read-only, context-heavy `status` scan runs in the main context.
+- **The subagent ships to one host.** `infra-auditor` runs the scan in an isolated
+  context on Claude. Claude and Antigravity both auto-discover root `agents/` and neither
+  honours an override, and their `tools` shapes are incompatible, so the file carries
+  Claude's and Antigravity goes without. Its read-only promise is still unenforced for
+  the reason above — it is context isolation, not a sandbox.
   ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
-- **Host question capability is undeclared.** Three commands grant `AskUserQuestion` — a
-  Claude-only tool — that nothing instructs the agent to use. The *handoff* block for
-  unblocking a `HUMAN` step is already specified host-neutrally in `protocol.md`; the gap is
-  the undeclared per-host capability, and what a *choosing* step (which provider flavor,
-  whether to adopt a discovered resource) should do where native question tools differ.
-  ([#12](https://github.com/hasansezertasan/infra-copilot/issues/12))
+- **Only Claude's question tool is verified.** `protocol.md` now specifies what a
+  *choosing* step does, and `hosts.yaml` carries a `question_tool` record per host. Only
+  Claude's is exercised, so the other three always take the text fallback; their modes
+  and choice limits were read off a tool name, not run. A row graduates by being
+  exercised. ([#12](https://github.com/hasansezertasan/infra-copilot/issues/12))
 - **Install is all-or-nothing.** There is no way to install `status` alone.
   ([#20](https://github.com/hasansezertasan/infra-copilot/issues/20))
 

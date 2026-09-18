@@ -41,7 +41,10 @@ hosts:
     agent:
       path: agents/
       tools_dialect: comma_string   # tools: Read, Bash, Glob, Grep
-      tool_names: [Read, Bash, Glob, Grep]
+      tool_names: [Read, Bash, Glob, Grep, Skill]
+      # Skill is what lets the agent load the runbooks by name. It cannot use a
+      # repo-relative path: its working directory is the consuming repository, while
+      # the runbooks ship in the plugin payload.
       verified: true
       # Root agents/, NOT .claude-plugin/agents/. Established with
       # `claude plugin details infra-copilot`: hiding .claude-plugin/agents/ still

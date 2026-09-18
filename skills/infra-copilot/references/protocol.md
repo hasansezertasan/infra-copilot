@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:74f1a4c17fccd9549e58f7a840d80e703650b70f5ceefbd7dd511660bfefa4d8
-Source-Hash: blake3:039a0deb9941981bd019195f773a8617b1681c7c0af60e02ad498b8d8a827be7
+Content-Hash: blake3:211d31d72a95c2b7297adec196e9fbc89ccbff78c7be5a8ec4048d2da0b16352
+Source-Hash: blake3:c3b9c855782f1cbcf4a44419194c8b2bd0fa29f3b0f58ad283cea1d199a9f9ce
 Schema-Version: v1
 -->
 
@@ -88,23 +88,31 @@ three sentences:
 
 > Ask exactly one logical decision and wait for its result. Use the host's native question
 > tool only when that named tool is currently declared **and** allowed **and**
-> [`hosts.yaml`](hosts.yaml) records that this host supports the mode and choice count the
-> request needs. Otherwise render the identical request as text, including a final
+> [`hosts.yaml`](hosts.yaml) records this host's `question_tool` as `verified: true`
+> **and** that record supports the mode and choice count the request needs. Otherwise
+> render the identical request as text, including a final
 > `Other — enter a custom response`.
 
 The tool differs per host, and [`hosts.yaml`](hosts.yaml) is the authority on which
 of these is real on the host you are running on:
 
-| Host | Native question tool | Modes | Choices |
-|---|---|---|---|
-| Claude Code | `AskUserQuestion` | binary, single, multi | 2–4 |
-| Antigravity | `ask_question` | binary, single, multi | 2–4 |
-| Codex CLI | `request_user_input` | binary, single | 2–3 |
-| OpenCode | `question` | binary, single, multi | 2–4 |
+| Host | Native question tool | Modes | Choices | Verified |
+|---|---|---|---|---|
+| Claude Code | `AskUserQuestion` | binary, single, multi | 2–4 | yes |
+| Antigravity | `ask_question` | binary, single, multi | 2–4 | **no** |
+| Codex CLI | `request_user_input` | binary, single | 2–3 | **no** |
+| OpenCode | `question` | binary, single, multi | 2–4 | **no** |
 
-`AskUserQuestion` is the one this repository grants today: the `add`, `import`, and
-`setup` commands carry it in `allowed-tools`. That grant is what makes the tool
-*available* on Claude Code; this section is what makes it *used*.
+Only Claude Code's row is verified, so today it is the only host that takes the native
+path; the other three always render the request as text. That is deliberate. The modes
+and choice limits in the unverified rows were read off a tool name, not exercised, so
+trusting them would let a four-choice multi-select reach a call that cannot carry it —
+and a question the human never sees is worse than one rendered plainly. A row graduates
+by being exercised and recorded, not by looking plausible.
+
+`AskUserQuestion` is the tool this repository grants: the `add`, `import`, and `setup`
+commands carry it in `allowed-tools`. That grant is what makes it *available*; this
+section is what makes it *used*.
 
 Both halves of the fallback matter. "Declared and allowed" is a runtime fact — Codex gates
 `request_user_input` behind an experimental flag, so a host whose capability record lists

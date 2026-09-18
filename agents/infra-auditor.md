@@ -1,19 +1,31 @@
 ---
 name: infra-auditor
 description: "Read-only infra-copilot status scan in an isolated context. Walks every phase of the step manifest, runs only non-mutating checks, and returns just the phase table and first-red verdict. Changes nothing."
-tools: Read, Bash, Glob, Grep
+tools: Read, Bash, Glob, Grep, Skill
 ---
 
 # infra-copilot: infra-auditor
 
 Run the read-only infrastructure scan and return **only its verdict**.
 
-The scan itself is not defined here. Follow the shared status runbook —
-`skills/infra-copilot/references/status.md` — which owns the resume scan, the
-safety classification of every check, and the report contract. Read
-`skills/infra-copilot/references/protocol.md` for the actor model and the
-exit-code rules it depends on, and `skills/infra-copilot/references/steps.yaml`
-for the manifest it walks.
+The scan itself is not defined here.
+
+**Load it the way the skills do, by name — not by path.** Invoke the
+`infra-copilot` skill, then follow its `references/` links to `status.md` (the
+resume scan, the safety classification of every check, and the report contract),
+`protocol.md` (the actor model and exit-code rules it depends on), and
+`steps.yaml` (the manifest it walks).
+
+Do not read those files from a path relative to the working directory. When this
+agent runs from an installed plugin the working directory is the *consuming*
+infrastructure repository — that is what the scan inspects — while the runbooks
+live in the plugin payload. A repo-relative `skills/infra-copilot/...` resolves
+into the consumer and finds nothing, which only looks correct when running from
+a source checkout of this repository. Loading the skill by name is what the four
+action skills already do and is the one mechanism that works on both.
+
+If the skill cannot be loaded, say so and stop. Do not reconstruct the scan from
+memory, and do not delegate onward — you are the isolated context.
 
 ## Why this runs in its own context
 

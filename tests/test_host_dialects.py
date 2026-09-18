@@ -20,6 +20,8 @@ from pathlib import Path
 
 from scripts.validate import (
     AGENT_FILENAME,
+    AGENT_FORBIDDEN_PATH,
+    EXPECTED_HOSTS,
     HOSTS_DOCUMENT,
     QUESTION_PROTOCOL_DOCUMENT,
     _field,
@@ -112,7 +114,7 @@ class AgentDialectTests(unittest.TestCase):
             document = root / AGENT_PATH
             document.write_text(
                 document.read_text(encoding="utf-8").replace(
-                    "tools: Read, Bash, Glob, Grep",
+                    "tools: Read, Bash, Glob, Grep, Skill",
                     "tools:\n  - view_file\n  - grep_search\n  - run_command",
                 ),
                 encoding="utf-8",
@@ -128,8 +130,8 @@ class AgentDialectTests(unittest.TestCase):
             document = root / HOSTS_DOCUMENT
             document.write_text(
                 document.read_text(encoding="utf-8").replace(
-                    "tool_names: [Read, Bash, Glob, Grep]",
-                    "tool_names: [Read, Bash, Glob, Grep, Write]",
+                    "tool_names: [Read, Bash, Glob, Grep, Skill]",
+                    "tool_names: [Read, Bash, Glob, Grep, Skill, Write]",
                 ),
                 encoding="utf-8",
             )
@@ -143,9 +145,7 @@ class AgentDialectTests(unittest.TestCase):
             root = build_root(directory)
             document = root / AGENT_PATH
             document.write_text(
-                document.read_text(encoding="utf-8").replace(
-                    "skills/infra-copilot/references/status.md", "my own inlined procedure"
-                ),
+                document.read_text(encoding="utf-8").replace("status.md", "my own inlined procedure"),
                 encoding="utf-8",
             )
             self.assertTrue(
@@ -159,7 +159,8 @@ class AgentDialectTests(unittest.TestCase):
             document = root / HOSTS_DOCUMENT
             document.write_text(
                 document.read_text(encoding="utf-8").replace(
-                    "tool_names: [Read, Bash, Glob, Grep]", "tool_names: [Read, Bash, Glob]"
+                    "tool_names: [Read, Bash, Glob, Grep, Skill]",
+                    "tool_names: [Read, Bash, Glob, Skill]",
                 ),
                 encoding="utf-8",
             )
@@ -224,6 +225,98 @@ class HookManifestTests(unittest.TestCase):
             )
             self.assertTrue(
                 any("wrong shape" in error for error in validate_host_dialects(root)),
+            )
+
+
+class ReviewRegressionTests(unittest.TestCase):
+    """Each case is a hole the PR review found in the gate itself."""
+
+    def test_a_comment_between_entries_does_not_truncate_the_table(self) -> None:
+        """An unindented comment is ordinary YAML, not a top-level key.
+
+        Treating it as one closed the mapping and silently dropped every host
+        after it -- and since each rule iterates the records returned, the gate
+        stayed green while three of the four hosts stopped being checked.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / HOSTS_DOCUMENT
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    "  antigravity:", "# --- an ordinary separator ---\n  antigravity:", 1
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(set(host_records(root)), set(EXPECTED_HOSTS))
+            self.assertEqual(validate_host_dialects(root), [])
+
+    def test_a_dropped_host_fails_rather_than_going_unchecked(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / HOSTS_DOCUMENT
+            text = document.read_text(encoding="utf-8")
+            document.write_text(text[: text.index("  opencode:")], encoding="utf-8")
+            self.assertTrue(
+                any("opencode" in error for error in validate_host_dialects(root)),
+            )
+
+    def test_wiring_at_an_unverified_path_is_rejected_whatever_its_dialect(self) -> None:
+        """Codex records `toml_inherited` with no tool names.
+
+        Gating the rejection on a renderable dialect meant nothing shipped under
+        .codex/agents/ could ever be reported, though the rule promises to reject
+        every artifact at an unverified path.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            manifest = root / ".codex/agents/infra-auditor.toml"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('name = "infra-auditor"\n', encoding="utf-8")
+            self.assertTrue(
+                any(".codex/agents" in error for error in validate_host_dialects(root)),
+            )
+
+    def test_the_shared_agent_directory_is_not_reported_as_unverified(self) -> None:
+        """Antigravity's unverified path IS Claude's verified one.
+
+        The owner's dialect rule governs that file; reporting it twice would make
+        the collision unshippable rather than recorded.
+        """
+        self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+
+    def test_a_hook_matcher_that_contradicts_the_record_is_rejected(self) -> None:
+        """Antigravity takes "*" and Claude an explicit source list.
+
+        A manifest carrying the wrong one is discovered and then never fires, and
+        nothing compared the manifest against the recorded matcher.
+        """
+        for relative in ("hooks.json", "hooks/hooks.json"):
+            with self.subTest(manifest=relative), tempfile.TemporaryDirectory() as directory:
+                root = build_root(directory)
+                manifest = root / relative
+                payload = json.loads(manifest.read_text(encoding="utf-8"))
+                payload["hooks"]["SessionStart"][0]["matcher"] = "something-else"
+                manifest.write_text(json.dumps(payload), encoding="utf-8")
+                self.assertTrue(
+                    any("matcher" in error for error in validate_host_dialects(root)),
+                )
+
+    def test_a_repo_relative_runbook_path_is_rejected(self) -> None:
+        """The agent's working directory is the CONSUMING repository.
+
+        A repo-relative `skills/infra-copilot/...` resolves into the consumer and
+        finds nothing; it only looks correct from a source checkout of this repo.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / AGENT_PATH
+            document.write_text(
+                document.read_text(encoding="utf-8")
+                + f"\nAlso read {AGENT_FORBIDDEN_PATH}status.md directly.\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                any("consuming repository" in error for error in validate_host_dialects(root)),
             )
 
 

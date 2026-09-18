@@ -1249,6 +1249,11 @@ def validate_manifest_shape(root: Path = ROOT) -> list[str]:
 
 
 HOSTS_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/hosts.yaml"
+#: The hosts this plugin ships to. Named explicitly because every rule below
+#: iterates the records the table yields: a table that loses a host silently
+#: stops checking it instead of failing, which is how a stray comment between
+#: entries dropped three of the four.
+EXPECTED_HOSTS = frozenset({"claude", "antigravity", "codex", "opencode"})
 #: Where a host's subagent manifest and hook manifest ship, and the exact `tools`
 #: line each dialect requires. Keyed by the host names hosts.yaml declares.
 #:
@@ -1271,10 +1276,16 @@ TOOLS_DIALECTS = {
     "bool_map": lambda names: "tools:\n" + "\n".join(f"  {name}: true" for name in names),
 }
 AGENT_NAME = "infra-auditor"
-#: The shared runbook the agent must delegate to rather than restate. An agent
-#: carrying its own copy of the scan is a second behavioural authority, which is
-#: the failure mode the whole references/ layout exists to prevent.
-AGENT_RUNBOOK = "skills/infra-copilot/references/status.md"
+#: What the agent must delegate to rather than restate. An agent carrying its own
+#: copy of the scan is a second behavioural authority, which is the failure mode
+#: the whole references/ layout exists to prevent.
+#:
+#: It must name the hub skill and the runbook, and must NOT carry a repo-relative
+#: path to it. The agent's working directory is the *consuming* repository, so
+#: "skills/infra-copilot/references/status.md" resolves into the consumer and finds
+#: nothing -- it only looks right when run from a source checkout of this repo.
+AGENT_RUNBOOK = ("infra-copilot", "status.md")
+AGENT_FORBIDDEN_PATH = "skills/infra-copilot/references/"
 #: Tools that would make the read-only contract unenforceable. The point of the
 #: agent is that the guarantee is a capability boundary, not a promise in prose.
 AGENT_FORBIDDEN_TOOLS = ("Write", "Edit", "NotebookEdit", "replace_file_content")
@@ -1294,7 +1305,12 @@ def host_records(root: Path = ROOT) -> dict[str, str]:
     current: str | None = None
     in_hosts = False
     for line in text.splitlines():
-        if line and not line[:1].isspace():
+        if line.lstrip().startswith("#") or not line.strip():
+            # Comments and blank lines belong to whatever block encloses them. An
+            # unindented comment is ordinary YAML, and treating it as a top-level key
+            # closed the mapping and silently dropped every host after it.
+            continue
+        if not line[:1].isspace():
             # A new top-level key. Only `hosts:` opens the mapping we read; anything
             # else closes it, so a same-named key nested under a later mapping cannot
             # reset a real record to empty and silence every rule keyed on it.
@@ -1363,6 +1379,11 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     records = host_records(root)
     if not records:
         return [f"{HOSTS_DOCUMENT}: no host records found; the capability table is unreadable"]
+    if missing := EXPECTED_HOSTS - set(records):
+        errors.append(
+            f"{HOSTS_DOCUMENT}: no record for {sorted(missing)}; every rule here iterates "
+            "the records this table yields, so a dropped host stops being checked"
+        )
 
     # --- the agent, which exactly one host can have (see hosts.yaml) ------------
     owners = [host for host, block in records.items() if _verified(block, "agent")]
@@ -1398,10 +1419,17 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
             )
         if f"name: {AGENT_NAME}" not in text:
             errors.append(f"{relative}: agent name must be {AGENT_NAME!r}")
-        if AGENT_RUNBOOK not in text:
+        for marker in AGENT_RUNBOOK:
+            if marker not in text:
+                errors.append(
+                    f"{relative}: must delegate to the {marker!r} runbook; an agent that "
+                    "restates the scan becomes a second behavioural authority"
+                )
+        if AGENT_FORBIDDEN_PATH in text:
             errors.append(
-                f"{relative}: must delegate to {AGENT_RUNBOOK}; an agent that restates "
-                "the scan becomes a second behavioural authority"
+                f"{relative}: carries the repo-relative path {AGENT_FORBIDDEN_PATH!r}, "
+                "which resolves into the consuming repository rather than the plugin "
+                "payload; load the skill by name instead"
             )
         for forbidden in AGENT_FORBIDDEN_TOOLS:
             if forbidden in names:
@@ -1413,20 +1441,34 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     # A host whose agent record is unverified must not have a manifest sitting at
     # its recorded path -- that is how the Antigravity dialect ended up being the
     # file Claude loaded.
+    owned_directories = {
+        _field(records[host], "agent", "path") for host in owners
+    }
     for host, block in records.items():
-        if _verified(block, "agent") is not False:
+        if _verified(block, "agent") is not False or host in owners:
             continue
         directory = _field(block, "agent", "path")
-        if directory and host not in owners:
-            relative = f"{directory.rstrip('/')}/{AGENT_FILENAME}"
-            text = read_document(root / relative)
-            expected = TOOLS_DIALECTS.get(_field(block, "agent", "tools_dialect") or "")
-            names = _tool_names(block)
-            if text is not None and expected is not None and names and expected(names) in text:
-                errors.append(
-                    f"{relative}: carries {host}'s dialect, whose record is unverified; "
-                    "the host that does load this path would get tool names it lacks"
-                )
+        if not directory or directory == "null":
+            continue
+        if directory in owned_directories:
+            # The collision the table documents: Antigravity's unverified path IS
+            # Claude's verified one. The dialect check on the owner already governs
+            # this file, and the owner rule is what keeps the wrong dialect out.
+            continue
+        # Existence is the whole test. Gating this on a renderable dialect meant
+        # Codex -- recorded `toml_inherited` with no tool names -- could ship any
+        # manifest at .codex/agents/ and stay green, while this function promises
+        # to reject every artifact at an unverified path.
+        shipped = sorted(
+            path.relative_to(root).as_posix()
+            for path in (root / directory.rstrip("/")).glob("*")
+            if path.is_file()
+        )
+        for relative in shipped:
+            errors.append(
+                f"{relative}: {host}'s agent record is unverified, so this manifest "
+                "asserts wiring nothing has demonstrated"
+            )
 
     # --- hook manifests ---------------------------------------------------------
     for host, block in records.items():
@@ -1441,6 +1483,23 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
             errors.append(
                 f"{relative}: {host}'s hook record is unverified, so this manifest "
                 "asserts a discovery path nothing has demonstrated"
+            )
+        if not (verified and exists):
+            continue
+        # The matcher is the other half of the discovery fact: Antigravity takes
+        # "*" and Claude an explicit source list, and a manifest carrying the wrong
+        # one is discovered and then never fires. Nothing compared them.
+        recorded = (_field(block, "hook", "matcher") or "").strip('"')
+        try:
+            entries = load_json(relative, root)["hooks"]["SessionStart"]
+        except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
+            errors.append(f"{relative}: no SessionStart hooks entry to check ({error})")
+            continue
+        actual = {str(entry.get("matcher")) for entry in entries if isinstance(entry, dict)}
+        if actual != {recorded}:
+            errors.append(
+                f"{relative}: SessionStart matcher {sorted(actual)} != {recorded!r} as "
+                f"{HOSTS_DOCUMENT} records it for {host}"
             )
 
     # Antigravity counts every top-level key of the root manifest as a hook, so a

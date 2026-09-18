@@ -24,16 +24,21 @@ skills are rediscovered.
 
 ### Session announcement
 
-On Claude Code, a `SessionStart` hook announces that the plugin is installed when the
-working directory carries any of its markers — `.infra-copilot/config.md`, the legacy
+On Claude Code and Antigravity, a `SessionStart` hook announces that the plugin is
+installed when the working directory carries any of its markers — `.infra-copilot/config.md`, the legacy
 `.claude/infra-copilot.local.md`, or a `terraform/` tree. Discovery otherwise depends on
 a user's phrasing happening to match a skill description. It is
 deliberately static: one file-existence test, no provider calls, no `git`, and it names
 the skills rather than reporting any state, because state is re-derived by running each
 step check. Silence it with `INFRA_COPILOT_HOOK_DISABLE=1`.
 
-Codex, Antigravity and OpenCode wiring is not shipped yet — see
-[#42](https://github.com/hasansezertasan/infra-copilot/issues/42).
+Each host reads its own manifest: Claude `hooks/hooks.json`, Antigravity the root
+`hooks.json`. Codex ships none — its plugin hooks are gated behind an experimental flag
+*and* an interactive trust review, and no SessionStart hook fired from any candidate path
+in a real session, so a manifest there would assert wiring that does not work. OpenCode
+has no hook mechanism at all; it installs by copying skills into the consuming repository.
+The per-host records and the evidence behind each are in
+[`hosts.yaml`](skills/infra-copilot/references/hosts.yaml).
 
 ## Configure
 
@@ -91,11 +96,11 @@ the cost of an accident — but not as a boundary.
 What does work: sandbox isolation, or — for apply specifically — **running the agent as a
 principal that lacks apply permission**. Note that is not the token `terraform login`
 mints: a user token carries its user's permissions, so this needs a separate identity that
-phase 0 does not create. A
-read-only subagent ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
-narrows the surface but cannot enforce change-nothing: the scan runs manifest-defined
-shell checks, so
-it needs `Bash`, and `Bash` writes files.
+phase 0 does not create. The `infra-auditor` subagent now runs the
+scan in an isolated context and its grant carries no `Edit` or `Write`, but that still
+does not enforce change-nothing: the scan runs manifest-defined shell checks, so it needs
+`Bash`, and `Bash` writes files. It is a context boundary and a narrowed surface, not a
+sandbox.
 
 The document also states which secrets never reach the agent and which one does.
 
