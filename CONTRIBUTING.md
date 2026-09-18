@@ -81,8 +81,10 @@ Generated files are committed on purpose, so users can install the plugin withou
 `smoke-opencode` is outside `check` on purpose: installing the plugin is a different
 claim from the payloads being valid, so it is a separate CI job with its own signal, and
 it still blocks the merge. It used to be separated for cost — `npx --yes skills@…`
-resolved the installer on every run, 421 seconds against 65 for the tests — but `npm ci`
-installs the whole locked closure once, from a cache every job shares.
+resolved the installer on every run, 421 seconds against 65 for the tests — but `skills`
+is pure JavaScript, and `npm ci` now installs it with the rest of the locked closure from
+a cache every job shares. `ai-rulez` is the exception: its launcher pulls a ~16MB Go
+binary from GitHub releases the first time each job runs it, which no npm cache holds.
 
 `make smoke-opencode` runs against a copy of the working tree in a temp directory, so it
 writes nothing into your checkout. That is deliberate: `skills add --copy` produces

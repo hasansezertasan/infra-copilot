@@ -73,13 +73,16 @@ test:  ## Run the repository validator tests
 # state this target does not own, so it never writes to the real tree at all.
 #
 # The copy is of the working tree, so uncommitted skill edits are covered. node_modules
-# is dropped from it: $(SKILLS) is an absolute path into the real checkout, so a second
-# dependency tree would only be something for `skills add .` to walk.
+# is excluded from it: $(SKILLS) is an absolute path into the real checkout, so a second
+# dependency tree would only be something for `skills add .` to walk. Excluded rather
+# than copied and deleted, because the target now depends on $(INSTALL_STAMP) -- the
+# tree is always there, and it holds ai-rulez's ~16MB binary.
 .PHONY: smoke-opencode
 smoke-opencode: $(INSTALL_STAMP)  ## Install into a throwaway copy and assert the OpenCode skill payload
 	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
-	cp -R . "$$tmp/repo" && \
-	rm -rf "$$tmp/repo/.agents/skills" "$$tmp/repo/skills-lock.json" "$$tmp/repo/node_modules" && \
+	mkdir "$$tmp/repo" && \
+	tar --exclude node_modules -cf - . | tar -xf - -C "$$tmp/repo" && \
+	rm -rf "$$tmp/repo/.agents/skills" "$$tmp/repo/skills-lock.json" && \
 	cd "$$tmp/repo" && \
 	"$(SKILLS)" add . --agent opencode --skill '*' -y --copy && \
 	expected=$$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]') && \
@@ -157,8 +160,11 @@ check: lint validate test  ## Everything CI runs on a pull request
 # smoke-opencode is NOT in `check`: it installs the plugin into a throwaway copy of the
 # tree, which is a different failure than "the payloads are valid" and is worth its own
 # CI job and its own signal. The 421s registry tail that originally forced the split
-# (measured on #43, against an on-demand package-runner download) is gone: `npm ci`
-# installs the whole locked closure once, from a cache both jobs share.
+# (measured on #43, against an on-demand package-runner download) is gone: that tail was
+# `skills`, which is pure JavaScript, and `npm ci` now installs it with the rest of the
+# locked closure from a cache both jobs share. One fetch is not cached -- ai-rulez ships
+# a launcher that pulls its ~16MB Go binary from GitHub releases the first time a job
+# runs it, which is why `make validate` still needs the network.
 .PHONY: check-all
 check-all: check smoke-opencode  ## check plus the OpenCode install smoke test
 	@echo "all checks passed"
