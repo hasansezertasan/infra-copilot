@@ -24,7 +24,7 @@
   `hosts.md` rather than restating capabilities, and `validate_layout` lists them.
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
-  `scripts/validate.py --closure <skill>` prints it and `make smoke-closure` installs it.
+  `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
 - Moved consuming-repo configuration to `.infra-copilot/config.md` and design decisions to
   `.infra-copilot/decisions.md`, with templates and legacy Claude paths supported during
   migration.

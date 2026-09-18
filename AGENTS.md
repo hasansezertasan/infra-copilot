@@ -43,6 +43,12 @@ Never invoke `npx ai-rulez`, `python3 scripts/validate.py`, or the `skills` inst
 directly in documentation, in a commit's verification step, or in the Linux CI job.
 `make check` is CI parity.
 
+This governs **this repository's own workflow**. The install guides under `docs/` address
+a different audience: those commands run in the *consuming* repo, which has no copy of
+this Makefile, so they name each host's native installer — `npx skills add` on OpenCode,
+`/plugin install` on Claude Code. That is the supported public install path and has been
+the README's since #4. The rule binds maintainer instructions, not user instructions.
+
 One deliberate exception: the `windows-paths` job in `.github/workflows/check.yml` calls
 `python scripts/validate.py` and the tests directly, because `make` is not guaranteed on
 `windows-latest`. That job exists to prove paths stay portable, not to be CI parity. Leave
