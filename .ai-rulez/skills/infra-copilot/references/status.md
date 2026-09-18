@@ -69,7 +69,7 @@ preflight — is in
      dirty the checkout, and this command promises to change nothing. Instead, read the
      **run status per workspace via the HCP API** (non-mutating — see
      [`docs/hcp-api.md`](docs/hcp-api.md)).
-     
+
      **Exception for object-storage mode:** The plan checks (`plan-cloudflare-gha`,
      `plan-github-gha`) and `migrate-import` check perform only GitHub API reads and
      log inspection — no local `terraform` commands. These checks ARE safe to run during

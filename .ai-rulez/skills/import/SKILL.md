@@ -29,6 +29,7 @@ needs the target leaf working (the `cloudflare` leaf for a zone/DNS import, `git
 and a green plan to diff the imports against.
 
 **Plan verification differs by backend mode:**
+
 - **HCP mode**: Run `terraform plan` locally — credentials are in the HCP workspace variables.
 - **Object-storage mode**: Credentials are GitHub Actions secrets; local plans won't authenticate.
   Commit the generated imports, trigger a workflow run (`gh workflow run terraform-plan.yml`),

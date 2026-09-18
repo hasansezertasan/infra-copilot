@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:42f006af03101fdff6659a51c44412f75a8a9f7f218de604aafd85de5b62b76f
-Source-Hash: blake3:941ec054c7507013dc62ef5235e8ea39883fb88dc520f89a2873ffd8a02f4503
+Content-Hash: blake3:7d770fd366c441e1480f19112bd4db540c72956f4531ee70ea1ec4fa2af69056
+Source-Hash: blake3:320923a9b07c90a01662e214bf89a8fabb3c19eefd5b8faffd83398c5006e1ee
 Schema-Version: v1
 -->
 
@@ -76,7 +76,7 @@ preflight — is in
      dirty the checkout, and this command promises to change nothing. Instead, read the
      **run status per workspace via the HCP API** (non-mutating — see
      [`docs/hcp-api.md`](docs/hcp-api.md)).
-     
+
      **Exception for object-storage mode:** The plan checks (`plan-cloudflare-gha`,
      `plan-github-gha`) and `migrate-import` check perform only GitHub API reads and
      log inspection — no local `terraform` commands. These checks ARE safe to run during

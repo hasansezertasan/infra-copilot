@@ -945,7 +945,7 @@ steps:
       echo "$contexts" | grep -q '"validate (github)"' || exit 1
       # Live verification is deferred to workflow execution - if protection isn't applied,
       # PRs will merge without required checks which is immediately visible.
-      # The HCL source-of-truth above ensures terraform apply will configure it correctly.
+      # The HCL source-of-truth above ensures the Terraform run will configure it correctly.
     produces: branch protection references GitHub Actions job names
     docs: docs/ci.md#branch-protection
 
