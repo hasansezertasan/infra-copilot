@@ -24,7 +24,7 @@ order is fixed:
 | Block | Remove when | Never |
 |---|---|---|
 | `import {}` | `terraform state list` contains the `to =` address | before the apply |
-| `moved {}` | state contains the **new** address **and** not the old one | while either is untrue |
+| `moved {}` | state holds the **new** address (or its instances/descendants) **and** not the old one | while either is untrue |
 | either, under `terraform/modules/` | **every** consuming leaf's state says so | while any consumer is unchecked |
 
 Everything else stays. `resource`, `data`, `module`, `provider`, `variable`, `locals`,
@@ -71,16 +71,36 @@ on it.
 state=$(mktemp) && chmod 600 "$state"    # addresses are not secret; a shared /tmp path is
 terraform state list > "$state"          # still someone else's to overwrite
 
-# For each `to = <address>` in an import block, the address must already be there:
-grep -Fx 'cloudflare_dns_record.www' "$state"
+# `held` exits 0 when state contains this address or anything under it. index($0,…)==1
+# anchors at the start of the line, so `module.new` never matches `module.newer`.
+held() {
+  awk -v a="$1" '$0 == a || index($0, a ".") == 1 || index($0, a "[") == 1 {f=1}
+                 END { exit !f }' "$2"
+}
 
-# For each moved block, the NEW address is present and the OLD one is gone:
-grep -Fx '<new address>' "$state" && ! grep -Fx '<old address>' "$state"
+# import: the `to =` address must already be held.
+held 'cloudflare_dns_record.www' "$state"
+
+# moved: the NEW address is held and the OLD one is not.
+held '<new address>' "$state" && ! held '<old address>' "$state"
 
 rm -f "$state"
 ```
 
-Any address that is missing means that block is still pending. Leave it, and every other
+The three shapes matter because **an aggregate `to` never appears verbatim**.
+`terraform state list` prints `module.new.aws_instance.x`, never bare `module.new`; it
+prints `aws_instance.x[0]` and `…["a"]`, never bare `aws_instance.x` for a resource with
+`count` or `for_each`. A whole-line comparison against those `to` addresses fails forever,
+so an applied move reads as pending and the leaf can never be pruned.
+
+Two things follow. The prefix must be **anchored** — that is what `index(…) == 1` buys:
+unanchored, `module.new` matches `module.newer` and a different module's state entry
+proves your move. And when the `to` names one keyed instance, query it **whole**,
+`cloudflare_dns_record.this["www"]` and not `cloudflare_dns_record.this`: the bare name
+answers "does any key exist", which is the aggregate question, so a single applied record
+would vouch for every still-pending one.
+
+Any address that is not held means that block is still pending. Leave it, and every other
 block in that leaf, alone: finish the import first.
 
 **A block under `terraform/modules/` is not one leaf's to prune.** A shared module is an
@@ -97,18 +117,12 @@ grep -rl 'modules/<name>' terraform/*/ --include='*.tf'   # every leaf that uses
 If any consumer is unmigrated or unreadable, leave the block. Plan every consuming leaf,
 not just one, before opening the PR.
 
-A `to =` that is an expression rather than a literal address —
-`cloudflare_dns_record.this[each.key]`, `…[count.index]` — never appears in
-`terraform state list` as written. Compare the resource's *instances* instead: every
-address `terraform state list` reports for that resource, matched against the keys the
-configuration expands to. If you cannot enumerate them confidently, treat the block as
-pending. A literal grep that finds nothing is the one case where "missing from state" is
-not evidence of anything.
-
-> Addresses with an index (`cloudflare_dns_record.this["www"]`) appear in
-> `terraform state list` exactly as written in the block, quotes included. Compare whole
-> lines (`grep -Fx`): a substring match on `cloudflare_dns_record.this` reports every key
-> in the map as present, so one still-pending record would read as spent.
+One case `held` cannot settle: a `to =` written as an *expression* —
+`cloudflare_dns_record.this[each.key]`, `…[count.index]`. It is not an address at all
+until the configuration expands, so nothing in state can match it. Compare instances
+instead: the addresses state reports for that resource, against the keys the config
+expands to. If you cannot enumerate them confidently, treat the block as pending — this
+is the one case where "not in state" is evidence of nothing.
 
 ## Refuse on a dirty plan
 
