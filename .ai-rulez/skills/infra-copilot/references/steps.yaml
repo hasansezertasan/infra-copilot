@@ -769,9 +769,9 @@ steps:
       git ls-files --error-unmatch \
         .github/workflows/terraform-plan.yml \
         .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
-      # Valid YAML syntax (catches copy-paste errors)
-      yq '.' .github/workflows/terraform-plan.yml >/dev/null 2>&1 || exit 1
-      yq '.' .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
+      # Valid YAML syntax (python3 is more commonly available than yq)
+      python3 -c "import yaml; yaml.safe_load(open('.github/workflows/terraform-plan.yml'))" 2>/dev/null || exit 1
+      python3 -c "import yaml; yaml.safe_load(open('.github/workflows/terraform-apply.yml'))" 2>/dev/null || exit 1
       # Basic job existence - detailed validation happens in Phase 4 when workflows run
       grep -q "plan-cloudflare" .github/workflows/terraform-plan.yml || exit 1
       grep -q "plan-github" .github/workflows/terraform-plan.yml || exit 1
@@ -855,15 +855,11 @@ steps:
       You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR.
       Verify that the plan-cloudflare job runs and finishes successfully.
     check: |
-      # Reject uncommitted changes to relevant paths - a stale run cannot prove current state
-      git diff --quiet -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
-        echo "Uncommitted changes in relevant paths - commit before accepting plan evidence" >&2
+      # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
+      if [ -n "$(git status --porcelain -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)" ]; then
+        echo "Uncommitted, staged, or untracked changes in relevant paths - commit before accepting plan evidence" >&2
         exit 1
-      }
-      git diff --cached --quiet -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
-        echo "Staged changes in relevant paths - commit before accepting plan evidence" >&2
-        exit 1
-      }
+      fi
       # Find the newest commit that changed relevant paths
       target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
@@ -896,15 +892,11 @@ steps:
       You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR.
       Verify that the plan-github job runs and finishes successfully.
     check: |
-      # Reject uncommitted changes to relevant paths - a stale run cannot prove current state
-      git diff --quiet -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
-        echo "Uncommitted changes in relevant paths - commit before accepting plan evidence" >&2
+      # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
+      if [ -n "$(git status --porcelain -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)" ]; then
+        echo "Uncommitted, staged, or untracked changes in relevant paths - commit before accepting plan evidence" >&2
         exit 1
-      }
-      git diff --cached --quiet -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
-        echo "Staged changes in relevant paths - commit before accepting plan evidence" >&2
-        exit 1
-      }
+      fi
       # Find the newest commit that changed relevant paths
       target_sha=$(git log --format=%H -1 -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
@@ -1165,15 +1157,11 @@ steps:
       if [ "$BACKEND" = "object-storage" ]; then
         # In object-storage mode, verify via the GitHub Actions plan workflow
         git ls-files --error-unmatch terraform/cloudflare/generated.tf >/dev/null 2>&1 || exit 1
-        # Reject uncommitted changes to relevant paths - a stale run cannot prove current state
-        git diff --quiet -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
-          echo "Uncommitted changes in relevant paths - commit before accepting plan evidence" >&2
+        # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
+        if [ -n "$(git status --porcelain -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)" ]; then
+          echo "Uncommitted, staged, or untracked changes in relevant paths - commit before accepting plan evidence" >&2
           exit 1
-        }
-        git diff --cached --quiet -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
-          echo "Staged changes in relevant paths - commit before accepting plan evidence" >&2
-          exit 1
-        }
+        fi
         # Find the newest commit that changed relevant paths
         target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
         [ -n "$target_sha" ] || exit 1
@@ -1211,12 +1199,27 @@ steps:
           echo "Import check failed: plan would forget resources from state" >&2
           exit 1
         fi
-        # Accept pending imports or completed (no-op plan)
+        # Accept pending imports
         if printf '%s' "$job_logs" | grep -q 'will be imported'; then
           exit 0  # Pending imports - ready for apply
         fi
+        # Accept no-op plan only if imports were actually applied (check apply workflow)
         if printf '%s' "$job_logs" | grep -qE 'No changes|Your infrastructure matches the configuration'; then
-          exit 0  # Completed - imports already applied
+          # Verify imports were applied by checking for successful apply-cloudflare run
+          apply_run=$(gh run list --repo "$REPO" --workflow terraform-apply.yml --branch main --limit 10 \
+            --json databaseId,conclusion,headSha \
+            -q '[.[] | select(.conclusion=="success")][0]' 2>/dev/null)
+          if [ -n "$apply_run" ]; then
+            apply_id=$(printf '%s' "$apply_run" | jq -r '.databaseId')
+            apply_job=$(gh run view "$apply_id" --repo "$REPO" --json jobs \
+              -q '.jobs[] | select(.name=="apply-cloudflare" and .conclusion=="success") | .databaseId' 2>/dev/null)
+            if [ -n "$apply_job" ]; then
+              exit 0  # Import completed - apply workflow ran successfully
+            fi
+          fi
+          echo "Import check: plan shows 'No changes' but no successful apply-cloudflare run found" >&2
+          echo "Run terraform-apply workflow to complete the import" >&2
+          exit 1
         fi
         echo "Import check failed: expected 'will be imported' or 'No changes'" >&2
         exit 1
@@ -1855,20 +1858,26 @@ steps:
       # Workflows are committed (no uncommitted changes)
       git diff --quiet HEAD -- .github/workflows/terraform-plan.yml \
         .github/workflows/terraform-apply.yml || exit 1
-      # Valid YAML syntax
-      yq '.' .github/workflows/terraform-plan.yml >/dev/null 2>&1 || exit 1
-      yq '.' .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
+      # Valid YAML syntax (python3 is more commonly available than yq)
+      python3 -c "import yaml; yaml.safe_load(open('.github/workflows/terraform-plan.yml'))" 2>/dev/null || exit 1
+      python3 -c "import yaml; yaml.safe_load(open('.github/workflows/terraform-apply.yml'))" 2>/dev/null || exit 1
       # Basic job existence for the new provider
       grep -q "plan-$NEW_PROVIDER:" .github/workflows/terraform-plan.yml || exit 1
       grep -q "apply-$NEW_PROVIDER:" .github/workflows/terraform-apply.yml || exit 1
       # Path filter mentions the new provider (either form)
       grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-plan.yml || exit 1
       grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-apply.yml || exit 1
-      # Detailed validation (auth, environment, path filters, aggregator) happens in
-      # new-provider-plan-gha when the workflow actually runs. If misconfigured:
-      # - Missing auth → terraform init fails with clear credential error
-      # - Missing environment → apply runs without approval gate (visible in run)
-      # - Wrong path filter → job doesn't trigger when expected (visible in PR)
+      # Verify apply job has environment protection (same gate as core apply jobs)
+      python3 -c "
+      import yaml
+      with open('.github/workflows/terraform-apply.yml') as f:
+        wf = yaml.safe_load(f)
+      job = wf.get('jobs', {}).get('apply-$NEW_PROVIDER', {})
+      env = job.get('environment')
+      if isinstance(env, dict):
+        env = env.get('name')
+      assert env == 'production', f'apply-\$NEW_PROVIDER job must use environment: production, got {env}'
+      " 2>/dev/null || exit 1
     produces: GitHub Actions workflows updated for new provider
     docs: docs/ci.md#github-actions
 
@@ -1884,15 +1893,11 @@ steps:
       Trigger via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR,
       and verify the plan job for $NEW_PROVIDER succeeds.
     check: |
-      # Reject uncommitted changes to relevant paths - a stale run cannot prove current state
-      git diff --quiet -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
-        echo "Uncommitted changes in relevant paths - commit before accepting plan evidence" >&2
+      # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
+      if [ -n "$(git status --porcelain -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)" ]; then
+        echo "Uncommitted, staged, or untracked changes in relevant paths - commit before accepting plan evidence" >&2
         exit 1
-      }
-      git diff --cached --quiet -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
-        echo "Staged changes in relevant paths - commit before accepting plan evidence" >&2
-        exit 1
-      }
+      fi
       # Find the newest commit that changed relevant paths
       target_sha=$(git log --format=%H -1 -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
