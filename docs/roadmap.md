@@ -49,9 +49,9 @@ oversight. Each item links to the issue that owns it.
   `hooks/hooks.json` — but discovery is not execution: a probe hook reduced to `touch`
   never fired, in print mode or an interactive TUI session. Codex gates plugin hooks
   behind an experimental flag *and* an interactive trust review, and none fired from any
-  candidate path. OpenCode has no hook mechanism. All three are recorded `verified:
-  false` in `hosts.yaml` with the evidence, and a test fails if a manifest is shipped at
-  a path no record verifies.
+  candidate path. OpenCode has no hook mechanism. All three are recorded unshipped in
+  `hosts.md` with the evidence, and a test fails if a manifest appears at one of those
+  paths.
   ([#42](https://github.com/hasansezertasan/infra-copilot/issues/42))
 - **The subagent ships to one host.** `infra-auditor` runs the scan in an isolated
   context on Claude. Claude and Antigravity both auto-discover root `agents/` and neither
@@ -59,12 +59,18 @@ oversight. Each item links to the issue that owns it.
   Claude's and Antigravity goes without. Its read-only promise is still unenforced for
   the reason above — it is context isolation, not a sandbox.
   ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
-- **Only Claude's question tool is verified.** `protocol.md` now specifies what a
-  *choosing* step does, and `hosts.yaml` carries a `question_tool` record per host. Only
-  Claude's is exercised, so the other three always take the text fallback; their modes
-  and choice limits were read off a tool name, not run. A row graduates by being
-  exercised. ([#12](https://github.com/hasansezertasan/infra-copilot/issues/12))
-- **Install is all-or-nothing.** There is no way to install `status` alone.
+- **Host capability records are hand-maintained and unverifiable.** `hosts.md` states each
+  host's native question tool and its modes and choice counts, and the protocol's
+  *Asking a decision* rule reads it. Nothing can prove a row is true: no host publishes a
+  machine-readable capability record, so validation gates citation and existence only.
+  A row that *understates* a host degrades the question to text, which is the safe
+  direction. A row that *overstates* one does not: the rule sees the request clear the
+  record and issues a native call the host then rejects. ([#12](https://github.com/hasansezertasan/infra-copilot/issues/12))
+- **Per-skill install exists on OpenCode only.** `--skill status --skill infra-copilot`
+  installs one skill and its closure there. The other three hosts install the whole
+  plugin because their native mechanisms offer no per-skill selection; a repo-specific
+  installer that added one is explicitly not planned.
+
   ([#20](https://github.com/hasansezertasan/infra-copilot/issues/20))
 
 ## Not planned

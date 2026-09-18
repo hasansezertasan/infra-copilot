@@ -73,63 +73,52 @@ what you observed — never silently proceed past a red check.
 
 ### Asking a decision
 
-The handoff block above is for *unblocking* steps — signup, mint, paste — where the only
-reply is "done". Some steps instead need the human to **choose**: which provider flavor to
-adopt (`add`), whether to scaffold a missing config (`setup`), whether a discovered
-resource should be adopted or excluded (`import`). Those are real choices, and the rule is
-three sentences:
+The handoff block above unblocks a step: it names work only a human can do and waits for
+`done`. A **decision** is different — the answer changes what the agent does next, and
+the answers are enumerable. Which provider flavor to adopt (`add`), whether to scaffold a
+missing config (`setup`), whether a discovered resource is adopted or excluded
+(`import`): each is a choice, not a handoff.
 
-> Ask exactly one logical decision and wait for its result. Use the host's native question
-> tool only when that named tool is currently declared **and** allowed **and**
-> [`hosts.yaml`](hosts.yaml) records this host's `question_tool` as `verified: true`
-> **and** that record supports the mode and choice count the request needs. Otherwise
-> render the identical request as text, including a final
-> `Other — enter a custom response`.
+Ask exactly one logical decision and wait for its result. Use the host's native question
+tool only when that named tool is currently declared **and** allowed **and** its
+capability record in [`hosts.md`](hosts.md) supports the request's mode and choice count.
+Otherwise render the identical request as text.
 
-The tool differs per host, and [`hosts.yaml`](hosts.yaml) is the authority on which
-of these is real on the host you are running on:
+The ceiling counts **the choices you send**. Where `hosts.md` records custom input as
+`host-supplied` the tool appends `Other` itself and you must not list one, so three
+explicit options is three choices; everywhere else you send `Other` and it counts.
 
-| Host | Native question tool | Modes | Choices | Verified |
-|---|---|---|---|---|
-| Claude Code | `AskUserQuestion` | binary, single, multi | 2–4 | yes |
-| Antigravity | `ask_question` | binary, single, multi | 2–4 | **no** |
-| Codex CLI | `request_user_input` | binary, single | 2–3 | **no** |
-| OpenCode | `question` | binary, single, multi | 2–4 | **no** |
+Two consequences of that rule worth stating, because they are the ones that bite:
 
-Only Claude Code's row is verified, so today it is the only host that takes the native
-path; the other three always render the request as text. That is deliberate. The modes
-and choice limits in the unverified rows were read off a tool name, not exercised, so
-trusting them would let a four-choice multi-select reach a call that cannot carry it —
-and a question the human never sees is worse than one rendered plainly. A row graduates
-by being exercised and recorded, not by looking plausible.
+- The tool names differ per host — `AskUserQuestion`, `request_user_input`,
+  `ask_question`, `question` — so never name one in a skill body. Read
+  [`hosts.md`](hosts.md) for the running host and use what it lists, or fall back.
+- A mode recorded as absent or `not recorded` means fall back, not improvise — a
+  multi-select request on a host recorded for binary and single is a text question.
+  `not recorded` **custom input** never forces the fallback; it only means you supply
+  `Other` yourself and count it.
 
-`AskUserQuestion` is the tool this repository grants: the `add`, `import`, and `setup`
-commands carry it in `allowed-tools`. That grant is what makes it *available*; this
-section is what makes it *used*.
-
-Both halves of the fallback matter. "Declared and allowed" is a runtime fact — Codex gates
-`request_user_input` behind an experimental flag, so a host whose capability record lists
-the tool may still not be offering it this session. The capability record is the second
-gate, not the first: it says a mode is *supported*, never that the tool is *present*. When
-either gate fails, the text rendering is not a downgrade — it is the same request, and the
-answer is read back the same way.
-
-The text form carries the same content as the tool call, so a run is legible whichever
-path it took:
+The text fallback is the same request, rendered:
 
 ```text
 ┌─ DECISION NEEDED ─────────────────────────────────
 │ Question: <one line — the single decision>
-│ Why:      <one line — what this choice determines>
+│ Why:      <what this changes downstream>
 │   1. <option> — <consequence>
 │   2. <option> — <consequence>
 │   3. Other — enter a custom response
+│ Reply with <one number | as many numbers as apply, comma-separated>, or your own answer.
 └───────────────────────────────────────────────────
 ```
 
-Never ask two decisions in one request, and never proceed on an unanswered one. A
-multi-select request on a host whose record does not list `multi` is split into
-single-select asks, not silently narrowed to one answer.
+The reply line is **mode-sensitive**: a single-select decision asks for one number, a
+multi-select decision asks for as many as apply. Multi-select is the mode most likely to
+reach this block — Codex is recorded for binary and single only — and a request that
+silently arrives as single-select is a different question from the one asked.
+
+Always offer `Other — enter a custom response` in the fallback, and as an explicit choice
+on any host whose custom input is not `host-supplied`. A decision the agent forces into
+its own list is a decision it made.
 
 ## Resume protocol
 
@@ -226,8 +215,8 @@ Never assume state from memory or a prior session — always re-check. See
 The scan is read-only, walks every phase, and produces a large amount of intermediate
 output — API JSON, per-step exit codes, tool versions — whose only consumer is the phase
 table and the verdict. **`status` and only `status`** may delegate it to the
-**`infra-auditor`** agent — and only when [`hosts.yaml`](hosts.yaml) records this host's
-`agent` as `verified: true`.
+**`infra-auditor`** agent — and only when [`hosts.md`](hosts.md) records a subagent
+manifest for this host.
 
 What the agent returns is [`status.md`](status.md)'s report **in full**: the preflight
 line, the phase table, and the verdict. Delegation moves where the scan runs, never what

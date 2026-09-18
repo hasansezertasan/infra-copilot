@@ -24,10 +24,10 @@ Content-Hash: blake3:…
 -->
 ```
 
-Fourteen of the 37 have no such header, because a comment block would not be valid in
+Thirteen of the 37 have no such header, because a comment block would not be valid in
 them — `.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`,
 `.codex-plugin/plugin.json`, `config.md.example`, `decisions.md.example`, `steps.yaml`,
-`hosts.yaml`, `checks/status-check-context.sh`, `checks/hcp-apply-scope.sh`,
+`checks/status-check-context.sh`, `checks/hcp-apply-scope.sh`,
 `checks/hcp-bootstrap-workspaces.sh`, `checks/leaf-cloud.sh`,
 `checks/hcp-current-plan.sh`, `templates/terraform-apply.yml`, and
 `templates/terraform-plan.yml` — so a missing header proves nothing.
@@ -45,7 +45,7 @@ Hand-authored, and safe to edit directly:
 | `.agents/plugins/marketplace.json` | Codex marketplace; same reason |
 | `scripts/validate.py`, `tests/` | The repository's own validators |
 | `hooks/` | The SessionStart hook; `ai-rulez` has no hook support, so these are hand-authored |
-| `agents/` | The `infra-auditor` subagent; `ai-rulez` has no agent surface. Claude and Antigravity both auto-discover this one directory with incompatible `tools` shapes, so it carries Claude's and `hosts.yaml` records why Antigravity goes without |
+| `agents/` | The `infra-auditor` subagent; `ai-rulez` has no agent surface. Claude and Antigravity both auto-discover this one directory with incompatible `tools` shapes, so it carries Claude's and `hosts.md` records why Antigravity goes without |
 | `Makefile`, `.github/workflows/` | Build and CI |
 | `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`, `docs/` | Documentation |
 

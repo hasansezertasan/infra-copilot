@@ -967,6 +967,224 @@ def validate_shipped_check_paths(root: Path = ROOT) -> list[str]:
     return errors
 
 
+#: The shipped copy is what a user actually installs, so it is the one gated. ai-rulez
+#: copies the whole references tree, and `verify --plugin` fails on drift from the source.
+HOSTS_DOCUMENT = "skills/infra-copilot/references/hosts.md"
+HOSTS_BASENAME = "hosts.md"
+PROTOCOL_DOCUMENTS = (
+    ".ai-rulez/skills/infra-copilot/references/protocol.md",
+    "skills/infra-copilot/references/protocol.md",
+)
+INSTALL_GUIDE_GLOB = "install-*.md"
+#: The section that gives the AskUserQuestion grant in commands/ a consumer.
+DECISION_HEADING = "### Asking a decision"
+#: A row is identified by having an install-guide cell; column 1 is the host and
+#: column 2 the question tool. Everything between them is free, because hosts.md
+#: invites new per-host columns (#19 subagent manifests, #42 hook paths) and a
+#: pattern anchored to the last column would make every row unparseable the day one
+#: is added -- reporting "no rows" about cells that are all present.
+HOST_GUIDE_CELL = re.compile(r"\A`(docs/install-[a-z0-9-]+\.md)`\Z")
+HOST_TOOL_CELL = re.compile(r"\A`([A-Za-z_][A-Za-z0-9_]*)`\Z")
+
+
+def link_targets(document: str) -> set[str]:
+    """Every local Markdown link target in ``document``, path only.
+
+    The citation gates below used substring tests, which a bare mention in prose
+    satisfied -- "See references/hosts.md" passed while the page carried no
+    navigable link, so the one thing the gate exists to guarantee was absent.
+    """
+    targets: set[str] = set()
+    for raw in MARKDOWN_LINK.findall(document):
+        parsed = urlsplit(raw.strip().strip("<>"))
+        if parsed.scheme or parsed.netloc:
+            continue
+        path = unquote(parsed.path)
+        if path:
+            targets.add(path)
+    return targets
+
+
+def cites_hosts_record(document: str) -> bool:
+    """Whether ``document`` links the host record, as opposed to naming its path.
+
+    One helper for every citation gate. The protocol's check was left as a substring
+    test when the guide and README checks were tightened, so protocol.md could lose
+    its link and keep the words -- the same near-miss, one file later.
+    """
+    return any(
+        PurePosixPath(target).name == HOSTS_BASENAME
+        for target in link_targets(document)
+    )
+
+
+def host_records(root: Path = ROOT) -> dict[str, tuple[str, str]]:
+    """Each host row in hosts.md as ``host -> (question tool, install guide)``.
+
+    The tool is empty when column 2 does not hold a backticked identifier;
+    ``validate_host_contract`` reports that as its own error rather than letting the
+    row vanish and resurface as an unrelated complaint about an orphan guide.
+    """
+    text = read_document(root / HOSTS_DOCUMENT)
+    if text is None:
+        return {}
+    records: dict[str, tuple[str, str]] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        guides = [
+            match.group(1)
+            for match in (HOST_GUIDE_CELL.match(cell) for cell in cells)
+            if match
+        ]
+        if not guides or len(cells) < 2:
+            continue
+        tool = HOST_TOOL_CELL.match(cells[1])
+        records[cells[0]] = (tool.group(1) if tool else "", guides[0])
+    return records
+
+
+def decision_section(protocol: str) -> str | None:
+    """The body of the decision section, or None when the heading is absent.
+
+    Scoped rather than whole-document: the check exists so that deleting the rule
+    fails here, and a tool named anywhere else in protocol.md -- the preflight, a
+    later note -- would otherwise satisfy it for a document that no longer carries
+    the rule at all.
+    """
+    start = protocol.find(DECISION_HEADING)
+    if start < 0:
+        return None
+    body = protocol[start + len(DECISION_HEADING) :]
+    following = re.search(r"^#{1,6} ", body, re.MULTILINE)
+    return body[: following.start()] if following else body
+
+
+def validate_host_contract(root: Path = ROOT) -> list[str]:
+    """hosts.md is the only per-host record, and everything else cites it.
+
+    Three documents independently grew per-host facts: the README install table, the
+    protocol's human-interaction rules, and the command frontmatter that grants
+    ``AskUserQuestion`` to three commands no document ever told to use it. This gates
+    the arrangement that replaced them -- one table, cited rather than copied.
+
+    What it can check is existence and citation, not truth: no host publishes a
+    machine-readable capability record, so a wrong capability claim is only catchable
+    by a session on that host. Citation is exactly the part that drifts silently,
+    which is why it is the part with a gate.
+    """
+    errors: list[str] = []
+    records = host_records(root)
+    if len(records) < 2:
+        return [
+            f"{HOSTS_DOCUMENT}: no host capability rows parsed; each row needs a "
+            "`tool` column and a `docs/install-*.md` column"
+        ]
+
+    guides = {guide for _, guide in records.values()}
+    for host, (tool, guide) in sorted(records.items()):
+        if not tool:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {host} has no question tool in column 2; it must "
+                "be a backticked identifier such as `AskUserQuestion`"
+            )
+        document = read_document(root / guide)
+        if document is None:
+            errors.append(f"{HOSTS_DOCUMENT}: {host} names {guide}, which is missing")
+            continue
+        # Pointing back is what keeps the guide from becoming a second source of truth.
+        # The link has to be a link: docs/ sits at a different depth from both copies
+        # of the references tree, so a reader who cannot click it has to guess.
+        if not cites_hosts_record(document):
+            errors.append(
+                f"{guide}: does not link references/hosts.md; per-host capabilities "
+                "must be cited there, not restated here"
+            )
+
+    # An install guide absent from the table is a page nothing points at -- the
+    # documented-but-nonexistent failure inverted, and just as invisible.
+    for orphan in sorted((root / "docs").glob(INSTALL_GUIDE_GLOB)):
+        relative = orphan.relative_to(root).as_posix()
+        if relative not in guides:
+            errors.append(f"{relative}: install guide is not listed in {HOSTS_DOCUMENT}")
+
+    readme = read_document(root / "README.md")
+    if readme is None:
+        errors.append("README.md: unreadable, cannot check install-guide links")
+    else:
+        linked = link_targets(readme)
+        errors.extend(
+            f"README.md: install table does not link {guide}"
+            for guide in sorted(guides)
+            if guide not in linked
+        )
+
+    # #12: the AskUserQuestion grant in command frontmatter had no consumer. The
+    # protocol now states when to use a native question tool; assert it still does,
+    # so deleting that section fails here instead of silently orphaning the grant.
+    # Matched on a word boundary and paired with the heading: one recorded tool is
+    # named `question`, so a bare substring test would be satisfied by any prose in
+    # protocol.md using the English word, and deleting the rule would pass.
+    tools = {tool for tool, _ in records.values() if tool}
+    named = re.compile(r"\b(?:%s)\b" % "|".join(re.escape(tool) for tool in sorted(tools)))
+    for relative in PROTOCOL_DOCUMENTS:
+        protocol = read_document(root / relative)
+        if protocol is None:
+            errors.append(f"{relative}: unreadable, cannot check the question-tool rule")
+            continue
+        if not cites_hosts_record(protocol):
+            errors.append(f"{relative}: does not link {HOSTS_BASENAME}")
+        section = decision_section(protocol)
+        if section is None:
+            errors.append(f"{relative}: has no {DECISION_HEADING!r} section")
+        elif not tools or not named.search(section):
+            errors.append(
+                f"{relative}: its {DECISION_HEADING!r} section names no question tool "
+                f"from {HOSTS_DOCUMENT}; the allowed-tools grant in commands/ would "
+                "have no consumer"
+            )
+    return errors
+
+
+#: A skill depends on another when it reads that skill's references tree. The hub's
+#: links to `../<skill>/SKILL.md` are routing, not dependency -- it hands off to a
+#: skill it does not need installed -- so matching `references/` keeps the arrow
+#: pointing the right way and the hub's closure at one node.
+SKILL_DEPENDENCY = re.compile(r"\.\./(?P<skill>[a-z0-9-]+)/references/")
+#: Skills that own no operations of their own. `infra-copilot` selects a workflow and
+#: hands off, so installed alone it is a router with nothing to route to. They are
+#: valid closure *members* -- that is the whole point of the hub -- but never roots.
+#: Listed rather than derived: "nothing else depends on it" would also reject a future
+#: skill that is legitimately both an entry point and a dependency.
+ROUTER_SKILLS = frozenset({"infra-copilot"})
+
+
+def skill_closure(name: str, root: Path = ROOT) -> list[str]:
+    """``name`` plus every skill it needs, sorted.
+
+    Derived from the links each SKILL.md already carries rather than declared in a
+    manifest. A hand-written graph is a second place to state the same fact, and the
+    links are the copy that breaks loudly -- validate_links already proves each
+    target exists. A sixth skill declares its dependencies by linking them.
+    """
+    pending = [name]
+    closure: set[str] = set()
+    while pending:
+        skill = pending.pop()
+        if skill in closure:
+            continue
+        closure.add(skill)
+        document = read_document(root / ".ai-rulez/skills" / skill / "SKILL.md")
+        if document is None:
+            continue
+        pending.extend(
+            match.group("skill") for match in SKILL_DEPENDENCY.finditer(document)
+        )
+    return sorted(closure)
+
+
 def validate_json_manifests(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     for relative in JSON_MANIFESTS:
@@ -1251,681 +1469,238 @@ def validate_manifest_shape(root: Path = ROOT) -> list[str]:
     return errors
 
 
-HOSTS_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/hosts.yaml"
-#: The hosts this plugin ships to. Named explicitly because every rule below
-#: iterates the records the table yields: a table that loses a host silently
-#: stops checking it instead of failing, which is how a stray comment between
-#: entries dropped three of the four.
-EXPECTED_HOSTS = frozenset({"claude", "antigravity", "codex", "opencode"})
-#: Pseudo-record the reader uses to report repeated `hosts:` keys. A real name
-#: cannot collide with it, and the schema pass converts it into an error.
-DUPLICATE_MARKER = "__duplicate__"
-#: Where a host's subagent manifest and hook manifest ship, and the exact `tools`
-#: line each dialect requires. Keyed by the host names hosts.yaml declares.
-#:
-#: These are hand-authored: `ai-rulez` emits rules, context and skills only, so
-#: there is no generator to hold them to the table. This mapping is the parity
-#: gate that replaces one -- it is the reason hosts.yaml is authoritative rather
-#: than merely descriptive.
-#: How each host spells a subagent manifest: the filename it must use, and how its
-#: recorded tool_names render as a `tools` field. Only the *shape* lives here --
-#: the path, the dialect and the names come from hosts.yaml, so the table stays
-#: authoritative rather than merely descriptive.
-#:
-#: `toml_inherited` renders nothing on purpose: Codex agents are TOML and inherit
-#: the session's tools, so an empty `tool_names` is the correct record rather than
-#: an incomplete one. It is also why the read-only grant cannot be expressed there
-#: -- a fact the record carries rather than something this gate can enforce.
+#: The `infra-auditor` manifest, and how each host's row in hosts.md spells its
+#: `tools` field. Only the shape lives here -- the path, the dialect and the tool
+#: names come from the table, so it stays authoritative rather than descriptive.
 AGENT_STEM = "infra-auditor"
 AGENT_DIALECTS = {
-    "comma_string": (".md", lambda names: "tools: " + ", ".join(names)),
-    "yaml_list": (".md", lambda names: "tools:\n" + "\n".join(f"  - {n}" for n in names)),
-    "bool_map": (".md", lambda names: "tools:\n" + "\n".join(f"  {n}: true" for n in names)),
-    "toml_inherited": (".toml", None),
+    "comma string": (".md", lambda names: "tools: " + ", ".join(names)),
+    "YAML list": (".md", lambda names: "tools:\n" + "\n".join(f"  - {n}" for n in names)),
+    "bool map": (".md", lambda names: "tools:\n" + "\n".join(f"  {n}: true" for n in names)),
+    "none": (".toml", None),
 }
-AGENT_NAME = "infra-auditor"
-#: What the agent must delegate to rather than restate. An agent carrying its own
-#: copy of the scan is a second behavioural authority, which is the failure mode
-#: the whole references/ layout exists to prevent.
-#:
-#: It must name the hub skill and the runbook, and must NOT carry a repo-relative
-#: path to it. The agent's working directory is the *consuming* repository, so
-#: "skills/infra-copilot/references/status.md" resolves into the consumer and finds
-#: nothing -- it only looks right when run from a source checkout of this repo.
+#: hosts.md writes a literal "|" in a matcher as {pipe}: a Markdown cell cannot
+#: carry one, and escaping it would put the escape into a value compared
+#: byte-for-byte against the shipped manifest.
+MATCHER_PIPE = "{pipe}"
+#: Tools the shipped manifest's own instructions depend on: it loads the runbook
+#: through the skill tool and its scan runs shell checks. Deliberately not derived
+#: from the table -- the table records what is granted, this what is needed, and
+#: deriving one from the other would only compare the grant with itself.
+AGENT_REQUIRED_TOOLS = ("Skill", "Bash")
+#: Tools that would make the read-only contract unstatable.
+AGENT_FORBIDDEN_TOOLS = ("Write", "Edit", "NotebookEdit", "replace_file_content")
+#: The agent must delegate to the runbook, and must not carry a repo-relative path
+#: to it: its working directory is the *consuming* repository, so
+#: "skills/infra-copilot/references/..." resolves into the consumer and finds
+#: nothing -- it only looks right from a source checkout of this repository.
 AGENT_RUNBOOK = ("infra-copilot", "status.md")
 AGENT_FORBIDDEN_PATH = "skills/infra-copilot/references/"
 #: An adapter budget, in the spirit of MAX_DESCRIPTION_BUDGET: the runbook owns
 #: scope, guardrails and the report contract, and a manifest with room to restate
 #: them will.
 AGENT_MAX_LINES = 40
-#: Tools that would make the read-only contract unenforceable. The point of the
-#: agent is that the guarantee is a capability boundary, not a promise in prose.
-AGENT_FORBIDDEN_TOOLS = ("Write", "Edit", "NotebookEdit", "replace_file_content")
-
-
-def host_records(root: Path = ROOT) -> dict[str, str]:
-    """Each top-level host block of hosts.yaml, keyed by host name.
-
-    A reader for this one file's fixed shape, not a YAML parser -- the same
-    stance validate_manifest_shape takes for steps.yaml, and for the same
-    reason: a real parser would be a new runtime dependency for two files.
-    """
-    text = read_document(root / HOSTS_DOCUMENT)
-    if text is None:
-        return {}
-    blocks: dict[str, list[str]] = {}
-    duplicates: set[str] = set()
-    seen_hosts = False
-    current: str | None = None
-    in_hosts = False
-    for line in text.splitlines():
-        if line.lstrip().startswith("#") or not line.strip():
-            # Comments and blank lines belong to whatever block encloses them. An
-            # unindented comment is ordinary YAML, and treating it as a top-level key
-            # closed the mapping and silently dropped every host after it.
-            continue
-        if not line[:1].isspace():
-            # A new top-level key. Only `hosts:` opens the mapping we read; anything
-            # else closes it, so a same-named key nested under a later mapping cannot
-            # reset a real record to empty and silence every rule keyed on it.
-            # Exact, not a prefix: `hosts: nonsense` is a scalar, and the indented
-            # records that follow it are not valid YAML -- yet the prefix test walked
-            # into them and validated a document no consumer could read.
-            if line.startswith("hosts:"):
-                if seen_hosts:
-                    duplicates.add("hosts")
-                seen_hosts = True
-            in_hosts = re.fullmatch(r"hosts:\s*", line) is not None
-            current = None
-            continue
-        if not in_hosts:
-            continue
-        header = re.match(r"^  (?P<name>[a-z][a-z0-9_-]*):\s*$", line)
-        if header:
-            current = header.group("name")
-            if current in blocks:
-                # setdefault appended the second block to the first, and every
-                # field read then returned the FIRST occurrence -- so a complete
-                # contradictory record could be added with both validators green,
-                # while a real YAML parser would reject it or take the last one.
-                duplicates.add(current)
-            blocks.setdefault(current, [])
-        elif current:
-            blocks[current].append(line)
-    if duplicates:
-        # Surfaced through the records themselves so every caller sees it; the
-        # schema pass turns it into an error before any field is read.
-        blocks[DUPLICATE_MARKER] = [f"  {name}" for name in sorted(duplicates)]
-    return {name: "\n".join(body) for name, body in blocks.items()}
-
-
-def _verified(block: str, section: str) -> bool | None:
-    """Whether ``section`` of a host block records verified: true/false."""
-    match = re.search(
-        rf"^    {section}:$(?P<body>(?:\n(?:      .*)?)*)", block, re.MULTILINE
-    )
-    if match is None:
-        return None
-    flag = re.search(
-        r"^      verified:\s*(true|false)\s*(?:#.*)?$", match.group("body"), re.MULTILINE
-    )
-    return None if flag is None else flag.group(1) == "true"
-
-
-def _section(block: str, section: str) -> str | None:
-    """The indented body of one section of a host block."""
-    match = re.search(
-        rf"^    {section}:$(?P<body>(?:\n(?:      .*)?)*)", block, re.MULTILINE
-    )
-    return None if match is None else match.group("body")
-
-
-def _field(block: str, section: str, key: str) -> str | None:
-    """A scalar field of a host block, with any trailing comment stripped."""
-    match = re.search(
-        rf"^    {section}:$(?P<body>(?:\n(?:      .*)?)*)", block, re.MULTILINE
-    )
-    if match is None:
-        return None
-    found = re.search(rf"^      {key}:\s*(?P<value>.+?)\s*(?:#.*)?$", match.group("body"), re.MULTILINE)
-    return None if found is None else found.group("value")
-
-
-def _tool_names(block: str) -> list[str]:
-    raw = _field(block, "agent", "tool_names") or ""
-    return [name.strip() for name in raw.strip("[]").split(",") if name.strip()]
-
-
-#: Every field a host record must carry. Four findings in a row were the same
-#: defect -- a deleted or nulled field made the rules keyed on it skip rather than
-#: fail, so the table could switch its own gate off. The schema is checked once,
-#: before any consistency rule reads a field.
-REQUIRED_HOST_FIELDS = {
-    "question_tool": ("name", "modes", "choices"),
-    "agent": ("path", "tools_dialect", "tool_names"),
-    "hook": ("path", "matcher"),
-}
-#: What the shipped agent's instructions actually depend on, per host: it is told
-#: to load the runbook through the skill tool, and its scan runs manifest-defined
-#: shell checks, so losing either makes every delegated run fail.
-#:
-#: Deliberately NOT derived from the table. `tool_names` records what is *granted*;
-#: this records what is *needed*. Deriving one from the other would make the check
-#: vacuous -- it would only ever compare the grant with itself.
-AGENT_REQUIRED_TOOLS = {"claude": ("Skill", "Bash")}
-#: The single shell script every host's hook manifest must invoke. Adapters carry
+#: The one shell script every hook manifest must hand to a shell. Adapters carry
 #: the discovery path and the matcher; the behaviour is shared.
 HOOK_IMPLEMENTATION = "hooks/session-start.sh"
-#: A command names the implementation *and* hands it to a shell. The shipped
-#: manifests resolve the path into a variable first --
-#: `s="${r%/}/hooks/session-start.sh"; ... sh "$s"` -- so the two cannot be
-#: required adjacent.
-#:
-#: ponytail: substring + shell-present, not a shell parse. It rejects the failure
-#: that actually happens (a no-op adapter that merely mentions the path, which
-#: `echo hooks/session-start.sh` passed); a command contriving to run an unrelated
-#: shell alongside the path would still pass. Parse the command if that ever
-#: becomes a real adapter rather than a hypothetical.
+#: ponytail: substring + shell-present, not a shell parse. The shipped commands
+#: resolve the path into a variable first (`s="${r%/}/hooks/session-start.sh"; sh
+#: "$s"`), so the two cannot be required adjacent. This rejects the failure that
+#: happens -- a no-op adapter that merely names the path, which `echo <path>`
+#: passed -- and not a command contriving to run an unrelated shell beside it.
 HOOK_SHELL = re.compile(r"(?:^|[;&|]|\s)(?:ba|z|da)?sh\s")
 
 
-def _list_items(value: str) -> list[str]:
-    """Items of an inline YAML list, or [] for `[]` and for a non-list scalar."""
-    return [part.strip() for part in value.strip("[]").split(",") if part.strip()]
+def dialect_rows(root: Path = ROOT, heading: str = "") -> list[list[str]]:
+    """Body rows of the hosts.md table under ``heading``, as stripped cells."""
+    text = read_document(root / HOSTS_DOCUMENT)
+    if text is None or heading not in text:
+        return []
+    section = text[text.index(heading) + len(heading) :]
+    cut = section.find("\n## ")
+    rows = []
+    for line in (section if cut < 0 else section[:cut]).splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|") or set(stripped) <= set("|-: "):
+            continue
+        cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", stripped.strip("|"))]
+        if cells and cells[0] not in {"Host"}:
+            rows.append(cells)
+    return rows
 
 
-def _unsafe_path(value: str) -> str | None:
-    """Why a recorded path may not be used, or None when it is fine.
-
-    Paths are joined to the plugin root at runtime. A traversal resolves back to
-    a real file in this checkout and passes, while an installed plugin looks
-    outside its own payload and the verified artifact simply is not there.
-    """
-    if value.startswith(("/", "~")):
-        return "is absolute"
-    if PurePosixPath(value).is_absolute() or ".." in PurePosixPath(value).parts:
-        return "escapes the plugin root"
-    return None
-
-
-def validate_host_schema(records: dict[str, str]) -> list[str]:
-    """Every record complete, before any rule reads a field out of it."""
-    errors: list[str] = []
-    if repeated := records.get(DUPLICATE_MARKER):
-        return [
-            f"{HOSTS_DOCUMENT}: duplicate host record(s) {repeated.split()}; every field "
-            "read would return the first occurrence while a YAML parser may take the last"
-        ]
-    for host, block in sorted(records.items()):
-        # This reader is not a YAML parser, so it has to refuse what it cannot
-        # resolve the way one would. A repeated key is the clearest case: we take
-        # the first, PyYAML takes the last, and strict parsers reject the document
-        # -- so the protocol could act on one value while the gate validated another.
-        sections = re.findall(r"(?m)^    ([a-z_]+):\s*$", block)
-        scopes = [("", sections)] + [
-            (f"{name}.", re.findall(r"(?m)^      ([a-z_]+):", body))
-            for name in REQUIRED_HOST_FIELDS
-            if (body := _section(block, name)) is not None
-        ]
-        for prefix, keys in scopes:
-            for name in sorted({k for k in keys if keys.count(k) > 1}):
-                errors.append(
-                    f"{HOSTS_DOCUMENT}: {host} repeats {prefix}{name!r}; every read here "
-                    "returns the first, while a YAML consumer may take the last"
-                )
-        if not re.search(r"(?m)^    display_name:\s*\S", block):
-            errors.append(f"{HOSTS_DOCUMENT}: {host} declares no display_name")
-        for section, fields in REQUIRED_HOST_FIELDS.items():
-            state = _verified(block, section)
-            if state is None:
-                errors.append(
-                    f"{HOSTS_DOCUMENT}: {host}.{section} has no usable `verified:` flag; "
-                    "an unstated verification state disables every rule keyed on it"
-                )
-            for field in fields:
-                value = _field(block, section, field)
-                if value is None or not value.strip():
-                    errors.append(f"{HOSTS_DOCUMENT}: {host}.{section} declares no {field}")
-                elif value == "null" and not (section == "hook" and state is False):
-                    errors.append(
-                        f"{HOSTS_DOCUMENT}: {host}.{section}.{field} is null; only an "
-                        "unverified hook may record no path or matcher"
-                    )
-                elif value.startswith("[") and not _list_items(value) and not (
-                    # `tool_names: []` is the correct record for a dialect whose
-                    # tools are inherited; every other list must name something.
-                    field == "tool_names"
-                    and _field(block, section, "tools_dialect") == "toml_inherited"
-                ):
-                    errors.append(
-                        f"{HOSTS_DOCUMENT}: {host}.{section}.{field} is an empty list; "
-                        "it looks like a value but disables the checks keyed on it"
-                    )
-                elif field == "path" and (problem := _unsafe_path(value)):
-                    errors.append(
-                        f"{HOSTS_DOCUMENT}: {host}.{section}.path {value!r} {problem}; an "
-                        "installed plugin resolves it against its own payload, where a "
-                        "path that escapes finds nothing -- it only works in a checkout"
-                    )
-    return errors
+def _shipped(cell: str) -> bool:
+    """Whether a Shipped cell says yes. Anything else is a recorded refusal."""
+    return cell.strip("* ").lower().startswith("yes")
 
 
 def validate_host_dialects(root: Path = ROOT) -> list[str]:
-    """Shipped per-host artifacts must match what hosts.yaml records.
+    """Hold the shipped agent and hook manifests to hosts.md.
 
-    Three surfaces need the same per-host fact and none of them is generated, so
-    this is where they are held together. Every rule reads the paths, dialects
-    and tool names out of hosts.yaml rather than restating them, so editing the
-    table is what changes the gate.
-
-    Two rules, both learned the hard way:
-
-    * A verified record must have its artifact, in that host's dialect. The
-      dialects diverge silently -- Antigravity reported "agents: 1 processed"
-      for an agent written in Claude's comma-string form and then never listed
-      it in `agy agent`.
-    * An unverified record must NOT have one. A hook manifest that ships but
-      never fires is indistinguishable from one that works until someone needs
-      it, which is why Codex's is absent rather than written on a guess.
+    hosts.md invites these sections and says validate.py gates what it can. What
+    it can gate is that a row marked shipped has its artifact in that host's
+    dialect, and that a row marked unshipped has no artifact at all -- wiring that
+    ships on a guess is indistinguishable from wiring that works, right up until
+    someone needs it.
     """
     errors: list[str] = []
-    records = host_records(root)
-    if not records:
-        return [f"{HOSTS_DOCUMENT}: no host records found; the capability table is unreadable"]
-    if schema_errors := validate_host_schema(records):
-        return schema_errors
-    if missing := EXPECTED_HOSTS - (set(records) - {DUPLICATE_MARKER}):
-        errors.append(
-            f"{HOSTS_DOCUMENT}: no record for {sorted(missing)}; every rule here iterates "
-            "the records this table yields, so a dropped host stops being checked"
-        )
+    agents = dialect_rows(root, "## Subagent manifests")
+    hooks = dialect_rows(root, "## Hook discovery")
+    if not agents or not hooks:
+        return [f"{HOSTS_DOCUMENT}: no subagent or hook rows found; the record is unreadable"]
 
-    # --- the agent, which exactly one host can have (see hosts.yaml) ------------
-    owners = [host for host, block in records.items() if _verified(block, "agent")]
-    # Uniqueness is per directory, not global. Claude and Antigravity collide at root
-    # agents/ so only one of them may own it, but .codex/agents/ and .opencode/agents/
-    # are independent -- a global count would make those rows impossible to graduate.
-    claimed: dict[str, list[str]] = {}
-    for host in owners:
-        claimed.setdefault(_field(records[host], "agent", "path") or "", []).append(host)
-    for directory, sharing in sorted(claimed.items()):
-        if len(sharing) > 1:
-            errors.append(
-                f"{HOSTS_DOCUMENT}: {sharing} all record a verified agent at {directory!r}; "
-                "one directory cannot hold incompatible tools dialects, so only one may"
-            )
-    for host in owners:
-        block = records[host]
-        directory = _field(block, "agent", "path")
-        dialect = _field(block, "agent", "tools_dialect")
-        names = _tool_names(block)
-        if directory is None or dialect is None:
-            errors.append(f"{HOSTS_DOCUMENT}: {host}'s agent record is incomplete")
+    owners = [row for row in agents if _shipped(row[-1])]
+    if len(owners) > 1:
+        # At most one, not exactly one: withdrawing the agent entirely is a state the
+        # record is allowed to express, and the unshipped-path rule below then keeps
+        # the file from lingering. Two is the impossible one -- root agents/ is a
+        # single directory and the dialects are incompatible.
+        errors.append(
+            f"{HOSTS_DOCUMENT}: {len(owners)} subagent rows are marked shipped; root "
+            "agents/ is one directory with incompatible dialects, so at most one may"
+        )
+    owned = {row[1].strip("`") for row in owners}
+    for row in agents:
+        if len(row) < 5:
+            errors.append(f"{HOSTS_DOCUMENT}: subagent row {row[:1]} is missing columns")
             continue
-        if dialect not in AGENT_DIALECTS:
-            errors.append(f"{HOSTS_DOCUMENT}: {host} declares unknown dialect {dialect!r}")
+        directory = row[1].strip("`")
+        if ".." in PurePosixPath(directory).parts or directory.startswith(("/", "~")):
+            errors.append(
+                f"{HOSTS_DOCUMENT}: subagent path {directory!r} escapes the plugin root; an "
+                "installed plugin resolves it against its own payload and finds nothing"
+            )
+            continue
+        dialect = next((key for key in AGENT_DIALECTS if row[2].startswith(key)), None)
+        if dialect is None:
+            errors.append(f"{HOSTS_DOCUMENT}: {row[0]} declares an unknown tools dialect")
             continue
         suffix, render = AGENT_DIALECTS[dialect]
-        if render is not None and not names:
-            errors.append(
-                f"{HOSTS_DOCUMENT}: {host}'s {dialect} agent record names no tools; only "
-                "a dialect that inherits the session's tools may leave them empty"
-            )
-            continue
         relative = f"{directory.rstrip('/')}/{AGENT_STEM}{suffix}"
         text = read_document(root / relative)
-        if text is None:
-            errors.append(f"{relative}: {host} records a verified agent but ships no manifest")
+        if not _shipped(row[-1]):
+            # The documented collision: an unshipped row may name the directory the
+            # shipped one owns. The owner's dialect check governs that file, and
+            # reporting it here would make the collision unshippable rather than recorded.
+            if text is not None and directory not in owned:
+                errors.append(
+                    f"{relative}: {row[0]}'s row is not marked shipped, so this manifest "
+                    "asserts wiring nothing has demonstrated"
+                )
             continue
-        if render is not None:
-            # Compared against the frontmatter's own `tools` field, not the document.
-            # A whole-file search passed a manifest whose frontmatter granted `Write`
-            # while the expected line sat in the prose below it -- Claude would have
-            # loaded a write-capable auditor behind a green gate.
-            front = SKILL_FRONTMATTER.match(text)
-            if front is None:
-                errors.append(f"{relative}: no YAML frontmatter to read `tools` from")
-                continue
-            declared = re.findall(
-                r"^tools:.*?(?=^\S|\Z)", front.group("body") + "\n", re.MULTILINE | re.DOTALL
+        if text is None:
+            errors.append(f"{relative}: {row[0]} is marked shipped but no manifest is here")
+            continue
+        errors.extend(_check_agent(relative, text, row, render))
+
+    for row in hooks:
+        if len(row) < 4:
+            errors.append(f"{HOSTS_DOCUMENT}: hook row {row[:1]} is missing columns")
+            continue
+        relative = row[1].strip("`").split("`")[0].split(" ")[0].strip()
+        if not _shipped(row[-1]):
+            if relative not in {"none", "—", ""} and (root / relative).exists():
+                errors.append(
+                    f"{relative}: {row[0]}'s row is not marked shipped, so this manifest "
+                    "asserts a discovery path nothing has demonstrated"
+                )
+            continue
+        errors.extend(_check_hook(root, relative, row))
+    return errors
+
+
+def _check_agent(relative: str, text: str, row: list[str], render) -> list[str]:
+    errors: list[str] = []
+    front = SKILL_FRONTMATTER.match(text)
+    if front is None:
+        return [f"{relative}: no YAML frontmatter to read `tools` and `name` from"]
+    body = front.group("body")
+    name = re.search(r"(?m)^name:\s*(\S+)", body)
+    if name is None or name.group(1).strip("\"'") != AGENT_STEM:
+        errors.append(f"{relative}: must declare name {AGENT_STEM!r}; the protocol delegates to it")
+    if render is not None:
+        names = re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", row[3])
+        declared = re.findall(r"^tools:.*?(?=^\S|\Z)", body + "\n", re.MULTILINE | re.DOTALL)
+        if len(declared) != 1:
+            errors.append(
+                f"{relative}: frontmatter declares {len(declared)} `tools` fields; exactly "
+                "one is required for the grant to be unambiguous"
             )
-            if len(declared) != 1:
-                errors.append(
-                    f"{relative}: frontmatter declares {len(declared)} `tools` fields; "
-                    "exactly one is required for the grant to be unambiguous"
-                )
-            elif declared[0].strip() != render(names):
-                errors.append(
-                    f"{relative}: frontmatter tools {declared[0].strip()!r} != "
-                    f"{render(names)!r} as {HOSTS_DOCUMENT} records it for {host} "
-                    f"({dialect}); a wrong dialect fails silently"
-                )
-        for required in AGENT_REQUIRED_TOOLS.get(host, ()):
+        elif names and declared[0].strip() != render(names):
+            errors.append(
+                f"{relative}: frontmatter tools {declared[0].strip()!r} != {render(names)!r} "
+                f"as {HOSTS_DOCUMENT} records it; a wrong dialect fails silently"
+            )
+        for required in AGENT_REQUIRED_TOOLS:
             if required not in names:
                 errors.append(
-                    f"{HOSTS_DOCUMENT}: {host}'s agent tool_names omit {required!r}; the "
-                    "shipped manifest tells the agent to load the runbook through the "
-                    "skill tool and its scan runs shell checks, so a delegated run fails"
+                    f"{HOSTS_DOCUMENT}: the shipped subagent row omits {required!r}; the "
+                    "manifest loads the runbook through the skill tool and runs shell "
+                    "checks, so a delegated run would fail"
                 )
         for forbidden in AGENT_FORBIDDEN_TOOLS:
             if forbidden in names:
                 errors.append(
-                    f"{HOSTS_DOCUMENT}: {host}'s agent tool_names include {forbidden!r}; "
-                    "the scan is read-only and the recorded grant is what says so"
+                    f"{HOSTS_DOCUMENT}: the shipped subagent row grants {forbidden!r}; the "
+                    "scan is read-only and the recorded grant is what says so"
                 )
-        # Parsed and compared exactly. A substring test over the whole document
-        # passed a manifest renamed to `name: wrong-agent`, because the stem still
-        # appeared in the heading and the instructions -- leaving a file that no
-        # longer declares the agent the protocol delegates to.
-        if suffix == ".toml":
-            declared_name = re.search(r'(?m)^name\s*=\s*"([^"]*)"', text)
-        else:
-            front = SKILL_FRONTMATTER.match(text)
-            declared_name = (
-                re.search(r"(?m)^name:\s*(\S+)", front.group("body")) if front else None
-            )
-        if declared_name is None:
-            errors.append(f"{relative}: declares no agent name")
-        elif declared_name.group(1).strip("\"'") != AGENT_STEM:
+    for marker in AGENT_RUNBOOK:
+        if marker not in text:
             errors.append(
-                f"{relative}: declares name {declared_name.group(1)!r}, not {AGENT_STEM!r}; "
-                "the protocol delegates to that name"
+                f"{relative}: must delegate to the {marker!r} runbook; an agent that "
+                "restates the scan becomes a second behavioural authority"
             )
-        for marker in AGENT_RUNBOOK:
-            if marker not in text:
-                errors.append(
-                    f"{relative}: must delegate to the {marker!r} runbook; an agent that "
-                    "restates the scan becomes a second behavioural authority"
-                )
-        if len(text.splitlines()) > AGENT_MAX_LINES:
-            errors.append(
-                f"{relative}: {len(text.splitlines())} lines > {AGENT_MAX_LINES}; a host "
-                "manifest is an adapter, and one long enough to restate the runbook's "
-                "scope, guardrails or report contract becomes a second authority"
-            )
-        if AGENT_FORBIDDEN_PATH in text:
-            errors.append(
-                f"{relative}: carries the repo-relative path {AGENT_FORBIDDEN_PATH!r}, "
-                "which resolves into the consuming repository rather than the plugin "
-                "payload; load the skill by name instead"
-            )
-
-    # A host whose agent record is unverified must not have a manifest sitting at
-    # its recorded path -- that is how the Antigravity dialect ended up being the
-    # file Claude loaded.
-    owned_directories = {
-        _field(records[host], "agent", "path") for host in owners
-    }
-    for host, block in records.items():
-        if _verified(block, "agent") is not False or host in owners:
-            continue
-        directory = _field(block, "agent", "path")
-        if not directory or directory == "null":
-            continue
-        if directory in owned_directories:
-            # The collision the table documents: Antigravity's unverified path IS
-            # Claude's verified one. The dialect check on the owner already governs
-            # this file, and the owner rule is what keeps the wrong dialect out.
-            continue
-        # Existence is the whole test. Gating this on a renderable dialect meant
-        # Codex -- recorded `toml_inherited` with no tool names -- could ship any
-        # manifest at .codex/agents/ and stay green, while this function promises
-        # to reject every artifact at an unverified path.
-        shipped = sorted(
-            path.relative_to(root).as_posix()
-            for path in (root / directory.rstrip("/")).glob("*")
-            if path.is_file()
+    if AGENT_FORBIDDEN_PATH in text:
+        errors.append(
+            f"{relative}: carries the repo-relative path {AGENT_FORBIDDEN_PATH!r}, which "
+            "resolves into the consuming repository rather than the plugin payload"
         )
-        for relative in shipped:
-            errors.append(
-                f"{relative}: {host}'s agent record is unverified, so this manifest "
-                "asserts wiring nothing has demonstrated"
-            )
-
-    # --- hook manifests ---------------------------------------------------------
-    for host, block in records.items():
-        relative = _field(block, "hook", "path")
-        verified = _verified(block, "hook")
-        if relative == "null":
-            continue  # the schema pass has already confirmed this host is unverified
-        exists = (root / relative).exists()
-        if verified and not exists:
-            errors.append(f"{relative}: {host} records a verified hook path but ships no manifest")
-        if verified is False and exists:
-            errors.append(
-                f"{relative}: {host}'s hook record is unverified, so this manifest "
-                "asserts a discovery path nothing has demonstrated"
-            )
-        if not (verified and exists):
-            continue
-        # The matcher is the other half of the discovery fact: Antigravity takes
-        # "*" and Claude an explicit source list, and a manifest carrying the wrong
-        # one is discovered and then never fires. Nothing compared them.
-        recorded = (_field(block, "hook", "matcher") or "").strip('"')
-        try:
-            entries = load_json(relative, root)["hooks"]["SessionStart"]
-        except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
-            errors.append(f"{relative}: no SessionStart hooks entry to check ({error})")
-            continue
-        actual = {str(entry.get("matcher")) for entry in entries if isinstance(entry, dict)}
-        if actual != {recorded}:
-            errors.append(
-                f"{relative}: SessionStart matcher {sorted(actual)} != {recorded!r} as "
-                f"{HOSTS_DOCUMENT} records it for {host}"
-            )
-        # The matcher says when it fires; this says what fires. Without it a host
-        # adapter can carry the right matcher and run something else entirely, or
-        # nothing at all, and become a second behavioural authority by omission.
-        for entry in entries:
-            callbacks = entry.get("hooks") if isinstance(entry, dict) else None
-            commands = [
-                callback.get("command", "")
-                for callback in (callbacks or [])
-                if isinstance(callback, dict)
-            ]
-            if not commands:
-                errors.append(f"{relative}: a SessionStart entry declares no hooks to run")
-            elif not all(
-                HOOK_IMPLEMENTATION in command and HOOK_SHELL.search(command)
-                for command in commands
-            ):
-                errors.append(
-                    f"{relative}: a SessionStart command does not hand "
-                    f"{HOOK_IMPLEMENTATION} to a shell; naming the path is not running "
-                    "it, and `echo <path>` passed while the implementation never ran"
-                )
-
-    # No hook manifest takes a sibling of "hooks". Antigravity counts every
-    # top-level key as a hook -- a "_comment" array beside it was reported as a
-    # second hook ("hooks: 2 processed") -- and a JSON file has no comment syntax
-    # to fall back on, so rationale belongs in hosts.yaml rather than the manifest.
-    for relative in sorted(
-        {_field(block, "hook", "path") for block in records.values()} - {None, "null"}
-    ):
-        if not (root / relative).exists():
-            continue
-        try:
-            keys = set(load_json(relative, root))
-        except (OSError, json.JSONDecodeError) as error:
-            errors.append(f"{relative}: unreadable ({error})")
-            continue
-        if keys != {"hooks"}:
-            errors.append(
-                f"{relative}: top-level keys {sorted(keys)} != ['hooks']; a manifest "
-                "takes no siblings of 'hooks' -- Antigravity counts each one as a hook"
-            )
-
-    # Every root variable a manifest is willing to resolve must also be one the
-    # script recognises, or the hook fires and emits the wrong host's shape.
-    script = read_document(root / "hooks/session-start.sh")
-    if script is not None:
-        # Every recorded manifest, not a second hand-kept list: when Codex's
-        # hooks/hooks-codex.json graduates it resolves its own root variable, and a
-        # hardcoded pair would have let it emit the wrong host's output shape.
-        declared = {
-            variable
-            for relative in {_field(block, "hook", "path") for block in records.values()}
-            - {None, "null"}
-            if (root / relative).exists()
-            for variable in re.findall(
-                r"([A-Z_]*PLUGIN_ROOT)", (root / relative).read_text(encoding="utf-8")
-            )
-        }
-        for variable in sorted(declared):
-            # Match the expansion the branch actually tests, not the name. A bare
-            # word search is satisfied by the prose above it, and "PLUGIN_ROOT" is
-            # a substring of "CLAUDE_PLUGIN_ROOT" -- both reported it as handled.
-            if re.search(rf"(?<![A-Z_])\$\{{{variable}:-", script) is None:
-                errors.append(
-                    f"hooks/session-start.sh: a manifest resolves its root from "
-                    f"{variable} but the script's host branch does not test it, so the "
-                    "announcement would be emitted in the wrong shape"
-                )
+    if len(text.splitlines()) > AGENT_MAX_LINES:
+        errors.append(
+            f"{relative}: {len(text.splitlines())} lines > {AGENT_MAX_LINES}; a host "
+            "manifest is an adapter, and one long enough to restate the runbook's scope, "
+            "guardrails or report contract becomes a second authority"
+        )
     return errors
 
 
-QUESTION_PROTOCOL_DOCUMENT = (
-    ".ai-rulez/skills/infra-copilot/references/protocol.md"
-)
-#: The three things the rule is worthless without: that the native tool is used
-#: only when actually available, that the capability record gates it too, and
-#: that there is a text rendering when either gate fails.
-QUESTION_PROTOCOL_MARKERS = ("declared", "allowed", "hosts.yaml", "Other — enter a custom response")
-#: The delegation rule has the same shape as the question rule and the same failure
-#: mode: supporting subagents is not having this one. Antigravity supports them and
-#: silently loads nothing from the shared root agents/, so a rule keyed on "offers
-#: subagents" would call an agent that is not there instead of scanning inline.
-DELEGATION_MARKERS = ("infra-auditor", "verified: true", "inline")
-
-
-def validate_question_protocol(root: Path = ROOT) -> list[str]:
-    """The AskUserQuestion grant must have a consumer, a fallback, and honest rows.
-
-    Three commands have declared AskUserQuestion since before this check, and
-    validate_command_tools pinned that exact string -- while nothing in any
-    skill, reference or protocol document ever told the agent to use it. A
-    permission grant with no consumer is not a capability; it is a claim.
-
-    The protocol also reproduces the capability table as prose a reader acts on,
-    so the copy is checked against the record. Flipping a host to
-    `verified: false`, dropping `multi`, or narrowing `choices` otherwise left
-    `make check` green while the protocol still advertised the old capability --
-    two documents giving contradictory instructions about whether a native
-    question call is permitted.
-    """
+def _check_hook(root: Path, relative: str, row: list[str]) -> list[str]:
     errors: list[str] = []
-    text = read_document(root / QUESTION_PROTOCOL_DOCUMENT)
-    if text is None:
-        return [f"{QUESTION_PROTOCOL_DOCUMENT}: unreadable, cannot check the question rule"]
-    for marker in QUESTION_PROTOCOL_MARKERS:
-        if marker not in text:
-            errors.append(
-                f"{QUESTION_PROTOCOL_DOCUMENT}: the decision rule is missing {marker!r}"
-            )
-    # Scoped to its own section. Searching the whole document let the delegation
-    # condition be inverted to `verified: false` while the marker stayed satisfied
-    # by the unrelated question-tool section above it -- which would have made an
-    # unverified host eligible to delegate again, with CI reporting parity.
-    section = re.search(
-        r"(?ms)^### Running the scan in an isolated context$(?P<body>.*?)(?=^#{2,3} )", text
-    )
-    if section is None:
+    if not (root / relative).exists():
+        return [f"{relative}: {row[0]} is marked shipped but no manifest is here"]
+    try:
+        payload = load_json(relative, root)
+        entries = payload["hooks"]["SessionStart"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
+        return [f"{relative}: no SessionStart hooks entry to check ({error})"]
+    if set(payload) != {"hooks"}:
         errors.append(
-            f"{QUESTION_PROTOCOL_DOCUMENT}: no 'Running the scan in an isolated context' "
-            "section; the delegation rule has nowhere to live"
+            f"{relative}: top-level keys {sorted(payload)} != ['hooks']; a manifest takes "
+            "no siblings of 'hooks' -- Antigravity counts each one as a hook"
         )
-    else:
-        for marker in DELEGATION_MARKERS:
-            if marker not in section.group("body"):
-                errors.append(
-                    f"{QUESTION_PROTOCOL_DOCUMENT}: the delegation rule is missing "
-                    f"{marker!r}; it must gate on the recorded agent, not on whether "
-                    "the host has subagents"
-                )
-
-    records = host_records(root)
-    named = {
-        name
-        for block in records.values()
-        if (name := _field(block, "question_tool", "name"))
-    }
-    granted = {
-        tool.strip()
-        for tools in COMMAND_TOOLS.values()
-        for tool in tools.split(",")
-        if tool.strip().endswith("Question") or tool.strip() in named
-    }
-    for tool in sorted(granted - named):
+    recorded = row[2].strip("`").replace(MATCHER_PIPE, "|")
+    actual = {str(entry.get("matcher")) for entry in entries if isinstance(entry, dict)}
+    if actual != {recorded}:
         errors.append(
-            f"scripts/validate.py: command allowlists grant {tool!r} but no host record "
-            f"in {HOSTS_DOCUMENT} names it"
+            f"{relative}: SessionStart matcher {sorted(actual)} != {recorded!r} as "
+            f"{HOSTS_DOCUMENT} records it for {row[0]}"
         )
-    for tool in sorted(granted):
-        if tool not in text:
+    for entry in entries:
+        commands = [
+            callback.get("command", "")
+            for callback in (entry.get("hooks") if isinstance(entry, dict) else None) or []
+            if isinstance(callback, dict)
+        ]
+        if not commands:
+            errors.append(f"{relative}: a SessionStart entry declares no hooks to run")
+        elif not all(
+            HOOK_IMPLEMENTATION in command and HOOK_SHELL.search(command)
+            for command in commands
+        ):
             errors.append(
-                f"{QUESTION_PROTOCOL_DOCUMENT}: {tool!r} is granted but the protocol "
-                "never says when to use it"
+                f"{relative}: a SessionStart command does not hand {HOOK_IMPLEMENTATION} "
+                "to a shell; naming the path is not running it"
             )
-
-    # The table row each host gets in the protocol, checked field by field against
-    # its record. Rows are `| Display | `tool` | modes | choices | verified |`.
-    for host, block in sorted(records.items()):
-        name = _field(block, "question_tool", "name")
-        if name is None:
-            errors.append(f"{HOSTS_DOCUMENT}: {host} records no question_tool name")
-            continue
-        display = re.search(r"(?m)^    display_name:\s*(.+?)\s*$", block)
-        if display is None:
-            errors.append(f"{HOSTS_DOCUMENT}: {host} declares no display_name")
-            continue
-        # Anchored on the host as well as the tool. Matching the tool alone let a
-        # row be relabelled, so the table could hand another host's name a verified
-        # capability and point the reader at the wrong native path.
-        row = re.search(
-            rf"(?m)^\|\s*{re.escape(display.group(1))}\s*\|\s*`{re.escape(name)}`\s*\|(?P<rest>.*)$",
-            text,
-        )
-        if row is None:
-            errors.append(
-                f"{QUESTION_PROTOCOL_DOCUMENT}: no table row pairing {display.group(1)!r} "
-                f"with {name!r}; the rule sends the reader here to decide whether the "
-                "native call is allowed"
-            )
-            continue
-        cells = [cell.strip() for cell in row.group("rest").split("|")]
-        while cells and not cells[-1]:
-            cells.pop()  # the row's trailing pipe leaves an empty final cell
-        verified = _verified(block, "question_tool")
-        if verified is None:
-            errors.append(f"{HOSTS_DOCUMENT}: {host}'s question_tool has no `verified:` flag")
-            continue
-        stated = cells[-1].strip("* ").lower() if len(cells) >= 3 else ""
-        if stated not in {"yes", "no"} or (stated == "yes") != verified:
-            errors.append(
-                f"{QUESTION_PROTOCOL_DOCUMENT}: {host}'s row says verified {stated!r} but "
-                f"{HOSTS_DOCUMENT} records {verified}; the protocol permits the native "
-                "call on exactly that basis"
-            )
-        for index, key in ((0, "modes"), (1, "choices")):
-            recorded = (_field(block, "question_tool", key) or "").strip("[]")
-            values = [part.strip() for part in recorded.split(",") if part.strip()]
-            if not values or index >= len(cells):
-                continue
-            cell = cells[index]
-            if key == "modes":
-                mismatch = [v for v in values if v not in cell] or [
-                    word for word in ("binary", "single", "multi")
-                    if word in cell and word not in values
-                ]
-            else:
-                # Endpoints as values, not substrings: "12-40" contains both "2"
-                # and "4", so the cell could advertise a range the tool cannot take.
-                mismatch = [] if re.findall(r"\d+", cell) == values else [cell]
-            if mismatch:
-                errors.append(
-                    f"{QUESTION_PROTOCOL_DOCUMENT}: {host}'s {key} cell {cell!r} does not "
-                    f"match the recorded {recorded!r} ({mismatch})"
-                )
     return errors
 
 
@@ -1949,6 +1724,13 @@ def validate_layout() -> list[str]:
         "CONTRIBUTING.md",
         "docs/roadmap.md",
         "docs/policy.md",
+        # One page per host in hosts.md. Listed here because the caution in #17 is
+        # real: litestar-skills documented a templates/ tree its repository did not
+        # contain, because no validator covered prose.
+        "docs/install-claude-code.md",
+        "docs/install-codex.md",
+        "docs/install-antigravity.md",
+        "docs/install-opencode.md",
         ".github/renovate.json",
         ".github/workflows/check.yml",
         ".github/workflows/release.yml",
@@ -1964,13 +1746,13 @@ def validate_layout() -> list[str]:
         ".ai-rulez/skills/infra-copilot/references/config.md",
         ".ai-rulez/skills/infra-copilot/references/config.md.example",
         ".ai-rulez/skills/infra-copilot/references/decisions.md.example",
+        ".ai-rulez/skills/infra-copilot/references/hosts.md",
         ".ai-rulez/skills/infra-copilot/references/protocol.md",
         ".ai-rulez/skills/infra-copilot/references/steps.yaml",
-        ".ai-rulez/skills/infra-copilot/references/hosts.yaml",
-        "skills/infra-copilot/references/hosts.yaml",
         "skills/infra-copilot/references/config.md",
         "skills/infra-copilot/references/config.md.example",
         "skills/infra-copilot/references/decisions.md.example",
+        "skills/infra-copilot/references/hosts.md",
         "skills/infra-copilot/references/protocol.md",
         "skills/infra-copilot/references/steps.yaml",
         "skills/infra-copilot/references/checks/status-check-context.sh",
@@ -1983,7 +1765,47 @@ def validate_layout() -> list[str]:
     ]
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    # `--closure <skill>` prints the install arguments for one skill and its
+    # dependencies, so `make smoke-opencode` asserts a real resolved closure instead
+    # of a hand-copied skill list that drifts the first time a skill is added.
+    arguments = sys.argv[1:] if argv is None else argv
+    if arguments:
+        if arguments[0] != "--closure" or len(arguments) != 2:
+            print("usage: validate.py [--closure <skill>]", file=sys.stderr)
+            return 2
+        name = arguments[1]
+        if not (ROOT / ".ai-rulez/skills" / name / "SKILL.md").exists():
+            print(f"--closure: no skill named {name!r}", file=sys.stderr)
+            return 2
+        if name in ROUTER_SKILLS:
+            print(
+                f"--closure: {name!r} owns no operations; installed alone it routes to "
+                "nothing. Name the action skill you want -- its closure includes the hub.",
+                file=sys.stderr,
+            )
+            return 2
+        # Every member, both trees: the closure is derived from .ai-rulez/, but
+        # `skills add` consumes the shipped skills/ tree. Checking only the root let
+        # a reachable-but-unshipped dependency be printed as an install argument the
+        # installer cannot satisfy -- which surfaces as a bare installer error.
+        closure = skill_closure(name)
+        missing = [
+            f"{tree}/{skill}"
+            for skill in closure
+            for tree in (".ai-rulez/skills", "skills")
+            if not (ROOT / tree / skill / "SKILL.md").exists()
+        ]
+        if missing:
+            print(
+                f"--closure: {name!r} needs {', '.join(missing)}, which "
+                f"{'does' if len(missing) == 1 else 'do'} not exist",
+                file=sys.stderr,
+            )
+            return 2
+        print(" ".join(f"--skill {skill}" for skill in closure))
+        return 0
+
     # Layout is a precondition for everything below: every content validator reads
     # files this list asserts exist, and Python builds the whole list before main
     # can print any of it. Without this short-circuit a missing artifact surfaces
@@ -2004,8 +1826,8 @@ def main() -> int:
         *validate_config_fallbacks(),
         *validate_customization_markers(),
         *validate_manifest_shape(),
+        *validate_host_contract(),
         *validate_host_dialects(),
-        *validate_question_protocol(),
         *validate_token_resolution(),
         *validate_phase_five_rule(),
         *validate_toolchain_contract(),
