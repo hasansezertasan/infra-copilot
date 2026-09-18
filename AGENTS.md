@@ -37,7 +37,7 @@ safe to edit. The manifest is the authority; the header is only a convenience.
 | Codex marketplace | `.agents/plugins/marketplace.json` | hand-authored — edit directly |
 | Repository validators | `scripts/validate.py`, `tests/` | `make check` |
 | The SessionStart hook | `hooks/session-start.sh`, `hooks/hooks.json` | hand-authored — `ai-rulez` has no hook support |
-| Tool pins | `Makefile` + `README.md` together | `make check` |
+| Tool pins | `package.json` + `package-lock.json`; a *new* tool also needs `TOOL_PACKAGES`. Never write `<tool>@<version>` in a `Makefile` or workflow, comments included | `make check` |
 
 ## Rule 2: run `make check`
 

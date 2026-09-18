@@ -1,0 +1,11 @@
+{
+  "name": "infra-copilot-tooling",
+  "private": true,
+  "description": "Single source of truth for the npm tools this repository invokes. Bump here and nowhere else: the Makefile runs node_modules/.bin/<tool> and scripts/validate.py rejects a version named anywhere else. Private -- the tagged tree is the artifact.",
+  "license": "MIT",
+  "devDependencies": {
+    "ai-rulez": "4.11.3",
+    "markdownlint-cli2": "0.23.2",
+    "skills": "1.5.23"
+  }
+}

@@ -1,18 +1,21 @@
 # infra-copilot — canonical entry point for every check CI runs.
 #
 # `make check` is CI parity: if it passes locally it passes in .github/workflows.
-# The pins below are the single source of truth for the tool versions this
-# repository invokes; scripts/validate.py asserts README.md documents the same
-# ones. Bump them here and nowhere else.
-
-AI_RULEZ_VERSION    := 4.11.3
-SKILLS_VERSION      := 1.5.23
-MARKDOWNLINT_VERSION := 0.23.2
+# package.json pins the tool versions this repository invokes; the paths below just
+# resolve what `npm ci` installed. Bump them there and nowhere else --
+# scripts/validate.py asserts no Makefile or workflow reintroduces a `<tool>@<version>`.
+#
+# Absolute via $(CURDIR) because `smoke-opencode` runs the binary from a temp copy of
+# the tree: a relative node_modules/.bin/skills would not resolve from there, and the
+# failure reads as a bare "command not found" inside a directory nobody recognises.
+# Every recipe quotes them for the same reason they are absolute: a checkout under a
+# path with a space would otherwise run its first word and exit 127.
 
 PYTHON ?= python3
-AI_RULEZ := npx --yes ai-rulez@$(AI_RULEZ_VERSION)
-SKILLS   := npx --yes skills@$(SKILLS_VERSION)
-MARKDOWNLINT := npx --yes markdownlint-cli2@$(MARKDOWNLINT_VERSION)
+AI_RULEZ := $(CURDIR)/node_modules/.bin/ai-rulez
+SKILLS   := $(CURDIR)/node_modules/.bin/skills
+MARKDOWNLINT := $(CURDIR)/node_modules/.bin/markdownlint-cli2
+INSTALL_STAMP := node_modules/.install-stamp
 
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
@@ -24,14 +27,30 @@ help:  ## Show this help
 	  /^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@echo
 
+# `npm ci` installs exactly the lockfile, so the transitive tree is pinned too.
+#
+# --include=dev because every tool here is a devDependency and npm defaults `omit` to
+# `dev` when NODE_ENV=production. Without it a production-ish shell gets an install that
+# exits 0 having written no binaries at all, and the stamp below would then record that
+# as a success -- so every later target skips the install and fails on a missing tool.
+#
+# The target is a stamp rather than node_modules itself, because `npm ci` deletes the
+# directory and recreates it as it goes: an install killed partway leaves node_modules
+# newer than the lockfile, and a bare directory target would then call itself satisfied
+# and run binaries that were never installed. Make only reaches the touch when npm ci
+# exited 0, and npm ci having just deleted the directory took the old stamp with it.
+$(INSTALL_STAMP): package-lock.json package.json
+	npm ci --include=dev
+	@touch $@
+
 .PHONY: generate
-generate:  ## Regenerate the host packages from .ai-rulez/ (edit sources, never skills/)
-	$(AI_RULEZ) generate --plugin
+generate: $(INSTALL_STAMP)  ## Regenerate the host packages from .ai-rulez/ (edit sources, never skills/)
+	"$(AI_RULEZ)" generate --plugin
 
 .PHONY: validate
-validate:  ## Validate the ai-rulez config, the committed payloads, links, and adapters
-	$(AI_RULEZ) validate
-	$(AI_RULEZ) verify --plugin
+validate: $(INSTALL_STAMP)  ## Validate the ai-rulez config, the committed payloads, links, and adapters
+	"$(AI_RULEZ)" validate
+	"$(AI_RULEZ)" verify --plugin
 	$(PYTHON) scripts/validate.py
 	$(PYTHON) scripts/check_upstream.py --offline
 
@@ -53,14 +72,19 @@ test:  ## Run the repository validator tests
 # already have their own local install of either. Deleting those would destroy
 # state this target does not own, so it never writes to the real tree at all.
 #
-# The copy is of the working tree, so uncommitted skill edits are covered.
+# The copy is of the working tree, so uncommitted skill edits are covered. node_modules
+# is excluded from it: $(SKILLS) is an absolute path into the real checkout, so a second
+# dependency tree would only be something for `skills add .` to walk. Excluded rather
+# than copied and deleted, because the target now depends on $(INSTALL_STAMP) -- the
+# tree is always there, and it holds ai-rulez's ~16MB binary.
 .PHONY: smoke-opencode
-smoke-opencode:  ## Install into a throwaway copy and assert the OpenCode skill payload
+smoke-opencode: $(INSTALL_STAMP)  ## Install into a throwaway copy and assert the OpenCode skill payload
 	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
-	cp -R . "$$tmp/repo" && \
+	mkdir "$$tmp/repo" && \
+	tar --exclude node_modules -cf - . | tar -xf - -C "$$tmp/repo" && \
 	rm -rf "$$tmp/repo/.agents/skills" "$$tmp/repo/skills-lock.json" && \
 	cd "$$tmp/repo" && \
-	$(SKILLS) add . --agent opencode --skill '*' -y --copy && \
+	"$(SKILLS)" add . --agent opencode --skill '*' -y --copy && \
 	expected=$$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]') && \
 	actual=$$(find .agents/skills -name SKILL.md | wc -l | tr -d '[:space:]') && \
 	if [ "$$actual" != "$$expected" ]; then \
@@ -105,7 +129,7 @@ smoke-closure:  ## Install one skill's derived closure and assert it resolves ex
 .PHONY: preflight
 preflight:  ## Check the tools every other target needs are present
 	@missing=""; \
-	for tool in node npx $(PYTHON); do \
+	for tool in node npm $(PYTHON); do \
 	  command -v "$$tool" >/dev/null || missing="$$missing $$tool"; \
 	done; \
 	if [ -n "$$missing" ]; then \
@@ -117,8 +141,8 @@ preflight:  ## Check the tools every other target needs are present
 # repository. Generated trees are excluded there: their content is owned by .ai-rulez/
 # sources, so linting the output would report each finding once per host package.
 .PHONY: lint
-lint:  ## Lint the hand-authored Markdown
-	$(MARKDOWNLINT)
+lint: $(INSTALL_STAMP)  ## Lint the hand-authored Markdown
+	"$(MARKDOWNLINT)"
 
 # Removes only build output. `.agents/plugins/marketplace.json` is tracked and required
 # by validate_layout, so `.agents/` is never removed wholesale.
@@ -164,10 +188,14 @@ release:  ## Verify a release is ready to tag (see CONTRIBUTING for the bump its
 check: lint validate test  ## Everything CI runs on a pull request
 	@echo "all checks passed"
 
-# smoke-opencode is NOT in `check`: it downloads the skills installer from the npm
-# registry, and a slow registry is a 7-minute tail on every pull request (measured on
-# #43, where the tests finished in 65s and the download took 421s). It runs as its own
-# CI job so validation is never gated behind it.
+# smoke-opencode is NOT in `check`: it installs the plugin into a throwaway copy of the
+# tree, which is a different failure than "the payloads are valid" and is worth its own
+# CI job and its own signal. The 421s registry tail that originally forced the split
+# (measured on #43, against an on-demand package-runner download) is gone: that tail was
+# `skills`, which is pure JavaScript, and `npm ci` now installs it with the rest of the
+# locked closure from a cache both jobs share. One fetch is not cached -- ai-rulez ships
+# a launcher that pulls its ~16MB Go binary from GitHub releases the first time a job
+# runs it, which is why `make validate` still needs the network.
 .PHONY: check-all
 check-all: check smoke-opencode smoke-closure  ## check plus the OpenCode install smoke tests
 	@echo "all checks passed"
