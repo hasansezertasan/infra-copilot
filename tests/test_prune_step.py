@@ -152,6 +152,19 @@ class PruneStepTests(unittest.TestCase):
             with self.subTest(cwd=cwd):
                 self.assertEqual(self._run(files, cwd=cwd).returncode, 1)
 
+    def test_an_inline_comment_after_the_opener_is_still_a_block(self) -> None:
+        """`moved {  # renamed in #8` is a block opener; missing it reads falsely green."""
+        result = self._run(
+            {
+                "terraform/cloudflare/dns.tf": (
+                    "moved {  # renamed in #8\n"
+                    "  from = cloudflare_record.a\n"
+                    "  to   = cloudflare_dns_record.a\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 1)
+
     def test_javascript_in_a_heredoc_is_not_a_block(self) -> None:
         """`import { name } from "./x"` inside an inline Worker script is not HCL."""
         result = self._run(

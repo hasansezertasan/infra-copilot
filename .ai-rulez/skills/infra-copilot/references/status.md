@@ -145,12 +145,28 @@ preflight — is in
    together with the run evidence below: spent blocks after an applied run route to
    `infra-copilot:prune`, the same blocks before one mean the import is unfinished.
 
+   **Route by the leaf the blocks are in.** `migrate-import` is Cloudflare-specific — it
+   plans `terraform/cloudflare` and wants that leaf's generated HCL — while
+   `prune-spent-imports` is provider-neutral and scans every leaf. A repo whose only
+   adoption was in `terraform/github` or an additional-provider leaf therefore has a red
+   `migrate-import` that means *not applicable*, not *unfinished*: report it as such and
+   do not send the user to the Cloudflare import flow because a GitHub `moved` block is
+   waiting to be pruned. Judge each leaf's evidence from that leaf.
+
    Infer *done* from committed state plus the latest run for the current revision:
    a committed `terraform/cloudflare/generated*.tf` exists — cf-terraforming output is
    split by zone and resource type, so match the glob rather than a single
    `generated.tf` — **and** that run either carries status `applied` — it executed its
-   plan, imports included — or its plan summary reports `imports: 0`. Read the summary
-   with the plan-summary helper in [`docs/hcp-api.md`](docs/hcp-api.md).
+   plan, imports included — or its plan summary reports `imports: 0` **with `creates: 0`
+   and `destroys: 0`**. Read the summary with the plan-summary helper in
+   [`docs/hcp-api.md`](docs/hcp-api.md).
+
+   The creates clause is not decoration: a prune done *before* its import applied produces
+   exactly `imports: 0` with creates — Terraform no longer knows the live resources are
+   the ones at those addresses, so it offers to make them again. Reading that as
+   completion reports the one outcome this whole phase exists to prevent, moments before
+   CI duplicates live infrastructure. The generic "green run" flag does not look at
+   counts; this predicate must.
 
    Both halves of that disjunction matter. Applying a run does **not** rewrite its stored
    plan, so an applied import run still lists the imports it just performed; demanding
@@ -203,7 +219,7 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 | `status-check-context` exit 1 (phase 4) | **Nothing — fix it directly**, not via `setup`. For `BLOCKED`, replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keep every other required context, and follow the break-glass sequence ([`docs/ci.md`](docs/ci.md#hcp-status-check-context)). For `UNDERPROTECTED`, re-apply `branch_protection.tf` so an HCP context is required again. |
 | Other steps in phases 0–4 | **infra-copilot:setup** |
 | Phase 5 (migrate-*) | **infra-copilot:import** — only relevant if adopting pre-existing resources |
-| `prune-spent-imports` (phase 5) | **infra-copilot:prune** — if the import already applied. If it has not, the blocks are pending, not spent: finish `infra-copilot:import` first. |
+| `prune-spent-imports` (phase 5) | **infra-copilot:prune** — if the import already applied. If it has not, the blocks are pending, not spent: finish `infra-copilot:import` first. Route on the leaf holding the blocks, not on Cloudflare's `migrate-import`. |
 | Phase 6 (`new-provider-*`) | **infra-copilot:add** — and only after the design decision |
 | All green | Nothing — repo is set up. |
 

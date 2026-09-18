@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:063eca43a55b7183a554262913cd62cc4a2f53ed3c2c19c063ea181e251aa8cf
-Source-Hash: blake3:2307112c85e4e63974e725b7866860358234944ecbf149c9266ae6f6f857beec
+Content-Hash: blake3:e24e1b05f3fbabb938c57eb47b85a2ffbb7cd6de1148c59ea1ca7cfda6b8f521
+Source-Hash: blake3:7f930ba8238ac4dc49c2938c956d7588c474495c43249f619729118eb9d37ea5
 Schema-Version: v1
 -->
 
@@ -51,12 +51,14 @@ applies:
 
 ```sh
 cd terraform/<leaf>
-grep -rnE '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*$' *.tf
+grep -rnE '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*((#|//).*)?$' *.tf
 ```
 
-The `{` has to end the line, as a Terraform block opener always does. Without that anchor
-a heredoc carrying JavaScript — `import { name } from "./x"` in an inline Worker script —
-reads as a pending import.
+After the `{`, only whitespace or a comment — that is what a block opener looks like.
+Without that, a heredoc carrying JavaScript (`import { name } from "./x"` in an inline
+Worker script) reads as a pending import. It is a grep, not a parser: a lone `import {`
+inside a `/* … */` block comment still matches, so delete dead commented-out blocks rather
+than trying to prune them.
 
 cf-terraforming appends its blocks to the file holding the generated HCL. The runbook in
 [`import.md`](import.md) pipes one zone into a single `generated.tf`, but an adoption that

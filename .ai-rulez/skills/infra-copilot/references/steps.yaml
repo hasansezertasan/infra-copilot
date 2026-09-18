@@ -1221,8 +1221,13 @@ steps:
         fi
         # Accept no-op plan only if imports were actually applied (check apply workflow)
         if printf '%s' "$job_logs" | grep -qE 'No changes|Your infrastructure matches the configuration'; then
-          # Verify imports were applied by checking for successful apply-cloudflare run
-          # whose headSha includes the import commit (target_sha is already computed above)
+          # Verify imports were applied by checking for a successful apply-cloudflare run
+          # this revision descends from. NOT one that descends from target_sha: on a prune
+          # branch target_sha IS the prune commit, and nothing can have applied it before
+          # the merge -- which would report every valid prune PR as an unfinished import.
+          # The weaker test is still safe here, because a plan with pending imports says
+          # 'will be imported' and a premature prune says 'will be created'; both are
+          # rejected above, so only a genuinely realized leaf reaches this point.
           apply_runs=$(gh run list --repo "$REPO" --workflow terraform-apply.yml --branch main --limit 10 \
             --json databaseId,conclusion,headSha \
             -q '[.[] | select(.conclusion=="success")]' 2>/dev/null)
@@ -1230,8 +1235,8 @@ steps:
           for apply_run in $(printf '%s' "$apply_runs" | jq -r '.[] | @base64'); do
             apply_sha=$(printf '%s' "$apply_run" | base64 -d | jq -r '.headSha')
             apply_id=$(printf '%s' "$apply_run" | base64 -d | jq -r '.databaseId')
-            # Verify the apply run includes the import commit
-            if git merge-base --is-ancestor "$target_sha" "$apply_sha" 2>/dev/null; then
+            # Verify this revision descends from the applied commit
+            if git merge-base --is-ancestor "$apply_sha" HEAD 2>/dev/null; then
               apply_job=$(gh run view "$apply_id" --repo "$REPO" --json jobs \
                 -q '.jobs[] | select(.name=="apply-cloudflare" and .conclusion=="success") | .databaseId' 2>/dev/null)
               if [ -n "$apply_job" ]; then
@@ -1243,7 +1248,7 @@ steps:
           if [ "$found_valid_apply" = "true" ]; then
             exit 0  # Import completed - apply workflow ran for the import commit
           fi
-          echo "Import check: plan shows 'No changes' but no successful apply-cloudflare run for this import commit found" >&2
+          echo "Import check: plan shows 'No changes' but this revision descends from no successful apply-cloudflare run" >&2
           echo "Run terraform-apply workflow to complete the import" >&2
           exit 1
         fi
@@ -1310,13 +1315,16 @@ steps:
     check: |
       # No commits at all: nothing can be committed, so nothing is left to prune.
       git --no-optional-locks rev-parse --verify --quiet HEAD >/dev/null || exit 0
-      # The `{` must END the line. Terraform block openers always do (cf-terraforming
-      # emits them that way and `terraform fmt` enforces it), while a heredoc carrying
-      # JavaScript -- `import { name } from "./x"` inside an inline Worker script -- does
-      # not, and matched before this anchor. A one-line `import { ... }` would be missed,
-      # but it cannot be valid: HCL needs a newline between `to` and `id`.
+      # After the `{` only whitespace or an HCL comment may follow -- that is what a block
+      # opener looks like, while a heredoc carrying JavaScript (`import { name } from
+      # "./x"` in an inline Worker script) puts code there. Two known limits, both of
+      # which a real HCL parser would settle and neither of which is worth one here: a
+      # one-line `import { ... }` is missed (it cannot be valid -- HCL needs a newline
+      # between `to` and `id`), and a lone `import {` inside a /* ... */ block comment
+      # still matches, which shows up as a red step over dead commented-out code.
       left=$(git --no-optional-locks grep --full-name -lE \
-        '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*$' HEAD -- ':/terraform/*.tf')
+        '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*((#|//).*)?$' \
+        HEAD -- ':/terraform/*.tf')
       rc=$?
       [ "$rc" -eq 1 ] && exit 0          # git grep: 1 means no match
       if [ "$rc" -ne 0 ]; then

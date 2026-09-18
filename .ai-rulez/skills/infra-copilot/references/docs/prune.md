@@ -44,12 +44,14 @@ applies:
 
 ```sh
 cd terraform/<leaf>
-grep -rnE '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*$' *.tf
+grep -rnE '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*((#|//).*)?$' *.tf
 ```
 
-The `{` has to end the line, as a Terraform block opener always does. Without that anchor
-a heredoc carrying JavaScript — `import { name } from "./x"` in an inline Worker script —
-reads as a pending import.
+After the `{`, only whitespace or a comment — that is what a block opener looks like.
+Without that, a heredoc carrying JavaScript (`import { name } from "./x"` in an inline
+Worker script) reads as a pending import. It is a grep, not a parser: a lone `import {`
+inside a `/* … */` block comment still matches, so delete dead commented-out blocks rather
+than trying to prune them.
 
 cf-terraforming appends its blocks to the file holding the generated HCL. The runbook in
 [`import.md`](import.md) pipes one zone into a single `generated.tf`, but an adoption that
