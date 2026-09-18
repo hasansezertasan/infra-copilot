@@ -129,6 +129,18 @@ class PruneStepTests(unittest.TestCase):
         self.assertIn("infra-copilot:prune", result.stderr)
         self.assertIn("infra-copilot:import", result.stderr)
 
+    def test_red_for_a_json_leaf_too(self) -> None:
+        """Phase 6 accepts `*.tf.json` as leaf configuration; so must this."""
+        result = self._run(
+            {
+                "terraform/gcp/main.tf.json": (
+                    '{\n  "import": [\n    { "to": "google_project.p", "id": "p" }\n  ]\n}\n'
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("main.tf.json", result.stdout + result.stderr)
+
     def test_red_for_moved_blocks_too(self) -> None:
         """#8's 99 leftovers were `moved`, not `import`."""
         result = self._run(

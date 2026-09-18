@@ -1326,9 +1326,12 @@ steps:
       # one-line `import { ... }` is missed (it cannot be valid -- HCL needs a newline
       # between `to` and `id`), and a lone `import {` inside a /* ... */ block comment
       # still matches, which shows up as a red step over dead commented-out code.
+      # Both surfaces: HCL, and the JSON syntax phase 6 already accepts for a leaf
+      # (`"import": [`). A minified single-line .tf.json would be missed -- the same
+      # parser-free trade as the block-comment case above.
       left=$(git --no-optional-locks grep --full-name -lE \
-        '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*((#|//).*)?$' \
-        HEAD -- ':/terraform/*.tf')
+        '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*((#|//).*)?$|^[[:space:]]*"(import|moved)"[[:space:]]*:' \
+        HEAD -- ':/terraform/*.tf' ':/terraform/*.tf.json')
       rc=$?
       [ "$rc" -eq 1 ] && exit 0          # git grep: 1 means no match
       if [ "$rc" -ne 0 ]; then

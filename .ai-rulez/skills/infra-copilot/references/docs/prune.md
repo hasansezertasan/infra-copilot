@@ -63,11 +63,16 @@ runs it per zone or per resource type ends up with several (`generated_dns.tf`,
 A clean plan is **not** evidence. A speculative plan is equally clean when the imports have
 already run and when they are still pending — the difference is only visible in state.
 
-`terraform state list` reads the **backend**, not the provider, so it works in both modes:
-in HCP mode the workspace token is enough, and in object-storage mode you need read access
-to the state bucket but none of the provider credentials the plan would want. If you
-cannot read state at all, **stop** — there is no substitute, and every rule below depends
-on it.
+`terraform state list` reads the **backend**, not the provider: in HCP mode the workspace
+token is enough, and in object-storage mode you need read access to the state bucket but
+none of the provider credentials the plan would want.
+
+Avoiding provider auth is not avoiding backend auth, though. Where the bucket is reachable
+only from CI — WIF/OIDC federated to the workflow, no local credential by design — this
+check cannot run on a laptop at all. Then either a human with bucket read runs it and
+pastes the output, or it runs inside the authenticated plan workflow. What you must not do
+is skip it: if you cannot read state, **stop**. There is no substitute, and every rule
+below depends on it.
 
 ```sh
 terraform init -input=false              # a fresh checkout has no backend configured,
@@ -107,6 +112,13 @@ would vouch for every still-pending one.
 Any address that is not held means that block is still pending. Leave it, and every other
 block in that leaf, alone: finish the import first.
 
+**Chained moves resolve to their last address.** `a → b` followed by `b → c` applies as
+one hop: state ends up holding `c`, and `b` never appears. Judged one block at a time the
+first looks pending forever, and the whole leaf stays unprunable. When one block's `to` is
+another's `from`, follow the chain to its terminal address and validate it as a unit —
+the terminal address held, every earlier address in the chain absent — then remove the
+chain together or not at all.
+
 Held proves the **address** is managed, not that what sits there is the object the block
 named. They diverge only if something created a resource at that address instead of
 importing it — an apply made outside this workflow, since the import check rejects any
@@ -129,16 +141,25 @@ for a move that never happened. Prefix each module call:
 ```sh
 grep -rl 'modules/<name>' terraform/*/ --include='*.tf'   # every leaf that uses it
 
-# per leaf, the call addresses -- a module block may be called more than once, and
-# for_each/count calls appear as module.<call>["a"]:
-terraform state list | sed -n 's/^\(module\.[^.]*\)\..*/\1/p' | sort -u
+# per leaf, the call addresses. A module may be called more than once; for_each/count
+# calls appear as module.<call>["a"]; and a transitively consumed module is nested, so
+# the whole leading run of `module.<name>` pairs is the prefix -- never just the first.
+terraform state list | awk -F. '{ p=""
+  for (i = 1; i <= NF; i++) {
+    if ($i == "module") { p = p (p == "" ? "" : ".") $i "." $(i+1); i++ } else break
+  }
+  if (p != "") print p }' | sort -u
+# module.solo
+# module.foo["a"]
+# module.parent.module.child      <- nested: `module.parent` alone is a different address
 
 # then, per call, the same two rules with the call prefixed:
 held "module.<call>.<new address>" "$state" && ! held "module.<call>.<old address>" "$state"
 ```
 
-If any consumer is unmigrated or unreadable, leave the block. Plan every consuming leaf,
-not just one, before opening the PR.
+Every call has to pass, not just the first one found — a leaf that calls the module twice
+applies the move twice. If any call, consumer, or state is unmigrated or unreadable, leave
+the block. Plan every consuming leaf, not just one, before opening the PR.
 
 One case `held` cannot settle: a `to =` written as an *expression* —
 `cloudflare_dns_record.this[each.key]`, `…[count.index]`. It is not an address at all
