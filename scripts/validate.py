@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 from urllib.parse import unquote, urlsplit
 
@@ -962,6 +962,224 @@ def validate_shipped_check_paths(root: Path = ROOT) -> list[str]:
     return errors
 
 
+#: The shipped copy is what a user actually installs, so it is the one gated. ai-rulez
+#: copies the whole references tree, and `verify --plugin` fails on drift from the source.
+HOSTS_DOCUMENT = "skills/infra-copilot/references/hosts.md"
+HOSTS_BASENAME = "hosts.md"
+PROTOCOL_DOCUMENTS = (
+    ".ai-rulez/skills/infra-copilot/references/protocol.md",
+    "skills/infra-copilot/references/protocol.md",
+)
+INSTALL_GUIDE_GLOB = "install-*.md"
+#: The section that gives the AskUserQuestion grant in commands/ a consumer.
+DECISION_HEADING = "### Asking a decision"
+#: A row is identified by having an install-guide cell; column 1 is the host and
+#: column 2 the question tool. Everything between them is free, because hosts.md
+#: invites new per-host columns (#19 subagent manifests, #42 hook paths) and a
+#: pattern anchored to the last column would make every row unparseable the day one
+#: is added -- reporting "no rows" about cells that are all present.
+HOST_GUIDE_CELL = re.compile(r"\A`(docs/install-[a-z0-9-]+\.md)`\Z")
+HOST_TOOL_CELL = re.compile(r"\A`([A-Za-z_][A-Za-z0-9_]*)`\Z")
+
+
+def link_targets(document: str) -> set[str]:
+    """Every local Markdown link target in ``document``, path only.
+
+    The citation gates below used substring tests, which a bare mention in prose
+    satisfied -- "See references/hosts.md" passed while the page carried no
+    navigable link, so the one thing the gate exists to guarantee was absent.
+    """
+    targets: set[str] = set()
+    for raw in MARKDOWN_LINK.findall(document):
+        parsed = urlsplit(raw.strip().strip("<>"))
+        if parsed.scheme or parsed.netloc:
+            continue
+        path = unquote(parsed.path)
+        if path:
+            targets.add(path)
+    return targets
+
+
+def cites_hosts_record(document: str) -> bool:
+    """Whether ``document`` links the host record, as opposed to naming its path.
+
+    One helper for every citation gate. The protocol's check was left as a substring
+    test when the guide and README checks were tightened, so protocol.md could lose
+    its link and keep the words -- the same near-miss, one file later.
+    """
+    return any(
+        PurePosixPath(target).name == HOSTS_BASENAME
+        for target in link_targets(document)
+    )
+
+
+def host_records(root: Path = ROOT) -> dict[str, tuple[str, str]]:
+    """Each host row in hosts.md as ``host -> (question tool, install guide)``.
+
+    The tool is empty when column 2 does not hold a backticked identifier;
+    ``validate_host_contract`` reports that as its own error rather than letting the
+    row vanish and resurface as an unrelated complaint about an orphan guide.
+    """
+    text = read_document(root / HOSTS_DOCUMENT)
+    if text is None:
+        return {}
+    records: dict[str, tuple[str, str]] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        guides = [
+            match.group(1)
+            for match in (HOST_GUIDE_CELL.match(cell) for cell in cells)
+            if match
+        ]
+        if not guides or len(cells) < 2:
+            continue
+        tool = HOST_TOOL_CELL.match(cells[1])
+        records[cells[0]] = (tool.group(1) if tool else "", guides[0])
+    return records
+
+
+def decision_section(protocol: str) -> str | None:
+    """The body of the decision section, or None when the heading is absent.
+
+    Scoped rather than whole-document: the check exists so that deleting the rule
+    fails here, and a tool named anywhere else in protocol.md -- the preflight, a
+    later note -- would otherwise satisfy it for a document that no longer carries
+    the rule at all.
+    """
+    start = protocol.find(DECISION_HEADING)
+    if start < 0:
+        return None
+    body = protocol[start + len(DECISION_HEADING) :]
+    following = re.search(r"^#{1,6} ", body, re.MULTILINE)
+    return body[: following.start()] if following else body
+
+
+def validate_host_contract(root: Path = ROOT) -> list[str]:
+    """hosts.md is the only per-host record, and everything else cites it.
+
+    Three documents independently grew per-host facts: the README install table, the
+    protocol's human-interaction rules, and the command frontmatter that grants
+    ``AskUserQuestion`` to three commands no document ever told to use it. This gates
+    the arrangement that replaced them -- one table, cited rather than copied.
+
+    What it can check is existence and citation, not truth: no host publishes a
+    machine-readable capability record, so a wrong capability claim is only catchable
+    by a session on that host. Citation is exactly the part that drifts silently,
+    which is why it is the part with a gate.
+    """
+    errors: list[str] = []
+    records = host_records(root)
+    if len(records) < 2:
+        return [
+            f"{HOSTS_DOCUMENT}: no host capability rows parsed; each row needs a "
+            "`tool` column and a `docs/install-*.md` column"
+        ]
+
+    guides = {guide for _, guide in records.values()}
+    for host, (tool, guide) in sorted(records.items()):
+        if not tool:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {host} has no question tool in column 2; it must "
+                "be a backticked identifier such as `AskUserQuestion`"
+            )
+        document = read_document(root / guide)
+        if document is None:
+            errors.append(f"{HOSTS_DOCUMENT}: {host} names {guide}, which is missing")
+            continue
+        # Pointing back is what keeps the guide from becoming a second source of truth.
+        # The link has to be a link: docs/ sits at a different depth from both copies
+        # of the references tree, so a reader who cannot click it has to guess.
+        if not cites_hosts_record(document):
+            errors.append(
+                f"{guide}: does not link references/hosts.md; per-host capabilities "
+                "must be cited there, not restated here"
+            )
+
+    # An install guide absent from the table is a page nothing points at -- the
+    # documented-but-nonexistent failure inverted, and just as invisible.
+    for orphan in sorted((root / "docs").glob(INSTALL_GUIDE_GLOB)):
+        relative = orphan.relative_to(root).as_posix()
+        if relative not in guides:
+            errors.append(f"{relative}: install guide is not listed in {HOSTS_DOCUMENT}")
+
+    readme = read_document(root / "README.md")
+    if readme is None:
+        errors.append("README.md: unreadable, cannot check install-guide links")
+    else:
+        linked = link_targets(readme)
+        errors.extend(
+            f"README.md: install table does not link {guide}"
+            for guide in sorted(guides)
+            if guide not in linked
+        )
+
+    # #12: the AskUserQuestion grant in command frontmatter had no consumer. The
+    # protocol now states when to use a native question tool; assert it still does,
+    # so deleting that section fails here instead of silently orphaning the grant.
+    # Matched on a word boundary and paired with the heading: one recorded tool is
+    # named `question`, so a bare substring test would be satisfied by any prose in
+    # protocol.md using the English word, and deleting the rule would pass.
+    tools = {tool for tool, _ in records.values() if tool}
+    named = re.compile(r"\b(?:%s)\b" % "|".join(re.escape(tool) for tool in sorted(tools)))
+    for relative in PROTOCOL_DOCUMENTS:
+        protocol = read_document(root / relative)
+        if protocol is None:
+            errors.append(f"{relative}: unreadable, cannot check the question-tool rule")
+            continue
+        if not cites_hosts_record(protocol):
+            errors.append(f"{relative}: does not link {HOSTS_BASENAME}")
+        section = decision_section(protocol)
+        if section is None:
+            errors.append(f"{relative}: has no {DECISION_HEADING!r} section")
+        elif not tools or not named.search(section):
+            errors.append(
+                f"{relative}: its {DECISION_HEADING!r} section names no question tool "
+                f"from {HOSTS_DOCUMENT}; the allowed-tools grant in commands/ would "
+                "have no consumer"
+            )
+    return errors
+
+
+#: A skill depends on another when it reads that skill's references tree. The hub's
+#: links to `../<skill>/SKILL.md` are routing, not dependency -- it hands off to a
+#: skill it does not need installed -- so matching `references/` keeps the arrow
+#: pointing the right way and the hub's closure at one node.
+SKILL_DEPENDENCY = re.compile(r"\.\./(?P<skill>[a-z0-9-]+)/references/")
+#: Skills that own no operations of their own. `infra-copilot` selects a workflow and
+#: hands off, so installed alone it is a router with nothing to route to. They are
+#: valid closure *members* -- that is the whole point of the hub -- but never roots.
+#: Listed rather than derived: "nothing else depends on it" would also reject a future
+#: skill that is legitimately both an entry point and a dependency.
+ROUTER_SKILLS = frozenset({"infra-copilot"})
+
+
+def skill_closure(name: str, root: Path = ROOT) -> list[str]:
+    """``name`` plus every skill it needs, sorted.
+
+    Derived from the links each SKILL.md already carries rather than declared in a
+    manifest. A hand-written graph is a second place to state the same fact, and the
+    links are the copy that breaks loudly -- validate_links already proves each
+    target exists. A sixth skill declares its dependencies by linking them.
+    """
+    pending = [name]
+    closure: set[str] = set()
+    while pending:
+        skill = pending.pop()
+        if skill in closure:
+            continue
+        closure.add(skill)
+        document = read_document(root / ".ai-rulez/skills" / skill / "SKILL.md")
+        if document is None:
+            continue
+        pending.extend(
+            match.group("skill") for match in SKILL_DEPENDENCY.finditer(document)
+        )
+    return sorted(closure)
+
+
 def validate_json_manifests(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     for relative in JSON_MANIFESTS:
@@ -1254,6 +1472,13 @@ def validate_layout() -> list[str]:
         "CONTRIBUTING.md",
         "docs/roadmap.md",
         "docs/policy.md",
+        # One page per host in hosts.md. Listed here because the caution in #17 is
+        # real: litestar-skills documented a templates/ tree its repository did not
+        # contain, because no validator covered prose.
+        "docs/install-claude-code.md",
+        "docs/install-codex.md",
+        "docs/install-antigravity.md",
+        "docs/install-opencode.md",
         ".github/renovate.json",
         ".github/workflows/check.yml",
         ".github/workflows/release.yml",
@@ -1270,11 +1495,13 @@ def validate_layout() -> list[str]:
         ".ai-rulez/skills/infra-copilot/references/config.md",
         ".ai-rulez/skills/infra-copilot/references/config.md.example",
         ".ai-rulez/skills/infra-copilot/references/decisions.md.example",
+        ".ai-rulez/skills/infra-copilot/references/hosts.md",
         ".ai-rulez/skills/infra-copilot/references/protocol.md",
         ".ai-rulez/skills/infra-copilot/references/steps.yaml",
         "skills/infra-copilot/references/config.md",
         "skills/infra-copilot/references/config.md.example",
         "skills/infra-copilot/references/decisions.md.example",
+        "skills/infra-copilot/references/hosts.md",
         "skills/infra-copilot/references/protocol.md",
         "skills/infra-copilot/references/steps.yaml",
         "skills/infra-copilot/references/checks/status-check-context.sh",
@@ -1287,7 +1514,47 @@ def validate_layout() -> list[str]:
     ]
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    # `--closure <skill>` prints the install arguments for one skill and its
+    # dependencies, so `make smoke-opencode` asserts a real resolved closure instead
+    # of a hand-copied skill list that drifts the first time a skill is added.
+    arguments = sys.argv[1:] if argv is None else argv
+    if arguments:
+        if arguments[0] != "--closure" or len(arguments) != 2:
+            print("usage: validate.py [--closure <skill>]", file=sys.stderr)
+            return 2
+        name = arguments[1]
+        if not (ROOT / ".ai-rulez/skills" / name / "SKILL.md").exists():
+            print(f"--closure: no skill named {name!r}", file=sys.stderr)
+            return 2
+        if name in ROUTER_SKILLS:
+            print(
+                f"--closure: {name!r} owns no operations; installed alone it routes to "
+                "nothing. Name the action skill you want -- its closure includes the hub.",
+                file=sys.stderr,
+            )
+            return 2
+        # Every member, both trees: the closure is derived from .ai-rulez/, but
+        # `skills add` consumes the shipped skills/ tree. Checking only the root let
+        # a reachable-but-unshipped dependency be printed as an install argument the
+        # installer cannot satisfy -- which surfaces as a bare installer error.
+        closure = skill_closure(name)
+        missing = [
+            f"{tree}/{skill}"
+            for skill in closure
+            for tree in (".ai-rulez/skills", "skills")
+            if not (ROOT / tree / skill / "SKILL.md").exists()
+        ]
+        if missing:
+            print(
+                f"--closure: {name!r} needs {', '.join(missing)}, which "
+                f"{'does' if len(missing) == 1 else 'do'} not exist",
+                file=sys.stderr,
+            )
+            return 2
+        print(" ".join(f"--skill {skill}" for skill in closure))
+        return 0
+
     # Layout is a precondition for everything below: every content validator reads
     # files this list asserts exist, and Python builds the whole list before main
     # can print any of it. Without this short-circuit a missing artifact surfaces
@@ -1308,6 +1575,7 @@ def main() -> int:
         *validate_config_fallbacks(),
         *validate_customization_markers(),
         *validate_manifest_shape(),
+        *validate_host_contract(),
         *validate_token_resolution(),
         *validate_phase_five_rule(),
         *validate_toolchain_contract(),

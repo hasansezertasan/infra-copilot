@@ -71,6 +71,55 @@ When a step is `HUMAN`, do **not** guess or fake it. Stop and print exactly this
 After the human replies, run the step's `check`. If it fails, re-emit the handoff with
 what you observed — never silently proceed past a red check.
 
+### Asking a decision
+
+The handoff block above unblocks a step: it names work only a human can do and waits for
+`done`. A **decision** is different — the answer changes what the agent does next, and
+the answers are enumerable. Which provider flavor to adopt (`add`), whether to scaffold a
+missing config (`setup`), whether a discovered resource is adopted or excluded
+(`import`): each is a choice, not a handoff.
+
+Ask exactly one logical decision and wait for its result. Use the host's native question
+tool only when that named tool is currently declared **and** allowed **and** its
+capability record in [`hosts.md`](hosts.md) supports the request's mode and choice count.
+Otherwise render the identical request as text.
+
+The ceiling counts **the choices you send**. Where `hosts.md` records custom input as
+`host-supplied` the tool appends `Other` itself and you must not list one, so three
+explicit options is three choices; everywhere else you send `Other` and it counts.
+
+Two consequences of that rule worth stating, because they are the ones that bite:
+
+- The tool names differ per host — `AskUserQuestion`, `request_user_input`,
+  `ask_question`, `question` — so never name one in a skill body. Read
+  [`hosts.md`](hosts.md) for the running host and use what it lists, or fall back.
+- A mode recorded as absent or `not recorded` means fall back, not improvise — a
+  multi-select request on a host recorded for binary and single is a text question.
+  `not recorded` **custom input** never forces the fallback; it only means you supply
+  `Other` yourself and count it.
+
+The text fallback is the same request, rendered:
+
+```text
+┌─ DECISION NEEDED ─────────────────────────────────
+│ Question: <one line — the single decision>
+│ Why:      <what this changes downstream>
+│   1. <option> — <consequence>
+│   2. <option> — <consequence>
+│   3. Other — enter a custom response
+│ Reply with <one number | as many numbers as apply, comma-separated>, or your own answer.
+└───────────────────────────────────────────────────
+```
+
+The reply line is **mode-sensitive**: a single-select decision asks for one number, a
+multi-select decision asks for as many as apply. Multi-select is the mode most likely to
+reach this block — Codex is recorded for binary and single only — and a request that
+silently arrives as single-select is a different question from the one asked.
+
+Always offer `Other — enter a custom response` in the fallback, and as an explicit choice
+on any host whose custom input is not `host-supplied`. A decision the agent forces into
+its own list is a decision it made.
+
 ## Resume protocol
 
 Every skill here is **idempotent and resumable**. Before doing anything, walk the steps in

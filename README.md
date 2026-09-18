@@ -14,13 +14,29 @@ provider's API, pausing only for the irreducibly human steps.
 
 | Host | Install | Update | Invoke |
 |---|---|---|---|
-| Claude Code | `/plugin marketplace add hasansezertasan/infra-copilot`, then `/plugin install infra-copilot` | `/plugin update infra-copilot`, then restart | `/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add`, `/infra-status` |
-| Codex CLI | `codex plugin marketplace add hasansezertasan/infra-copilot`, then enable it from `/plugins` and start a new session | `codex plugin marketplace upgrade infra-copilot`, then `codex plugin add infra-copilot@infra-copilot` and restart | Ask to use infra-copilot for setup, import, prune, add, or status; plugin-defined slash commands are not exposed |
-| Antigravity | `agy plugin install https://github.com/hasansezertasan/infra-copilot` | Reinstall the plugin, then restart | `/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add`, `/infra-status`, or natural language |
-| OpenCode | `npx skills add hasansezertasan/infra-copilot --agent opencode --skill '*' -y` in the consuming repo, then restart | `npx skills update -p`, then restart | Ask OpenCode to use `infra-copilot`, `setup`, `import`, `prune`, `add`, or `status`; skills load on demand through the native `skill` tool |
+| [Claude Code](docs/install-claude-code.md) | `/plugin marketplace add hasansezertasan/infra-copilot`, then `/plugin install infra-copilot` | `/plugin update infra-copilot`, then restart | `/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add`, `/infra-status` |
+| [Codex CLI](docs/install-codex.md) | `codex plugin marketplace add hasansezertasan/infra-copilot`, then enable it from `/plugins` and start a new session | `codex plugin marketplace upgrade infra-copilot`, then `codex plugin add infra-copilot@infra-copilot` and restart | Ask to use infra-copilot for setup, import, prune, add, or status; plugin-defined slash commands are not exposed |
+| [Antigravity](docs/install-antigravity.md) | `agy plugin install https://github.com/hasansezertasan/infra-copilot` | Reinstall the plugin, then restart | `/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add`, `/infra-status`, or natural language |
+| [OpenCode](docs/install-opencode.md) | `npx skills add hasansezertasan/infra-copilot --agent opencode --skill '*' -y` in the consuming repo, then restart | `npx skills update -p`, then restart | Ask OpenCode to use `infra-copilot`, `setup`, `import`, `prune`, `add`, or `status`; skills load on demand through the native `skill` tool |
 
-After an update, refresh the host marketplace/plugin and restart the session so changed
-skills are rediscovered.
+On the three marketplace/plugin hosts, refresh the host marketplace or plugin after an
+update and restart the session so changed skills are rediscovered. OpenCode has neither:
+`npx skills update -p` rewrites files inside the consuming repo, so review the diff —
+see [`docs/install-opencode.md`](docs/install-opencode.md).
+
+The table is the index; each host name links to a page with that host's caveats — what
+"update" actually updates, whether a restart is required, how to verify the install, and
+on Codex why `/infra-setup` does not exist there. Per-host capabilities are recorded once
+in [`hosts.md`](skills/infra-copilot/references/hosts.md); the install pages cite it
+rather than restating it.
+
+On OpenCode you can install a single skill and its dependencies rather than all six —
+`--skill status --skill infra-copilot` is the read-only audit install, since every action
+skill is a router over the `infra-copilot` hub and is inert without it. See
+[`docs/install-opencode.md`](docs/install-opencode.md); `make closure SKILL=<name>`
+prints any **action** skill's closure, derived from the links in its `SKILL.md`. The
+`infra-copilot` hub is not a closure root — it owns no operations, so installed alone it
+routes to nothing — and the command says so rather than printing one.
 
 ### Session announcement
 

@@ -19,6 +19,18 @@
   and so went permanently red once the migration finished; it now also accepts the
   post-apply no-op plan, and reads cf-terraforming output as `generated*.tf` rather than a
   single hardcoded `generated.tf`.
+- Added `references/hosts.md`, the single per-host capability record (native question tool,
+  modes, choice counts, slash-command support), and a **Asking a decision** section in
+  `protocol.md` that reads it: use the host's native question tool only when that tool is
+  declared, allowed, and recorded as supporting the request — otherwise render the same
+  request as text. This gives the `AskUserQuestion` grant in `commands/` a consumer.
+- Added a per-host install guide under `docs/` for each of the four hosts, covering what
+  "update" actually updates, whether a restart is required, how each host is invoked, and
+  how to verify the install. `README.md` remains the index and links them; the guides cite
+  `hosts.md` rather than restating capabilities, and `validate_layout` lists them.
+- A skill's install closure is now derived from the links in its `SKILL.md`, so a single
+  skill can be installed with what it needs: `--skill status --skill infra-copilot`.
+  `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
 - Moved consuming-repo configuration to `.infra-copilot/config.md` and design decisions to
   `.infra-copilot/decisions.md`, with templates and legacy Claude paths supported during
   migration.
