@@ -1103,6 +1103,9 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         # trailing `echo ci` satisfies it for the install that ran first.
         ("npm install prettier@3.0.0 && echo ci", "runs npm as"),
         ("npm ci --include=dev && npm install --no-save prettier@3.0.0", "runs npm as"),
+        # A `#` inside a word is a literal the shell passes on, so the command
+        # after it still runs. Truncating there hid the rest of the line.
+        ("echo https://example.invalid#anchor ; npx prettier@3.0.0", "npx package runner"),
     )
 
     def test_a_fourth_tool_cannot_reach_the_registry(self) -> None:

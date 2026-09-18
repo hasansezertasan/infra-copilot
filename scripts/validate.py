@@ -7,6 +7,7 @@ import json
 import re
 import shlex
 import sys
+from itertools import takewhile
 from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import unquote, urlsplit
@@ -1097,10 +1098,16 @@ def executable_commands(text: str) -> list[list[str]]:
             line = YAML_SCALAR_QUOTES.sub(r"\g<scalar>", line[field.end() :].strip())
         lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
         lexer.whitespace_split = True
+        # shlex's own commenter ends the word it is standing in, so
+        # `echo https://host/x#frag ; npx prettier` lost the `npx` with the
+        # fragment. A `#` is a comment only where a word begins, which is what
+        # the shell does, so take it off the token stream instead.
+        lexer.commenters = ""
         try:
             tokens = list(lexer)
         except ValueError:
             continue
+        tokens = list(takewhile(lambda token: not token.startswith("#"), tokens))
         current: list[str] = []
         for token in [*tokens, ";"]:
             if token in COMMAND_SEPARATORS:
