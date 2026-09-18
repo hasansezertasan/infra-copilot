@@ -5,8 +5,8 @@ description: "Provision something new in an already-bootstrapped infra repo: a m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2630d5cc8a6e285a1cf8bf190552756f6e4f500493bfd72ca11fdeb5b7c31133
-Source-Hash: blake3:3ab6f3e67e42fe8f1aa11c1f5d4a1ecba0a4a57f681902e1918140d6e52b1415
+Content-Hash: blake3:5cfa0f88d53b7bee37e8ec5334b390d8d29a9e1945368a1bd4c1d48a3d549d31
+Source-Hash: blake3:320923a9b07c90a01662e214bf89a8fabb3c19eefd5b8faffd83398c5006e1ee
 Schema-Version: v1
 -->
 
@@ -41,13 +41,17 @@ Terraform's `github-org` leaf manages repos. To add one:
 
 1. **Config** — append the repo to `managed_repos` in `.infra-copilot/config.md`
    ([`../infra-copilot/references/config.md`](../infra-copilot/references/config.md)) and re-export `$REPO` if it's the first
-   entry (the VCS repo HCP watches).
+   entry (the VCS repo HCP watches, or target repo for CI).
 2. **GitHub App install scope** (`HUMAN` if the App is installed on selected repos) — the
    App must be able to see the new repo. If install is scoped, a human extends it in the
    org's App-install settings, then replies `done`. See
    [`../infra-copilot/references/github.md`](../infra-copilot/references/github.md).
-3. **Terraform** — add the resource/module in `terraform/github/`, `terraform init` +
-   `plan`. Green plan showing the new repo as **will be created** (or **imported**, if it
+3. **Terraform** — add the resource/module in `terraform/github/`, then verify the plan:
+   - **HCP mode**: `terraform init` + `plan` locally
+   - **Object-storage mode**: commit the change, push the branch, trigger
+     `gh workflow run terraform-plan.yml --ref "$(git branch --show-current)"`,
+     and verify the plan job shows the expected changes in the workflow logs
+   Green plan showing the new repo as **will be created** (or **imported**, if it
    already exists on GitHub — then hand to `infra-copilot:import`).
 
 ### 2. Add a resource to an existing provider
@@ -61,7 +65,7 @@ workspace/token already exist, so this is pure Terraform:
    [`../infra-copilot/references/cloudflare.md`](../infra-copilot/references/cloudflare.md) and
    [`../infra-copilot/references/docs/secrets.md`](../infra-copilot/references/docs/secrets.md).
 3. `plan` → green with the new resource as **will be created**. `apply` runs through HCP
-   per your normal review flow.
+   (HCP mode) or GitHub Actions on push to main (object-storage mode) per your normal review flow.
 
 ### 3. Adopt a brand-new provider (largest — a design decision)
 
@@ -81,7 +85,7 @@ Template + rationale for the GCP case: [`../infra-copilot/references/gcp.md`](..
 2. **Pick the flavor** above; run `AGENT` steps and stop + hand off on `HUMAN` steps
    (App-scope change, token mint/paste, provider decision). Full actor/handoff/resume
    contract: [`../infra-copilot/references/protocol.md`](../infra-copilot/references/protocol.md).
-3. **Verify with a plan**, then apply through your normal HCP review.
+3. **Verify with a plan**, then apply through your normal HCP review or GitHub Actions apply workflow.
 
 ## Validation
 

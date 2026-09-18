@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:00b1825065eef954555441e24ba65435b0e4ec2911fe03a2100bd9ac3adc7af4
-Source-Hash: blake3:3ab6f3e67e42fe8f1aa11c1f5d4a1ecba0a4a57f681902e1918140d6e52b1415
+Content-Hash: blake3:7d770fd366c441e1480f19112bd4db540c72956f4531ee70ea1ec4fa2af69056
+Source-Hash: blake3:320923a9b07c90a01662e214bf89a8fabb3c19eefd5b8faffd83398c5006e1ee
 Schema-Version: v1
 -->
 
@@ -70,12 +70,17 @@ preflight — is in
      working tree or any provider state. Reporting setup healthy without evaluating
      `hcp-apply-scope`, or an adoption healthy without evaluating its workspace and
      credential metadata, would hide the state these checks exist to recover.
-   - **Mutating checks — do NOT run them.** `plan-cloudflare`, `plan-github`,
+   - **Mutating checks — do NOT run them.** In HCP mode, `plan-cloudflare`, `plan-github`,
      and the phase-5 `migrate-import` check run `terraform init`/`plan`,
      which writes `.terraform/` and can create or update `.terraform.lock.hcl` — that would
      dirty the checkout, and this command promises to change nothing. Instead, read the
      **run status per workspace via the HCP API** (non-mutating — see
-     [`docs/hcp-api.md`](docs/hcp-api.md)). Resolve the current revision
+     [`docs/hcp-api.md`](docs/hcp-api.md)).
+
+     **Exception for object-storage mode:** The plan checks (`plan-cloudflare-gha`,
+     `plan-github-gha`) and `migrate-import` check perform only GitHub API reads and
+     log inspection — no local `terraform` commands. These checks ARE safe to run during
+     status in object-storage mode. Resolve the current revision
      first by asking whether the checkout corresponds to a commit at all. `git rev-parse
      HEAD` names the last *commit*, not what is on disk, so uncommitted changes under a
      leaf's directory mean the files you are auditing were never sent to HCP. Test each

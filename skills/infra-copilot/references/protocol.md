@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:cbd55036f2f5edbc6e851d1bad6b75ec2a99045193f398d56e14ce742bb634d5
-Source-Hash: blake3:3ab6f3e67e42fe8f1aa11c1f5d4a1ecba0a4a57f681902e1918140d6e52b1415
+Content-Hash: blake3:a9931699dc8f6f9f0e2d78277421599a8ba46bd6892a9e7876cff9cda1bb7a14
+Source-Hash: blake3:320923a9b07c90a01662e214bf89a8fabb3c19eefd5b8faffd83398c5006e1ee
 Schema-Version: v1
 -->
 
@@ -18,23 +18,19 @@ apart. Read this file whenever a skill says "follow the shared protocol."
 **The human is the browser, keyholder, and reviewer of executable repository trust.
 The agent owns everything that does not require those identities or decisions.**
 
-Human steps are limited to actions that require browser identity, secret custody, an
-independent trust decision, or a privileged HCP mutation after the agent credential has
-been narrowed. During bootstrap, the agent creates the initial workspaces with the user
-token. After `hcp-apply-scope`, it must not reacquire that authority merely to add another
-workspace; the human keyholder runs the canonical helper with a temporary user or
-organization token. The human surface is five action kinds only:
+Human steps are limited to actions that require browser identity, secret custody, or an
+independent trust decision. The human surface is five action kinds only:
 
 1. **Sign up** for a service (browser-only).
 2. **Mint a credential** in a dashboard (browser-only — no API bootstraps the first token).
-3. **Paste a secret** into HCP (browser-only — the agent must never see the plaintext).
+3. **Paste a secret** into the secret store (HCP workspace variables or GitHub Actions
+   secrets, depending on backend mode — the agent must never see the plaintext).
 4. **Choose and review repository tool pins** before trusting executable `mise.toml`
    behavior; the agent that proposes a config must not approve its own trust boundary.
-5. **Run a privileged HCP workspace mutation after credential narrowing**, using the
-   canonical helper without widening or replacing the agent's plan-only identity.
+5. **Run a privileged mutation after credential narrowing** (HCP mode: workspace changes
+   using the canonical helper; object-storage mode: environment approval configuration).
 
-Everything else — repository changes, verification, bootstrap workspace creation,
-imports, and plans — is the agent's.
+Everything else — repository changes, verification, imports, and plans — is the agent's.
 
 ## Step 0 — read the repo config (AGENT, always first)
 
@@ -46,11 +42,14 @@ handoff block, show the schema, offer to scaffold from
 config already exists and you are re-scaffolding, preserve the region between its
 `infra-copilot:customization` markers verbatim and hand off rather than guess when those
 markers are missing or unbalanced: [`config.md`](config.md#re-scaffolding-an-existing-config). Once a
-config is loaded, export the shell vars every check depends on. Full schema, migration
-rules, and export block: [`config.md`](config.md). On a cold run, `hcp-login` creates the
-credential file after this initial export; as soon as that step's check turns green,
-repeat the `HCP_TOKEN` export from `config.md` before checking `hcp-signup` or any later
-HCP step.
+config is loaded, export the shell vars every check depends on — including `BACKEND`, which
+gates which steps apply. Full schema, migration rules, and export block: [`config.md`](config.md).
+
+On a cold HCP-mode run, `hcp-login` creates the credential file after this initial export;
+as soon as that step's check turns green, repeat the `HCP_TOKEN` export from `config.md`
+before checking `hcp-signup` or any later HCP step. In object-storage mode, no HCP
+credential is needed — cloud provider auth happens via Workload Identity Federation or
+environment variables.
 
 ## Actors
 
@@ -150,6 +149,9 @@ repository with only the legacy config fallback skips synchronization because no
 
 ```text
 for step in scope(steps.yaml):
+    if step.when and not eval(step.when):
+        skip, print "- {step.id} (skipped: backend mode)"
+        continue
     rc = run(step.check)
     if rc == 0:
         skip, print "✓ {step.id}"
@@ -165,6 +167,28 @@ for step in scope(steps.yaml):
 
 Never assume state from memory or a prior session — always re-check. See
 [`steps.yaml`](steps.yaml) for the runtime contract (which shell vars to export first).
+
+### Conditional steps (`when`)
+
+A step may carry a `when` field — a shell condition that gates whether the step runs at all.
+If `when` evaluates false, the step is skipped entirely: no check, no run, no handoff.
+
+```yaml
+- id: hcp-login
+  when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+  # ... rest of step
+```
+
+This is how backend-specific steps coexist in one manifest:
+
+- HCP-mode steps use `'[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'` — run when HCP or default
+- Object-storage steps use `'[ "$BACKEND" = "object-storage" ]'` — run only in that mode
+
+The condition runs **before** the check. A skipped step does not count as green or red — it
+simply does not exist for this run. The resume scan proceeds to the next step.
+
+Evaluate `when` exactly as written — a shell test expression. The variables it references
+(`$BACKEND`, etc.) are exported during Step 0 config loading.
 
 ### Exit code 2 — could not verify
 

@@ -63,12 +63,17 @@ preflight — is in
      working tree or any provider state. Reporting setup healthy without evaluating
      `hcp-apply-scope`, or an adoption healthy without evaluating its workspace and
      credential metadata, would hide the state these checks exist to recover.
-   - **Mutating checks — do NOT run them.** `plan-cloudflare`, `plan-github`,
+   - **Mutating checks — do NOT run them.** In HCP mode, `plan-cloudflare`, `plan-github`,
      and the phase-5 `migrate-import` check run `terraform init`/`plan`,
      which writes `.terraform/` and can create or update `.terraform.lock.hcl` — that would
      dirty the checkout, and this command promises to change nothing. Instead, read the
      **run status per workspace via the HCP API** (non-mutating — see
-     [`docs/hcp-api.md`](docs/hcp-api.md)). Resolve the current revision
+     [`docs/hcp-api.md`](docs/hcp-api.md)).
+
+     **Exception for object-storage mode:** The plan checks (`plan-cloudflare-gha`,
+     `plan-github-gha`) and `migrate-import` check perform only GitHub API reads and
+     log inspection — no local `terraform` commands. These checks ARE safe to run during
+     status in object-storage mode. Resolve the current revision
      first by asking whether the checkout corresponds to a commit at all. `git rev-parse
      HEAD` names the last *commit*, not what is on disk, so uncommitted changes under a
      leaf's directory mean the files you are auditing were never sent to HCP. Test each

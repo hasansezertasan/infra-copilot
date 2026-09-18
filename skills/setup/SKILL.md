@@ -1,12 +1,12 @@
 ---
 name: setup
-description: "Greenfield bootstrap of a Terraform + HCP Terraform + Cloudflare + GitHub infra repo: wires HCP state, the Cloudflare token and the GitHub App, then reaches a green first plan on both leaves. Use when nothing is wired up yet, even if the user does not name infra-copilot. Not for adopting resources that already exist (infra-copilot:import), nor for provisioning new ones in a working repo (infra-copilot:add)."
+description: "Greenfield bootstrap of a Terraform + Cloudflare + GitHub infra repo with either HCP Terraform (cloud block) or object-storage backend (GCS/S3/Azure + GitHub Actions). Wires state, the Cloudflare token, and the GitHub App, then reaches a green first plan on both leaves. Use when nothing is wired up yet. Not for adopting resources that already exist (infra-copilot:import), nor for provisioning new ones in a working repo (infra-copilot:add)."
 ---
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:18457295b83bc8c402513e0214aff6e1bf498004a52f66c9da44692e025af634
-Source-Hash: blake3:3ab6f3e67e42fe8f1aa11c1f5d4a1ecba0a4a57f681902e1918140d6e52b1415
+Content-Hash: blake3:4151e8bc9ca5274e79f1a006526dca517db2c9fb89a1b9379b829f33bcab0f5e
+Source-Hash: blake3:320923a9b07c90a01662e214bf89a8fabb3c19eefd5b8faffd83398c5006e1ee
 Schema-Version: v1
 -->
 
@@ -27,6 +27,8 @@ the canonical docs under [`../infra-copilot/references/`](../infra-copilot/refer
 
 `setup` owns the cold start: from an empty repo to green plans on both leaves.
 
+### HCP mode (`backend: hcp`)
+
 | # | Phase | Actors | Deep dive |
 |---|---|---|---|
 | 0 | **Toolchain + HCP bootstrap** — commit reviewed pins, sign up, `terraform login`, get the pivot token | `HUMAN` then `AGENT` | [`../infra-copilot/references/docs/setup.md#6`](../infra-copilot/references/docs/setup.md#6-local-development), [`../infra-copilot/references/hcp.md`](../infra-copilot/references/hcp.md), [`../infra-copilot/references/docs/setup.md#1`](../infra-copilot/references/docs/setup.md#1-hcp-terraform--organization) |
@@ -34,6 +36,16 @@ the canonical docs under [`../infra-copilot/references/`](../infra-copilot/refer
 | 2 | **Cloudflare** — mint scoped token, paste into HCP, verify | `HUMAN` mint/paste, `AGENT` verify | [`../infra-copilot/references/cloudflare.md`](../infra-copilot/references/cloudflare.md) |
 | 3 | **GitHub** — create + install the GitHub App, paste creds into HCP | `HUMAN` create/install/paste, `AGENT` verify | [`../infra-copilot/references/github.md`](../infra-copilot/references/github.md) |
 | 4 | **Narrow the credential, then first plan** — hand off to a plan-only HCP identity, then `init` + speculative `plan` per leaf, read via API | `HUMAN` handoff, then `AGENT` | [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml) (`hcp-apply-scope`), [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md) |
+
+### Object-storage mode (`backend: object-storage`)
+
+| # | Phase | Actors | Deep dive |
+|---|---|---|---|
+| 0 | **Toolchain + state bucket** — commit reviewed pins, create versioned bucket, configure `backend.tf` blocks | `HUMAN` then `AGENT` | [`../infra-copilot/references/docs/state.md#object-storage-backend`](../infra-copilot/references/docs/state.md#object-storage-backend) |
+| 1 | **GitHub Actions CI** — create plan/apply workflows, configure GitHub Environment protection | `AGENT` then `HUMAN` | [`../infra-copilot/references/docs/ci.md#github-actions`](../infra-copilot/references/docs/ci.md#github-actions) |
+| 2 | **Cloudflare** — mint scoped token, add `CLOUDFLARE_API_TOKEN` to GitHub Actions secrets, verify | `HUMAN` mint/save, `AGENT` verify | [`../infra-copilot/references/cloudflare.md`](../infra-copilot/references/cloudflare.md) |
+| 3 | **GitHub** — create + install GitHub App, add secrets (`GH_APP_ID`, `GH_APP_INSTALLATION_ID`, `GH_APP_PEM`) to GitHub Actions | `HUMAN` create/install/save, `AGENT` verify | [`../infra-copilot/references/github.md`](../infra-copilot/references/github.md) |
+| 4 | **First plan** — verify `plan-cloudflare` and `plan-github` jobs succeed in GitHub Actions | `AGENT` | [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml), [`../infra-copilot/references/docs/ci.md#github-actions`](../infra-copilot/references/docs/ci.md#github-actions) |
 
 Adopting resources that already exist (a live domain, existing repos)? That's
 **infra-copilot:import** (Phase 5), run after this reaches green plans.
@@ -55,7 +67,7 @@ Adopting resources that already exist (a live domain, existing repos)? That's
    [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). On a cold repo, check that `mise` itself
    is available, then scan `toolchain-pin` before running the pin-dependent preflight
    checks. Once it is green, finish preflight, handle the optional `repo-config-sync` step,
-   print `✓`, and continue from `hcp-login`. Full contract:
+   print `✓`, and continue from `hcp-login` (HCP mode) or `state-bucket` (object-storage mode). Full contract:
    [`../infra-copilot/references/protocol.md`](../infra-copilot/references/protocol.md).
 3. **Respect the actor split.** Run `AGENT` steps yourself. On a `HUMAN` step, stop, emit
    the handoff block, wait for `done`, re-run the `check` — never fake a signup, a
@@ -63,6 +75,8 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 4. **Route to the deep-dives** under `../infra-copilot/references/` for the fine print; don't duplicate them.
 
 ### Phase notes
+
+**HCP mode:**
 
 - **Phase 0 — Toolchain + HCP bootstrap.** The first `HUMAN` step chooses exact tool
   versions, reviews the whole `mise.toml`, and commits it with `mise.lock`; this must
@@ -89,9 +103,31 @@ Adopting resources that already exist (a live domain, existing repos)? That's
   [`../infra-copilot/references/docs/hcp-api.md`](../infra-copilot/references/docs/hcp-api.md). Green on both leaves =
   credentials proven.
 
+**Object-storage mode:**
+
+- **Phase 0 — Toolchain + state bucket.** Tool versions are committed in `mise.toml` +
+  `mise.lock`. `HUMAN` creates the versioned, private state bucket with locking configured.
+  `AGENT` writes `backend.tf` blocks in each leaf pointing to the state bucket.
+  [`../infra-copilot/references/docs/state.md#object-storage-backend`](../infra-copilot/references/docs/state.md#object-storage-backend).
+- **Phase 1 — GitHub Actions CI.** `AGENT` creates `.github/workflows/terraform-plan.yml` and
+  `terraform-apply.yml`. `HUMAN` configures the `production` GitHub Environment with required
+  reviewers to gate applies.
+  [`../infra-copilot/references/docs/ci.md#github-actions`](../infra-copilot/references/docs/ci.md#github-actions).
+- **Phase 2 — Cloudflare.** `HUMAN` mints scoped token and adds `CLOUDFLARE_API_TOKEN` to
+  GitHub Actions secrets; `AGENT` verifies.
+  [`../infra-copilot/references/cloudflare.md`](../infra-copilot/references/cloudflare.md).
+- **Phase 3 — GitHub.** `HUMAN` creates/installs GitHub App and adds `GH_APP_ID`,
+  `GH_APP_INSTALLATION_ID`, and `GH_APP_PEM` to GitHub Actions secrets; `AGENT` verifies.
+  [`../infra-copilot/references/github.md`](../infra-copilot/references/github.md).
+- **Phase 4 — First plan.** Trigger or inspect GitHub Actions plan workflows for `cloudflare`
+  and `github` leaves; verify both jobs succeed. Align required status check job names.
+  [`../infra-copilot/references/docs/ci.md#github-actions`](../infra-copilot/references/docs/ci.md#github-actions).
+
 ## Validation
 
 Setup is complete when you can report:
+
+**For HCP mode (`backend: hcp`):**
 
 - ✓ `mise.toml` + `mise.lock` are reviewed, committed together, exact-pinned, and
   installable with `MISE_LOCKED=1`.
@@ -104,6 +140,17 @@ Setup is complete when you can report:
   step like `cf-token` and `gh-app`: stop there, hand off, and continue when it turns
   green. Setup is not complete while the agent still holds the apply-capable user
   token from `terraform login`.
+
+**For Object-storage mode (`backend: object-storage`):**
+
+- ✓ `mise.toml` + `mise.lock` are reviewed, committed together, exact-pinned, and
+  installable with `MISE_LOCKED=1`.
+- ✓ State bucket created, versioned, private, with locking configured.
+- ✓ `backend.tf` blocks configured in each leaf.
+- ✓ GitHub Actions workflows committed (`terraform-plan.yml`, `terraform-apply.yml`) and production environment configured.
+- ✓ All sensitive secrets present in GitHub Actions (`CLOUDFLARE_API_TOKEN`, `GH_APP_ID`, `GH_APP_INSTALLATION_ID`, `GH_APP_PEM`).
+- ✓ GitHub Actions plan workflows green on both leaves (`plan-cloudflare`, `plan-github`).
+- ✓ Required status checks in branch protection match workflow job names.
 
 If the domain/repos already exist, continue with **infra-copilot:import** to adopt them
 (plan should then show imports, not creates). Otherwise day-to-day work follows your
