@@ -21,6 +21,7 @@ from pathlib import Path
 
 from scripts.validate import (
     AGENT_STEM,
+    _runs_implementation,
     HOSTS_DOCUMENT,
     dialect_rows,
     validate_host_dialects,
@@ -466,6 +467,97 @@ class CoverageAndGrantTests(unittest.TestCase):
         ]
         path.write_text(json.dumps(payload), encoding="utf-8")
         self.assertTrue(any("not a string" in e for e in validate_host_dialects(root)))
+
+
+class AmbiguityTests(unittest.TestCase):
+    """A record or manifest that says two things must not be read as saying one."""
+
+    def _root(self, old: str, new: str, path: str = HOSTS_DOCUMENT) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / path
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_a_negated_imperative_is_not_a_directive(self) -> None:
+        """"Never Invoke the infra-copilot skill" matched the imperative."""
+        for phrase in (
+            "Never Invoke the `infra-copilot` skill, nor follow",
+            "Do not Invoke the `infra-copilot` skill, nor follow",
+        ):
+            with self.subTest(phrase=phrase):
+                root = self._root(
+                    "Invoke the `infra-copilot` skill, then follow", phrase, AGENT_PATH
+                )
+                self.assertTrue(
+                    any("no instruction to invoke" in e for e in validate_host_dialects(root))
+                )
+
+    def test_duplicate_toml_names_are_rejected(self) -> None:
+        """A duplicate key makes the document invalid TOML, so the host registers
+        nothing -- while a first-match read saw the right name."""
+        root = self._root(
+            "| `.codex/agents/` | none — session tools are inherited | — | no — not exercised |",
+            "| `.codex/agents/` | none — session tools are inherited | — | **yes** |",
+        )
+        shipped = root / ".codex/agents"
+        shipped.mkdir(parents=True)
+        (shipped / f"{AGENT_STEM}.toml").write_text(
+            'name = "infra-auditor"\nname = "wrong-agent"\n'
+            'developer_instructions = """Invoke the infra-copilot skill, then status.md."""\n',
+            encoding="utf-8",
+        )
+        self.assertTrue(any("`name` keys" in e for e in validate_host_dialects(root)))
+
+    def test_a_repeated_capability_heading_is_rejected(self) -> None:
+        """A second table was ignored while a reader sees two competing records."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8")
+            + "\n## Subagent manifests (second)\n\n| Host | A | B | C | D |\n"
+            "|---|---|---|---|---|\n| Claude Code | `nowhere/` | comma string | `Write` | **yes** |\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any("occurs 2 times" in e for e in validate_host_dialects(root)))
+
+
+class HookCommandTests(unittest.TestCase):
+    """The shell must be *given* the script.
+
+    A regex over the whole command was defeated four times, each patch matching
+    one more spelling of "the path and a shell both appear somewhere". These are
+    every spelling that got through, plus the forms that must keep working.
+    """
+
+    def test_accepted_forms(self) -> None:
+        for label, command in (
+            (
+                "shipped",
+                'r="${CLAUDE_PLUGIN_ROOT:-}"; [ -n "$r" ] || exit 0; '
+                's="${r%/}/hooks/session-start.sh"; [ -f "$s" ] || exit 0; sh "$s"',
+            ),
+            ("direct", "sh hooks/session-start.sh"),
+            ("bash quoted", 'bash "hooks/session-start.sh"'),
+        ):
+            with self.subTest(form=label):
+                self.assertTrue(_runs_implementation(command), command)
+
+    def test_rejected_forms(self) -> None:
+        for label, command in (
+            ("mention only", "echo sh hooks/session-start.sh"),
+            ("shell runs something else", "x=hooks/session-start.sh; sh -c true"),
+            ("child shell echoes it", """s=hooks/session-start.sh; sh -c 'echo "$s"'"""),
+            ("reassigned", 's=hooks/session-start.sh; s=/bin/true; sh "$s"'),
+            ("no shell at all", 's="hooks/session-start.sh"'),
+        ):
+            with self.subTest(form=label):
+                self.assertFalse(_runs_implementation(command), command)
 
 
 if __name__ == "__main__":

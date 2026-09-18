@@ -1510,7 +1510,15 @@ AGENT_RUNBOOK = ("infra-copilot", "status.md")
 #: A positive directive, not a mention. The imperative and the skill name have to
 #: appear together and in that order. Backticks are optional: the TOML dialect
 #: carries its body in a plain string, where Markdown code spans do not belong.
+#:
+#: Case-sensitive on `Invoke` so the sentence has to be an instruction, and the
+#: negator guard is what makes it a *positive* one -- "Never Invoke the
+#: infra-copilot skill" matched the imperative and inverted it.
 AGENT_INVOCATION = re.compile(r"\bInvoke the `?infra-copilot`? skill\b")
+AGENT_NEGATOR = re.compile(
+    r"\b(?:never|not|nor|avoid|don'?t|cannot|can'?t|must not|do not|refuse to)\W+$",
+    re.IGNORECASE,
+)
 AGENT_FORBIDDEN_PATH = "skills/infra-copilot/references/"
 #: An adapter budget, in the spirit of MAX_DESCRIPTION_BUDGET: the runbook owns
 #: scope, guardrails and the report contract, and a manifest with room to restate
@@ -1527,35 +1535,55 @@ HOOK_IMPLEMENTATION = "hooks/session-start.sh"
 HOOK_SHELL = re.compile(r"\A(?:ba|z|da)?sh\s")
 
 
-def _runs_implementation(command: str) -> bool:
-    """Whether ``command`` hands the shared hook script to a shell.
+def _expand(word: str, variables: dict[str, str]) -> str:
+    """A shell word with its variable references substituted.
 
-    The shell must *receive* the script: `x=hooks/session-start.sh; sh -c true`
-    mentions the path and runs a shell, and does neither thing together. So the
-    path is tracked through the one assignment the shipped manifests use --
-    `s="${r%/}/hooks/session-start.sh"; ... sh "$s"` -- and the shell statement
-    must name either the path itself or a variable holding it.
-
-    ponytail: one level of variable indirection, not a shell parse. That is the
-    form the manifests take; a second hop would need a real parser, and the
-    alternative -- pinning a literal command template -- would freeze the shape.
+    Suffix and default operators (`${r%/}`, `${X:-}`) are reduced to the variable
+    name: this decides whether a path is *present* in the operand, and neither
+    operator can introduce one.
     """
-    if HOOK_IMPLEMENTATION not in command:
-        return False
-    holders = {
-        match.group(1)
-        for match in re.finditer(
-            rf'(\w+)=["\']?[^;&|]*{re.escape(HOOK_IMPLEMENTATION)}', command
-        )
-    }
-    for statement in re.split(r"[;&|]+", command):
+    word = word.strip().strip("\"'")
+    def substitute(match: re.Match[str]) -> str:
+        return variables.get(match.group(1), "")
+    return re.sub(r"\$\{?([A-Za-z_]\w*)[^}]*\}?", substitute, word)
+
+
+def _runs_implementation(command: str) -> bool:
+    """Whether ``command`` actually executes the shared hook script.
+
+    A regex over the whole string was defeated four times -- `echo sh <path>`,
+    `x=<path>; sh -c true`, `sh -c 'echo "$s"'`, and reassigning the variable
+    after it was set. Each patch matched one more spelling of "the path and a
+    shell both appear somewhere". So this walks the statements in order instead,
+    tracking assignments, and asks the only question that matters: is the script
+    the operand the shell is given?
+
+    ponytail: a statement walker with single-level expansion, not a shell parser.
+    It models what these manifests contain -- assignments, tests, and one shell
+    invocation -- and refuses anything it cannot follow, which is the safe
+    direction for a gate. Command substitution, functions and eval are not
+    modelled and will simply fail the check.
+    """
+    variables: dict[str, str] = {}
+    for statement in re.split(r"[;&|\n]+", command):
         statement = statement.strip()
+        if not statement:
+            continue
+        assignment = re.match(r"\A([A-Za-z_]\w*)=(.*)\Z", statement)
+        if assignment:
+            # Order matters: a later assignment replaces an earlier one, which is
+            # how `s=<path>; s=/bin/true; sh "$s"` used to pass.
+            variables[assignment.group(1)] = _expand(assignment.group(2), variables)
+            continue
         if not HOOK_SHELL.match(statement):
             continue
-        argument = statement.split(None, 1)[1] if " " in statement else ""
-        if HOOK_IMPLEMENTATION in argument:
-            return True
-        if any(holder in re.findall(r"\$\{?(\w+)", argument) for holder in holders):
+        arguments = statement.split()[1:]
+        if any(argument.startswith("-") for argument in arguments):
+            # `sh -c ...` runs a command string, not a script file. The shipped
+            # manifests pass the script directly, so any flag means this is not
+            # the invocation being claimed.
+            continue
+        if arguments and HOOK_IMPLEMENTATION in _expand(arguments[0], variables):
             return True
     return False
 
@@ -1563,7 +1591,7 @@ def _runs_implementation(command: str) -> bool:
 def dialect_rows(root: Path = ROOT, heading: str = "") -> list[list[str]]:
     """Body rows of the hosts.md table under ``heading``, as stripped cells."""
     text = read_document(root / HOSTS_DOCUMENT)
-    if text is None or heading not in text:
+    if text is None or text.count(heading) != 1:
         return []
     section = text[text.index(heading) + len(heading) :]
     cut = section.find("\n## ")
@@ -1610,6 +1638,16 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     agents = dialect_rows(root, "## Subagent manifests")
     hooks = dialect_rows(root, "## Hook discovery")
+    document = read_document(root / HOSTS_DOCUMENT) or ""
+    for heading in ("## Subagent manifests", "## Hook discovery"):
+        if document.count(heading) != 1:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {heading!r} occurs {document.count(heading)} times; "
+                "exactly one is required, or a reader sees competing capability records "
+                "and only the first is checked"
+            )
+    if errors:
+        return errors
     if not agents or not hooks:
         return [f"{HOSTS_DOCUMENT}: no subagent or hook rows found; the record is unreadable"]
     # The protocol sends a run to *its own* host's row, so a section missing a host
@@ -1717,8 +1755,15 @@ def _check_agent(relative: str, text: str, row: list[str], render, dialect: str)
         # TOML, whose tools are inherited: there is no frontmatter, and the name is
         # a top-level key. Requiring YAML here made the Codex row unable to graduate
         # in the one format its own record describes.
-        declared = re.search(r'(?m)^name\s*=\s*"([^"]*)"', text)
-        if declared is None or declared.group(1) != AGENT_STEM:
+        declared = re.findall(r'(?m)^name\s*=\s*"([^"]*)"', text)
+        if len(declared) != 1:
+            # Duplicate TOML keys make the document invalid outright, so the host
+            # registers nothing -- while a first-match read saw the right name.
+            errors.append(
+                f"{relative}: declares {len(declared)} `name` keys; exactly one is "
+                "required, and a duplicate makes the manifest invalid TOML"
+            )
+        elif declared[0] != AGENT_STEM:
             errors.append(f"{relative}: must declare name {AGENT_STEM!r}")
         return errors + _check_agent_body(relative, text)
     front = SKILL_FRONTMATTER.match(text)
@@ -1768,7 +1813,12 @@ def _check_agent(relative: str, text: str, row: list[str], render, dialect: str)
 def _check_agent_body(relative: str, text: str) -> list[str]:
     """Rules every dialect shares: delegate, no consumer-relative path, stay small."""
     errors: list[str] = []
-    if AGENT_INVOCATION.search(text) is None:
+    positive = [
+        match
+        for match in AGENT_INVOCATION.finditer(text)
+        if AGENT_NEGATOR.search(text[max(0, match.start() - 40) : match.start()]) is None
+    ]
+    if not positive:
         # Names alone were satisfied by "Never invoke `infra-copilot` or
         # `status.md`" -- both markers present, every delegated run told not to
         # load the canonical workflow.
