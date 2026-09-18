@@ -1131,6 +1131,12 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         # only needs someone who means it.
         "      - name: Cache npx downloads",
         "      - name: Install the pinned npm tools",
+        # Labels that *begin* with the name. Stripping whatever key preceded a
+        # value made every field a command position, so these read as commands
+        # while only `- name: Cache npx downloads` had been fixed.
+        "      - name: npx cache downloads",
+        "      - name: npm install everything",
+        "        uses: actions/setup-node@v4",
     )
 
     def test_naming_npm_is_not_invoking_it(self) -> None:
@@ -1161,6 +1167,29 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             self._makefile_running(repository, "env npm exec -- prettier@3.0.0")
 
             self.assertEqual(validate_tool_pins(repository), [])
+
+    #: `run` is the only workflow field whose value is executed. Both spellings,
+    #: plus a command inside a `run: |` block, which carries no key of its own.
+    WORKFLOW_INVOCATIONS = (
+        "        run: npx --yes prettier@3.0.0",
+        "      - run: npm install prettier@3.0.0",
+        "          npx --yes prettier@3.0.0",
+    )
+
+    def test_a_run_field_is_still_executable(self) -> None:
+        """Narrowing to `run:` must not stop workflows being scanned at all."""
+        for line in self.WORKFLOW_INVOCATIONS:
+            with self.subTest(line=line):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    workflow = repository / TOOL_PIN_WORKFLOWS[0]
+                    workflow.write_text(f"steps:\n{line}\n", encoding="utf-8")
+
+                    errors = validate_tool_pins(repository)
+
+                    self.assertEqual(len(errors), 1, errors)
+                    self.assertIn(TOOL_PIN_WORKFLOWS[0], errors[0])
 
     def test_the_install_this_repository_runs_is_allowed(self) -> None:
         """The allowlist has to let the real Makefile through, options and all."""

@@ -189,9 +189,16 @@ COMMAND_SEPARATORS = re.compile(r"&&|\|\||[;|&]")
 # Only the command position counts, because a runner's name is also an ordinary
 # word. `- name: Cache npx downloads` and `- name: Install the pinned npm tools`
 # are step labels -- this branch shipped the second one for three commits, and
-# both were reported as invocations while the scan read whole lines. YAML puts a
-# key before the command and make allows @ - + sigils, so both come off first.
-YAML_KEY_PREFIX = re.compile(r"^\s*-?\s*[\w.-]+:\s*")
+# both were reported as invocations while the scan read whole lines.
+#
+# `run:` by name, not any key: stripping whatever key was there made the value of
+# every field a command position, so a label that merely *starts* with a runner
+# (`- name: npx cache downloads`) read as one. `run` is the only field in these
+# workflows whose value is executed, which is the distinction a YAML parser would
+# be bought for -- and one key name is cheaper than a parser and cannot itself be
+# a grammar to get wrong. A command inside a `run: |` block carries no key at all
+# and is already at position zero of its own line.
+YAML_RUN_PREFIX = re.compile(r"^\s*-?\s*run:\s*")
 RECIPE_SIGILS = "@+-"
 # Only executable text is scanned. A comment cannot invoke anything, and the
 # prose here has to be free to name the mechanisms it explains -- the Makefile
@@ -1081,7 +1088,7 @@ def shell_commands(line: str) -> list[list[str]]:
     """
     commands = []
     for segment in COMMAND_SEPARATORS.split(line):
-        tokens = YAML_KEY_PREFIX.sub("", segment, count=1).split()
+        tokens = YAML_RUN_PREFIX.sub("", segment, count=1).split()
         if tokens:
             commands.append([tokens[0].lstrip(RECIPE_SIGILS), *tokens[1:]])
     return commands
