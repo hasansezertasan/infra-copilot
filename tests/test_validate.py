@@ -1065,123 +1065,6 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                     self.assertEqual(len(errors), 1, errors)
                     self.assertIn("invokes ai-rulez@… directly", errors[0])
 
-    def test_a_hash_after_any_word_delimiter_is_a_comment(self) -> None:
-        """Bash's complete set, not the characters review reached.
-
-        A comment may follow whitespace or any of `; & | ( )`. Each arrived as
-        its own finding until the set was taken from the shell instead.
-        """
-        for delimiter in (" ", ";", "&", "|", "(", ")"):
-            with self.subTest(delimiter=delimiter):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    makefile = repository / "Makefile"
-                    command = "true" if delimiter in "|&" else "echo ok"
-                    makefile.write_text(
-                        makefile.read_text(encoding="utf-8")
-                        + f"probe:\n\t{command} {delimiter}# npx ai-rulez@4.9.0\n",
-                        encoding="utf-8",
-                    )
-
-                    self.assertEqual(validate_tool_pins(repository), [])
-
-    def test_a_backslash_run_escapes_by_parity(self) -> None:
-        """Backslashes pair off, so only an odd run escapes what follows.
-
-        bash prints `ok # c` for one, `ok\\` for two, `ok\\ # c` for three: the
-        even runs leave the space a real delimiter and the hash opens a comment,
-        the odd runs escape it and the rest of the line runs. Masking escapes
-        left to right gets this by construction; a lookbehind cannot count.
-        """
-        for backslashes in range(1, 5):
-            escape = "\\" * backslashes
-            comments = backslashes % 2 == 0
-            with self.subTest(backslashes=backslashes):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    makefile = repository / "Makefile"
-                    makefile.write_text(
-                        makefile.read_text(encoding="utf-8")
-                        + f"probe:\n\techo ok{escape} # npx ai-rulez@4.9.0\n",
-                        encoding="utf-8",
-                    )
-
-                    errors = validate_tool_pins(repository)
-
-                    if comments:
-                        self.assertEqual(errors, [], errors)
-                    else:
-                        self.assertEqual(len(errors), 1, errors)
-                        self.assertIn("invokes ai-rulez@… directly", errors[0])
-
-    def test_a_line_continuation_is_not_an_escape_for_this(self) -> None:
-        """bash removes it, after which the hash starts a line and comments."""
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            makefile = repository / "Makefile"
-            makefile.write_text(
-                makefile.read_text(encoding="utf-8")
-                + "probe:\n\techo foo \\\n\t#bar npx ai-rulez@4.9.0\n",
-                encoding="utf-8",
-            )
-
-            self.assertEqual(validate_tool_pins(repository), [])
-
-    def test_an_escaped_delimiter_does_not_begin_a_comment(self) -> None:
-        """The boundary character has to be unescaped to be one.
-
-        Escaping it makes it part of the word, so the hash is mid-word and the
-        command after it runs -- `echo foo\\ #bar; npx ...` prints `foo #bar`
-        and then invokes npx. The delimiter set was verified a round earlier;
-        this interaction with escaping was not, which is why "complete set" is
-        no longer claimed for it.
-        """
-        for delimiter in (" ", ";", "&", "|", "(", ")"):
-            with self.subTest(delimiter=delimiter):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    makefile = repository / "Makefile"
-                    makefile.write_text(
-                        makefile.read_text(encoding="utf-8")
-                        + f"probe:\n\techo foo\\{delimiter}#bar; "
-                        "npx ai-rulez@4.9.0\n",
-                        encoding="utf-8",
-                    )
-
-                    errors = validate_tool_pins(repository)
-
-                    self.assertEqual(len(errors), 1, errors)
-                    self.assertIn("invokes ai-rulez@… directly", errors[0])
-
-    def test_a_hash_inside_a_word_is_still_a_literal(self) -> None:
-        """The constraint that keeps the boundary set from swallowing the check.
-
-        `>` and `<` are excluded deliberately: `true >/dev/null# c` names the
-        file `dev/null#`, so the hash is mid-word and the command after it runs.
-        """
-        for line in (
-            "\techo https://example.invalid#anchor; npx ai-rulez@4.11.3",
-            "\ttrue >/dev/null# npx ai-rulez@4.9.0",
-        ):
-            with self.subTest(line=line):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    makefile = repository / "Makefile"
-                    makefile.write_text(
-                        makefile.read_text(encoding="utf-8") + f"probe:\n{line}\n",
-                        encoding="utf-8",
-                    )
-
-                    errors = validate_tool_pins(repository)
-
-                    self.assertEqual(len(errors), 1, errors)
-                    self.assertIn("invokes ai-rulez@… directly", errors[0])
-
     def test_a_package_may_not_be_run_past_its_bin_link(self) -> None:
         """`node node_modules/yaml/bin.mjs` runs a transitive CLI unseen.
 
@@ -1232,6 +1115,53 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         "env npm exec -- prettier@3.0.0",
         "if test -f config; then npx prettier@3.0.0; fi",
     )
+
+    #: Comments are scanned like anything else, so prose may not spell a pin.
+    #: Deciding where a shell comment begins produced five of the last six review
+    #: rounds on this check -- delimiter characters, escaped delimiters, then the
+    #: parity of a backslash run -- so the question is no longer asked. Write
+    #: `ai-rulez 4.11.3` in a comment, not `ai-rulez@4.11.3`.
+    PINS_IN_PROSE = (
+        "# npx ai-rulez@4.11.3 was the old form",
+        "\techo hi # old: npx ai-rulez@4.11.3",
+        "\techo ok;# old: npx ai-rulez@4.11.3",
+    )
+
+    def test_a_comment_may_not_spell_a_pin_either(self) -> None:
+        for line in self.PINS_IN_PROSE:
+            with self.subTest(line=line):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    makefile = repository / "Makefile"
+                    makefile.write_text(
+                        makefile.read_text(encoding="utf-8") + f"probe:\n{line}\n",
+                        encoding="utf-8",
+                    )
+
+                    errors = validate_tool_pins(repository)
+
+                    self.assertEqual(len(errors), 1, errors)
+                    self.assertIn("invokes ai-rulez@… directly", errors[0])
+
+    def test_prose_may_still_name_a_tool_without_a_version(self) -> None:
+        """The rule is the `@`, not the name -- comments stay useful.
+
+        The Makefile's own comments name `skills`, `npm ci` and
+        `node_modules/.bin/skills`, and must keep being able to.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository)
+            makefile = repository / "Makefile"
+            makefile.write_text(
+                "# skills 1.5.23 is pinned in package.json; npm ci installs it\n"
+                "# into node_modules/.bin/skills, which is what recipes run.\n"
+                + makefile.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(validate_tool_pins(repository), [])
 
     def test_a_tool_we_do_not_pin_is_not_guarded_statically(self) -> None:
         """The documented ceiling, asserted so it cannot be mistaken for a bug.
@@ -1348,27 +1278,6 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             makefile.read_text(encoding="utf-8") + f"fmt:\n\t{invocation} --write .\n",
             encoding="utf-8",
         )
-
-    def test_a_comment_is_not_an_invocation(self) -> None:
-        """Prose must be free to name the mechanism it is explaining.
-
-        The Makefile comment justifying `--include=dev` describes what npm does
-        under NODE_ENV=production; a scan that cannot tell that from a recipe
-        would force the explanation out of the file that needs it.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            makefile = repository / "Makefile"
-            makefile.write_text(
-                "# npm install prettier@3.0.0 is what this target must never do,\n"
-                "# and npx would be another way to do it. Nor may it run\n"
-                "# node_modules/.bin/some-new-tool, which nothing declares.\n"
-                + makefile.read_text(encoding="utf-8"),
-                encoding="utf-8",
-            )
-
-            self.assertEqual(validate_tool_pins(repository), [])
 
     def test_a_path_segment_is_not_a_tool_invocation(self) -> None:
         """`<pkg>@` matches a command, not any word that ends in a tool name.

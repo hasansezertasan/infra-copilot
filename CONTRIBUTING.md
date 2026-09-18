@@ -141,6 +141,13 @@ Bump with `npm install <tool>@<version> --save-exact --save-dev` and commit
 `package-lock.json` alongside. Renovate's native npm manager does the same, so an
 existing entry stays current with no configuration.
 
+`scripts/validate.py` scans those two files whole, comments included, so prose in
+them may not spell a pin either — write `ai-rulez 4.11.3`, not `ai-rulez@4.11.3`, and
+name a tool's path as `node_modules/.bin/<tool>` rather than reaching into a package.
+Deciding which text was a comment meant deciding where a shell comment begins, and that
+question has a whole grammar behind it; not asking it is cheaper than answering it, and
+no comment here needs the `@`.
+
 Adding a *new* tool takes one more edit: `TOOL_PACKAGES` in `scripts/validate.py`, which
 lists the same three packages. The duplication is deliberate — it is what makes deleting
 a tool from `devDependencies` fail instead of silently shrinking what the validator

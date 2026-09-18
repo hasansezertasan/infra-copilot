@@ -182,35 +182,19 @@ NODE_BIN_UNNAMED = re.compile(r"node_modules/\.bin(?!/[A-Za-z0-9._-])")
 # dot-entries are ours to use (.bin holds the links, .install-stamp records the
 # install); anything else is a package's internals and gets named as such.
 NODE_MODULES_PACKAGE_PATH = re.compile(r"node_modules/(?![.])(?P<package>[^\s/]+)")
-# Comments are dropped before the scans below, so prose may name a tool: the
-# Makefile comment for `--include=dev` explains what npm does under
-# NODE_ENV=production, and the one above `smoke-opencode` names `skills`.
+# Comments are NOT stripped: these files may not spell a pin in prose either.
 #
-# A `#` opens a comment where a word begins, so the boundary is bash's complete
-# set of word-delimiting metacharacters -- whitespace, line start, and ; & | ( )
-# -- rather than the ones review happened to report. Checked rather than assumed,
-# because the set has a surprise in it:
+# Stripping them meant deciding where a shell comment begins, and that produced
+# five of the last six review rounds on this check -- which characters delimit a
+# word, whether an escaped one still does, and the parity of a backslash run.
+# Each fix was correct and the next edge case arrived anyway, because the
+# question has a whole shell grammar behind it.
 #
-#   (true)# c              -> comment          )  delimits
-#   echo ok;# c            -> comment          ;  delimits
-#   true >/dev/null# c     -> file "dev/null#"  >  does NOT
-#
-# `<` and `>` are excluded on that evidence: after a redirection operator the
-# hash continues the filename word. A hash inside a word is a literal either way.
-COMMENT_BOUNDARY = r"(?:(?<=^)|(?<=[\s;&|()]))"
-# An escaped character, masked out before the pattern above is applied so that a
-# delimiter which was escaped is not one. Left to right, which gets the parity
-# right by construction rather than by counting: `ok\\ #c` consumes the two
-# backslashes as one pair and leaves the space real, so the hash opens a comment,
-# while `ok\ #c` consumes the escaped space and it does not. Both match bash.
-#
-# A backslash before a newline is excluded: that is a line continuation, which
-# bash removes, after which the hash sits at the start of a line and comments as
-# usual. Masking it would join the lines and lose that.
-ESCAPED_CHARACTER = re.compile(r"\\[^\n]")
-COMMENT_PATTERN = re.compile(
-    r"""(?m)'[^'\n]*'|"(?:\\.|[^"\\\n])*"|(?P<comment>""" + COMMENT_BOUNDARY + r"""#.*$)"""
-)
+# The rule that replaces it costs nothing: no comment in this repository spells
+# `<tool>@<version>` or a node_modules package path today, and none needs to --
+# write `ai-rulez 4.11.3`, not `ai-rulez@4.11.3`. What was tolerated is now
+# enforced, and an entire class of edge case stops existing rather than being
+# handled correctly.
 # Quoting and escaping are how the shell writes one word in pieces, so the pieces
 # are put back together before the pin scan by dropping the delimiters -- no
 # interpretation, since adjacent fragments are what concatenation is and a
@@ -221,8 +205,19 @@ COMMENT_PATTERN = re.compile(
 #   ai-rulez'@'4.9.0   ai-rulez"@"4.9.0   ai-rulez\@4.9.0
 #   ai-rulez$'@'4.9.0  ai-rulez$"@"4.9.0
 #
-# each of which bash prints as ai-rulez@4.9.0. There is no sixth, so this set is
-# complete rather than the longest one review has reached so far.
+# each of which bash prints as ai-rulez@4.9.0.
+#
+# Removing delimiters is where this stops. It undoes quoting and escaping, which
+# is syntax -- characters that mark a word without being in it. It does not
+# decode escape *sequences*: `$'\x40'` is also `@` to bash, and reading it needs
+# a table of \x, \0, \u and the C escapes, which is interpretation rather than
+# removal. That is the line, and it is drawn here rather than at whichever
+# sequence gets reported next.
+#
+# It holds because this guards against the habitual form coming back -- an old
+# README line, a reflex `npx <tool>@<version>` -- not against someone determined
+# to get past it. Anyone writing `$'\x40'` to dodge a check can edit
+# package.json instead, and both are one reviewable diff.
 SHELL_WORD_DELIMITERS = re.compile(r"""['"\\$]""")
 # What this check enforces, and what it deliberately does not.
 #
@@ -1105,28 +1100,6 @@ def validate_manifest_paths(root: Path = ROOT) -> list[str]:
     return errors
 
 
-def strip_comments(text: str) -> str:
-    """``text`` without its comments, its quoted spans left intact.
-
-    A `#` inside quotes is a literal the shell and YAML both pass on, so
-    truncating there would hide the rest of a line that really runs.
-
-    Matched against a copy whose escaped characters are masked to a placeholder
-    of the same width, so positions still line up with ``text`` and an escape
-    can neither be read as a delimiter nor hide the one after it.
-    """
-    mask = ESCAPED_CHARACTER.sub("\0\0", text)
-    kept: list[str] = []
-    end = 0
-    for match in COMMENT_PATTERN.finditer(mask):
-        if match.group("comment") is None:
-            continue
-        kept.append(text[end : match.start("comment")])
-        end = match.end("comment")
-    kept.append(text[end:])
-    return "".join(kept)
-
-
 def validate_tool_pins(root: Path = ROOT) -> list[str]:
     """package.json owns every tool version; nothing else may name one.
 
@@ -1136,7 +1109,7 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
     Makefile or workflow may name ``<package>@<version>`` for a tool this
     repository pins, so the manifest stays the only definition rather than
     merely one of them. Both are substring scans over comment-stripped text and
-    neither parses a language -- see the note above ``COMMENT_PATTERN`` for what
+    neither parses a language -- see the note above ``SHELL_WORD_DELIMITERS`` for what
     that deliberately does not cover.
 
     This replaces a README cross-check. The versions used to be Makefile literals
@@ -1170,17 +1143,10 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
 
     # Read once, and report an unreadable file rather than raising out of an
     # aggregate validator: a traceback here would hide every other diagnostic.
-    #
-    # Comments come off here rather than at each scan: the node_modules/.bin scan
-    # below read the raw text while the two scans after it read a stripped copy,
-    # so a Makefile comment naming a tool failed the build. One stripped source
-    # cannot drift from another the way two call sites did.
     sources: dict[str, str] = {}
     for relative in (MAKEFILE_PATH, *TOOL_PIN_WORKFLOWS):
         try:
-            sources[relative] = strip_comments(
-                (root / relative).read_text(encoding="utf-8")
-            )
+            sources[relative] = (root / relative).read_text(encoding="utf-8")
         except OSError as error:
             errors.append(f"{relative}: cannot read file: {error}")
 
