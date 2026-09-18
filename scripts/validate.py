@@ -1592,9 +1592,23 @@ def _runs_implementation(command: str) -> bool:
     modelled and will simply fail the check.
     """
     variables: dict[str, str] = {}
-    for statement in re.split(r"[;&|\n]+", command):
-        statement = statement.strip()
+    unreachable = False
+    # Operators are kept, not discarded: `exit 0; sh <path>` never reaches the
+    # shell, and `false && sh <path>` reaches it only on a condition that is not
+    # the manifest's to assume. A statement counts only when it is sequenced
+    # unconditionally after everything before it.
+    parts = re.split(r"(\|\||&&|[;&|\n])", command)
+    preceding = None
+    for index in range(0, len(parts), 2):
+        statement = parts[index].strip()
+        operator = parts[index - 1].strip() if index else None
+        if index:
+            preceding = operator
         if not statement:
+            continue
+        sequenced = preceding in (None, ";", "")
+        if re.match(r"\A(?:exit|return)\b", statement) and sequenced:
+            unreachable = True
             continue
         assignment = re.match(r"\A([A-Za-z_]\w*)=(.*)\Z", statement)
         if assignment:
@@ -1602,7 +1616,7 @@ def _runs_implementation(command: str) -> bool:
             # how `s=<path>; s=/bin/true; sh "$s"` used to pass.
             variables[assignment.group(1)] = _expand(assignment.group(2), variables)
             continue
-        if not HOOK_SHELL.match(statement):
+        if not HOOK_SHELL.match(statement) or unreachable or not sequenced:
             continue
         arguments = statement.split()[1:]
         if any(argument.startswith("-") for argument in arguments):
@@ -1610,9 +1624,6 @@ def _runs_implementation(command: str) -> bool:
             # manifests pass the script directly, so any flag means this is not
             # the invocation being claimed.
             continue
-        # Anchored, not a substring: `sh hooks/session-start.sh.bak` and
-        # `sh /tmp/hooks/session-start.sh` both execute a different file while
-        # ending in, or containing, the right suffix.
         if arguments and HOOK_OPERAND.match(_expand(arguments[0], variables)):
             return True
     return False
@@ -1634,6 +1645,11 @@ def dialect_rows(root: Path = ROOT, heading: str = "") -> list[list[str]]:
         if cells and cells[0] not in {"Host"}:
             rows.append(cells)
     return rows
+
+
+def _canonical(relative: str) -> str:
+    """A recorded path reduced to one spelling, so equivalents compare equal."""
+    return PurePosixPath(relative.rstrip("/")).as_posix()
 
 
 def _escapes_root(root: Path, relative: str) -> str | None:
@@ -1725,7 +1741,9 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     # may express, and the unshipped-path rule then keeps the file from lingering.
     owned: dict[str, list[str]] = {}
     for row in owners:
-        owned.setdefault(row[1].strip("`"), []).append(row[0])
+        # Normalised: `agents/` and `./agents/` are one discovery directory, and
+        # keying by the raw spelling let two rows own it while each looked unique.
+        owned.setdefault(_canonical(row[1].strip("`")), []).append(row[0])
     for directory, sharing in sorted(owned.items()):
         if len(sharing) > 1:
             errors.append(
@@ -1751,7 +1769,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
             # The documented collision: an unshipped row may name the directory the
             # shipped one owns. The owner's dialect check governs that file, and
             # reporting it here would make the collision unshippable rather than recorded.
-            if directory in owned:
+            if _canonical(directory) in owned:
                 continue
             # The host discovers the directory, not the recorded filename, so every
             # manifest in it counts -- `.codex/agents/rogue.toml` passed while only
@@ -1818,6 +1836,11 @@ def _check_agent(relative: str, text: str, row: list[str], render, dialect: str)
     if front is None:
         return [f"{relative}: no YAML frontmatter to read `tools` and `name` from"]
     body = front.group("body")
+    if problem := _frontmatter_defect(body):
+        # The host parses the whole document before it discovers the agent, so one
+        # malformed field removes `infra-auditor` entirely while the protocol keeps
+        # delegating to it -- and reading only `name` and `tools` could not see it.
+        return [f"{relative}: frontmatter is not well formed ({problem})"]
     declared_names = re.findall(r"(?m)^name:\s*(\S+)", body)
     if len(declared_names) != 1:
         # Duplicate YAML keys are ambiguous -- rejected by strict parsers, resolved
@@ -1856,6 +1879,30 @@ def _check_agent(relative: str, text: str, row: list[str], render, dialect: str)
                     "scan is read-only and the recorded grant is what says so"
                 )
     return errors + _check_agent_body(relative, text)
+
+
+#: Structural defects a YAML parser would reject, detectable without one.
+#:
+#: ponytail: a balance and shape check, not a parser. This repository ships no
+#: YAML dependency on purpose -- validate_manifest_shape makes the same call for
+#: steps.yaml -- and CI runs a bare interpreter, so adding PyYAML to gate one
+#: frontmatter block would be a runtime dependency for a single file. This catches
+#: what actually breaks these documents: an unclosed flow collection or quote, and
+#: a line that is neither a comment, a continuation, nor a `key:` entry.
+def _frontmatter_defect(body: str) -> str | None:
+    """Why ``body`` would not parse as YAML, or None when it looks well formed."""
+    for opener, closer in (("[", "]"), ("{", "}")):
+        if body.count(opener) != body.count(closer):
+            return f"unbalanced {opener}{closer}"
+    for quote in ('"', "'"):
+        if body.count(quote) % 2:
+            return f"unbalanced {quote} quote"
+    for number, line in enumerate(body.splitlines(), start=1):
+        if not line.strip() or line.lstrip().startswith(("#", "-")) or line[:1].isspace():
+            continue
+        if re.match(r"\A[A-Za-z_][\w.-]*:(?:\s|\Z)", line) is None:
+            return f"line {number} is neither a comment, a continuation, nor a key"
+    return None
 
 
 def _positive_mentions(text: str, pattern: str) -> bool:
@@ -1933,11 +1980,16 @@ def _check_hook(root: Path, relative: str, row: list[str]) -> list[str]:
             f"{HOSTS_DOCUMENT} records it for {row[0]}"
         )
     for entry in entries:
-        callbacks = [
-            callback
-            for callback in (entry.get("hooks") if isinstance(entry, dict) else None) or []
-            if isinstance(callback, dict)
-        ]
+        nested = entry.get("hooks") if isinstance(entry, dict) else None
+        if nested is not None and not isinstance(nested, list):
+            # Same shape check as hooks.SessionStart, one level down: a truthy
+            # non-iterable raised TypeError and ended the run.
+            errors.append(
+                f"{relative}: a SessionStart entry's hooks is "
+                f"{type(nested).__name__}, not a list"
+            )
+            continue
+        callbacks = [callback for callback in nested or [] if isinstance(callback, dict)]
         # Typed, not just present: a non-string `command` reached the membership
         # test and raised TypeError, aborting validation instead of reporting it.
         for callback in callbacks:

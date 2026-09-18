@@ -561,6 +561,9 @@ class HookCommandTests(unittest.TestCase):
             ("a different file", "sh hooks/session-start.sh.bak"),
             ("outside the payload", "sh /tmp/hooks/session-start.sh"),
             ("outside via variable", 's=/tmp/hooks/session-start.sh; sh "$s"'),
+            ("unreachable after exit", "exit 0; sh hooks/session-start.sh"),
+            ("guarded by &&", "false && sh hooks/session-start.sh"),
+            ("guarded by ||", "true || sh hooks/session-start.sh"),
         ):
             with self.subTest(form=label):
                 self.assertFalse(_runs_implementation(command), command)
@@ -630,6 +633,66 @@ class DialectAndShapeTests(unittest.TestCase):
         payload["hooks"]["SessionStart"] = None
         path.write_text(json.dumps(payload), encoding="utf-8")
         self.assertTrue(any("not a list" in e for e in validate_host_dialects(root)))
+
+
+class ShapeTests(unittest.TestCase):
+    """Containers and documents that are valid JSON or Markdown but wrong."""
+
+    def test_equivalent_paths_are_one_directory(self) -> None:
+        """`agents/` and `./agents/` are the same discovery directory, and keying
+        ownership by the raw spelling let two rows own it while each looked
+        unique."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "| Antigravity | `agents/` | YAML list | `view_file`, `grep_search`, "
+                "`find_by_name`, `run_command` | no — path collision |",
+                "| Antigravity | `./agents/` | comma string | `Read`, `Bash`, `Glob`, "
+                "`Grep`, `Skill` | **yes** |",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("only one may" in e for e in validate_host_dialects(root)))
+
+    def test_a_non_list_nested_hooks_is_reported_not_raised(self) -> None:
+        """The outer container was checked and the nested one was not."""
+        for value in (1, True, "x"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                root = build_root(directory)
+                path = root / HOOK_PATH
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                payload["hooks"]["SessionStart"][0]["hooks"] = value
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                self.assertTrue(
+                    any("not a list" in e for e in validate_host_dialects(root))
+                )
+
+    def test_malformed_frontmatter_is_rejected(self) -> None:
+        """The host parses the whole document before it discovers the agent, so
+        one bad field removes it while the protocol keeps delegating."""
+        for label, replacement in (
+            ("unclosed flow sequence", 'description: [\nbroken: "x"'),
+            ("unbalanced quote", 'description: "oops\n'),
+        ):
+            with self.subTest(defect=label), tempfile.TemporaryDirectory() as directory:
+                root = build_root(directory)
+                document = root / AGENT_PATH
+                document.write_text(
+                    document.read_text(encoding="utf-8").replace(
+                        'description: "Read-only', replacement + '\nold: "Read-only', 1
+                    ),
+                    encoding="utf-8",
+                )
+                self.assertTrue(
+                    any("not well formed" in e for e in validate_host_dialects(root))
+                )
+
+    def test_the_shipped_frontmatter_is_well_formed(self) -> None:
+        self.assertEqual(validate_host_dialects(REPO_ROOT), [])
 
 
 if __name__ == "__main__":
