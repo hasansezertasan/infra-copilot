@@ -1487,7 +1487,19 @@ MATCHER_PIPE = "{pipe}"
 #: through the skill tool and its scan runs shell checks. Deliberately not derived
 #: from the table -- the table records what is granted, this what is needed, and
 #: deriving one from the other would only compare the grant with itself.
-AGENT_REQUIRED_TOOLS = ("Skill", "Bash")
+#: Keyed by dialect, in each host's own spelling. One global Claude-cased pair
+#: meant the OpenCode row could never graduate: its native grant is lowercase, so
+#: `Skill`/`Bash` were unsatisfiable however the row was written.
+#:
+#: Antigravity records no skill-loading tool at all, which is a gap in that row
+#: rather than something this gate can invent -- it is one of the reasons that row
+#: is not shipped.
+AGENT_REQUIRED_TOOLS = {
+    "comma string": ("Skill", "Bash"),
+    "bool map": ("skill", "bash"),
+    "YAML list": ("run_command",),
+    "none": (),
+}
 #: Tools that would make the read-only contract unstatable.
 AGENT_FORBIDDEN_TOOLS = ("Write", "Edit", "NotebookEdit", "replace_file_content")
 #: The agent must delegate to the runbook, and must not carry a repo-relative path
@@ -1495,6 +1507,10 @@ AGENT_FORBIDDEN_TOOLS = ("Write", "Edit", "NotebookEdit", "replace_file_content"
 #: "skills/infra-copilot/references/..." resolves into the consumer and finds
 #: nothing -- it only looks right from a source checkout of this repository.
 AGENT_RUNBOOK = ("infra-copilot", "status.md")
+#: A positive directive, not a mention. The imperative and the skill name have to
+#: appear together and in that order. Backticks are optional: the TOML dialect
+#: carries its body in a plain string, where Markdown code spans do not belong.
+AGENT_INVOCATION = re.compile(r"\bInvoke the `?infra-copilot`? skill\b")
 AGENT_FORBIDDEN_PATH = "skills/infra-copilot/references/"
 #: An adapter budget, in the spirit of MAX_DESCRIPTION_BUDGET: the runbook owns
 #: scope, guardrails and the report contract, and a manifest with room to restate
@@ -1514,20 +1530,34 @@ HOOK_SHELL = re.compile(r"\A(?:ba|z|da)?sh\s")
 def _runs_implementation(command: str) -> bool:
     """Whether ``command`` hands the shared hook script to a shell.
 
-    A *statement* must begin with the shell, not merely contain the word: the
-    shipped manifests read `... ; sh "$s"`, while `echo sh hooks/session-start.sh`
-    satisfied "path present and shell token present" and executed only `echo`.
+    The shell must *receive* the script: `x=hooks/session-start.sh; sh -c true`
+    mentions the path and runs a shell, and does neither thing together. So the
+    path is tracked through the one assignment the shipped manifests use --
+    `s="${r%/}/hooks/session-start.sh"; ... sh "$s"` -- and the shell statement
+    must name either the path itself or a variable holding it.
 
-    ponytail: statement-prefix matching, not a shell parse. It rejects the no-op
-    adapters that actually occur; a command contriving to run an unrelated shell
-    as its own statement would still pass.
+    ponytail: one level of variable indirection, not a shell parse. That is the
+    form the manifests take; a second hop would need a real parser, and the
+    alternative -- pinning a literal command template -- would freeze the shape.
     """
     if HOOK_IMPLEMENTATION not in command:
         return False
-    return any(
-        HOOK_SHELL.match(statement.strip())
-        for statement in re.split(r"[;&|]+", command)
-    )
+    holders = {
+        match.group(1)
+        for match in re.finditer(
+            rf'(\w+)=["\']?[^;&|]*{re.escape(HOOK_IMPLEMENTATION)}', command
+        )
+    }
+    for statement in re.split(r"[;&|]+", command):
+        statement = statement.strip()
+        if not HOOK_SHELL.match(statement):
+            continue
+        argument = statement.split(None, 1)[1] if " " in statement else ""
+        if HOOK_IMPLEMENTATION in argument:
+            return True
+        if any(holder in re.findall(r"\$\{?(\w+)", argument) for holder in holders):
+            return True
+    return False
 
 
 def dialect_rows(root: Path = ROOT, heading: str = "") -> list[list[str]]:
@@ -1582,6 +1612,19 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     hooks = dialect_rows(root, "## Hook discovery")
     if not agents or not hooks:
         return [f"{HOSTS_DOCUMENT}: no subagent or hook rows found; the record is unreadable"]
+    # The protocol sends a run to *its own* host's row, so a section missing a host
+    # leaves that run with no delegation or hook decision at all. The question-tool
+    # table is the authoritative host set; both sections must match it exactly.
+    expected = set(host_records(root))
+    for label, rows in (("subagent", agents), ("hook", hooks)):
+        present = [row[0] for row in rows if row]
+        if len(present) != len(set(present)):
+            errors.append(f"{HOSTS_DOCUMENT}: the {label} section repeats a host row")
+        if set(present) != expected:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: the {label} section covers {sorted(set(present))}, "
+                f"not the recorded hosts {sorted(expected)}"
+            )
 
     for row in agents + hooks:
         if len(row) < 4:
@@ -1622,11 +1665,18 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
             # The documented collision: an unshipped row may name the directory the
             # shipped one owns. The owner's dialect check governs that file, and
             # reporting it here would make the collision unshippable rather than recorded.
-            if text is not None and directory not in owned:
-                errors.append(
-                    f"{relative}: {row[0]}'s row is not marked shipped, so this manifest "
-                    "asserts wiring nothing has demonstrated"
-                )
+            if directory in owned:
+                continue
+            # The host discovers the directory, not the recorded filename, so every
+            # manifest in it counts -- `.codex/agents/rogue.toml` passed while only
+            # the expected name was opened.
+            for stray in sorted((root / directory).glob("*")):
+                if stray.is_file():
+                    errors.append(
+                        f"{directory.rstrip('/')}/{stray.name}: {row[0]}'s row is not "
+                        "marked shipped, so this manifest asserts wiring nothing has "
+                        "demonstrated"
+                    )
             continue
         if text is None:
             errors.append(f"{relative}: {row[0]} is marked shipped but no manifest is here")
@@ -1640,7 +1690,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                     f"{directory.rstrip('/')}/{stray.name}: no subagent row records this "
                     f"manifest, and {row[0]} discovers every file in {directory!r}"
                 )
-        errors.extend(_check_agent(relative, text, row, render))
+        errors.extend(_check_agent(relative, text, row, render, dialect))
 
     for row in hooks:
         relative = row[1].strip("`").split("`")[0].split(" ")[0].strip()
@@ -1661,7 +1711,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     return errors
 
 
-def _check_agent(relative: str, text: str, row: list[str], render) -> list[str]:
+def _check_agent(relative: str, text: str, row: list[str], render, dialect: str) -> list[str]:
     errors: list[str] = []
     if render is None:
         # TOML, whose tools are inherited: there is no frontmatter, and the name is
@@ -1675,8 +1725,16 @@ def _check_agent(relative: str, text: str, row: list[str], render) -> list[str]:
     if front is None:
         return [f"{relative}: no YAML frontmatter to read `tools` and `name` from"]
     body = front.group("body")
-    name = re.search(r"(?m)^name:\s*(\S+)", body)
-    if name is None or name.group(1).strip("\"'") != AGENT_STEM:
+    declared_names = re.findall(r"(?m)^name:\s*(\S+)", body)
+    if len(declared_names) != 1:
+        # Duplicate YAML keys are ambiguous -- rejected by strict parsers, resolved
+        # to the last value by others -- so a first-match read could see the right
+        # name while the host registered the wrong one, or none.
+        errors.append(
+            f"{relative}: frontmatter declares {len(declared_names)} `name` fields; "
+            "exactly one is required for the registered name to be unambiguous"
+        )
+    elif declared_names[0].strip("\"'") != AGENT_STEM:
         errors.append(f"{relative}: must declare name {AGENT_STEM!r}; the protocol delegates to it")
     if render is not None:
         names = re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", row[3])
@@ -1691,7 +1749,7 @@ def _check_agent(relative: str, text: str, row: list[str], render) -> list[str]:
                 f"{relative}: frontmatter tools {declared[0].strip()!r} != {render(names)!r} "
                 f"as {HOSTS_DOCUMENT} records it; a wrong dialect fails silently"
             )
-        for required in AGENT_REQUIRED_TOOLS:
+        for required in AGENT_REQUIRED_TOOLS.get(dialect, ()):
             if required not in names:
                 errors.append(
                     f"{HOSTS_DOCUMENT}: the shipped subagent row omits {required!r}; the "
@@ -1710,12 +1768,19 @@ def _check_agent(relative: str, text: str, row: list[str], render) -> list[str]:
 def _check_agent_body(relative: str, text: str) -> list[str]:
     """Rules every dialect shares: delegate, no consumer-relative path, stay small."""
     errors: list[str] = []
-    for marker in AGENT_RUNBOOK:
-        if marker not in text:
-            errors.append(
-                f"{relative}: must delegate to the {marker!r} runbook; an agent that "
-                "restates the scan becomes a second behavioural authority"
-            )
+    if AGENT_INVOCATION.search(text) is None:
+        # Names alone were satisfied by "Never invoke `infra-copilot` or
+        # `status.md`" -- both markers present, every delegated run told not to
+        # load the canonical workflow.
+        errors.append(
+            f"{relative}: carries no instruction to invoke the {AGENT_RUNBOOK[0]!r} "
+            "skill; an agent that does not load the runbook either restates it or "
+            "does nothing"
+        )
+    if AGENT_RUNBOOK[1] not in text:
+        errors.append(
+            f"{relative}: must name the {AGENT_RUNBOOK[1]!r} runbook it delegates to"
+        )
     if AGENT_FORBIDDEN_PATH in text:
         errors.append(
             f"{relative}: carries the repo-relative path {AGENT_FORBIDDEN_PATH!r}, which "
@@ -1758,10 +1823,23 @@ def _check_hook(root: Path, relative: str, row: list[str]) -> list[str]:
             f"{HOSTS_DOCUMENT} records it for {row[0]}"
         )
     for entry in entries:
-        commands = [
-            callback.get("command", "")
+        callbacks = [
+            callback
             for callback in (entry.get("hooks") if isinstance(entry, dict) else None) or []
             if isinstance(callback, dict)
+        ]
+        # Typed, not just present: a non-string `command` reached the membership
+        # test and raised TypeError, aborting validation instead of reporting it.
+        for callback in callbacks:
+            if not isinstance(callback.get("command", ""), str):
+                errors.append(
+                    f"{relative}: a SessionStart command is "
+                    f"{type(callback.get('command')).__name__}, not a string"
+                )
+        commands = [
+            callback["command"]
+            for callback in callbacks
+            if isinstance(callback.get("command"), str)
         ]
         if not commands:
             errors.append(f"{relative}: a SessionStart entry declares no hooks to run")
@@ -1770,11 +1848,7 @@ def _check_hook(root: Path, relative: str, row: list[str]) -> list[str]:
                 f"{relative}: a SessionStart command does not hand {HOOK_IMPLEMENTATION} "
                 "to a shell; naming the path is not running it"
             )
-        if any(
-            callback.get("type") != "command"
-            for callback in (entry.get("hooks") if isinstance(entry, dict) else None) or []
-            if isinstance(callback, dict)
-        ):
+        if any(callback.get("type") != "command" for callback in callbacks):
             errors.append(
                 f"{relative}: a SessionStart callback is not type 'command'; only a "
                 "command callback runs the shared implementation"

@@ -369,5 +369,104 @@ class MalformedRecordTests(unittest.TestCase):
         self.assertTrue(any("type 'command'" in e for e in validate_host_dialects(root)))
 
 
+class CoverageAndGrantTests(unittest.TestCase):
+    """A row a host would act on must exist, be unambiguous, and be reachable."""
+
+    def _root(self, old: str, new: str, path: str = HOSTS_DOCUMENT) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / path
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_both_sections_cover_every_recorded_host(self) -> None:
+        """The protocol sends a run to its own host's row, so a missing row
+        leaves that run with no delegation or hook decision at all."""
+        root = self._root(
+            "| Codex CLI | `.codex/agents/` | none — session tools are inherited | — | no — not exercised |\n",
+            "",
+        )
+        self.assertTrue(
+            any("not the recorded hosts" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_duplicate_name_field_is_rejected(self) -> None:
+        """Duplicate YAML keys are ambiguous: a first-match read saw the right
+        name while the host could register the wrong one, or none."""
+        root = self._root(
+            f"name: {AGENT_STEM}", f"name: {AGENT_STEM}\nname: wrong-agent", AGENT_PATH
+        )
+        self.assertTrue(any("`name` fields" in e for e in validate_host_dialects(root)))
+
+    def test_a_negated_instruction_is_not_delegation(self) -> None:
+        """"Never invoke `infra-copilot` or `status.md`" carried both names and
+        told every delegated run not to load the canonical workflow."""
+        root = self._root(
+            "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+            "`status.md`, `protocol.md`, and `steps.yaml`.",
+            "Never invoke `infra-copilot` or `status.md`.",
+            AGENT_PATH,
+        )
+        self.assertTrue(
+            any("no instruction to invoke" in e for e in validate_host_dialects(root))
+        )
+
+    def test_an_unshipped_directory_is_enumerated_too(self) -> None:
+        """The host discovers the directory, shipped or not."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        rogue = root / ".codex/agents"
+        rogue.mkdir(parents=True)
+        (rogue / "rogue.toml").write_text('name = "rogue"\n', encoding="utf-8")
+        self.assertTrue(any("rogue.toml" in e for e in validate_host_dialects(root)))
+
+    def test_required_tools_use_each_dialect_spelling(self) -> None:
+        """OpenCode's native grant is lowercase, so one global Claude-cased pair
+        made that row unsatisfiable however it was written."""
+        root = self._root(
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | no — not exercised |",
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash`, `skill` | **yes** |",
+        )
+        shipped = root / ".opencode/agents"
+        shipped.mkdir(parents=True)
+        (shipped / f"{AGENT_STEM}.md").write_text(
+            "---\nname: infra-auditor\nmode: subagent\ntools:\n  read: true\n"
+            "  grep: true\n  glob: true\n  bash: true\n  skill: true\n---\n"
+            "Invoke the `infra-copilot` skill, then status.md.\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(validate_host_dialects(root), [])
+
+    def test_the_shell_must_receive_the_script(self) -> None:
+        """`x=hooks/session-start.sh; sh -c true` mentions the path and runs a
+        shell, and does neither thing together."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["hooks"]["SessionStart"][0]["hooks"] = [
+            {"type": "command", "command": "x=hooks/session-start.sh; sh -c true"}
+        ]
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertTrue(any("hand" in e for e in validate_host_dialects(root)))
+
+    def test_a_non_string_command_is_reported_not_raised(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["hooks"]["SessionStart"][0]["hooks"] = [
+            {"type": "command", "command": 123}
+        ]
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertTrue(any("not a string" in e for e in validate_host_dialects(root)))
+
+
 if __name__ == "__main__":
     unittest.main()
