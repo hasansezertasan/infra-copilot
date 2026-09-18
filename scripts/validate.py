@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 from urllib.parse import unquote, urlsplit
 
@@ -964,6 +964,7 @@ def validate_shipped_check_paths(root: Path = ROOT) -> list[str]:
 #: The shipped copy is what a user actually installs, so it is the one gated. ai-rulez
 #: copies the whole references tree, and `verify --plugin` fails on drift from the source.
 HOSTS_DOCUMENT = "skills/infra-copilot/references/hosts.md"
+HOSTS_BASENAME = "hosts.md"
 PROTOCOL_DOCUMENTS = (
     ".ai-rulez/skills/infra-copilot/references/protocol.md",
     "skills/infra-copilot/references/protocol.md",
@@ -996,6 +997,19 @@ def link_targets(document: str) -> set[str]:
         if path:
             targets.add(path)
     return targets
+
+
+def cites_hosts_record(document: str) -> bool:
+    """Whether ``document`` links the host record, as opposed to naming its path.
+
+    One helper for every citation gate. The protocol's check was left as a substring
+    test when the guide and README checks were tightened, so protocol.md could lose
+    its link and keep the words -- the same near-miss, one file later.
+    """
+    return any(
+        PurePosixPath(target).name == HOSTS_BASENAME
+        for target in link_targets(document)
+    )
 
 
 def host_records(root: Path = ROOT) -> dict[str, tuple[str, str]]:
@@ -1077,9 +1091,7 @@ def validate_host_contract(root: Path = ROOT) -> list[str]:
         # Pointing back is what keeps the guide from becoming a second source of truth.
         # The link has to be a link: docs/ sits at a different depth from both copies
         # of the references tree, so a reader who cannot click it has to guess.
-        if not any(
-            target.endswith("references/hosts.md") for target in link_targets(document)
-        ):
+        if not cites_hosts_record(document):
             errors.append(
                 f"{guide}: does not link references/hosts.md; per-host capabilities "
                 "must be cited there, not restated here"
@@ -1116,8 +1128,8 @@ def validate_host_contract(root: Path = ROOT) -> list[str]:
         if protocol is None:
             errors.append(f"{relative}: unreadable, cannot check the question-tool rule")
             continue
-        if "hosts.md" not in protocol:
-            errors.append(f"{relative}: does not reference hosts.md")
+        if not cites_hosts_record(protocol):
+            errors.append(f"{relative}: does not link {HOSTS_BASENAME}")
         section = decision_section(protocol)
         if section is None:
             errors.append(f"{relative}: has no {DECISION_HEADING!r} section")

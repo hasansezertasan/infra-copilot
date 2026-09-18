@@ -34,7 +34,9 @@ On OpenCode you can install a single skill and its dependencies rather than all 
 `--skill status --skill infra-copilot` is the read-only audit install, since every action
 skill is a router over the `infra-copilot` hub and is inert without it. See
 [`docs/install-opencode.md`](docs/install-opencode.md); `make closure SKILL=<name>`
-prints any skill's closure, derived from the links in its `SKILL.md`.
+prints any **action** skill's closure, derived from the links in its `SKILL.md`. The
+`infra-copilot` hub is not a closure root — it owns no operations, so installed alone it
+routes to nothing — and the command says so rather than printing one.
 
 ### Session announcement
 

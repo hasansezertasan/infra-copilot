@@ -29,6 +29,8 @@ safe to edit. The manifest is the authority; the header is only a convenience.
 |---|---|---|
 | A skill's behavior | `.ai-rulez/skills/<name>/SKILL.md` | `make generate` |
 | Shared protocol, phase manifest, provider docs | `.ai-rulez/skills/infra-copilot/references/…` | `make generate` |
+| A host's question tool or capabilities | `.ai-rulez/skills/infra-copilot/references/hosts.md` | `make generate` |
+| A host's install instructions | `docs/install-<host>.md` | hand-authored — edit directly |
 | A slash command | `.ai-rulez/commands/<name>.md` | `make generate` |
 | Plugin identity, version, keywords | `.ai-rulez/config.toml` | `make generate` |
 | Antigravity manifest | `plugin.json` | hand-authored — edit directly |
@@ -67,7 +69,12 @@ assumed: every run re-derives it by executing each step's `check`.
 
 - Conventional Branch names, Conventional Commits.
 - No AI attribution in commits, PR titles, or bodies.
-- Behavior in `.ai-rulez/skills/`; host-specific values in adapters only.
+- Behavior in `.ai-rulez/skills/`; host-specific values in adapters only. One declared
+  exception: `references/hosts.md` records what differs per host (native question tool
+  and its capabilities, slash-command support) because the rules that read it are
+  host-neutral and ship identically to all four hosts. The rule still binds what it was
+  written for — a skill body must never name a host's tool; it reads the record instead.
+  Change a capability there, not in an adapter.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full loop and
 [`docs/roadmap.md`](docs/roadmap.md) for what is deliberately unbuilt.

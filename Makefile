@@ -82,7 +82,7 @@ smoke-opencode:  ## Install into a throwaway copy and assert the OpenCode skill 
 # AGENTS.md rule 2: documentation names make targets, never `python3 scripts/validate.py`
 # directly. README.md and docs/install-opencode.md point here.
 .PHONY: closure
-closure:  ## Print install arguments for a skill and its dependencies (SKILL=status)
+closure:  ## Print install arguments for an action skill and its deps (SKILL=status)
 	@$(PYTHON) scripts/validate.py --closure $(SKILL)
 
 .PHONY: smoke-closure

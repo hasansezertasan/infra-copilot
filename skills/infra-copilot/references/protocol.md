@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:f62210dfcc793a52edcb41606f33c1258f3a653ec06684fc183d399ceb975797
-Source-Hash: blake3:b37bd375416bdc97863ccc1b620a70df5bb3ae4c8aae9f91a15475af72749bb6
+Content-Hash: blake3:1d89736056292dc4095a041dee74ad4c2d09afd534abacf58e5a9b2f9f9f521e
+Source-Hash: blake3:211018040308a43d41444d0ef87deb5d5b10c68fa32cefc61fc8394cf36c58e6
 Schema-Version: v1
 -->
 
@@ -114,9 +114,14 @@ The text fallback is the same request, rendered:
 │   1. <option> — <consequence>
 │   2. <option> — <consequence>
 │   3. Other — enter a custom response
-│ Reply with a number, or your own answer.
+│ Reply with <one number | as many numbers as apply, comma-separated>, or your own answer.
 └───────────────────────────────────────────────────
 ```
+
+The reply line is **mode-sensitive**: a single-select decision asks for one number, a
+multi-select decision asks for as many as apply. Multi-select is the mode most likely to
+reach this block — Codex is recorded for binary and single only — and a request that
+silently arrives as single-select is a different question from the one asked.
 
 Always offer `Other — enter a custom response` in the fallback, and as an explicit choice
 on any host whose custom input is not `host-supplied`. A decision the agent forces into

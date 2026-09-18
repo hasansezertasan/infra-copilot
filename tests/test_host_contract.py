@@ -155,7 +155,7 @@ class HostRecordTests(unittest.TestCase):
                 },
             )
             self.assertIn(
-                "skills/infra-copilot/references/protocol.md: does not reference hosts.md",
+                "skills/infra-copilot/references/protocol.md: does not link hosts.md",
                 validate_host_contract(root),
             )
 
@@ -282,6 +282,23 @@ class HostRecordTests(unittest.TestCase):
                 "decision' section names no question tool from "
                 "skills/infra-copilot/references/hosts.md; the allowed-tools grant in "
                 "commands/ would have no consumer",
+                validate_host_contract(root),
+            )
+
+    def test_a_protocol_that_only_names_the_record_is_not_citing_it(self) -> None:
+        """The guide and README checks were tightened; this one was left behind."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory),
+                **{
+                    "skills/infra-copilot/references/protocol.md": (
+                        "### Asking a decision\n\nSee hosts.md, then use "
+                        "`AskUserQuestion`."
+                    )
+                },
+            )
+            self.assertIn(
+                "skills/infra-copilot/references/protocol.md: does not link hosts.md",
                 validate_host_contract(root),
             )
 

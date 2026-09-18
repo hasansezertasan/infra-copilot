@@ -107,9 +107,14 @@ The text fallback is the same request, rendered:
 │   1. <option> — <consequence>
 │   2. <option> — <consequence>
 │   3. Other — enter a custom response
-│ Reply with a number, or your own answer.
+│ Reply with <one number | as many numbers as apply, comma-separated>, or your own answer.
 └───────────────────────────────────────────────────
 ```
+
+The reply line is **mode-sensitive**: a single-select decision asks for one number, a
+multi-select decision asks for as many as apply. Multi-select is the mode most likely to
+reach this block — Codex is recorded for binary and single only — and a request that
+silently arrives as single-select is a different question from the one asked.
 
 Always offer `Other — enter a custom response` in the fallback, and as an explicit choice
 on any host whose custom input is not `host-supplied`. A decision the agent forces into
