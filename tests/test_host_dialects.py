@@ -122,7 +122,10 @@ class AgentTests(unittest.TestCase):
 
     def test_an_agent_that_restates_the_scan_is_rejected(self) -> None:
         root = self._root("status.md", "my own inlined procedure", AGENT_PATH)
-        self.assertTrue(any("delegate" in e for e in validate_host_dialects(root)))
+        self.assertTrue(
+            any("status.md" in e for e in validate_host_dialects(root)),
+            "removing the runbook must be reported",
+        )
 
     def test_a_repo_relative_runbook_path_is_rejected(self) -> None:
         """The agent's working directory is the CONSUMING repository, while the
@@ -555,9 +558,78 @@ class HookCommandTests(unittest.TestCase):
             ("child shell echoes it", """s=hooks/session-start.sh; sh -c 'echo "$s"'"""),
             ("reassigned", 's=hooks/session-start.sh; s=/bin/true; sh "$s"'),
             ("no shell at all", 's="hooks/session-start.sh"'),
+            ("a different file", "sh hooks/session-start.sh.bak"),
+            ("outside the payload", "sh /tmp/hooks/session-start.sh"),
+            ("outside via variable", 's=/tmp/hooks/session-start.sh; sh "$s"'),
         ):
             with self.subTest(form=label):
                 self.assertFalse(_runs_implementation(command), command)
+
+
+class DialectAndShapeTests(unittest.TestCase):
+    """Per-host spellings, exact affirmatives, and shapes that used to crash."""
+
+    def _root(self, old: str, new: str, path: str = HOSTS_DOCUMENT) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / path
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_forbidden_tools_use_each_dialect_spelling(self) -> None:
+        """One Claude-cased tuple let OpenCode's lowercase `write` through,
+        handing a read-only auditor a direct write capability."""
+        root = self._root(
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | no — not exercised |",
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash`, `skill`, `write` | **yes** |",
+        )
+        shipped = root / ".opencode/agents"
+        shipped.mkdir(parents=True)
+        (shipped / f"{AGENT_STEM}.md").write_text(
+            "---\nname: infra-auditor\nmode: subagent\ntools:\n  read: true\n"
+            "  grep: true\n  glob: true\n  bash: true\n  skill: true\n  write: true\n"
+            "---\nInvoke the `infra-copilot` skill, then follow status.md.\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any("write" in e for e in validate_host_dialects(root)))
+
+    def test_a_negated_runbook_directive_is_rejected(self) -> None:
+        """"then do not follow status.md" named the runbook and skipped it."""
+        root = self._root(
+            "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+            "`status.md`, `protocol.md`, and `steps.yaml`.",
+            "Invoke the `infra-copilot` skill, then do not follow `status.md`.",
+            AGENT_PATH,
+        )
+        self.assertTrue(
+            any("un-negated instruction" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_negator_on_a_previous_line_does_not_disqualify(self) -> None:
+        """The clause bound matters: the shipped manifest's own heading reads
+        "Load it by name, not by path" directly above the imperative."""
+        self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+
+    def test_a_shipped_cell_must_be_the_exact_affirmative(self) -> None:
+        """`yes — withdrawn` read as shipped, so a trailing comment could turn a
+        refusal into a capability claim."""
+        root = self._root("`Grep`, `Skill` | **yes** |", "`Grep`, `Skill` | yes — withdrawn |")
+        self.assertTrue(
+            any("neither the affirmative" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_non_list_sessionstart_is_reported_not_raised(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["hooks"]["SessionStart"] = None
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertTrue(any("not a list" in e for e in validate_host_dialects(root)))
 
 
 if __name__ == "__main__":

@@ -1501,7 +1501,15 @@ AGENT_REQUIRED_TOOLS = {
     "none": (),
 }
 #: Tools that would make the read-only contract unstatable.
-AGENT_FORBIDDEN_TOOLS = ("Write", "Edit", "NotebookEdit", "replace_file_content")
+#: Keyed by dialect, like AGENT_REQUIRED_TOOLS and for the same reason: one
+#: Claude-cased tuple let OpenCode's native lowercase `write` through, handing a
+#: read-only auditor a direct write capability behind a green gate.
+AGENT_FORBIDDEN_TOOLS = {
+    "comma string": ("Write", "Edit", "NotebookEdit"),
+    "bool map": ("write", "edit", "patch"),
+    "YAML list": ("write_to_file", "replace_file_content", "edit_file"),
+    "none": (),
+}
 #: The agent must delegate to the runbook, and must not carry a repo-relative path
 #: to it: its working directory is the *consuming* repository, so
 #: "skills/infra-copilot/references/..." resolves into the consumer and finds
@@ -1515,8 +1523,12 @@ AGENT_RUNBOOK = ("infra-copilot", "status.md")
 #: negator guard is what makes it a *positive* one -- "Never Invoke the
 #: infra-copilot skill" matched the imperative and inverted it.
 AGENT_INVOCATION = re.compile(r"\bInvoke the `?infra-copilot`? skill\b")
+#: A negator anywhere in the same clause disqualifies what follows it. Bounded by
+#: clause punctuation and a short distance, because the negator and the thing it
+#: negates are usually separated by a verb -- "do not *follow* status.md" slipped
+#: past a rule that required them adjacent.
 AGENT_NEGATOR = re.compile(
-    r"\b(?:never|not|nor|avoid|don'?t|cannot|can'?t|must not|do not|refuse to)\W+$",
+    r"\b(?:never|not|nor|avoid|don'?t|cannot|can'?t|refuse)\b[^.;:\n]{0,24}$",
     re.IGNORECASE,
 )
 AGENT_FORBIDDEN_PATH = "skills/infra-copilot/references/"
@@ -1533,6 +1545,18 @@ HOOK_IMPLEMENTATION = "hooks/session-start.sh"
 #: happens -- a no-op adapter that merely names the path, which `echo <path>`
 #: passed -- and not a command contriving to run an unrelated shell beside it.
 HOOK_SHELL = re.compile(r"\A(?:ba|z|da)?sh\s")
+#: The variables a host exports for its plugin root. A command may only reach the
+#: implementation through one of them, so they expand to a sentinel that the
+#: operand pattern anchors on -- `sh /tmp/hooks/session-start.sh` runs a different
+#: file and must not pass for ending in the right suffix.
+HOOK_ROOT_VARIABLES = frozenset({
+    "CLAUDE_PLUGIN_ROOT", "CODEX_PLUGIN_ROOT", "ANTIGRAVITY_PLUGIN_ROOT",
+    "AGY_PLUGIN_ROOT", "PLUGIN_ROOT",
+})
+HOOK_ROOT_SENTINEL = "\x00root"
+HOOK_OPERAND = re.compile(
+    rf"\A(?:{re.escape(HOOK_ROOT_SENTINEL)})?/?{re.escape(HOOK_IMPLEMENTATION)}\Z"
+)
 
 
 def _expand(word: str, variables: dict[str, str]) -> str:
@@ -1544,7 +1568,10 @@ def _expand(word: str, variables: dict[str, str]) -> str:
     """
     word = word.strip().strip("\"'")
     def substitute(match: re.Match[str]) -> str:
-        return variables.get(match.group(1), "")
+        name = match.group(1)
+        if name in HOOK_ROOT_VARIABLES:
+            return HOOK_ROOT_SENTINEL
+        return variables.get(name, "")
     return re.sub(r"\$\{?([A-Za-z_]\w*)[^}]*\}?", substitute, word)
 
 
@@ -1583,7 +1610,10 @@ def _runs_implementation(command: str) -> bool:
             # manifests pass the script directly, so any flag means this is not
             # the invocation being claimed.
             continue
-        if arguments and HOOK_IMPLEMENTATION in _expand(arguments[0], variables):
+        # Anchored, not a substring: `sh hooks/session-start.sh.bak` and
+        # `sh /tmp/hooks/session-start.sh` both execute a different file while
+        # ending in, or containing, the right suffix.
+        if arguments and HOOK_OPERAND.match(_expand(arguments[0], variables)):
             return True
     return False
 
@@ -1622,8 +1652,20 @@ def _escapes_root(root: Path, relative: str) -> str | None:
 
 
 def _shipped(cell: str) -> bool:
-    """Whether a Shipped cell says yes. Anything else is a recorded refusal."""
-    return cell.strip("* ").lower().startswith("yes")
+    """Whether a Shipped cell is the table's exact affirmative.
+
+    Exact, not a prefix: `yes — withdrawn` read as shipped, so a typo or a
+    trailing comment could turn a refusal into a capability claim. Anything that
+    is not exactly "yes" is a refusal here, and `_malformed_shipped` reports the
+    values that are neither.
+    """
+    return cell.strip("* ").strip().lower() == "yes"
+
+
+def _malformed_shipped(cell: str) -> bool:
+    """A Shipped cell that states neither the affirmative nor a refusal."""
+    normalised = cell.strip("* ").strip().lower()
+    return normalised != "yes" and not normalised.startswith("no")
 
 
 def validate_host_dialects(root: Path = ROOT) -> list[str]:
@@ -1655,6 +1697,12 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     # table is the authoritative host set; both sections must match it exactly.
     expected = set(host_records(root))
     for label, rows in (("subagent", agents), ("hook", hooks)):
+        for row in rows:
+            if _malformed_shipped(row[-1]):
+                errors.append(
+                    f"{HOSTS_DOCUMENT}: {row[0]}'s {label} Shipped cell is {row[-1]!r}, "
+                    "which states neither the affirmative 'yes' nor a refusal"
+                )
         present = [row[0] for row in rows if row]
         if len(present) != len(set(present)):
             errors.append(f"{HOSTS_DOCUMENT}: the {label} section repeats a host row")
@@ -1801,7 +1849,7 @@ def _check_agent(relative: str, text: str, row: list[str], render, dialect: str)
                     "manifest loads the runbook through the skill tool and runs shell "
                     "checks, so a delegated run would fail"
                 )
-        for forbidden in AGENT_FORBIDDEN_TOOLS:
+        for forbidden in AGENT_FORBIDDEN_TOOLS.get(dialect, ()):
             if forbidden in names:
                 errors.append(
                     f"{HOSTS_DOCUMENT}: the shipped subagent row grants {forbidden!r}; the "
@@ -1810,15 +1858,18 @@ def _check_agent(relative: str, text: str, row: list[str], render, dialect: str)
     return errors + _check_agent_body(relative, text)
 
 
+def _positive_mentions(text: str, pattern: str) -> bool:
+    """Whether ``pattern`` occurs at least once without a negator before it."""
+    return any(
+        AGENT_NEGATOR.search(text[max(0, match.start() - 40) : match.start()]) is None
+        for match in re.finditer(pattern, text)
+    )
+
+
 def _check_agent_body(relative: str, text: str) -> list[str]:
     """Rules every dialect shares: delegate, no consumer-relative path, stay small."""
     errors: list[str] = []
-    positive = [
-        match
-        for match in AGENT_INVOCATION.finditer(text)
-        if AGENT_NEGATOR.search(text[max(0, match.start() - 40) : match.start()]) is None
-    ]
-    if not positive:
+    if not _positive_mentions(text, AGENT_INVOCATION.pattern):
         # Names alone were satisfied by "Never invoke `infra-copilot` or
         # `status.md`" -- both markers present, every delegated run told not to
         # load the canonical workflow.
@@ -1827,9 +1878,12 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
             "skill; an agent that does not load the runbook either restates it or "
             "does nothing"
         )
-    if AGENT_RUNBOOK[1] not in text:
+    if not _positive_mentions(text, re.escape(AGENT_RUNBOOK[1])):
+        # "then do not follow status.md" named the runbook and skipped it, which
+        # is the same defect as the negated skill imperative one clause earlier.
         errors.append(
-            f"{relative}: must name the {AGENT_RUNBOOK[1]!r} runbook it delegates to"
+            f"{relative}: carries no un-negated instruction to follow "
+            f"{AGENT_RUNBOOK[1]!r}; naming the runbook is not delegating to it"
         )
     if AGENT_FORBIDDEN_PATH in text:
         errors.append(
@@ -1854,6 +1908,12 @@ def _check_hook(root: Path, relative: str, row: list[str]) -> list[str]:
         entries = payload["hooks"]["SessionStart"]
     except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
         return [f"{relative}: no SessionStart hooks entry to check ({error})"]
+    if not isinstance(entries, list):
+        # A valid JSON document can still be the wrong shape. Iterating it raised
+        # TypeError and ended the run instead of reporting the manifest.
+        return [
+            f"{relative}: hooks.SessionStart is {type(entries).__name__}, not a list"
+        ]
     if set(payload.get("hooks", {})) != {"SessionStart"}:
         errors.append(
             f"{relative}: declares hook events {sorted(payload.get('hooks', {}))}; only "
