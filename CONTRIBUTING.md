@@ -75,12 +75,14 @@ Generated files are committed on purpose, so users can install the plugin withou
 | `make smoke-opencode` | installs a throwaway copy of the tree and asserts the OpenCode payload |
 | `make check-all` | `check` plus the smoke test |
 | `make clean` | removes `.agents/skills`, `skills-lock.json`, `__pycache__` |
-| `make preflight` | checks `node`, `npx` and `python3` are present |
+| `make preflight` | checks `node`, `npm` and `python3` are present |
 | `make release` | regenerates, verifies the worktree is clean, runs `check-all`, prints the tag command |
 
-`smoke-opencode` is outside `check` on purpose: it downloads the `skills` installer, and
-on one run the tests took 65 seconds while that download took 421. It is a separate CI
-job, so a slow registry never gates validation, but it still blocks the merge.
+`smoke-opencode` is outside `check` on purpose: installing the plugin is a different
+claim from the payloads being valid, so it is a separate CI job with its own signal, and
+it still blocks the merge. It used to be separated for cost — `npx --yes skills@…`
+resolved the installer on every run, 421 seconds against 65 for the tests — but `npm ci`
+installs the whole locked closure once, from a cache every job shares.
 
 `make smoke-opencode` runs against a copy of the working tree in a temp directory, so it
 writes nothing into your checkout. That is deliberate: `skills add --copy` produces

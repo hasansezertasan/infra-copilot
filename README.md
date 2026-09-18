@@ -168,10 +168,10 @@ repository invokes; `npm ci` installs them and the `Makefile` runs them from
 the `Makefile` runs resolves from `devDependencies`, and that no `Makefile` or workflow
 reintroduces a `<tool>@<version>` of its own.
 
-`make check` deliberately excludes `smoke-opencode`, which downloads the `skills`
-installer: on one run the tests finished in 65 seconds and that download took 421. It is
-its own CI job, so a slow registry never gates validation, and `make check-all` runs both
-locally.
+`make check` deliberately excludes `smoke-opencode`, which installs the plugin into a
+throwaway copy of the tree: "the plugin installs" is a different claim from "the payloads
+are valid", so it gets its own CI job and its own signal, and failing it still blocks the
+merge. `make check-all` runs both locally.
 
 Generated files are committed so users can install without having `ai-rulez`. CI runs the
 same validation and fails if generated payloads drift or local Markdown links break.

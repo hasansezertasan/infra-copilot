@@ -202,6 +202,11 @@ NPM_COMMAND = "npm"
 # anything. An invocation is followed by a subcommand or an option, so require
 # that the next token is one -- a test on a single token, not on npm's grammar.
 NPM_ARGUMENT_PATTERN = re.compile(r"-{1,2}\S+|[a-z][\w-]*")
+# One line can hold several commands, and the allowlist applies to each. Without
+# this, `npm install prettier && npm ci` reads as one command whose tokens do
+# contain `ci`. Splitting on shell operators is not a return to parsing npm --
+# these are a closed set of five, where npm's option grammar was open-ended.
+COMMAND_SEPARATORS = re.compile(r"&&|\|\||[;|&]")
 # Only executable text is scanned. A comment cannot invoke anything, and the
 # prose here has to be free to name the mechanisms it explains -- the Makefile
 # comment for `--include=dev` says what npm does under NODE_ENV=production.
@@ -1147,12 +1152,14 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
             )
         allowed = ", ".join(f"`npm {name}`" for name in sorted(ALLOWED_NPM_SUBCOMMANDS))
         for line in text.splitlines():
-            for arguments in npm_invocations(line):
-                if ALLOWED_NPM_SUBCOMMANDS.isdisjoint(arguments):
-                    errors.append(
-                        f"{relative}: runs npm as `{line.strip()}`; only {allowed} may "
-                        f"appear here, so {PACKAGE_JSON_PATH} stays the only definition"
-                    )
+            for command in COMMAND_SEPARATORS.split(line):
+                for arguments in npm_invocations(command):
+                    if ALLOWED_NPM_SUBCOMMANDS.isdisjoint(arguments):
+                        errors.append(
+                            f"{relative}: runs npm as `{command.strip()}`; only "
+                            f"{allowed} may appear here, so {PACKAGE_JSON_PATH} "
+                            f"stays the only definition"
+                        )
         for package in sorted(TOOL_PACKAGES):
             # Any `<package>@…` reference, not just a literal version. One form
             # this replaced was indirect — `ai-rulez@${INFRA_COPILOT_..._VERSION}`

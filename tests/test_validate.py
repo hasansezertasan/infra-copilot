@@ -1094,6 +1094,10 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         ("env npm exec -- prettier@3.0.0", "runs npm as"),
         ("npm install prettier@3.0.0", "runs npm as"),
         ("npm i -g prettier", "runs npm as"),
+        # One line, several commands: the allowlist applies to each, or a
+        # trailing `echo ci` satisfies it for the install that ran first.
+        ("npm install prettier@3.0.0 && echo ci", "runs npm as"),
+        ("npm ci --include=dev && npm install --no-save prettier@3.0.0", "runs npm as"),
     )
 
     def test_a_fourth_tool_cannot_reach_the_registry(self) -> None:
