@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:88f1d1b491cf8844bfb58561b73ec6b968db2b2dbdd1021e8e712552c0b93e93",
+  "source_hash": "blake3:e0d3c3126b86b048cba8dfe596e51364c04d5e2e4d7cc3e35a7033a635fa6a55",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -12,13 +12,13 @@
       "content_hash": "blake3:0b99e81bf5b194ce5a13329366a6c81fa697a25207f80d22d9be1b386fa7bd0e"
     },
     "commands/infra-add.md": {
-      "content_hash": "blake3:ccf696bd32946b5bdaa7092e56e6d6d9d7bc3b0673020dd9453a6979b0c8a8e4"
+      "content_hash": "blake3:36118fb05d84c27feee587a29494ec7d46173e31ae612164b6b6b947d05d7deb"
     },
     "commands/infra-import.md": {
-      "content_hash": "blake3:64948c128c4bf5aa67512d248e647183bc24918be144ecd402c474fb1032e51a"
+      "content_hash": "blake3:fbfdc8d919179931a3bd93593a3c49c6df51dcafe207d6376dbbc88e7b938339"
     },
     "commands/infra-setup.md": {
-      "content_hash": "blake3:4ce6646781d33e18769be1412f914221b411365ba7880d9fe1da7453098fae04"
+      "content_hash": "blake3:4cac816ee44f608e34f08e16fe13ed1db32528bb389a46990dc31191929206ca"
     },
     "commands/infra-status.md": {
       "content_hash": "blake3:4cea4cf4b75b09ebf7af810a7b4351733ed9da2adb66d6d1c67b76f7bb28b208"

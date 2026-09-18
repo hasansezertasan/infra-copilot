@@ -20,6 +20,7 @@ from pathlib import Path
 
 from scripts.validate import (
     AGENT_REQUIRED_TOOLS,
+    COMMAND_TOOLS,
     AGENT_STEM,
     DELEGATION_MARKERS,
     AGENT_FORBIDDEN_PATH,
@@ -655,6 +656,61 @@ class FifthReviewRegressionTests(unittest.TestCase):
         self.assertTrue(
             any("delegation rule" in e for e in validate_question_protocol(root)),
         )
+
+
+class SixthReviewRegressionTests(unittest.TestCase):
+    """The table must be able to unship things, and must not contradict itself."""
+
+    def test_the_table_can_revoke_the_agent(self) -> None:
+        """Layout used to pin the path, and main() short-circuits on layout.
+
+        Recording `agent.verified: false` and removing the manifest is the valid
+        way to unship it; the hardcoded entry made that fail `make check` and
+        could force an obsolete auto-discovered file to stay.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            (root / AGENT_PATH).unlink()
+            document = root / HOSTS_DOCUMENT
+            text = document.read_text(encoding="utf-8")
+            start = text.index("      path: agents/")
+            flag = text.index("      verified: true", start)
+            document.write_text(
+                text[:flag] + "      verified: false" + text[flag + len("      verified: true") :],
+                encoding="utf-8",
+            )
+            self.assertEqual(validate_host_dialects(root), [])
+
+    def test_a_verified_agent_still_requires_its_manifest(self) -> None:
+        """Dropping the layout entry must not drop the requirement with it."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            (root / AGENT_PATH).unlink()
+            self.assertTrue(
+                any("ships no manifest" in e for e in validate_host_dialects(root)),
+            )
+
+    def test_a_duplicate_host_record_is_rejected(self) -> None:
+        """The reader appended the second block to the first and every field read
+        returned the first occurrence, so a complete contradictory record passed."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / HOSTS_DOCUMENT
+            document.write_text(
+                document.read_text(encoding="utf-8")
+                + "\n  claude:\n    display_name: Impostor\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                any("duplicate host record" in e for e in validate_host_dialects(root)),
+            )
+
+    def test_only_status_may_reach_the_subagent(self) -> None:
+        """The action skills must run their resume scan inline, so granting them
+        Task hands three commands a capability their instructions forbid."""
+        for command, tools in COMMAND_TOOLS.items():
+            with self.subTest(command=command):
+                self.assertEqual("Task" in tools, command == "infra-status.md")
 
 
 class QuestionProtocolTests(unittest.TestCase):

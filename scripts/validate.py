@@ -17,13 +17,16 @@ MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SKILL_FRONTMATTER = re.compile(
     r"\A---\s*\n(?P<body>.*?)\n---\s*\n", re.DOTALL
 )
-# Task is what lets a command reach the infra-auditor subagent the shared protocol
-# tells it to delegate the resume scan to. Without it the instruction is a consumer
-# with no grant -- the mirror of the AskUserQuestion defect these checks exist for.
+# Task is what lets a command reach the infra-auditor subagent, and ONLY
+# `/infra-status` may: the shared protocol requires the action skills to run their
+# resume scan inline, because the auditor's runbook substitutes for the checks that
+# touch the working tree. Granting it to them would hand three commands a capability
+# their own instructions forbid them to use -- the AskUserQuestion defect these
+# checks exist for, in reverse.
 COMMAND_TOOLS = {
-    "infra-add.md": "Read, Bash, Edit, Write, Glob, Grep, Task, AskUserQuestion",
-    "infra-import.md": "Read, Bash, Edit, Write, Glob, Grep, Task, AskUserQuestion",
-    "infra-setup.md": "Read, Bash, Edit, Write, Glob, Grep, Task, AskUserQuestion",
+    "infra-add.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
+    "infra-import.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
+    "infra-setup.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
     "infra-status.md": "Read, Bash, Glob, Grep, Task",
 }
 CONFIG_PATH = ".infra-copilot/config.md"
@@ -1254,6 +1257,9 @@ HOSTS_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/hosts.yaml"
 #: stops checking it instead of failing, which is how a stray comment between
 #: entries dropped three of the four.
 EXPECTED_HOSTS = frozenset({"claude", "antigravity", "codex", "opencode"})
+#: Pseudo-record the reader uses to report repeated `hosts:` keys. A real name
+#: cannot collide with it, and the schema pass converts it into an error.
+DUPLICATE_MARKER = "__duplicate__"
 #: Where a host's subagent manifest and hook manifest ship, and the exact `tools`
 #: line each dialect requires. Keyed by the host names hosts.yaml declares.
 #:
@@ -1308,6 +1314,7 @@ def host_records(root: Path = ROOT) -> dict[str, str]:
     if text is None:
         return {}
     blocks: dict[str, list[str]] = {}
+    duplicates: set[str] = set()
     current: str | None = None
     in_hosts = False
     for line in text.splitlines():
@@ -1328,9 +1335,19 @@ def host_records(root: Path = ROOT) -> dict[str, str]:
         header = re.match(r"^  (?P<name>[a-z][a-z0-9_-]*):\s*$", line)
         if header:
             current = header.group("name")
+            if current in blocks:
+                # setdefault appended the second block to the first, and every
+                # field read then returned the FIRST occurrence -- so a complete
+                # contradictory record could be added with both validators green,
+                # while a real YAML parser would reject it or take the last one.
+                duplicates.add(current)
             blocks.setdefault(current, [])
         elif current:
             blocks[current].append(line)
+    if duplicates:
+        # Surfaced through the records themselves so every caller sees it; the
+        # schema pass turns it into an error before any field is read.
+        blocks[DUPLICATE_MARKER] = [f"  {name}" for name in sorted(duplicates)]
     return {name: "\n".join(body) for name, body in blocks.items()}
 
 
@@ -1385,6 +1402,11 @@ AGENT_REQUIRED_TOOLS = {"claude": ("Skill", "Bash")}
 def validate_host_schema(records: dict[str, str]) -> list[str]:
     """Every record complete, before any rule reads a field out of it."""
     errors: list[str] = []
+    if repeated := records.get(DUPLICATE_MARKER):
+        return [
+            f"{HOSTS_DOCUMENT}: duplicate host record(s) {repeated.split()}; every field "
+            "read would return the first occurrence while a YAML parser may take the last"
+        ]
     for host, block in sorted(records.items()):
         for section, fields in REQUIRED_HOST_FIELDS.items():
             state = _verified(block, section)
@@ -1429,7 +1451,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
         return [f"{HOSTS_DOCUMENT}: no host records found; the capability table is unreadable"]
     if schema_errors := validate_host_schema(records):
         return schema_errors
-    if missing := EXPECTED_HOSTS - set(records):
+    if missing := EXPECTED_HOSTS - (set(records) - {DUPLICATE_MARKER}):
         errors.append(
             f"{HOSTS_DOCUMENT}: no record for {sorted(missing)}; every rule here iterates "
             "the records this table yields, so a dropped host stops being checked"
@@ -1791,6 +1813,15 @@ def validate_question_protocol(root: Path = ROOT) -> list[str]:
 
 
 def validate_layout() -> list[str]:
+    """Artifacts whose absence no other validator would explain.
+
+    The agent manifest is deliberately NOT here: validate_host_dialects already
+    requires one for whichever host records `agent.verified: true`, at the path
+    that record names. Listing it again would have pinned the old path, so
+    revoking or relocating the agent could not be expressed in the table without
+    failing `make check` -- and main() short-circuits on layout errors, so the
+    capability-aware rule would never have run to say otherwise.
+    """
     required = (
         "Makefile",
         ".markdownlint-cli2.jsonc",
@@ -1818,7 +1849,6 @@ def validate_layout() -> list[str]:
         ".ai-rulez/skills/infra-copilot/references/steps.yaml",
         ".ai-rulez/skills/infra-copilot/references/hosts.yaml",
         "skills/infra-copilot/references/hosts.yaml",
-        "agents/infra-auditor.md",
         "skills/infra-copilot/references/config.md",
         "skills/infra-copilot/references/config.md.example",
         "skills/infra-copilot/references/decisions.md.example",

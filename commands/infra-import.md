@@ -1,12 +1,12 @@
 ---
 description: "Shortcut that loads the infra-copilot import skill — adopt existing provider resources into Terraform (cf-terraforming import blocks) without recreating them."
-allowed-tools: Read, Bash, Edit, Write, Glob, Grep, Task, AskUserQuestion
+allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 ---
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:64948c128c4bf5aa67512d248e647183bc24918be144ecd402c474fb1032e51a
-Source-Hash: blake3:88f1d1b491cf8844bfb58561b73ec6b968db2b2dbdd1021e8e712552c0b93e93
+Content-Hash: blake3:fbfdc8d919179931a3bd93593a3c49c6df51dcafe207d6376dbbc88e7b938339
+Source-Hash: blake3:e0d3c3126b86b048cba8dfe596e51364c04d5e2e4d7cc3e35a7033a635fa6a55
 Schema-Version: v1
 -->
 
