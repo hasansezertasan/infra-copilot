@@ -174,12 +174,21 @@ NODE_BIN_PATTERN = re.compile(r"node_modules/\.bin/(?P<binary>[A-Za-z0-9._-]+)")
 # `<pkg>@<version>`: without a package list a version regex fires on
 # `actions/checkout@<sha>`, and with one it misses the fourth tool nobody
 # registered -- the way markdownlint-cli2 slipped past in #45.
-PACKAGE_RUNNERS = (("npx",), ("bunx",), ("pnpm", "dlx"), ("yarn", "dlx"))
-# npm reaches the registry too, so it gets an allowlist: an npm command must
-# carry one of these among its arguments. Membership, not position, because four
-# successive regexes over npm's grammar were each defeated by a spelling the
+PACKAGE_RUNNERS = (
+    ("npx",),
+    ("bunx",),
+    ("bun", "x"),
+    ("pnpx",),
+    ("pnpm", "dlx"),
+    ("yarn", "dlx"),
+)
+# npm reaches the registry too, so it gets an allowlist: every argument of an npm
+# command that is not an option must appear here. A set, not a position, because
+# four successive regexes over npm's grammar were each defeated by a spelling the
 # previous one had not anticipated -- the `x` alias for `exec`, an option before
-# the subcommand, then an option whose value displaced it.
+# the subcommand, then an option whose value displaced it. Every word rather than
+# one of them, because `npm --userconfig ci exec` carries `ci` as an option's
+# value, which membership alone accepted.
 ALLOWED_NPM_SUBCOMMANDS = frozenset({"ci"})
 NPM_COMMAND = "npm"
 # One line can hold several commands, and the allowlist applies to each: without
@@ -203,7 +212,13 @@ RECIPE_SIGILS = "@+-"
 # Only executable text is scanned. A comment cannot invoke anything, and the
 # prose here has to be free to name the mechanisms it explains -- the Makefile
 # comment for `--include=dev` says what npm does under NODE_ENV=production.
-COMMENT_PATTERN = re.compile(r"(?m)#.*$")
+#
+# A quoted span is stepped over rather than searched, because a `#` inside quotes
+# is a literal the shell passes on: truncating at it would hide the rest of a real
+# command line. Single-line quotes only -- a span crossing a newline, or a quote
+# escaped inside one, reads as prose here, which is the same ceiling the rest of
+# this scan documents below.
+COMMENT_PATTERN = re.compile(r"""(?m)'[^'\n]*'|"[^"\n]*"|(?P<comment>#.*$)""")
 # What this check is: a guard against the habitual forms of the mechanism this
 # repository just removed -- `npx <tool>@<version>` and its neighbours -- so one
 # cannot come back by reflex or by an agent copying an older README.
@@ -1078,6 +1093,13 @@ def validate_manifest_paths(root: Path = ROOT) -> list[str]:
     return errors
 
 
+def strip_comments(text: str) -> str:
+    """``text`` without its comments, its quoted spans left intact."""
+    return COMMENT_PATTERN.sub(
+        lambda match: "" if match.group("comment") else match.group(0), text
+    )
+
+
 def shell_commands(line: str) -> list[list[str]]:
     """The tokens of each command on ``line``, command word first.
 
@@ -1135,10 +1157,17 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
 
     # Read once, and report an unreadable file rather than raising out of an
     # aggregate validator: a traceback here would hide every other diagnostic.
+    #
+    # Comments come off here rather than at each scan: the node_modules/.bin scan
+    # below read the raw text while the two scans after it read a stripped copy,
+    # so a Makefile comment naming a tool failed the build. One stripped source
+    # cannot drift from another the way two call sites did.
     sources: dict[str, str] = {}
     for relative in (MAKEFILE_PATH, *TOOL_PIN_WORKFLOWS):
         try:
-            sources[relative] = (root / relative).read_text(encoding="utf-8")
+            sources[relative] = strip_comments(
+                (root / relative).read_text(encoding="utf-8")
+            )
         except OSError as error:
             errors.append(f"{relative}: cannot read file: {error}")
 
@@ -1150,8 +1179,7 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
                 f"devDependency provides"
             )
 
-    for relative, source in sources.items():
-        text = COMMENT_PATTERN.sub("", source)
+    for relative, text in sources.items():
         allowed = ", ".join(f"`npm {name}`" for name in sorted(ALLOWED_NPM_SUBCOMMANDS))
         for line in text.splitlines():
             for command in shell_commands(line):
@@ -1168,10 +1196,11 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
                 # Arguments required: `cache: npm` selects a setup-node cache and
                 # invokes nothing, and a bare `npm` would do nothing either.
                 arguments = command[1:]
+                words = {word for word in arguments if not word.startswith("-")}
                 if (
                     command[0] == NPM_COMMAND
                     and arguments
-                    and ALLOWED_NPM_SUBCOMMANDS.isdisjoint(arguments)
+                    and not words <= ALLOWED_NPM_SUBCOMMANDS
                 ):
                     errors.append(
                         f"{relative}: runs npm as `{' '.join(command)}`; only "
@@ -1183,7 +1212,7 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
             # this replaced was indirect — `ai-rulez@${INFRA_COPILOT_..._VERSION}`
             # with the value in `env:` — so matching only a literal semver would
             # miss exactly the pattern being removed.
-            if re.search(rf"(?<![\w-]){re.escape(package)}@", text):
+            if re.search(rf"(?<![\w/-]){re.escape(package)}@", text):
                 errors.append(
                     f"{relative}: invokes {package}@… directly; "
                     f"run node_modules/.bin/{package} so {PACKAGE_JSON_PATH} "

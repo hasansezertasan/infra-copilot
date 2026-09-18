@@ -1085,12 +1085,18 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
     REGISTRY_ESCAPES = (
         ("npx --yes prettier@3.0.0", "invokes the npx package runner"),
         ("bunx prettier@3.0.0", "invokes the bunx package runner"),
+        ("bun x prettier@3.0.0", "invokes the bun x package runner"),
+        ("pnpx prettier@3.0.0", "invokes the pnpx package runner"),
         ("pnpm dlx prettier@3.0.0", "invokes the pnpm dlx package runner"),
         ("yarn dlx prettier@3.0.0", "invokes the yarn dlx package runner"),
         ("npm exec -- prettier@3.0.0", "runs npm as"),
         ("npm x -- prettier@3.0.0", "runs npm as"),
         ("npm --silent exec -- prettier@3.0.0", "runs npm as"),
         ("npm --prefix /tmp exec -- prettier@3.0.0", "runs npm as"),
+        # The allowed word as an option's value rather than the subcommand:
+        # membership anywhere accepted this, which is why every word that is
+        # not an option has to be allowed, not merely one of them.
+        ("npm --userconfig ci exec -- prettier@3.0.0", "runs npm as"),
         ("npm install prettier@3.0.0", "runs npm as"),
         ("npm i -g prettier", "runs npm as"),
         # One line, several commands: the allowlist applies to each, or a
@@ -1192,11 +1198,17 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                     self.assertIn(TOOL_PIN_WORKFLOWS[0], errors[0])
 
     def test_the_install_this_repository_runs_is_allowed(self) -> None:
-        """The allowlist has to let the real Makefile through, options and all."""
+        """The allowlist has to let the real Makefile through, options and all.
+
+        Written verbatim rather than through ``_makefile_running``, which appends
+        prettier-shaped arguments: every word of an npm command that is not an
+        option has to be allowed, and `npm ci` takes none.
+        """
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            self._makefile_running(repository, "npm ci --include=dev")
+            self._pin_workspace(
+                repository, makefile="install:\n\tnpm ci --include=dev\n"
+            )
 
             self.assertEqual(validate_tool_pins(repository), [])
 
@@ -1213,12 +1225,50 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             makefile = repository / "Makefile"
             makefile.write_text(
                 "# npm install prettier@3.0.0 is what this target must never do,\n"
-                "# and npx would be another way to do it.\n"
+                "# and npx would be another way to do it. Nor may it run\n"
+                "# node_modules/.bin/some-new-tool, which nothing declares.\n"
                 + makefile.read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
 
             self.assertEqual(validate_tool_pins(repository), [])
+
+    def test_a_quoted_hash_does_not_hide_the_rest_of_the_line(self) -> None:
+        """In a recipe a `#` inside quotes is a literal the shell passes on.
+
+        Truncating there would leave everything after it unscanned, which is a
+        command that really does run reported as prose.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository)
+            self._makefile_running(
+                repository, "echo 'https://example.invalid#anchor' ; npx prettier"
+            )
+
+            errors = validate_tool_pins(repository)
+
+            self.assertEqual(len(errors), 1, errors)
+            self.assertIn("invokes the npx package runner", errors[0])
+
+    def test_a_path_segment_is_not_a_tool_invocation(self) -> None:
+        """`<pkg>@` matches a command, not any word that ends in a tool name.
+
+        A pinned action or container image carries the same shape after a slash
+        -- `anthropics/skills@v1` -- and reporting it fails `make check` on a
+        line that names no tool of ours at all.
+        """
+        for reference in ("anthropics/skills@v1", "ghcr.io/x/ai-rulez@sha256:abc"):
+            with self.subTest(reference=reference):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    workflow = repository / TOOL_PIN_WORKFLOWS[0]
+                    workflow.write_text(
+                        f"steps:\n      - uses: {reference}\n", encoding="utf-8"
+                    )
+
+                    self.assertEqual(validate_tool_pins(repository), [])
 
     def test_workflow_may_not_reintroduce_its_own_pin(self) -> None:
         """package.json is the only definition; a second one is the drift itself.
