@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9d7a77007855e6b2da8387d40619c5c4efdcdb4a9f7130538d2e3c94deeabe4f
-Source-Hash: blake3:45e4490600996926cdbd5b4d1446ea4c513e7d2a8caf3adf3d75c1f442ca15b9
+Content-Hash: blake3:9828765ff3ecca5f6add32795468eddf030ea80cb37ab11e6d78db18c2fdc945
+Source-Hash: blake3:f05c95924d359be3b9b1df5176db65ffaf06269e2715aa8e1fa6f7298feb574b
 Schema-Version: v1
 -->
 
@@ -223,7 +223,14 @@ The scan is read-only, walks every phase, and produces a large amount of interme
 output — API JSON, per-step exit codes, tool versions — whose only consumer is the phase
 table and the verdict. **`status` and only `status`** may delegate it to the
 **`infra-auditor`** agent — and only when [`hosts.md`](hosts.md) records a subagent
-manifest for this host.
+manifest for this host **and** the host's subagent-invocation tool is currently declared
+and allowed.
+
+Both gates, for the same reason the question rule needs both: the record says the agent
+was shipped, never that this session can reach it. Hosts gate tools per session, so
+`/infra-status` run where `Task` is denied would meet a shipped row and then fail on the
+call — replacing the scan it promised with an error. A denied tool is a fallback
+condition, not an error condition.
 
 What the agent returns is [`status.md`](status.md)'s report **in full**: the preflight
 line, the phase table, and the verdict. Delegation moves where the scan runs, never what

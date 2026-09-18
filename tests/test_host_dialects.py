@@ -21,6 +21,7 @@ from pathlib import Path
 
 from scripts.validate import (
     AGENT_STEM,
+    PROTOCOL_DOCUMENTS,
     _runs_implementation,
     HOSTS_DOCUMENT,
     dialect_rows,
@@ -30,7 +31,15 @@ from scripts.validate import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 AGENT_PATH = f"agents/{AGENT_STEM}.md"
 HOOK_PATH = "hooks/hooks.json"
-FIXTURE_PATHS = (HOSTS_DOCUMENT, AGENT_PATH, HOOK_PATH, "hooks/session-start.sh")
+FIXTURE_PATHS = (
+    HOSTS_DOCUMENT,
+    AGENT_PATH,
+    HOOK_PATH,
+    "hooks/session-start.sh",
+    # The delegation rule lives here and is asserted alongside the artifacts, so a
+    # fixture without it is not a repository this validator can judge.
+    *PROTOCOL_DOCUMENTS,
+)
 
 
 def build_root(directory: str) -> Path:
@@ -211,7 +220,7 @@ class AgentTests(unittest.TestCase):
         shipped.mkdir(parents=True)
         (shipped / f"{AGENT_STEM}.toml").write_text(
             'name = "infra-auditor"\n'
-            'developer_instructions = """Invoke the infra-copilot skill, then status.md."""\n',
+            'developer_instructions = """Invoke the infra-copilot skill, then follow status.md."""\n',
             encoding="utf-8",
         )
         self.assertEqual(validate_host_dialects(root), [])
@@ -403,7 +412,10 @@ class CoverageAndGrantTests(unittest.TestCase):
         root = self._root(
             f"name: {AGENT_STEM}", f"name: {AGENT_STEM}\nname: wrong-agent", AGENT_PATH
         )
-        self.assertTrue(any("`name` fields" in e for e in validate_host_dialects(root)))
+        self.assertTrue(
+            any("name" in e for e in validate_host_dialects(root)),
+            "a duplicate name must be reported",
+        )
 
     def test_a_negated_instruction_is_not_delegation(self) -> None:
         """"Never invoke `infra-copilot` or `status.md`" carried both names and
@@ -438,9 +450,10 @@ class CoverageAndGrantTests(unittest.TestCase):
         shipped = root / ".opencode/agents"
         shipped.mkdir(parents=True)
         (shipped / f"{AGENT_STEM}.md").write_text(
-            "---\nname: infra-auditor\nmode: subagent\ntools:\n  read: true\n"
+            "---\nname: infra-auditor\ndescription: \"Read-only scan.\"\n"
+            "mode: subagent\ntools:\n  read: true\n"
             "  grep: true\n  glob: true\n  bash: true\n  skill: true\n---\n"
-            "Invoke the `infra-copilot` skill, then status.md.\n",
+            "Invoke the `infra-copilot` skill, then follow status.md.\n",
             encoding="utf-8",
         )
         self.assertEqual(validate_host_dialects(root), [])
@@ -510,7 +523,7 @@ class AmbiguityTests(unittest.TestCase):
         shipped.mkdir(parents=True)
         (shipped / f"{AGENT_STEM}.toml").write_text(
             'name = "infra-auditor"\nname = "wrong-agent"\n'
-            'developer_instructions = """Invoke the infra-copilot skill, then status.md."""\n',
+            'developer_instructions = """Invoke the infra-copilot skill, then follow status.md."""\n',
             encoding="utf-8",
         )
         self.assertTrue(any("`name` keys" in e for e in validate_host_dialects(root)))
@@ -564,6 +577,7 @@ class HookCommandTests(unittest.TestCase):
             ("unreachable after exit", "exit 0; sh hooks/session-start.sh"),
             ("guarded by &&", "false && sh hooks/session-start.sh"),
             ("guarded by ||", "true || sh hooks/session-start.sh"),
+            ("root variable reassigned", 'PLUGIN_ROOT=/tmp; sh "${PLUGIN_ROOT}/hooks/session-start.sh"'),
         ):
             with self.subTest(form=label):
                 self.assertFalse(_runs_implementation(command), command)
@@ -592,7 +606,8 @@ class DialectAndShapeTests(unittest.TestCase):
         shipped = root / ".opencode/agents"
         shipped.mkdir(parents=True)
         (shipped / f"{AGENT_STEM}.md").write_text(
-            "---\nname: infra-auditor\nmode: subagent\ntools:\n  read: true\n"
+            "---\nname: infra-auditor\ndescription: \"Read-only scan.\"\n"
+            "mode: subagent\ntools:\n  read: true\n"
             "  grep: true\n  glob: true\n  bash: true\n  skill: true\n  write: true\n"
             "---\nInvoke the `infra-copilot` skill, then follow status.md.\n",
             encoding="utf-8",
@@ -693,6 +708,77 @@ class ShapeTests(unittest.TestCase):
 
     def test_the_shipped_frontmatter_is_well_formed(self) -> None:
         self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+
+
+class DirectiveAndFrontmatterTests(unittest.TestCase):
+    """The last places a mention was accepted as an instruction, or a malformed
+    document as a valid one."""
+
+    def _agent(self, old: str, new: str) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / AGENT_PATH
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_a_descriptive_mention_is_not_a_directive(self) -> None:
+        """"The file status.md exists" named the runbook and instructed nothing."""
+        root = self._agent(
+            "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+            "`status.md`, `protocol.md`, and `steps.yaml`.",
+            "Invoke the `infra-copilot` skill. The file `status.md` exists.",
+        )
+        self.assertTrue(
+            any("un-negated instruction" in e for e in validate_host_dialects(root))
+        )
+
+    def test_frontmatter_is_held_to_a_fixed_shape(self) -> None:
+        """A balance check passed `description: [foo,,bar]`; the contract is three
+        known keys, so the shape is checkable exactly without a YAML parser."""
+        for label, replacement in (
+            ("flow collection", "description: [foo,,bar]"),
+            ("unknown key", 'extra: "x"'),
+        ):
+            with self.subTest(defect=label):
+                root = self._agent('description: "Read-only', replacement + '\nold: "Read-only')
+                self.assertTrue(
+                    any("not well formed" in e for e in validate_host_dialects(root))
+                )
+
+    def test_a_missing_required_key_is_rejected(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / AGENT_PATH
+        lines = [
+            line
+            for line in document.read_text(encoding="utf-8").splitlines(keepends=True)
+            if not line.startswith("description:")
+        ]
+        document.write_text("".join(lines), encoding="utf-8")
+        self.assertTrue(
+            any("missing ['description']" in e for e in validate_host_dialects(root))
+        )
+
+    def test_delegation_requires_both_gates(self) -> None:
+        """A shipped row says the agent exists, never that this session can reach
+        it -- hosts gate tools per session, so a denied Task must fall back inline
+        rather than fail the scan."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        for relative in PROTOCOL_DOCUMENTS:
+            document = root / relative
+            document.write_text(
+                document.read_text(encoding="utf-8").replace("currently declared", "pigs fly"),
+                encoding="utf-8",
+            )
+        self.assertTrue(
+            any("delegation rule is missing" in e for e in validate_host_dialects(root))
+        )
 
 
 if __name__ == "__main__":

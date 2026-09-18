@@ -1523,6 +1523,11 @@ AGENT_RUNBOOK = ("infra-copilot", "status.md")
 #: negator guard is what makes it a *positive* one -- "Never Invoke the
 #: infra-copilot skill" matched the imperative and inverted it.
 AGENT_INVOCATION = re.compile(r"\bInvoke the `?infra-copilot`? skill\b")
+#: An instruction to use the runbook, not a sentence that mentions it. "The file
+#: status.md exists" named it and told the agent nothing.
+AGENT_RUNBOOK_DIRECTIVE = re.compile(
+    r"\b(?:follow|run|use|read|consult)\b[^.]{0,60}?status\.md"
+)
 #: A negator anywhere in the same clause disqualifies what follows it. Bounded by
 #: clause punctuation and a short distance, because the negator and the thing it
 #: negates are usually separated by a verb -- "do not *follow* status.md" slipped
@@ -1569,9 +1574,14 @@ def _expand(word: str, variables: dict[str, str]) -> str:
     word = word.strip().strip("\"'")
     def substitute(match: re.Match[str]) -> str:
         name = match.group(1)
+        # A recorded assignment wins over the sentinel: `PLUGIN_ROOT=/tmp; sh
+        # "${PLUGIN_ROOT}/hooks/session-start.sh"` trusted the name while the
+        # shell would run /tmp/hooks/session-start.sh.
+        if name in variables:
+            return variables[name]
         if name in HOOK_ROOT_VARIABLES:
             return HOOK_ROOT_SENTINEL
-        return variables.get(name, "")
+        return ""
     return re.sub(r"\$\{?([A-Za-z_]\w*)[^}]*\}?", substitute, word)
 
 
@@ -1696,6 +1706,21 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     agents = dialect_rows(root, "## Subagent manifests")
     hooks = dialect_rows(root, "## Hook discovery")
+    for relative in PROTOCOL_DOCUMENTS:
+        protocol = read_document(root / relative)
+        if protocol is None or DELEGATION_HEADING not in protocol:
+            errors.append(f"{relative}: no {DELEGATION_HEADING!r} section")
+            continue
+        section = protocol[protocol.index(DELEGATION_HEADING) + len(DELEGATION_HEADING) :]
+        cut = section.find("\n### ")
+        section = section if cut < 0 else section[:cut]
+        for marker in DELEGATION_MARKERS:
+            if marker not in section:
+                errors.append(
+                    f"{relative}: the delegation rule is missing {marker!r}; it must "
+                    "gate on the recorded row AND on the tool being available, and "
+                    "name the inline fallback"
+                )
     document = read_document(root / HOSTS_DOCUMENT) or ""
     for heading in ("## Subagent manifests", "## Hook discovery"):
         if document.count(heading) != 1:
@@ -1836,7 +1861,7 @@ def _check_agent(relative: str, text: str, row: list[str], render, dialect: str)
     if front is None:
         return [f"{relative}: no YAML frontmatter to read `tools` and `name` from"]
     body = front.group("body")
-    if problem := _frontmatter_defect(body):
+    if problem := _frontmatter_defect(body, dialect):
         # The host parses the whole document before it discovers the agent, so one
         # malformed field removes `infra-auditor` entirely while the protocol keeps
         # delegating to it -- and reading only `name` and `tools` could not see it.
@@ -1881,27 +1906,55 @@ def _check_agent(relative: str, text: str, row: list[str], render, dialect: str)
     return errors + _check_agent_body(relative, text)
 
 
-#: Structural defects a YAML parser would reject, detectable without one.
+#: Every key this adapter's frontmatter may carry. It is a fixed three-field
+#: contract, not arbitrary user YAML, so the shape is checkable exactly.
 #:
-#: ponytail: a balance and shape check, not a parser. This repository ships no
-#: YAML dependency on purpose -- validate_manifest_shape makes the same call for
-#: steps.yaml -- and CI runs a bare interpreter, so adding PyYAML to gate one
-#: frontmatter block would be a runtime dependency for a single file. This catches
-#: what actually breaks these documents: an unclosed flow collection or quote, and
-#: a line that is neither a comment, a continuation, nor a `key:` entry.
-def _frontmatter_defect(body: str) -> str | None:
-    """Why ``body`` would not parse as YAML, or None when it looks well formed."""
+#: ponytail: a whitelist, not a parser. The repository ships no YAML dependency
+#: and CI runs a bare interpreter -- validate_manifest_shape declines one for
+#: steps.yaml on the same grounds -- and for this file a whitelist is the stronger
+#: check anyway: a conforming parser would accept `description: [foo, bar]`, which
+#: is valid YAML and still wrong for an agent manifest.
+AGENT_FRONTMATTER_KEYS = {"name", "description", "tools"}
+#: Keys a particular dialect adds. OpenCode's manifests declare `mode: subagent`,
+#: which is part of that dialect rather than a stray field.
+AGENT_DIALECT_KEYS = {"bool map": {"mode"}}
+#: The delegation rule's shape. Both gates have to be stated, because a record
+#: says the agent was *shipped*, never that this session can reach it -- and the
+#: inline fallback is what makes a denied tool a fallback rather than an error.
+#: (The equivalent assertion for the question rule was lost when this branch
+#: merged main; this is its replacement for the section this PR owns.)
+DELEGATION_HEADING = "### Running the scan in an isolated context"
+DELEGATION_MARKERS = ("infra-auditor", "records a subagent", "declared", "inline")
+
+
+def _frontmatter_defect(body: str, dialect: str = "") -> str | None:
+    """Why ``body`` is not this adapter's frontmatter, or None when it is."""
+    allowed = AGENT_FRONTMATTER_KEYS | AGENT_DIALECT_KEYS.get(dialect, set())
     for opener, closer in (("[", "]"), ("{", "}")):
         if body.count(opener) != body.count(closer):
             return f"unbalanced {opener}{closer}"
-    for quote in ('"', "'"):
-        if body.count(quote) % 2:
-            return f"unbalanced {quote} quote"
+    if body.count('"') % 2:
+        return 'unbalanced " quote'
+    seen: list[str] = []
     for number, line in enumerate(body.splitlines(), start=1):
         if not line.strip() or line.lstrip().startswith(("#", "-")) or line[:1].isspace():
             continue
-        if re.match(r"\A[A-Za-z_][\w.-]*:(?:\s|\Z)", line) is None:
+        key = re.match(r"\A([A-Za-z_][\w.-]*):(?:\s|\Z)", line)
+        if key is None:
             return f"line {number} is neither a comment, a continuation, nor a key"
+        name = key.group(1)
+        if name not in allowed:
+            return f"unknown key {name!r} on line {number}"
+        if name in seen:
+            return f"duplicate key {name!r} on line {number}"
+        seen.append(name)
+    if missing := allowed - set(seen):
+        return f"missing {sorted(missing)}"
+    description = re.search(r"(?m)^description:\s*(.*)$", body)
+    if description is not None and not re.fullmatch(r'"[^"]*"', description.group(1).strip()):
+        # A flow collection here is valid YAML and still not a description, which
+        # is the case a conforming parser would wave through.
+        return "description is not a single double-quoted scalar"
     return None
 
 
@@ -1925,7 +1978,7 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
             "skill; an agent that does not load the runbook either restates it or "
             "does nothing"
         )
-    if not _positive_mentions(text, re.escape(AGENT_RUNBOOK[1])):
+    if not _positive_mentions(text, AGENT_RUNBOOK_DIRECTIVE.pattern):
         # "then do not follow status.md" named the runbook and skipped it, which
         # is the same defect as the negated skill imperative one clause earlier.
         errors.append(
