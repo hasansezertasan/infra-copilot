@@ -1,0 +1,11 @@
+{
+  "setup_status": "complete",
+  "last_successful_step": "complete",
+  "resume_operation": null,
+  "project_type": "brownfield",
+  "workflow_revision": "flow-template-v2",
+  "workflow_preferences": {
+    "ignore_policy": "shared"
+  },
+  "timestamp": "2026-09-11T00:00:00Z"
+}

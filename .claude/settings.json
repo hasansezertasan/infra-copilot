@@ -1,0 +1,14 @@
+{
+  "enabledPlugins": {
+    "flow@flow-marketplace": true
+  },
+  "extraKnownMarketplaces": {
+    "flow-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "cofin/flow"
+      }
+    }
+  },
+  "plansDirectory": ".agents/bundles/specs"
+}
