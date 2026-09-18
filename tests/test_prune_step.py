@@ -152,6 +152,22 @@ class PruneStepTests(unittest.TestCase):
             with self.subTest(cwd=cwd):
                 self.assertEqual(self._run(files, cwd=cwd).returncode, 1)
 
+    def test_javascript_in_a_heredoc_is_not_a_block(self) -> None:
+        """`import { name } from "./x"` inside an inline Worker script is not HCL."""
+        result = self._run(
+            {
+                "terraform/cloudflare/worker.tf": (
+                    'resource "cloudflare_workers_script" "w" {\n'
+                    "  content = <<-EOT\n"
+                    '    import { handler } from "./handler.js"\n'
+                    "    export default { fetch: handler }\n"
+                    "  EOT\n"
+                    "}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_the_word_import_in_prose_is_not_a_block(self) -> None:
         result = self._run(
             {

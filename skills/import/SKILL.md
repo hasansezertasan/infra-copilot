@@ -5,8 +5,8 @@ description: "Adopt infrastructure that already exists at a provider into Terraf
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:adcc7844d8fda190637bd5f892342286d6495d628eac696063933e7fdb5db77c
-Source-Hash: blake3:abfa10ee9d7f628a60ca99630b9965cebc415db2264e95a3720a1eb12bcb52f1
+Content-Hash: blake3:51f9e4568d7b1ba1dd738b6bd830c869d4aef848eaab6d2d5b404261eaa90938
+Source-Hash: blake3:b40f5dfbf0b98fedb5b2a917286d9065ae4558ce0dd38422b20abaa9fcf7a908
 Schema-Version: v1
 -->
 
@@ -80,6 +80,13 @@ this import applies.
 2. **Resume scan** over phase 5 of [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). The
    discovery token is ephemeral (`check: ~`, no scriptable check) — treat it as a `HUMAN`
    step every run and delete it afterward.
+
+   A green `migrate-import` does **not** mean there is nothing left to adopt. Terraform
+   cannot see an object it does not manage, so a repo whose first adoption applied plans
+   `No changes.` even with a hundred untouched records still live at the provider. Green
+   only says the committed config has no *pending* imports. When the user names something
+   to adopt, run discovery and confirm that thing is in state — never close the request on
+   the resume scan alone.
 3. **Follow the runbook** [`../infra-copilot/references/docs/import.md`](../infra-copilot/references/docs/import.md) for the
    `cf-terraforming` invocation and the import-block workflow; the cross-provider pattern
    (applying the same generate→import→verify loop to other providers) is in

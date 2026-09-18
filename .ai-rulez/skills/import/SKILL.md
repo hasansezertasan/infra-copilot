@@ -73,6 +73,13 @@ this import applies.
 2. **Resume scan** over phase 5 of [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). The
    discovery token is ephemeral (`check: ~`, no scriptable check) — treat it as a `HUMAN`
    step every run and delete it afterward.
+
+   A green `migrate-import` does **not** mean there is nothing left to adopt. Terraform
+   cannot see an object it does not manage, so a repo whose first adoption applied plans
+   `No changes.` even with a hundred untouched records still live at the provider. Green
+   only says the committed config has no *pending* imports. When the user names something
+   to adopt, run discovery and confirm that thing is in state — never close the request on
+   the resume scan alone.
 3. **Follow the runbook** [`../infra-copilot/references/docs/import.md`](../infra-copilot/references/docs/import.md) for the
    `cf-terraforming` invocation and the import-block workflow; the cross-provider pattern
    (applying the same generate→import→verify loop to other providers) is in

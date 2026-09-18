@@ -25,6 +25,7 @@ order is fixed:
 |---|---|---|
 | `import {}` | `terraform state list` contains the `to =` address | before the apply |
 | `moved {}` | state contains the **new** address **and** not the old one | while either is untrue |
+| either, under `terraform/modules/` | **every** consuming leaf's state says so | while any consumer is unchecked |
 
 Everything else stays. `resource`, `data`, `module`, `provider`, `variable`, `locals`,
 `output` are configuration: deleting a `resource` block proposes a **destroy**, and on
@@ -43,9 +44,12 @@ applies:
 
 ```sh
 cd terraform/<leaf>
-grep -rn '^[[:space:]]*import[[:space:]]*{' *.tf
-grep -rn '^[[:space:]]*moved[[:space:]]*{'  *.tf
+grep -rnE '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*$' *.tf
 ```
+
+The `{` has to end the line, as a Terraform block opener always does. Without that anchor
+a heredoc carrying JavaScript — `import { name } from "./x"` in an inline Worker script —
+reads as a pending import.
 
 cf-terraforming appends its blocks to the file holding the generated HCL. The runbook in
 [`import.md`](import.md) pipes one zone into a single `generated.tf`, but an adoption that
@@ -78,6 +82,20 @@ rm -f "$state"
 
 Any address that is missing means that block is still pending. Leave it, and every other
 block in that leaf, alone: finish the import first.
+
+**A block under `terraform/modules/` is not one leaf's to prune.** A shared module is an
+input to several workspaces, each with its own state, and each applies the move on its own
+next run. The new address showing up in the leaf you happen to be in proves nothing about
+the others — and deleting the block turns an unmigrated consumer's next plan into a
+destroy/create. Enumerate the consumers and check each one's state before touching it:
+
+```sh
+grep -rl 'modules/<name>' terraform/*/ --include='*.tf'   # every leaf that uses it
+# then, per leaf: terraform state list, same two rules as above
+```
+
+If any consumer is unmigrated or unreadable, leave the block. Plan every consuming leaf,
+not just one, before opening the PR.
 
 A `to =` that is an expression rather than a literal address —
 `cloudflare_dns_record.this[each.key]`, `…[count.index]` — never appears in

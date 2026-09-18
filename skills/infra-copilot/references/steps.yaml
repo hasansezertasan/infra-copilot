@@ -1270,6 +1270,11 @@ steps:
         # green. Root-anchored because of the `cd` two lines up.
         [ -n "$(git --no-optional-locks ls-files -- ':/terraform/cloudflare/generated*.tf')" ]
       fi
+    # Green means the COMMITTED config has no pending imports -- never that the provider
+    # holds nothing else worth adopting: Terraform cannot see an unmanaged object, so a
+    # second adoption request plans `No changes.` exactly like a finished one. An explicit
+    # import run re-runs discovery regardless of this check; only the resume scan for work
+    # already written into the config may trust it.
     produces: committed generated*.tf; a plan showing imports, or none left to make
     docs: migration.md
 
@@ -1305,8 +1310,13 @@ steps:
     check: |
       # No commits at all: nothing can be committed, so nothing is left to prune.
       git --no-optional-locks rev-parse --verify --quiet HEAD >/dev/null || exit 0
+      # The `{` must END the line. Terraform block openers always do (cf-terraforming
+      # emits them that way and `terraform fmt` enforces it), while a heredoc carrying
+      # JavaScript -- `import { name } from "./x"` inside an inline Worker script -- does
+      # not, and matched before this anchor. A one-line `import { ... }` would be missed,
+      # but it cannot be valid: HCL needs a newline between `to` and `id`.
       left=$(git --no-optional-locks grep --full-name -lE \
-        '^[[:space:]]*(import|moved)[[:space:]]*\{' HEAD -- ':/terraform/*.tf')
+        '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*$' HEAD -- ':/terraform/*.tf')
       rc=$?
       [ "$rc" -eq 1 ] && exit 0          # git grep: 1 means no match
       if [ "$rc" -ne 0 ]; then
