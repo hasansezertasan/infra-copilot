@@ -197,7 +197,17 @@ NODE_MODULES_PACKAGE_PATH = re.compile(r"node_modules/(?![.])(?P<package>[^\s/]+
 #
 # `<` and `>` are excluded on that evidence: after a redirection operator the
 # hash continues the filename word. A hash inside a word is a literal either way.
-COMMENT_BOUNDARY = r"(?:(?<=^)|(?<=[\s;&|()])(?<!\\[\s;&|()]))"
+COMMENT_BOUNDARY = r"(?:(?<=^)|(?<=[\s;&|()]))"
+# An escaped character, masked out before the pattern above is applied so that a
+# delimiter which was escaped is not one. Left to right, which gets the parity
+# right by construction rather than by counting: `ok\\ #c` consumes the two
+# backslashes as one pair and leaves the space real, so the hash opens a comment,
+# while `ok\ #c` consumes the escaped space and it does not. Both match bash.
+#
+# A backslash before a newline is excluded: that is a line continuation, which
+# bash removes, after which the hash sits at the start of a line and comments as
+# usual. Masking it would join the lines and lose that.
+ESCAPED_CHARACTER = re.compile(r"\\[^\n]")
 COMMENT_PATTERN = re.compile(
     r"""(?m)'[^'\n]*'|"(?:\\.|[^"\\\n])*"|(?P<comment>""" + COMMENT_BOUNDARY + r"""#.*$)"""
 )
@@ -1100,10 +1110,21 @@ def strip_comments(text: str) -> str:
 
     A `#` inside quotes is a literal the shell and YAML both pass on, so
     truncating there would hide the rest of a line that really runs.
+
+    Matched against a copy whose escaped characters are masked to a placeholder
+    of the same width, so positions still line up with ``text`` and an escape
+    can neither be read as a delimiter nor hide the one after it.
     """
-    return COMMENT_PATTERN.sub(
-        lambda match: "" if match.group("comment") else match.group(0), text
-    )
+    mask = ESCAPED_CHARACTER.sub("\0\0", text)
+    kept: list[str] = []
+    end = 0
+    for match in COMMENT_PATTERN.finditer(mask):
+        if match.group("comment") is None:
+            continue
+        kept.append(text[end : match.start("comment")])
+        end = match.end("comment")
+    kept.append(text[end:])
+    return "".join(kept)
 
 
 def validate_tool_pins(root: Path = ROOT) -> list[str]:

@@ -1086,6 +1086,50 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
 
                     self.assertEqual(validate_tool_pins(repository), [])
 
+    def test_a_backslash_run_escapes_by_parity(self) -> None:
+        """Backslashes pair off, so only an odd run escapes what follows.
+
+        bash prints `ok # c` for one, `ok\\` for two, `ok\\ # c` for three: the
+        even runs leave the space a real delimiter and the hash opens a comment,
+        the odd runs escape it and the rest of the line runs. Masking escapes
+        left to right gets this by construction; a lookbehind cannot count.
+        """
+        for backslashes in range(1, 5):
+            escape = "\\" * backslashes
+            comments = backslashes % 2 == 0
+            with self.subTest(backslashes=backslashes):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    makefile = repository / "Makefile"
+                    makefile.write_text(
+                        makefile.read_text(encoding="utf-8")
+                        + f"probe:\n\techo ok{escape} # npx ai-rulez@4.9.0\n",
+                        encoding="utf-8",
+                    )
+
+                    errors = validate_tool_pins(repository)
+
+                    if comments:
+                        self.assertEqual(errors, [], errors)
+                    else:
+                        self.assertEqual(len(errors), 1, errors)
+                        self.assertIn("invokes ai-rulez@… directly", errors[0])
+
+    def test_a_line_continuation_is_not_an_escape_for_this(self) -> None:
+        """bash removes it, after which the hash starts a line and comments."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository)
+            makefile = repository / "Makefile"
+            makefile.write_text(
+                makefile.read_text(encoding="utf-8")
+                + "probe:\n\techo foo \\\n\t#bar npx ai-rulez@4.9.0\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(validate_tool_pins(repository), [])
+
     def test_an_escaped_delimiter_does_not_begin_a_comment(self) -> None:
         """The boundary character has to be unescaped to be one.
 
