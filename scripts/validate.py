@@ -169,13 +169,26 @@ TOOL_PIN_WORKFLOWS = (
 # devDependencies directly. A tool whose binary differs fails the lookup, which
 # is the right outcome: it needs a deliberate mapping, not a silent pass.
 NODE_BIN_PATTERN = re.compile(r"node_modules/\.bin/(?P<binary>[A-Za-z0-9._-]+)")
+# The directory named without a binary after it, which is how the check above
+# gets blinded without anything appearing to change: `BIN := $(CURDIR)/node_
+# modules/.bin` and then `$(BIN)/yaml` runs a tool no scan can see, because the
+# path is only contiguous after make expands it. Resolving make variables would
+# be a third grammar, so require the paths to stay written out instead -- the
+# convention the Makefile already follows, now enforced rather than assumed.
+NODE_BIN_UNNAMED = re.compile(r"node_modules/\.bin(?!/[A-Za-z0-9._-])")
 # Comments are dropped before the scans below, so prose may name a tool: the
 # Makefile comment for `--include=dev` explains what npm does under
 # NODE_ENV=production, and the one above `smoke-opencode` names `skills`.
-# Quoted spans are stepped over rather than searched, because a `#` inside them
-# is a literal. Single-line quotes only -- a span crossing a newline reads as
-# prose here, which costs a comment that is never dropped, not a missed tool.
-COMMENT_PATTERN = re.compile(r"""(?m)'[^'\n]*'|"[^"\n]*"|(?P<comment>#.*$)""")
+#
+# A `#` opens a comment only where a word begins, which is what the shell does:
+# `echo https://host/x#frag; npx ai-rulez@4.11.3` passes that hash through as a
+# literal, and truncating there dropped the pinned invocation after it. Quoted
+# spans are stepped over for the same reason. Single-line quotes only -- a span
+# crossing a newline reads as prose here, which costs a comment that is never
+# dropped, not a missed tool.
+COMMENT_PATTERN = re.compile(
+    r"""(?m)'[^'\n]*'|"[^"\n]*"|(?P<comment>(?:(?<=\s)|(?<=^))#.*$)"""
+)
 # What this check enforces, and what it deliberately does not.
 #
 # Enforced, by substring and by data -- nothing here parses a language:
@@ -1131,6 +1144,12 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
     # and telling those apart is the parsing this check no longer does. The
     # workflows call `make`, which is where the binaries actually are.
     makefile = sources.get(MAKEFILE_PATH, "")
+    if NODE_BIN_UNNAMED.search(makefile):
+        errors.append(
+            f"{MAKEFILE_PATH}: names node_modules/.bin without a binary after it; "
+            f"write each tool's path out in full so this check can see which "
+            f"binaries run"
+        )
     for binary in sorted(set(NODE_BIN_PATTERN.findall(makefile))):
         if binary not in declared:
             errors.append(

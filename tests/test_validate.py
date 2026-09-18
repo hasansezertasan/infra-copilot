@@ -1017,6 +1017,57 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         "if test -f config; then npx prettier@3.0.0; fi",
     )
 
+    def test_a_hash_inside_a_word_does_not_hide_the_rest_of_the_line(self) -> None:
+        """The shell passes a mid-word `#` through, so the command after it runs.
+
+        Truncating there dropped a pinned invocation from the scan, which is the
+        one guarantee the parser removal rests on.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository)
+            makefile = repository / "Makefile"
+            makefile.write_text(
+                makefile.read_text(encoding="utf-8")
+                + "probe:\n\techo https://example.invalid#anchor; "
+                "npx ai-rulez@4.11.3\n",
+                encoding="utf-8",
+            )
+
+            errors = validate_tool_pins(repository)
+
+            self.assertEqual(len(errors), 1, errors)
+            self.assertIn("invokes ai-rulez@… directly", errors[0])
+
+    def test_the_bin_directory_may_not_be_factored_into_a_variable(self) -> None:
+        """`BIN := …/node_modules/.bin` then `$(BIN)/yaml` runs an unseen tool.
+
+        The path is only contiguous after make expands it, so the binary scan
+        goes blind with nothing appearing to change. Resolving make variables
+        would be a third grammar; requiring the paths to stay written out is the
+        same guarantee without one.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository)
+            makefile = repository / "Makefile"
+            makefile.write_text(
+                "NODE_BIN := $(CURDIR)/node_modules/.bin\n"
+                "YAML := $(NODE_BIN)/yaml\n"
+                + makefile.read_text(encoding="utf-8")
+                + "probe:\n\t$(YAML) --version\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                validate_tool_pins(repository),
+                [
+                    "Makefile: names node_modules/.bin without a binary after it; "
+                    "write each tool's path out in full so this check can see "
+                    "which binaries run"
+                ],
+            )
+
     def test_a_tool_we_do_not_pin_is_not_guarded_statically(self) -> None:
         """The documented ceiling, asserted so it cannot be mistaken for a bug.
 
