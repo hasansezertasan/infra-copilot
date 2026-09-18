@@ -1143,6 +1143,9 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         "      - name: npx cache downloads",
         "      - name: npm install everything",
         "        uses: actions/setup-node@v4",
+        # `run` is the only executable field, so a label may name a binary.
+        "      - name: Show node_modules/.bin/yaml version",
+        "        uses: anthropics/skills@v1",
     )
 
     def test_naming_npm_is_not_invoking_it(self) -> None:
@@ -1184,6 +1187,9 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         # quote arrives glued to the command word.
         '        run: "npx --yes prettier@3.0.0"',
         "        run: 'npm install prettier@3.0.0'",
+        # A transitive binary: node_modules/.bin holds the closure, not the
+        # manifest, so running one directly pins nothing.
+        "        run: node_modules/.bin/yaml --version",
     )
 
     def test_a_run_field_is_still_executable(self) -> None:
@@ -1225,6 +1231,28 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                     f"devDependency provides"
                 ],
             )
+
+    #: Shell text that only *mentions* a command. Lexing these by hand produced
+    #: a finding apiece: `&&` inside a string read as a second command, and a
+    #: `#` inside a word truncated the line. shlex settles both.
+    QUOTED_PROSE = (
+        '\techo "do not run && npx prettier"',
+        "\techo 'npm install prettier@3.0.0 is what not to do'",
+    )
+
+    def test_a_quoted_argument_is_not_a_command(self) -> None:
+        for line in self.QUOTED_PROSE:
+            with self.subTest(line=line):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    makefile = repository / "Makefile"
+                    makefile.write_text(
+                        makefile.read_text(encoding="utf-8") + f"probe:\n{line}\n",
+                        encoding="utf-8",
+                    )
+
+                    self.assertEqual(validate_tool_pins(repository), [])
 
     def test_the_install_this_repository_runs_is_allowed(self) -> None:
         """The allowlist has to let the real Makefile through, options and all.
