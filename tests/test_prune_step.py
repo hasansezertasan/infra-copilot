@@ -18,6 +18,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STEPS = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+RUNBOOK = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/docs/prune.md"
 
 
 def step(step_id: str) -> str:
@@ -250,3 +251,57 @@ class MigrateImportCheckTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(os.name == "posix", "the runbook's helpers are POSIX shell")
+class RunbookHelperTests(unittest.TestCase):
+    """The `held` / `held_under` snippets are the safety rail; run them, don't trust them.
+
+    Every address shape here cost a review round: an aggregate `to` that state
+    never prints verbatim, a move that only adds `count`, a module key with a
+    dot in it, and a sibling whose name merely starts the same.
+    """
+
+    STATE = (
+        "aws_instance.web[0]\n"
+        'module.zone["example.com"].module.child.aws_instance.new\n'
+        "module.parent.aws_instance.newer_thing\n"
+        'cloudflare_dns_record.this["www"]\n'
+    )
+
+    def setUp(self) -> None:
+        text = RUNBOOK.read_text(encoding="utf-8")
+        # Each helper runs from its `name() {` line to the first `}` in column 0.
+        found = re.findall(r"^(held(?:_under)?\(\) \{\n.*?\n\})$", text, re.S | re.M)
+        self.assertEqual(len(found), 2, f"expected both helpers, got {found}")
+        self.helpers = "\n".join(found)
+
+    def _ask(self, call: str) -> bool:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"
+            state.write_text(self.STATE, encoding="utf-8")
+            script = f'{self.helpers}\n{call} "{state}"'
+            return (
+                subprocess.run(
+                    ["/bin/sh", "-c", script], capture_output=True, text=True
+                ).returncode
+                == 0
+            )
+
+    def test_an_aggregate_address_is_held_through_its_instances(self) -> None:
+        """`x` → `x[0]`: state has only the instance, and that is the evidence."""
+        self.assertTrue(self._ask("held 'aws_instance.web'"))
+
+    def test_held_does_not_leak_across_a_name_boundary(self) -> None:
+        self.assertFalse(self._ask("held 'aws_instance.we'"))
+
+    def test_a_module_relative_address_survives_a_dotted_key(self) -> None:
+        """`module.zone["example.com"]` is why the call path is not split on dots."""
+        self.assertTrue(self._ask("held_under 'aws_instance.new'"))
+
+    def test_held_under_does_not_match_a_longer_sibling(self) -> None:
+        self.assertFalse(self._ask("held_under 'aws_instance.newer'"))
+
+    def test_an_unmigrated_address_is_reported_absent(self) -> None:
+        self.assertFalse(self._ask("held_under 'aws_instance.old'"))
+        self.assertFalse(self._ask("held 'aws_instance.old'"))
