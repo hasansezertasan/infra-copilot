@@ -31,6 +31,12 @@
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
   `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
+- Scoped pruning to leaves: one-shot blocks under `terraform/modules/` are never removed,
+  and `prune-spent-imports` no longer counts them. Every consuming state reads a module's
+  blocks separately and that set is not closed, so a `moved` block there is the module's
+  upgrade path (Terraform calls removing one a breaking change) and an `import` block is
+  spent only per consumer. Retires the module-relative address matching and the consumer
+  walk that tried to prove otherwise.
 - Moved consuming-repo configuration to `.infra-copilot/config.md` and design decisions to
   `.infra-copilot/decisions.md`, with templates and legacy Claude paths supported during
   migration.

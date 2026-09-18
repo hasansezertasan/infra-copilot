@@ -1277,12 +1277,17 @@ steps:
         # HEAD -- the thing CI applies, and the thing prune-spent-imports reads -- knows
         # nothing about it. Fail closed if the status read itself fails, as the
         # object-storage branch above does.
-        dirty=$(git --no-optional-locks status --porcelain -- ':/terraform/cloudflare' ':/terraform/modules') || {
+        # Same paths the object-storage branch above rejects on: a working-tree config.md
+        # picks the backend and workspace this very check reads, and mise pins the
+        # terraform that runs the plan -- so either one dirty means the plan came from a
+        # configuration the commit does not describe.
+        dirty=$(git --no-optional-locks status --porcelain -- ':/terraform/cloudflare' \
+          ':/terraform/modules' ':/.infra-copilot/config.md' ':/mise.toml' ':/mise.lock') || {
           echo "git status failed - cannot verify the plan matches the commit" >&2
           exit 1
         }
         [ -z "$dirty" ] || {
-          echo "uncommitted changes under terraform/cloudflare - commit before the plan is evidence" >&2
+          echo "uncommitted changes under terraform/cloudflare, the config, or the tool pins - commit before the plan is evidence" >&2
           exit 1
         }
         cd terraform/cloudflare
@@ -1352,9 +1357,19 @@ steps:
       # inside `locals` is deeper, and matching it would route real configuration to
       # prune. Parser-free, so the same trades as above: a minified .tf.json is missed,
       # as is a top-level key indented four spaces.
+      #
+      # terraform/modules/ is excluded: one-shot blocks there are not this step's to call
+      # leftover. Each consuming state reads them separately, so `moved` is the module's
+      # upgrade path -- Terraform calls removing one a breaking change and recommends
+      # retaining historical module moves -- and `import`, while genuinely spent once
+      # applied, is spent only per consumer, a set no scan here can close. docs/prune.md
+      # refuses both, so counting them would hold phase 5 red over work with no runbook.
+      # ponytail: module blocks are left to a human; lift this when consumers are
+      # enumerable (a lockfile of consuming states) rather than grepped for.
+      # https://developer.hashicorp.com/terraform/language/modules/develop/refactoring
       left=$(git --no-optional-locks grep --full-name -lE \
         '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*((#|//).*)?$|^ {0,2}"(import|moved)"[[:space:]]*:' \
-        HEAD -- ':/terraform/*.tf' ':/terraform/*.tf.json')
+        HEAD -- ':/terraform/*.tf' ':/terraform/*.tf.json' ':(top,exclude)terraform/modules/*')
       rc=$?
       [ "$rc" -eq 1 ] && exit 0          # git grep: 1 means no match
       if [ "$rc" -ne 0 ]; then

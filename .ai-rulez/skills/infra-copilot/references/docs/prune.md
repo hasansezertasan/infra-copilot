@@ -1,9 +1,30 @@
 # Pruning spent one-shot blocks
 
 `import { to = … id = "…" }` and `moved { from = … to = … }` are **instructions, not
-configuration**. Terraform executes each exactly once; from the next run onward the
-resource is managed by its address and the block does nothing. Removing them is a separate
-pull request from the one that added them, because the **apply has to land in between**.
+configuration**. Terraform executes each against a given state exactly once; from that
+state's next run onward the resource is managed by its address and the block does nothing.
+Removing them is a separate pull request from the one that added them, because the
+**apply has to land in between**.
+
+*Exactly once* is a claim about **one state**, which is why this runbook stops at the leaf.
+A block under `terraform/modules/` is read by every consuming state separately, and the set
+of those states is not closed — a workspace restored from an older state, or a consumer
+outside this repository, has still to cross it. **Neither kind is pruned here:**
+
+- A module's `moved` block is its **upgrade path**, not a leftover. Terraform's own guidance
+  is to [retain historical module
+  moves](https://developer.hashicorp.com/terraform/language/modules/develop/refactoring#removing-moved-blocks):
+  "Removing a `moved` block is a breaking change […] We strongly recommend that you retain
+  all historical `moved` blocks from earlier versions of your modules."
+- A module's `import` block *is* spent once applied — but per consumer, and deleting it
+  while one consumer is behind makes that consumer's next plan **create** a resource that
+  already exists. Proving the set complete means resolving every `source`, including
+  relative ones like `../child`, through the whole call graph; a grep for one spelling
+  quietly misses exactly the consumer you needed.
+
+`prune-spent-imports` excludes `terraform/modules/` for the same reason, so a retained
+module block does not hold phase 5 red. Removing one is a deliberate human change against a
+known consumer list — not this runbook's, and not on a schedule.
 
 This is the only runbook in `infra-copilot` that deletes anything, so most of it is
 preconditions.
@@ -23,9 +44,9 @@ order is fixed:
 
 | Block | Remove when | Never |
 |---|---|---|
-| `import {}` | `terraform state list` contains the `to =` address | before the apply |
-| `moved {}` | state holds the **new** address (or its instances/descendants) **and** not the old one | while either is untrue |
-| either, under `terraform/modules/` | **every** consuming leaf's state says so | while any consumer is unchecked |
+| `import {}` in a leaf | `terraform state list` contains the `to =` address | before the apply |
+| `moved {}` in a leaf | state holds the **new** address (or its instances/descendants) **and** not the old one | while either is untrue |
+| either, under `terraform/modules/` | — | **always**: see below |
 
 Everything else stays. `resource`, `data`, `module`, `provider`, `variable`, `locals`,
 `output` are configuration: deleting a `resource` block proposes a **destroy**, and on
@@ -93,9 +114,6 @@ the address rules below cannot settle, because Terraform parses its own addresse
 aggregate module targets, `count`/`for_each` in either direction, chains, expressions,
 JSON leaves. When the two disagree, the plan is right.
 
-For a block inside a shared module, run the pair in **every consuming leaf** — see the
-next section. One leaf's `No changes.` says nothing about another's.
-
 ### State membership filters first
 
 ```sh
@@ -112,17 +130,6 @@ held() {
                  END { exit !f }' "$2"
 }
 
-# held_under: the same question for a MODULE-RELATIVE address, which state reports with
-# the call path in front: `module.parent.module.child.aws_instance.x`. Matching the tail
-# beats parsing that path, which is not splittable on dots -- a key may contain one, as
-# in `module.zone["example.com"]`.
-held_under() {
-  awk -v a=".$1" '{ i = index($0, a)
-                    if (i) { r = substr($0, i + length(a))
-                             if (r == "" || r ~ /^[.[]/) f = 1 } }
-                  END { exit !f }' "$2"
-}
-
 # exactly: this address and nothing under it.
 exactly() { grep -Fxq "$1" "$2"; }
 ```
@@ -136,7 +143,6 @@ Keep `$state` until every check below has run — the helpers read it each time 
 | `moved`, distinct addresses | `held <new>` **and not** `held <old>` |
 | `moved` **adding** an index (`x` → `x[0]`) | `held <new>` alone |
 | `moved` **removing** a resource index (`x[0]` → `x`) | `exactly <new>` **and not** `exactly <old>` |
-| anything written inside a module | `held_under`, in **every** consuming leaf |
 
 The two index rows are not one rule. **Adding** an index makes the old address a prefix of
 the new, so `held <old>` is satisfied by `aws_instance.web[0]` — the very instance that
@@ -154,9 +160,6 @@ pending, for reasons that have nothing to do with whether it ran:
 
 - **An index removed from a *module* call** (`module.app[0]` → `module.app`). State never
   prints a bare `module.app`, only its descendants, so `exactly` can never succeed.
-- **A same-named address under a different call.** `held_under` deliberately forgets which
-  call path it matched, so an unrelated module's `aws_instance.web["blue"]` answers for
-  yours.
 - **Chained moves.** `a → b` then `b → c` applies as one hop: state holds only `c`, and `b`
   never appears, so the first block looks pending forever.
 - **An expression target** — `this[each.key]`, `…[count.index]` — is not an address until
@@ -171,33 +174,6 @@ importing it — an apply made outside this workflow, since the import check rej
 containing a create. Where that is plausible, run `terraform state show <address>` and
 compare against the block's `id` first; a prune would otherwise certify the duplicate it
 exists to prevent.
-
-## A block inside a module belongs to every consumer
-
-A shared module is an input to several workspaces, each with its own state, each applying
-the move on its own next run. The new address showing up in the leaf you happen to be in
-proves nothing about the others, and deleting the block turns an unmigrated consumer's next
-plan into a destroy/create.
-
-Find the consumers by walking the call graph, not by one grep. A leaf can reach the module
-*through another module* — it calls `modules/parent`, and `parent` calls `../child` — and
-that leaf matches no search for `modules/child`, so it is exactly the consumer you would
-skip. Callers can also be JSON.
-
-```sh
-# direct callers: leaves AND other modules, both syntaxes
-grep -rl 'modules/<name>' terraform/ --include='*.tf' --include='*.tf.json'
-# repeat for every caller under terraform/modules/ until each path ends at a leaf
-
-# then, per consuming leaf, against that leaf's own state:
-held_under '<new address>' "$state" && ! held_under '<old address>' "$state"
-```
-
-`held_under` answers for *any* call of the module, which is what the rule needs: if the
-leaf calls the module twice and only one call has migrated, the old address is still there
-under the other, the second test fails, and the block correctly stays. If any consumer is
-unreadable or unmigrated, or the graph is deeper than you can enumerate confidently, leave
-the block. Plan every consuming leaf, not just one, before opening the PR.
 
 ## Refuse on a dirty plan
 

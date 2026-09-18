@@ -6,8 +6,10 @@ description: "Remove spent one-shot `import {}` and `moved {}` blocks after thei
 # infra-copilot: prune
 
 Delete the **one-shot instruction blocks** an adoption leaves behind. `import {}` and
-`moved {}` execute once; after that run applies, the resources are managed by their
-addresses and the blocks are inert. Nothing else removes them, so they accumulate.
+`moved {}` execute once **against a given state**; after that run applies, the resources are
+managed by their addresses and the blocks are inert. Nothing else removes them, so they
+accumulate. Scope is one leaf at a time — blocks under `terraform/modules/` are out, see
+guardrail 5.
 
 This file is a **router**: the reusable machinery — actor model, handoff, resume,
 preflight — lives in [`../infra-copilot/references/protocol.md`](../infra-copilot/references/protocol.md); the manifest in
@@ -42,6 +44,12 @@ So:
 3. **Refuse on a dirty plan.** If the leaf does not plan cleanly apart from the blocks you
    are about to remove, stop and report rather than prune into an unrelated diff.
 4. **One pull request per leaf.** Leaves have separate workspaces and separate applies.
+5. **Leaves only — never `terraform/modules/`.** Every consuming state reads a module's
+   blocks separately, and that set is not closed. A module's `moved` block is its upgrade
+   path, which Terraform says to retain; its `import` block is spent only per consumer, and
+   deleting it while one is behind makes that consumer plan a **create** against a live
+   resource. `prune-spent-imports` excludes the directory for the same reason, so a
+   retained module block never shows up as work. The runbook has the citation.
 
 ## Workflow
 

@@ -154,6 +154,51 @@ class PruneStepTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1)
 
+    def test_a_module_moved_block_is_not_a_leftover(self) -> None:
+        """Terraform calls removing one a breaking change: it is the upgrade path.
+
+        Counting it here would hold phase 5 red over a block the runbook now
+        refuses to remove — permanently, with no workflow able to clear it.
+        """
+        result = self._run(
+            {
+                "terraform/modules/dns/main.tf": (
+                    "moved {\n  from = cloudflare_record.a\n"
+                    "  to   = cloudflare_dns_record.a\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_module_import_block_is_out_of_scope_too(self) -> None:
+        """Spent per consumer, and that set is not closed — so not this step's call."""
+        result = self._run(
+            {
+                "terraform/modules/dns/main.tf.json": (
+                    '{\n  "import": [\n    { "to": "cloudflare_dns_record.a", "id": "x" }\n  ]\n}\n'
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_leaf_is_still_red_when_a_module_is_clean(self) -> None:
+        """The exclusion is a directory, not a switch that turns the scan off."""
+        result = self._run(
+            {
+                "terraform/modules/dns/main.tf": (
+                    "moved {\n  from = a.b\n  to = a.c\n}\n"
+                ),
+                "terraform/cloudflare/dns.tf": (
+                    "moved {\n  from = cloudflare_record.a\n"
+                    "  to   = cloudflare_dns_record.a\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 1)
+        reported = result.stdout + result.stderr
+        self.assertIn("terraform/cloudflare/dns.tf", reported)
+        self.assertNotIn("modules", reported)
+
     def test_uncommitted_files_are_not_evidence(self) -> None:
         """The blocks are pruned by a PR, so only committed ones count."""
         result = self._run(
@@ -255,11 +300,13 @@ if __name__ == "__main__":
 
 @unittest.skipUnless(os.name == "posix", "the runbook's helpers are POSIX shell")
 class RunbookHelperTests(unittest.TestCase):
-    """The `held` / `held_under` snippets are the safety rail; run them, don't trust them.
+    """The `held` / `exactly` snippets are the safety rail; run them, don't trust them.
 
     Every address shape here cost a review round: an aggregate `to` that state
-    never prints verbatim, a move that only adds `count`, a module key with a
-    dot in it, and a sibling whose name merely starts the same.
+    never prints verbatim, a move that only adds `count`, and a sibling whose
+    name merely starts the same. `held_under` used to live here too; it served
+    module-relative addresses, and went with the module case when pruning was
+    scoped to leaves.
     """
 
     STATE = (
@@ -272,8 +319,11 @@ class RunbookHelperTests(unittest.TestCase):
     def setUp(self) -> None:
         text = RUNBOOK.read_text(encoding="utf-8")
         # Each helper runs from its `name() {` line to the first `}` in column 0.
-        found = re.findall(r"^(held(?:_under)?\(\) \{\n.*?\n\})$", text, re.S | re.M)
-        self.assertEqual(len(found), 2, f"expected both helpers, got {found}")
+        found = re.findall(r"^(held\(\) \{\n.*?\n\})$", text, re.S | re.M)
+        self.assertEqual(len(found), 1, f"expected `held`, got {found}")
+        self.assertNotIn(
+            "held_under", text, "held_under outlived the module case it served"
+        )
         oneline = re.findall(r"^(exactly\(\) \{.*\})$", text, re.M)
         self.assertEqual(len(oneline), 1, f"expected `exactly`, got {oneline}")
         self.helpers = "\n".join(found + oneline)
@@ -296,13 +346,6 @@ class RunbookHelperTests(unittest.TestCase):
 
     def test_held_does_not_leak_across_a_name_boundary(self) -> None:
         self.assertFalse(self._ask("held 'aws_instance.we'"))
-
-    def test_a_module_relative_address_survives_a_dotted_key(self) -> None:
-        """`module.zone["example.com"]` is why the call path is not split on dots."""
-        self.assertTrue(self._ask("held_under 'aws_instance.new'"))
-
-    def test_held_under_does_not_match_a_longer_sibling(self) -> None:
-        self.assertFalse(self._ask("held_under 'aws_instance.newer'"))
 
     def test_removing_an_index_needs_exact_matching_both_ways(self) -> None:
         """`x[0]` -> `x` pre-apply: `held x` is true on the strength of `x[0]` itself."""
@@ -330,12 +373,11 @@ class RunbookHelperTests(unittest.TestCase):
         """Deleting it in the helper block leaves every later check reading nothing."""
         text = RUNBOOK.read_text(encoding="utf-8")
         self.assertLess(
-            text.index("held_under() {"),
+            text.index("held() {"),
             text.rindex('rm -f "$state"'),
             "the snapshot is removed before the checks that read it",
         )
         self.assertEqual(text.count('rm -f "$state"'), 2)  # the instruction, and the step
 
     def test_an_unmigrated_address_is_reported_absent(self) -> None:
-        self.assertFalse(self._ask("held_under 'aws_instance.old'"))
         self.assertFalse(self._ask("held 'aws_instance.old'"))
