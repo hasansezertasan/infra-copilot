@@ -13,6 +13,7 @@ PYTHON ?= python3
 AI_RULEZ := $(CURDIR)/node_modules/.bin/ai-rulez
 SKILLS   := $(CURDIR)/node_modules/.bin/skills
 MARKDOWNLINT := $(CURDIR)/node_modules/.bin/markdownlint-cli2
+INSTALL_STAMP := node_modules/.install-stamp
 
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
@@ -24,19 +25,23 @@ help:  ## Show this help
 	  /^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@echo
 
-# `npm ci` installs exactly the lockfile, so the transitive tree is pinned too, and it
-# deletes node_modules first -- hence the touch, without which an install that produced
-# an older mtime than the lockfile would re-run on every subsequent target.
-node_modules: package-lock.json package.json
+# `npm ci` installs exactly the lockfile, so the transitive tree is pinned too.
+#
+# The target is a stamp rather than node_modules itself, because `npm ci` deletes the
+# directory and recreates it as it goes: an install killed partway leaves node_modules
+# newer than the lockfile, and a bare directory target would then call itself satisfied
+# and run binaries that were never installed. Make only reaches the touch when npm ci
+# exited 0, and npm ci having just deleted the directory took the old stamp with it.
+$(INSTALL_STAMP): package-lock.json package.json
 	npm ci
-	@touch node_modules
+	@touch $@
 
 .PHONY: generate
-generate: node_modules  ## Regenerate the host packages from .ai-rulez/ (edit sources, never skills/)
+generate: $(INSTALL_STAMP)  ## Regenerate the host packages from .ai-rulez/ (edit sources, never skills/)
 	$(AI_RULEZ) generate --plugin
 
 .PHONY: validate
-validate: node_modules  ## Validate the ai-rulez config, the committed payloads, links, and adapters
+validate: $(INSTALL_STAMP)  ## Validate the ai-rulez config, the committed payloads, links, and adapters
 	$(AI_RULEZ) validate
 	$(AI_RULEZ) verify --plugin
 	$(PYTHON) scripts/validate.py
@@ -64,7 +69,7 @@ test:  ## Run the repository validator tests
 # is dropped from it: $(SKILLS) is an absolute path into the real checkout, so a second
 # dependency tree would only be something for `skills add .` to walk.
 .PHONY: smoke-opencode
-smoke-opencode: node_modules  ## Install into a throwaway copy and assert the OpenCode skill payload
+smoke-opencode: $(INSTALL_STAMP)  ## Install into a throwaway copy and assert the OpenCode skill payload
 	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
 	cp -R . "$$tmp/repo" && \
 	rm -rf "$$tmp/repo/.agents/skills" "$$tmp/repo/skills-lock.json" "$$tmp/repo/node_modules" && \
@@ -95,7 +100,7 @@ preflight:  ## Check the tools every other target needs are present
 # repository. Generated trees are excluded there: their content is owned by .ai-rulez/
 # sources, so linting the output would report each finding once per host package.
 .PHONY: lint
-lint: node_modules  ## Lint the hand-authored Markdown
+lint: $(INSTALL_STAMP)  ## Lint the hand-authored Markdown
 	$(MARKDOWNLINT)
 
 # Removes only build output. `.agents/plugins/marketplace.json` is tracked and required
@@ -145,7 +150,7 @@ check: lint validate test  ## Everything CI runs on a pull request
 # smoke-opencode is NOT in `check`: it installs the plugin into a throwaway copy of the
 # tree, which is a different failure than "the payloads are valid" and is worth its own
 # CI job and its own signal. The 421s registry tail that originally forced the split
-# (measured on #43, against an on-demand `npx --yes` download) is gone: `npm ci`
+# (measured on #43, against an on-demand package-runner download) is gone: `npm ci`
 # installs the whole locked closure once, from a cache both jobs share.
 .PHONY: check-all
 check-all: check smoke-opencode  ## check plus the OpenCode install smoke test

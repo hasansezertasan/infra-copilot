@@ -169,6 +169,14 @@ TOOL_PIN_WORKFLOWS = (
 # devDependencies directly. A tool whose binary differs fails the lookup, which
 # is the right outcome: it needs a deliberate mapping, not a silent pass.
 NODE_BIN_PATTERN = re.compile(r"node_modules/\.bin/(?P<binary>[A-Za-z0-9._-]+)")
+# A package runner resolves a tool straight from the registry, which is the whole
+# mechanism this change removes. Matched by name rather than by `<pkg>@<version>`
+# because only the runner generalises: a literal-version regex would have to know
+# the package to avoid firing on `actions/checkout@<sha>`, and so would miss the
+# fourth tool nobody registered -- the way markdownlint-cli2 slipped past in #45.
+PACKAGE_RUNNER_PATTERN = re.compile(
+    r"(?<![\w-])(?:npx|bunx|(?:pnpm|yarn)\s+dlx|npm\s+exec)(?![\w-])"
+)
 # Prerelease and build metadata are independent and may both appear:
 # 0.3.0-rc.1+build.5 is one version, not a version plus trailing junk.
 VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+){2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
@@ -1034,8 +1042,9 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
     Two halves, because each catches what the other cannot. Forwards: every tool
     the Makefile runs must resolve from ``devDependencies``, so a fourth tool
     cannot be introduced outside the manifest. Backwards: no Makefile or workflow
-    may invoke ``<package>@<version>``, so the manifest stays the only definition
-    rather than merely one of them.
+    may reach a tool any other way -- neither a package runner nor a
+    ``<package>@<version>`` of one of ours -- so the manifest stays the only
+    definition rather than merely one of them.
 
     This replaces a README cross-check. The versions used to be Makefile literals
     restated in the README, which is why Renovate needed a custom manager
@@ -1084,6 +1093,12 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
             )
 
     for relative, text in sources.items():
+        for runner in sorted(set(PACKAGE_RUNNER_PATTERN.findall(text))):
+            errors.append(
+                f"{relative}: invokes the {runner} package runner; run "
+                f"node_modules/.bin/<tool> so {PACKAGE_JSON_PATH} stays the "
+                f"only definition"
+            )
         for package in sorted(TOOL_PACKAGES):
             # Any `<package>@…` reference, not just a literal version. One form
             # this replaced was indirect — `ai-rulez@${INFRA_COPILOT_..._VERSION}`
