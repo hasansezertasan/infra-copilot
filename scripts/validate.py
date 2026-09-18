@@ -1508,7 +1508,26 @@ HOOK_IMPLEMENTATION = "hooks/session-start.sh"
 #: "$s"`), so the two cannot be required adjacent. This rejects the failure that
 #: happens -- a no-op adapter that merely names the path, which `echo <path>`
 #: passed -- and not a command contriving to run an unrelated shell beside it.
-HOOK_SHELL = re.compile(r"(?:^|[;&|]|\s)(?:ba|z|da)?sh\s")
+HOOK_SHELL = re.compile(r"\A(?:ba|z|da)?sh\s")
+
+
+def _runs_implementation(command: str) -> bool:
+    """Whether ``command`` hands the shared hook script to a shell.
+
+    A *statement* must begin with the shell, not merely contain the word: the
+    shipped manifests read `... ; sh "$s"`, while `echo sh hooks/session-start.sh`
+    satisfied "path present and shell token present" and executed only `echo`.
+
+    ponytail: statement-prefix matching, not a shell parse. It rejects the no-op
+    adapters that actually occur; a command contriving to run an unrelated shell
+    as its own statement would still pass.
+    """
+    if HOOK_IMPLEMENTATION not in command:
+        return False
+    return any(
+        HOOK_SHELL.match(statement.strip())
+        for statement in re.split(r"[;&|]+", command)
+    )
 
 
 def dialect_rows(root: Path = ROOT, heading: str = "") -> list[list[str]]:
@@ -1527,6 +1546,21 @@ def dialect_rows(root: Path = ROOT, heading: str = "") -> list[list[str]]:
         if cells and cells[0] not in {"Host"}:
             rows.append(cells)
     return rows
+
+
+def _escapes_root(root: Path, relative: str) -> str | None:
+    """Why a recorded path leaves the plugin payload, or None when it stays inside.
+
+    Resolved, not just lexical: a lexically clean path can still be a symlink out
+    of the tree, and the payload root is what an installed plugin joins against.
+    """
+    if relative.startswith(("/", "~")) or PurePosixPath(relative).is_absolute():
+        return "is absolute"
+    try:
+        (root / relative).resolve().relative_to(root.resolve())
+    except ValueError:
+        return "escapes the plugin root"
+    return None
 
 
 def _shipped(cell: str) -> bool:
@@ -1549,6 +1583,11 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     if not agents or not hooks:
         return [f"{HOSTS_DOCUMENT}: no subagent or hook rows found; the record is unreadable"]
 
+    for row in agents + hooks:
+        if len(row) < 4:
+            errors.append(f"{HOSTS_DOCUMENT}: row {row[:1]} is missing columns")
+    agents = [row for row in agents if len(row) >= 5]
+    hooks = [row for row in hooks if len(row) >= 4]
     owners = [row for row in agents if _shipped(row[-1])]
     # Per directory, not globally. Claude and Antigravity collide at root agents/ and
     # only one of them may own it, but .codex/agents/ and .opencode/agents/ are
@@ -1565,14 +1604,11 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                 "directory cannot hold incompatible tools dialects, so only one may"
             )
     for row in agents:
-        if len(row) < 5:
-            errors.append(f"{HOSTS_DOCUMENT}: subagent row {row[:1]} is missing columns")
-            continue
         directory = row[1].strip("`")
-        if ".." in PurePosixPath(directory).parts or directory.startswith(("/", "~")):
+        if problem := _escapes_root(root, directory):
             errors.append(
-                f"{HOSTS_DOCUMENT}: subagent path {directory!r} escapes the plugin root; an "
-                "installed plugin resolves it against its own payload and finds nothing"
+                f"{HOSTS_DOCUMENT}: subagent path {directory!r} {problem}; an installed "
+                "plugin resolves it against its own payload and finds nothing"
             )
             continue
         dialect = next((key for key in AGENT_DIALECTS if row[2].startswith(key)), None)
@@ -1607,10 +1643,13 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
         errors.extend(_check_agent(relative, text, row, render))
 
     for row in hooks:
-        if len(row) < 4:
-            errors.append(f"{HOSTS_DOCUMENT}: hook row {row[:1]} is missing columns")
-            continue
         relative = row[1].strip("`").split("`")[0].split(" ")[0].strip()
+        if relative not in {"none", "—", ""} and (problem := _escapes_root(root, relative)):
+            errors.append(
+                f"{HOSTS_DOCUMENT}: hook path {relative!r} {problem}; the validator would "
+                "read and accept an artifact no installed plugin can reach"
+            )
+            continue
         if not _shipped(row[-1]):
             if relative not in {"none", "—", ""} and (root / relative).exists():
                 errors.append(
@@ -1726,13 +1765,19 @@ def _check_hook(root: Path, relative: str, row: list[str]) -> list[str]:
         ]
         if not commands:
             errors.append(f"{relative}: a SessionStart entry declares no hooks to run")
-        elif not all(
-            HOOK_IMPLEMENTATION in command and HOOK_SHELL.search(command)
-            for command in commands
-        ):
+        elif not all(_runs_implementation(command) for command in commands):
             errors.append(
                 f"{relative}: a SessionStart command does not hand {HOOK_IMPLEMENTATION} "
                 "to a shell; naming the path is not running it"
+            )
+        if any(
+            callback.get("type") != "command"
+            for callback in (entry.get("hooks") if isinstance(entry, dict) else None) or []
+            if isinstance(callback, dict)
+        ):
+            errors.append(
+                f"{relative}: a SessionStart callback is not type 'command'; only a "
+                "command callback runs the shared implementation"
             )
     return errors
 

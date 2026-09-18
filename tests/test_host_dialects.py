@@ -315,5 +315,59 @@ class HookTests(unittest.TestCase):
         self.assertTrue(any("no manifest is here" in e for e in validate_host_dialects(root)))
 
 
+class MalformedRecordTests(unittest.TestCase):
+    """A record that is wrong in shape must be reported, not crash or be trusted."""
+
+    def _root(self, old: str, new: str) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / HOSTS_DOCUMENT
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_a_short_row_is_reported_not_raised(self) -> None:
+        """`| yes |` entered the shipped list and then indexed off the end,
+        raising IndexError before the missing-column diagnostic could run."""
+        root = self._root(
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | no — not exercised |",
+            "| yes |",
+        )
+        self.assertTrue(any("missing columns" in e for e in validate_host_dialects(root)))
+
+    def test_a_hook_path_may_not_escape_the_plugin_root(self) -> None:
+        """Containment was applied to agent paths only, so a hook row of
+        `../escape.json` had the validator read and accept an off-tree file."""
+        root = self._root("| Claude Code | `hooks/hooks.json` |", "| Claude Code | `../escape.json` |")
+        (root.parent / "escape.json").write_text("{}", encoding="utf-8")
+        self.assertTrue(any("escapes" in e for e in validate_host_dialects(root)))
+
+    def test_an_echo_prefixed_command_does_not_count(self) -> None:
+        """`echo sh hooks/session-start.sh` satisfied "path present and shell
+        token present" while executing only `echo`."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["hooks"]["SessionStart"][0]["hooks"] = [
+            {"type": "command", "command": "echo sh hooks/session-start.sh"}
+        ]
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertTrue(any("hand" in e for e in validate_host_dialects(root)))
+
+    def test_a_callback_that_is_not_a_command_is_rejected(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["hooks"]["SessionStart"][0]["hooks"][0]["type"] = "prompt"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertTrue(any("type 'command'" in e for e in validate_host_dialects(root)))
+
+
 if __name__ == "__main__":
     unittest.main()
