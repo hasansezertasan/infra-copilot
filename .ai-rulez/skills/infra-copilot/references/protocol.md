@@ -71,6 +71,58 @@ When a step is `HUMAN`, do **not** guess or fake it. Stop and print exactly this
 After the human replies, run the step's `check`. If it fails, re-emit the handoff with
 what you observed — never silently proceed past a red check.
 
+### Asking a decision
+
+The handoff block above is for *unblocking* steps — signup, mint, paste — where the only
+reply is "done". Some steps instead need the human to **choose**: which provider flavor to
+adopt (`add`), whether to scaffold a missing config (`setup`), whether a discovered
+resource should be adopted or excluded (`import`). Those are real choices, and the rule is
+three sentences:
+
+> Ask exactly one logical decision and wait for its result. Use the host's native question
+> tool only when that named tool is currently declared **and** allowed **and**
+> [`hosts.yaml`](hosts.yaml) records that this host supports the mode and choice count the
+> request needs. Otherwise render the identical request as text, including a final
+> `Other — enter a custom response`.
+
+The tool differs per host, and [`hosts.yaml`](hosts.yaml) is the authority on which
+of these is real on the host you are running on:
+
+| Host | Native question tool | Modes | Choices |
+|---|---|---|---|
+| Claude Code | `AskUserQuestion` | binary, single, multi | 2–4 |
+| Antigravity | `ask_question` | binary, single, multi | 2–4 |
+| Codex CLI | `request_user_input` | binary, single | 2–3 |
+| OpenCode | `question` | binary, single, multi | 2–4 |
+
+`AskUserQuestion` is the one this repository grants today: the `add`, `import`, and
+`setup` commands carry it in `allowed-tools`. That grant is what makes the tool
+*available* on Claude Code; this section is what makes it *used*.
+
+Both halves of the fallback matter. "Declared and allowed" is a runtime fact — Codex gates
+`request_user_input` behind an experimental flag, so a host whose capability record lists
+the tool may still not be offering it this session. The capability record is the second
+gate, not the first: it says a mode is *supported*, never that the tool is *present*. When
+either gate fails, the text rendering is not a downgrade — it is the same request, and the
+answer is read back the same way.
+
+The text form carries the same content as the tool call, so a run is legible whichever
+path it took:
+
+```text
+┌─ DECISION NEEDED ─────────────────────────────────
+│ Question: <one line — the single decision>
+│ Why:      <one line — what this choice determines>
+│   1. <option> — <consequence>
+│   2. <option> — <consequence>
+│   3. Other — enter a custom response
+└───────────────────────────────────────────────────
+```
+
+Never ask two decisions in one request, and never proceed on an unanswered one. A
+multi-select request on a host whose record does not list `multi` is split into
+single-select asks, not silently narrowed to one answer.
+
 ## Resume protocol
 
 Every skill here is **idempotent and resumable**. Before doing anything, walk the steps in
@@ -160,6 +212,20 @@ for step in scope(steps.yaml):
 
 Never assume state from memory or a prior session — always re-check. See
 [`steps.yaml`](steps.yaml) for the runtime contract (which shell vars to export first).
+
+### Running the scan in an isolated context
+
+The scan is read-only, walks every phase, and produces a large amount of intermediate
+output — API JSON, per-step exit codes, tool versions — whose only consumer is the phase
+table and the verdict. On a host that offers subagents, delegate it to the
+**`infra-auditor`** agent, which returns just that table and verdict. `status` is entirely
+this scan; `setup`, `import`, and `add` open with it before doing any work of their own.
+
+Its grant carries no write or edit tool, which narrows the surface the read-only contract
+has to defend — though it does carry shell access, so the contract is still a rule and not
+a sandbox. [`hosts.yaml`](hosts.yaml) records which host ships it, and why only one can:
+Claude and Antigravity both auto-discover root `agents/` with incompatible `tools` shapes. Where no subagent surface exists, run the same scan
+inline — the agent is an isolation boundary, never a second set of rules.
 
 ### Conditional steps (`when`)
 

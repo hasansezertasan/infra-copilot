@@ -17,11 +17,14 @@ MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SKILL_FRONTMATTER = re.compile(
     r"\A---\s*\n(?P<body>.*?)\n---\s*\n", re.DOTALL
 )
+# Task is what lets a command reach the infra-auditor subagent the shared protocol
+# tells it to delegate the resume scan to. Without it the instruction is a consumer
+# with no grant -- the mirror of the AskUserQuestion defect these checks exist for.
 COMMAND_TOOLS = {
-    "infra-add.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
-    "infra-import.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
-    "infra-setup.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
-    "infra-status.md": "Read, Bash, Glob, Grep",
+    "infra-add.md": "Read, Bash, Edit, Write, Glob, Grep, Task, AskUserQuestion",
+    "infra-import.md": "Read, Bash, Edit, Write, Glob, Grep, Task, AskUserQuestion",
+    "infra-setup.md": "Read, Bash, Edit, Write, Glob, Grep, Task, AskUserQuestion",
+    "infra-status.md": "Read, Bash, Glob, Grep, Task",
 }
 CONFIG_PATH = ".infra-copilot/config.md"
 LEGACY_CONFIG_PATH = ".claude/infra-copilot.local.md"
@@ -1245,6 +1248,293 @@ def validate_manifest_shape(root: Path = ROOT) -> list[str]:
     return errors
 
 
+HOSTS_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/hosts.yaml"
+#: Where a host's subagent manifest and hook manifest ship, and the exact `tools`
+#: line each dialect requires. Keyed by the host names hosts.yaml declares.
+#:
+#: These are hand-authored: `ai-rulez` emits rules, context and skills only, so
+#: there is no generator to hold them to the table. This mapping is the parity
+#: gate that replaces one -- it is the reason hosts.yaml is authoritative rather
+#: than merely descriptive.
+#: The one agent manifest that ships, and the dialect its `tools` key must take.
+#: Only the *shape* lives here; the path and the tool names are read from
+#: hosts.yaml, so the table stays authoritative rather than merely descriptive.
+#:
+#: Exactly one host can be served: Claude and Antigravity both auto-discover root
+#: agents/ and neither honours an override, so the file is written in whichever
+#: dialect the host recorded `verified: true` uses. hosts.yaml carries the evidence.
+AGENT_FILENAME = "infra-auditor.md"
+TOOLS_DIALECTS = {
+    # dialect -> renders a host's recorded tool_names as the frontmatter it requires
+    "comma_string": lambda names: "tools: " + ", ".join(names),
+    "yaml_list": lambda names: "tools:\n" + "\n".join(f"  - {name}" for name in names),
+    "bool_map": lambda names: "tools:\n" + "\n".join(f"  {name}: true" for name in names),
+}
+AGENT_NAME = "infra-auditor"
+#: The shared runbook the agent must delegate to rather than restate. An agent
+#: carrying its own copy of the scan is a second behavioural authority, which is
+#: the failure mode the whole references/ layout exists to prevent.
+AGENT_RUNBOOK = "skills/infra-copilot/references/status.md"
+#: Tools that would make the read-only contract unenforceable. The point of the
+#: agent is that the guarantee is a capability boundary, not a promise in prose.
+AGENT_FORBIDDEN_TOOLS = ("Write", "Edit", "NotebookEdit", "replace_file_content")
+
+
+def host_records(root: Path = ROOT) -> dict[str, str]:
+    """Each top-level host block of hosts.yaml, keyed by host name.
+
+    A reader for this one file's fixed shape, not a YAML parser -- the same
+    stance validate_manifest_shape takes for steps.yaml, and for the same
+    reason: a real parser would be a new runtime dependency for two files.
+    """
+    text = read_document(root / HOSTS_DOCUMENT)
+    if text is None:
+        return {}
+    blocks: dict[str, list[str]] = {}
+    current: str | None = None
+    in_hosts = False
+    for line in text.splitlines():
+        if line and not line[:1].isspace():
+            # A new top-level key. Only `hosts:` opens the mapping we read; anything
+            # else closes it, so a same-named key nested under a later mapping cannot
+            # reset a real record to empty and silence every rule keyed on it.
+            in_hosts = line.startswith("hosts:")
+            current = None
+            continue
+        if not in_hosts:
+            continue
+        header = re.match(r"^  (?P<name>[a-z][a-z0-9_-]*):\s*$", line)
+        if header:
+            current = header.group("name")
+            blocks.setdefault(current, [])
+        elif current:
+            blocks[current].append(line)
+    return {name: "\n".join(body) for name, body in blocks.items()}
+
+
+def _verified(block: str, section: str) -> bool | None:
+    """Whether ``section`` of a host block records verified: true/false."""
+    match = re.search(
+        rf"^    {section}:$(?P<body>(?:\n(?:      .*)?)*)", block, re.MULTILINE
+    )
+    if match is None:
+        return None
+    flag = re.search(
+        r"^      verified:\s*(true|false)\s*(?:#.*)?$", match.group("body"), re.MULTILINE
+    )
+    return None if flag is None else flag.group(1) == "true"
+
+
+def _field(block: str, section: str, key: str) -> str | None:
+    """A scalar field of a host block, with any trailing comment stripped."""
+    match = re.search(
+        rf"^    {section}:$(?P<body>(?:\n(?:      .*)?)*)", block, re.MULTILINE
+    )
+    if match is None:
+        return None
+    found = re.search(rf"^      {key}:\s*(?P<value>.+?)\s*(?:#.*)?$", match.group("body"), re.MULTILINE)
+    return None if found is None else found.group("value")
+
+
+def _tool_names(block: str) -> list[str]:
+    raw = _field(block, "agent", "tool_names") or ""
+    return [name.strip() for name in raw.strip("[]").split(",") if name.strip()]
+
+
+def validate_host_dialects(root: Path = ROOT) -> list[str]:
+    """Shipped per-host artifacts must match what hosts.yaml records.
+
+    Three surfaces need the same per-host fact and none of them is generated, so
+    this is where they are held together. Every rule reads the paths, dialects
+    and tool names out of hosts.yaml rather than restating them, so editing the
+    table is what changes the gate.
+
+    Two rules, both learned the hard way:
+
+    * A verified record must have its artifact, in that host's dialect. The
+      dialects diverge silently -- Antigravity reported "agents: 1 processed"
+      for an agent written in Claude's comma-string form and then never listed
+      it in `agy agent`.
+    * An unverified record must NOT have one. A hook manifest that ships but
+      never fires is indistinguishable from one that works until someone needs
+      it, which is why Codex's is absent rather than written on a guess.
+    """
+    errors: list[str] = []
+    records = host_records(root)
+    if not records:
+        return [f"{HOSTS_DOCUMENT}: no host records found; the capability table is unreadable"]
+
+    # --- the agent, which exactly one host can have (see hosts.yaml) ------------
+    owners = [host for host, block in records.items() if _verified(block, "agent")]
+    if len(owners) != 1:
+        errors.append(
+            f"{HOSTS_DOCUMENT}: {len(owners)} hosts record a verified agent ({owners}); "
+            "root agents/ is one path with incompatible dialects, so exactly one may"
+        )
+    for host in owners:
+        block = records[host]
+        directory = _field(block, "agent", "path")
+        dialect = _field(block, "agent", "tools_dialect")
+        names = _tool_names(block)
+        if directory is None or dialect is None or not names:
+            errors.append(f"{HOSTS_DOCUMENT}: {host}'s agent record is incomplete")
+            continue
+        if dialect not in TOOLS_DIALECTS:
+            errors.append(f"{HOSTS_DOCUMENT}: {host} declares unknown dialect {dialect!r}")
+            continue
+        relative = f"{directory.rstrip('/')}/{AGENT_FILENAME}"
+        text = read_document(root / relative)
+        if text is None:
+            errors.append(f"{relative}: {host} records a verified agent but ships no manifest")
+            continue
+        expected = TOOLS_DIALECTS[dialect](names)
+        # Anchored, and followed by end-of-block: a plain substring test passed
+        # "tools: Read, Bash, Glob" against a file declaring "...,  Grep", so
+        # dropping a tool from either side went unseen.
+        if re.search(rf"(?m)^{re.escape(expected)}\s*$", text) is None:
+            errors.append(
+                f"{relative}: does not carry {host}'s {dialect} tools dialect as "
+                f"{HOSTS_DOCUMENT} records it; a wrong dialect fails silently"
+            )
+        if f"name: {AGENT_NAME}" not in text:
+            errors.append(f"{relative}: agent name must be {AGENT_NAME!r}")
+        if AGENT_RUNBOOK not in text:
+            errors.append(
+                f"{relative}: must delegate to {AGENT_RUNBOOK}; an agent that restates "
+                "the scan becomes a second behavioural authority"
+            )
+        for forbidden in AGENT_FORBIDDEN_TOOLS:
+            if forbidden in names:
+                errors.append(
+                    f"{HOSTS_DOCUMENT}: {host}'s agent tool_names include {forbidden!r}; "
+                    "the scan is read-only and the grant is what says so"
+                )
+
+    # A host whose agent record is unverified must not have a manifest sitting at
+    # its recorded path -- that is how the Antigravity dialect ended up being the
+    # file Claude loaded.
+    for host, block in records.items():
+        if _verified(block, "agent") is not False:
+            continue
+        directory = _field(block, "agent", "path")
+        if directory and host not in owners:
+            relative = f"{directory.rstrip('/')}/{AGENT_FILENAME}"
+            text = read_document(root / relative)
+            expected = TOOLS_DIALECTS.get(_field(block, "agent", "tools_dialect") or "")
+            names = _tool_names(block)
+            if text is not None and expected is not None and names and expected(names) in text:
+                errors.append(
+                    f"{relative}: carries {host}'s dialect, whose record is unverified; "
+                    "the host that does load this path would get tool names it lacks"
+                )
+
+    # --- hook manifests ---------------------------------------------------------
+    for host, block in records.items():
+        relative = _field(block, "hook", "path")
+        if relative in (None, "null"):
+            continue
+        verified = _verified(block, "hook")
+        exists = (root / relative).exists()
+        if verified and not exists:
+            errors.append(f"{relative}: {host} records a verified hook path but ships no manifest")
+        if verified is False and exists:
+            errors.append(
+                f"{relative}: {host}'s hook record is unverified, so this manifest "
+                "asserts a discovery path nothing has demonstrated"
+            )
+
+    # Antigravity counts every top-level key of the root manifest as a hook, so a
+    # "_comment" sibling of "hooks" was reported as a second hook.
+    if (root / "hooks.json").exists():
+        try:
+            keys = set(load_json("hooks.json", root))
+        except (OSError, json.JSONDecodeError) as error:
+            errors.append(f"hooks.json: unreadable ({error})")
+        else:
+            if keys != {"hooks"}:
+                errors.append(
+                    f"hooks.json: top-level keys {sorted(keys)} != ['hooks']; "
+                    "Antigravity counts each one as a hook"
+                )
+
+    # Every root variable a manifest is willing to resolve must also be one the
+    # script recognises, or the hook fires and emits the wrong host's shape.
+    script = read_document(root / "hooks/session-start.sh")
+    if script is not None:
+        declared = {
+            variable
+            for relative in ("hooks.json", "hooks/hooks.json")
+            if (root / relative).exists()
+            for variable in re.findall(r"([A-Z_]*PLUGIN_ROOT)", (root / relative).read_text(encoding="utf-8"))
+        }
+        for variable in sorted(declared):
+            # Match the expansion the branch actually tests, not the name. A bare
+            # word search is satisfied by the prose above it, and "PLUGIN_ROOT" is
+            # a substring of "CLAUDE_PLUGIN_ROOT" -- both reported it as handled.
+            if re.search(rf"(?<![A-Z_])\$\{{{variable}:-", script) is None:
+                errors.append(
+                    f"hooks/session-start.sh: a manifest resolves its root from "
+                    f"{variable} but the script's host branch does not test it, so the "
+                    "announcement would be emitted in the wrong shape"
+                )
+    return errors
+
+
+QUESTION_PROTOCOL_DOCUMENT = (
+    ".ai-rulez/skills/infra-copilot/references/protocol.md"
+)
+#: The three things the rule is worthless without: that the native tool is used
+#: only when actually available, that the capability record gates it too, and
+#: that there is a text rendering when either gate fails.
+QUESTION_PROTOCOL_MARKERS = ("declared", "allowed", "hosts.yaml", "Other — enter a custom response")
+
+
+def validate_question_protocol(root: Path = ROOT) -> list[str]:
+    """The AskUserQuestion grant must have a consumer, and a fallback.
+
+    Three commands have declared AskUserQuestion since before this check, and
+    validate_command_tools pinned that exact string -- while nothing in any
+    skill, reference or protocol document ever told the agent to use it. A
+    permission grant with no consumer is not a capability; it is a claim.
+    """
+    errors: list[str] = []
+    text = read_document(root / QUESTION_PROTOCOL_DOCUMENT)
+    if text is None:
+        return [f"{QUESTION_PROTOCOL_DOCUMENT}: unreadable, cannot check the question rule"]
+    for marker in QUESTION_PROTOCOL_MARKERS:
+        if marker not in text:
+            errors.append(
+                f"{QUESTION_PROTOCOL_DOCUMENT}: the decision rule is missing {marker!r}"
+            )
+
+    # Every question tool a command grants has to be a tool some host record
+    # actually names, so the allowlist and the capability table cannot drift.
+    records = host_records(root)
+    named = {
+        match.group(1)
+        for block in records.values()
+        for match in re.finditer(r"^      name:\s*(\S+)\s*$", block, re.MULTILINE)
+    }
+    granted = {
+        tool.strip()
+        for tools in COMMAND_TOOLS.values()
+        for tool in tools.split(",")
+        if tool.strip().endswith("Question") or tool.strip() in named
+    }
+    for tool in sorted(granted - named):
+        errors.append(
+            f"scripts/validate.py: command allowlists grant {tool!r} but no host record "
+            f"in {HOSTS_DOCUMENT} names it"
+        )
+    for tool in sorted(granted):
+        if tool not in text:
+            errors.append(
+                f"{QUESTION_PROTOCOL_DOCUMENT}: {tool!r} is granted but the protocol "
+                "never says when to use it"
+            )
+    return errors
+
+
 def validate_layout() -> list[str]:
     required = (
         "Makefile",
@@ -1271,6 +1561,10 @@ def validate_layout() -> list[str]:
         ".ai-rulez/skills/infra-copilot/references/decisions.md.example",
         ".ai-rulez/skills/infra-copilot/references/protocol.md",
         ".ai-rulez/skills/infra-copilot/references/steps.yaml",
+        ".ai-rulez/skills/infra-copilot/references/hosts.yaml",
+        "skills/infra-copilot/references/hosts.yaml",
+        "hooks.json",
+        "agents/infra-auditor.md",
         "skills/infra-copilot/references/config.md",
         "skills/infra-copilot/references/config.md.example",
         "skills/infra-copilot/references/decisions.md.example",
@@ -1307,6 +1601,8 @@ def main() -> int:
         *validate_config_fallbacks(),
         *validate_customization_markers(),
         *validate_manifest_shape(),
+        *validate_host_dialects(),
+        *validate_question_protocol(),
         *validate_token_resolution(),
         *validate_phase_five_rule(),
         *validate_toolchain_contract(),

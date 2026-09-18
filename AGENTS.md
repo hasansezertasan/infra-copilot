@@ -10,18 +10,16 @@ most likely way to get it wrong is to edit the wrong copy of a file.
 skill — and editing them is silently undone by the next `make generate`.
 
 Before editing any file under those paths, check `.ai-rulez-generated.json`. If the path
-is listed (36 are), edit its source under `.ai-rulez/` instead, then run `make generate`.
+is listed (37 are), edit its source under `.ai-rulez/` instead, then run `make generate`.
 
-Most Markdown docs under `skills/infra-copilot/references/` carry an
-`AI-RULEZ :: GENERATED FILE — DO NOT EDIT` header, but **22 of the 36 do not** — the
+Most generated files carry an `AI-RULEZ :: GENERATED FILE — DO NOT EDIT` header, but
+**14 of the 37 do not**, because a Markdown comment block would not be valid in them — the
 JSON manifests (`marketplace.json`, `plugin.json`), `config.md.example`,
-`decisions.md.example`, `steps.yaml`, shell checks (`hcp-apply-scope.sh`,
+`decisions.md.example`, `steps.yaml`, `hosts.yaml`, shell checks (`hcp-apply-scope.sh`,
 `hcp-bootstrap-workspaces.sh`, `hcp-current-plan.sh`, `leaf-cloud.sh`,
-`status-check-context.sh`), YAML workflow templates (`terraform-apply.yml`,
-`terraform-plan.yml`), commands (`infra-add.md`, `infra-import.md`, `infra-setup.md`,
-`infra-status.md`), and `SKILL.md` files where a Markdown comment block would not be
-valid or would clutter the first lines. Absence of the header is not evidence a file is
-safe to edit. The manifest is the authority; the header is only a convenience.
+`status-check-context.sh`), and YAML workflow templates (`terraform-apply.yml`,
+`terraform-plan.yml`). Absence of the header is not evidence a file is safe to edit. The
+manifest is the authority; the header is only a convenience.
 
 ## File resolution
 
@@ -34,7 +32,9 @@ safe to edit. The manifest is the authority; the header is only a convenience.
 | Antigravity manifest | `plugin.json` | hand-authored — edit directly |
 | Codex marketplace | `.agents/plugins/marketplace.json` | hand-authored — edit directly |
 | Repository validators | `scripts/validate.py`, `tests/` | `make check` |
-| The SessionStart hook | `hooks/session-start.sh`, `hooks/hooks.json` | hand-authored — `ai-rulez` has no hook support |
+| The SessionStart hook | `hooks/session-start.sh`, `hooks/hooks.json` (Claude), `hooks.json` (Antigravity, root) | hand-authored — `ai-rulez` has no hook support |
+| The `infra-auditor` subagent | `agents/` (root, Claude dialect) | hand-authored — `ai-rulez` has no agent support |
+| Per-host capabilities | `.ai-rulez/skills/infra-copilot/references/hosts.yaml` | `make generate` |
 | Tool pins | `Makefile` + `README.md` together | `make check` |
 
 ## Rule 2: run `make check`

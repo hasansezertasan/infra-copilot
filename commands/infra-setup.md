@@ -1,12 +1,12 @@
 ---
 description: "Shortcut that loads the infra-copilot setup skill — agent-first, human-in-the-loop greenfield bootstrap of a Terraform + HCP + Cloudflare + GitHub SaaS infra repo."
-allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
+allowed-tools: Read, Bash, Edit, Write, Glob, Grep, Task, AskUserQuestion
 ---
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:4cac816ee44f608e34f08e16fe13ed1db32528bb389a46990dc31191929206ca
-Source-Hash: blake3:4e913414ac187d6593fd935dd54c48e686d5aa998476920bb62f54f6a3edbd3e
+Content-Hash: blake3:4ce6646781d33e18769be1412f914221b411365ba7880d9fe1da7453098fae04
+Source-Hash: blake3:039a0deb9941981bd019195f773a8617b1681c7c0af60e02ad498b8d8a827be7
 Schema-Version: v1
 -->
 

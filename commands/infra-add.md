@@ -1,12 +1,12 @@
 ---
 description: "Shortcut that loads the infra-copilot add skill — grow a bootstrapped repo: add a managed repo, a new resource, or a brand-new provider, ending on a green plan."
-allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
+allowed-tools: Read, Bash, Edit, Write, Glob, Grep, Task, AskUserQuestion
 ---
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:36118fb05d84c27feee587a29494ec7d46173e31ae612164b6b6b947d05d7deb
-Source-Hash: blake3:4e913414ac187d6593fd935dd54c48e686d5aa998476920bb62f54f6a3edbd3e
+Content-Hash: blake3:ccf696bd32946b5bdaa7092e56e6d6d9d7bc3b0673020dd9453a6979b0c8a8e4
+Source-Hash: blake3:039a0deb9941981bd019195f773a8617b1681c7c0af60e02ad498b8d8a827be7
 Schema-Version: v1
 -->
 
