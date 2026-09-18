@@ -24,7 +24,7 @@ Content-Hash: blake3:…
 -->
 ```
 
-Twenty-two of the 36 have no such header — `.claude-plugin/marketplace.json`,
+Twenty-two of the 37 have no such header — `.claude-plugin/marketplace.json`,
 `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `config.md.example`,
 `decisions.md.example`, `steps.yaml`, `checks/status-check-context.sh`,
 `checks/hcp-apply-scope.sh`, `checks/hcp-bootstrap-workspaces.sh`,
@@ -33,7 +33,7 @@ Twenty-two of the 36 have no such header — `.claude-plugin/marketplace.json`,
 `commands/infra-setup.md`, `commands/infra-status.md`, and five `SKILL.md` files — so a
 missing header proves nothing.
 
-`.ai-rulez-generated.json` is the authoritative list — 36 paths today. If a file is in
+`.ai-rulez-generated.json` is the authoritative list — 37 paths today. If a file is in
 there, edit its source instead.
 
 ### What is *not* generated

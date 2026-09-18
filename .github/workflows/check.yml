@@ -58,6 +58,10 @@ jobs:
           restore-keys: npm-smoke-${{ runner.os }}-
       - name: Smoke-test the OpenCode payload
         run: make smoke-opencode
+      # Same job: it reuses the installer this job already downloaded, which is the
+      # whole reason the OpenCode smoke test lives outside `check`.
+      - name: Smoke-test the single-skill closure
+        run: make smoke-closure
 
   windows-paths:
     name: Validate portable paths (Windows)
