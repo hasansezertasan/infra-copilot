@@ -225,9 +225,18 @@ Never assume state from memory or a prior session — always re-check. See
 
 The scan is read-only, walks every phase, and produces a large amount of intermediate
 output — API JSON, per-step exit codes, tool versions — whose only consumer is the phase
-table and the verdict. On a host that offers subagents, delegate it to the
-**`infra-auditor`** agent, which returns just that table and verdict. `status` is entirely
-this scan; `setup`, `import`, and `add` open with it before doing any work of their own.
+table and the verdict. On a host that offers subagents, **`status` and only `status`**
+may delegate it to the **`infra-auditor`** agent, which returns just that table and
+verdict.
+
+`setup`, `import`, and `add` must run their resume scan themselves, even though it looks
+like the same walk. It is not: the auditor follows [`status.md`](status.md), which
+deliberately *substitutes* for the checks that would touch the working tree — in HCP mode
+it reads the last remote run instead of running `terraform plan`, and in object-storage
+mode it reports a dirty leaf as `?`. Those substitutions are correct for a report and
+wrong for resumption, because an action skill's `plan-cloudflare` and `plan-github` checks
+are defined against the *current checkout*. Delegating would let an older committed run
+read as green, or stop at `?`, and the interrupted work would never be picked up.
 
 Its grant carries no write or edit tool, which narrows the surface the read-only contract
 has to defend — though it does carry shell access, so the contract is still a rule and not

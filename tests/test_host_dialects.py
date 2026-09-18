@@ -37,7 +37,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PATHS = (
     HOSTS_DOCUMENT,
     QUESTION_PROTOCOL_DOCUMENT,
-    "hooks.json",
     "hooks/hooks.json",
     "hooks/session-start.sh",
     f"agents/{AGENT_FILENAME}",
@@ -175,10 +174,12 @@ class HookManifestTests(unittest.TestCase):
 
         `agy plugin validate` reported "hooks: 2 processed" for a file declaring
         one, so a JSON comment key ships a junk hook rather than documentation.
+        The rule covers every recorded manifest, not just the one host that
+        miscounts: no manifest has a comment syntax to fall back on.
         """
         with tempfile.TemporaryDirectory() as directory:
             root = build_root(directory)
-            manifest = root / "hooks.json"
+            manifest = root / "hooks/hooks.json"
             payload = json.loads(manifest.read_text(encoding="utf-8"))
             payload["_comment"] = ["why this file exists"]
             manifest.write_text(json.dumps(payload), encoding="utf-8")
@@ -200,13 +201,12 @@ class HookManifestTests(unittest.TestCase):
             )
 
     def test_a_verified_host_missing_its_manifest_is_rejected(self) -> None:
-        for relative in ("hooks.json", "hooks/hooks.json"):
-            with self.subTest(manifest=relative), tempfile.TemporaryDirectory() as directory:
-                root = build_root(directory)
-                (root / relative).unlink()
-                self.assertTrue(
-                    any("ships no manifest" in error for error in validate_host_dialects(root)),
-                )
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            (root / "hooks/hooks.json").unlink()
+            self.assertTrue(
+                any("ships no manifest" in error for error in validate_host_dialects(root)),
+            )
 
     def test_a_root_variable_the_script_ignores_is_rejected(self) -> None:
         """The manifest guard and the output-shape branch must agree.
@@ -219,7 +219,7 @@ class HookManifestTests(unittest.TestCase):
             script = root / "hooks/session-start.sh"
             script.write_text(
                 script.read_text(encoding="utf-8").replace(
-                    '    || [ -n "${PLUGIN_ROOT:-}" ]; then', "    ; then"
+                    "${CLAUDE_PLUGIN_ROOT:-}", "${SOME_OTHER_ROOT:-}"
                 ),
                 encoding="utf-8",
             )
@@ -290,16 +290,15 @@ class ReviewRegressionTests(unittest.TestCase):
         A manifest carrying the wrong one is discovered and then never fires, and
         nothing compared the manifest against the recorded matcher.
         """
-        for relative in ("hooks.json", "hooks/hooks.json"):
-            with self.subTest(manifest=relative), tempfile.TemporaryDirectory() as directory:
-                root = build_root(directory)
-                manifest = root / relative
-                payload = json.loads(manifest.read_text(encoding="utf-8"))
-                payload["hooks"]["SessionStart"][0]["matcher"] = "something-else"
-                manifest.write_text(json.dumps(payload), encoding="utf-8")
-                self.assertTrue(
-                    any("matcher" in error for error in validate_host_dialects(root)),
-                )
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            manifest = root / "hooks/hooks.json"
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["hooks"]["SessionStart"][0]["matcher"] = "something-else"
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertTrue(
+                any("matcher" in error for error in validate_host_dialects(root)),
+            )
 
     def test_a_repo_relative_runbook_path_is_rejected(self) -> None:
         """The agent's working directory is the CONSUMING repository.
@@ -317,6 +316,91 @@ class ReviewRegressionTests(unittest.TestCase):
             )
             self.assertTrue(
                 any("consuming repository" in error for error in validate_host_dialects(root)),
+            )
+
+
+class SecondReviewRegressionTests(unittest.TestCase):
+    """Holes found by the review of the first round of review fixes."""
+
+    def test_a_record_with_no_verification_state_is_rejected(self) -> None:
+        """An unstated flag disabled every rule keyed on it.
+
+        Deleting one `verified:` line left validate_host_dialects() green and a
+        nonsense matcher passed with it -- the gate was simply off for that
+        artifact rather than failing.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / HOSTS_DOCUMENT
+            text = document.read_text(encoding="utf-8")
+            start = text.index("      path: hooks/hooks.json")
+            flag = text.index("      verified:", start)
+            document.write_text(
+                text[:flag] + text[text.index("\n", flag) + 1 :], encoding="utf-8"
+            )
+            self.assertTrue(
+                any("usable `verified:` flag" in e for e in validate_host_dialects(root)),
+            )
+
+    def test_a_second_host_may_own_an_independent_agent_path(self) -> None:
+        """Uniqueness is per directory, not global.
+
+        Claude and Antigravity collide at root agents/, but .codex/agents/ is
+        independent -- a global one-owner count made those rows impossible to
+        graduate once their wiring was finally exercised.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / HOSTS_DOCUMENT
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    """      path: .codex/agents/          # <name>.toml, body under developer_instructions
+      tools_dialect: toml_inherited # no tools key; the session's tools are inherited
+      tool_names: []
+      verified: false""",
+                    """      path: .codex/agents/
+      tools_dialect: comma_string
+      tool_names: [Read, Bash, Glob, Grep, Skill]
+      verified: true""",
+                ),
+                encoding="utf-8",
+            )
+            shipped = root / ".codex/agents"
+            shipped.mkdir(parents=True)
+            shutil.copy(root / AGENT_PATH, shipped / AGENT_FILENAME)
+            self.assertEqual(validate_host_dialects(root), [])
+
+    def test_two_hosts_may_not_own_the_same_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            document = root / HOSTS_DOCUMENT
+            text = document.read_text(encoding="utf-8")
+            start = text.index("  antigravity:")
+            flag = text.index("      verified: false", text.index("    agent:", start))
+            document.write_text(
+                text[:flag] + "      verified: true" + text[flag + len("      verified: false") :],
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                any("only one may" in e for e in validate_host_dialects(root)),
+            )
+
+    def test_the_antigravity_hook_is_not_shipped(self) -> None:
+        """Discovery is not execution, and the table says so.
+
+        `agy plugin validate` proves the root manifest is found; no probe hook
+        ever fired there, in print mode or an interactive TUI session. Codex is
+        excluded on exactly that basis, so this has to be too.
+        """
+        self.assertFalse((REPO_ROOT / "hooks.json").exists())
+        self.assertFalse(_verified(host_records(REPO_ROOT)["antigravity"], "hook"))
+
+    def test_a_root_manifest_shipped_anyway_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            (root / "hooks.json").write_text('{"hooks": {}}', encoding="utf-8")
+            self.assertTrue(
+                any("hooks.json" in e and "unverified" in e for e in validate_host_dialects(root)),
             )
 
 

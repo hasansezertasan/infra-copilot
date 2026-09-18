@@ -88,13 +88,22 @@ hosts:
     hook:
       path: hooks.json              # ROOT, not hooks/hooks.json
       matcher: "*"
-      verified: true
-      # `agy plugin validate` reports "hooks: skipped (not found)" for this repo's
-      # hooks/hooks.json and "hooks: 1 processed" once a root hooks.json exists.
-      # Claude keeps reading hooks/hooks.json, so the two coexist and each fires once.
-      # The root manifest takes NO extra top-level keys: a "_comment" array beside
-      # "hooks" was counted as a second hook ("hooks: 2 processed"), so the rationale
-      # for that file lives here instead of in it.
+      verified: false
+      # NOT SHIPPED. Discovery is established -- `agy plugin validate` reports
+      # "hooks: skipped (not found)" for this repository's hooks/hooks.json and
+      # "hooks: 1 processed" once a root hooks.json exists -- but discovery is not
+      # execution, and execution could not be demonstrated. A probe hook reduced to
+      # `touch <sentinel>` never fired: not under `agy -p` print mode, and not in an
+      # interactive TUI session driven through a pty, which initialised and created a
+      # conversation without running it.
+      #
+      # Codex is excluded from this table for exactly this reason, and the same
+      # standard has to apply here or the word "verified" means two things. Ship the
+      # manifest when a real Antigravity session shows the announcement.
+      #
+      # Kept for whoever finishes it: the root manifest takes NO extra top-level keys.
+      # A "_comment" array beside "hooks" was counted as a second hook
+      # ("hooks: 2 processed"), so its rationale has to live here rather than in it.
 
   codex:
     display_name: Codex CLI

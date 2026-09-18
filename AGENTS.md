@@ -32,7 +32,7 @@ manifest is the authority; the header is only a convenience.
 | Antigravity manifest | `plugin.json` | hand-authored — edit directly |
 | Codex marketplace | `.agents/plugins/marketplace.json` | hand-authored — edit directly |
 | Repository validators | `scripts/validate.py`, `tests/` | `make check` |
-| The SessionStart hook | `hooks/session-start.sh`, `hooks/hooks.json` (Claude), `hooks.json` (Antigravity, root) | hand-authored — `ai-rulez` has no hook support |
+| The SessionStart hook | `hooks/session-start.sh`, `hooks/hooks.json` (Claude only) | hand-authored — `ai-rulez` has no hook support |
 | The `infra-auditor` subagent | `agents/` (root, Claude dialect) | hand-authored — `ai-rulez` has no agent support |
 | Per-host capabilities | `.ai-rulez/skills/infra-copilot/references/hosts.yaml` | `make generate` |
 | Tool pins | `Makefile` + `README.md` together | `make check` |

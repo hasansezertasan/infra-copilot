@@ -1387,11 +1387,18 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
 
     # --- the agent, which exactly one host can have (see hosts.yaml) ------------
     owners = [host for host, block in records.items() if _verified(block, "agent")]
-    if len(owners) != 1:
-        errors.append(
-            f"{HOSTS_DOCUMENT}: {len(owners)} hosts record a verified agent ({owners}); "
-            "root agents/ is one path with incompatible dialects, so exactly one may"
-        )
+    # Uniqueness is per directory, not global. Claude and Antigravity collide at root
+    # agents/ so only one of them may own it, but .codex/agents/ and .opencode/agents/
+    # are independent -- a global count would make those rows impossible to graduate.
+    claimed: dict[str, list[str]] = {}
+    for host in owners:
+        claimed.setdefault(_field(records[host], "agent", "path") or "", []).append(host)
+    for directory, sharing in sorted(claimed.items()):
+        if len(sharing) > 1:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {sharing} all record a verified agent at {directory!r}; "
+                "one directory cannot hold incompatible tools dialects, so only one may"
+            )
     for host in owners:
         block = records[host]
         directory = _field(block, "agent", "path")
@@ -1445,7 +1452,14 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
         _field(records[host], "agent", "path") for host in owners
     }
     for host, block in records.items():
-        if _verified(block, "agent") is not False or host in owners:
+        state = _verified(block, "agent")
+        if state is None:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {host}'s agent record has no usable `verified:` flag; "
+                "such a host is neither an owner nor checked for stray wiring"
+            )
+            continue
+        if state is not False or host in owners:
             continue
         directory = _field(block, "agent", "path")
         if not directory or directory == "null":
@@ -1476,6 +1490,12 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
         if relative in (None, "null"):
             continue
         verified = _verified(block, "hook")
+        if verified is None:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {host}'s hook record has no usable `verified:` flag; "
+                "an unstated verification state disables every rule keyed on it"
+            )
+            continue
         exists = (root / relative).exists()
         if verified and not exists:
             errors.append(f"{relative}: {host} records a verified hook path but ships no manifest")
@@ -1502,19 +1522,25 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                 f"{HOSTS_DOCUMENT} records it for {host}"
             )
 
-    # Antigravity counts every top-level key of the root manifest as a hook, so a
-    # "_comment" sibling of "hooks" was reported as a second hook.
-    if (root / "hooks.json").exists():
+    # No hook manifest takes a sibling of "hooks". Antigravity counts every
+    # top-level key as a hook -- a "_comment" array beside it was reported as a
+    # second hook ("hooks: 2 processed") -- and a JSON file has no comment syntax
+    # to fall back on, so rationale belongs in hosts.yaml rather than the manifest.
+    for relative in sorted(
+        {_field(block, "hook", "path") for block in records.values()} - {None, "null"}
+    ):
+        if not (root / relative).exists():
+            continue
         try:
-            keys = set(load_json("hooks.json", root))
+            keys = set(load_json(relative, root))
         except (OSError, json.JSONDecodeError) as error:
-            errors.append(f"hooks.json: unreadable ({error})")
-        else:
-            if keys != {"hooks"}:
-                errors.append(
-                    f"hooks.json: top-level keys {sorted(keys)} != ['hooks']; "
-                    "Antigravity counts each one as a hook"
-                )
+            errors.append(f"{relative}: unreadable ({error})")
+            continue
+        if keys != {"hooks"}:
+            errors.append(
+                f"{relative}: top-level keys {sorted(keys)} != ['hooks']; a manifest "
+                "takes no siblings of 'hooks' -- Antigravity counts each one as a hook"
+            )
 
     # Every root variable a manifest is willing to resolve must also be one the
     # script recognises, or the hook fires and emits the wrong host's shape.
@@ -1622,7 +1648,6 @@ def validate_layout() -> list[str]:
         ".ai-rulez/skills/infra-copilot/references/steps.yaml",
         ".ai-rulez/skills/infra-copilot/references/hosts.yaml",
         "skills/infra-copilot/references/hosts.yaml",
-        "hooks.json",
         "agents/infra-auditor.md",
         "skills/infra-copilot/references/config.md",
         "skills/infra-copilot/references/config.md.example",

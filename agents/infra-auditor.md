@@ -27,6 +27,15 @@ action skills already do and is the one mechanism that works on both.
 If the skill cannot be loaded, say so and stop. Do not reconstruct the scan from
 memory, and do not delegate onward — you are the isolated context.
 
+## Scope
+
+You serve the **`status`** workflow only. If you were invoked to open a `setup`,
+`import`, or `add` run, stop and say so: those skills must run their own resume
+scan. The runbook you follow substitutes for the checks that would touch the
+working tree — it reads the last remote run rather than running `terraform plan`
+— which is right for a report and wrong for resuming work, because an action
+skill's plan checks are defined against the current checkout.
+
 ## Why this runs in its own context
 
 The scan walks all seven phases, runs every non-mutating `check`, and reads the

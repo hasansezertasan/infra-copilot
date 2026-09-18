@@ -45,7 +45,6 @@ Hand-authored, and safe to edit directly:
 | `.agents/plugins/marketplace.json` | Codex marketplace; same reason |
 | `scripts/validate.py`, `tests/` | The repository's own validators |
 | `hooks/` | The SessionStart hook; `ai-rulez` has no hook support, so these are hand-authored |
-| `hooks.json` | Antigravity reads the *root* manifest, not `hooks/hooks.json`; hand-authored, and it takes no keys besides `hooks` |
 | `agents/` | The `infra-auditor` subagent; `ai-rulez` has no agent surface. Claude and Antigravity both auto-discover this one directory with incompatible `tools` shapes, so it carries Claude's and `hosts.yaml` records why Antigravity goes without |
 | `Makefile`, `.github/workflows/` | Build and CI |
 | `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`, `docs/` | Documentation |

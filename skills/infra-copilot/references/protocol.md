@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:211d31d72a95c2b7297adec196e9fbc89ccbff78c7be5a8ec4048d2da0b16352
-Source-Hash: blake3:c3b9c855782f1cbcf4a44419194c8b2bd0fa29f3b0f58ad283cea1d199a9f9ce
+Content-Hash: blake3:12925da154c51fd902c59ee5be03bd7d765044b9753d1e3f29a501c4998b119f
+Source-Hash: blake3:220db124bc4c4ddb0a5692c3f4a8e7aa7b3a9d9e4dc8f62be3ce1d58e3f3794d
 Schema-Version: v1
 -->
 
@@ -232,9 +232,18 @@ Never assume state from memory or a prior session — always re-check. See
 
 The scan is read-only, walks every phase, and produces a large amount of intermediate
 output — API JSON, per-step exit codes, tool versions — whose only consumer is the phase
-table and the verdict. On a host that offers subagents, delegate it to the
-**`infra-auditor`** agent, which returns just that table and verdict. `status` is entirely
-this scan; `setup`, `import`, and `add` open with it before doing any work of their own.
+table and the verdict. On a host that offers subagents, **`status` and only `status`**
+may delegate it to the **`infra-auditor`** agent, which returns just that table and
+verdict.
+
+`setup`, `import`, and `add` must run their resume scan themselves, even though it looks
+like the same walk. It is not: the auditor follows [`status.md`](status.md), which
+deliberately *substitutes* for the checks that would touch the working tree — in HCP mode
+it reads the last remote run instead of running `terraform plan`, and in object-storage
+mode it reports a dirty leaf as `?`. Those substitutions are correct for a report and
+wrong for resumption, because an action skill's `plan-cloudflare` and `plan-github` checks
+are defined against the *current checkout*. Delegating would let an older committed run
+read as green, or stop at `?`, and the interrupted work would never be picked up.
 
 Its grant carries no write or edit tool, which narrows the surface the read-only contract
 has to defend — though it does carry shell access, so the contract is still a rule and not

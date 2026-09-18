@@ -44,11 +44,14 @@ oversight. Each item links to the issue that owns it.
   stops the scan working. `infra-auditor` shipped for the context isolation (#19); only a
   sandboxed command runner would enforce the promise.
   ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
-- **Codex and OpenCode have no SessionStart wiring.** Claude and Antigravity ship one
-  each (#18, #42). Codex gates plugin hooks behind an experimental flag *and* an
-  interactive trust review, and none fired from any candidate path in a real session;
-  OpenCode has no hook mechanism. Both are recorded `verified: false` in `hosts.yaml`
-  with the evidence, and a test fails if a manifest is added back on a guess.
+- **The SessionStart hook is still Claude-only.** It ships and is auto-discovered there
+  (#18). Antigravity's *discovery* path is now known — the root `hooks.json`, not
+  `hooks/hooks.json` — but discovery is not execution: a probe hook reduced to `touch`
+  never fired, in print mode or an interactive TUI session. Codex gates plugin hooks
+  behind an experimental flag *and* an interactive trust review, and none fired from any
+  candidate path. OpenCode has no hook mechanism. All three are recorded `verified:
+  false` in `hosts.yaml` with the evidence, and a test fails if a manifest is shipped at
+  a path no record verifies.
   ([#42](https://github.com/hasansezertasan/infra-copilot/issues/42))
 - **The subagent ships to one host.** `infra-auditor` runs the scan in an isolated
   context on Claude. Claude and Antigravity both auto-discover root `agents/` and neither

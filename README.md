@@ -24,21 +24,23 @@ skills are rediscovered.
 
 ### Session announcement
 
-On Claude Code and Antigravity, a `SessionStart` hook announces that the plugin is
-installed when the working directory carries any of its markers — `.infra-copilot/config.md`, the legacy
+On Claude Code, a `SessionStart` hook announces that the plugin is installed when the
+working directory carries any of its markers — `.infra-copilot/config.md`, the legacy
 `.claude/infra-copilot.local.md`, or a `terraform/` tree. Discovery otherwise depends on
 a user's phrasing happening to match a skill description. It is
 deliberately static: one file-existence test, no provider calls, no `git`, and it names
 the skills rather than reporting any state, because state is re-derived by running each
 step check. Silence it with `INFRA_COPILOT_HOOK_DISABLE=1`.
 
-Each host reads its own manifest: Claude `hooks/hooks.json`, Antigravity the root
-`hooks.json`. Codex ships none — its plugin hooks are gated behind an experimental flag
-*and* an interactive trust review, and no SessionStart hook fired from any candidate path
-in a real session, so a manifest there would assert wiring that does not work. OpenCode
-has no hook mechanism at all; it installs by copying skills into the consuming repository.
-The per-host records and the evidence behind each are in
-[`hosts.yaml`](skills/infra-copilot/references/hosts.yaml).
+No other host ships one, and each is excluded for a recorded reason rather than an
+untried guess. Antigravity's discovery path is known — it reads the *root* `hooks.json`,
+not `hooks/hooks.json` — but no probe hook ever fired there, in print mode or an
+interactive session. Codex gates plugin hooks behind an experimental flag *and* an
+interactive trust review, and none fired from any candidate path. OpenCode has no hook
+mechanism at all; it installs by copying skills into the consuming repository. The
+per-host records and the evidence behind each are in
+[`hosts.yaml`](skills/infra-copilot/references/hosts.yaml) — see
+[#42](https://github.com/hasansezertasan/infra-copilot/issues/42).
 
 ## Configure
 
