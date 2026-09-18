@@ -174,9 +174,21 @@ NODE_BIN_PATTERN = re.compile(r"node_modules/\.bin/(?P<binary>[A-Za-z0-9._-]+)")
 # because only the runner generalises: a literal-version regex would have to know
 # the package to avoid firing on `actions/checkout@<sha>`, and so would miss the
 # fourth tool nobody registered -- the way markdownlint-cli2 slipped past in #45.
-PACKAGE_RUNNER_PATTERN = re.compile(
-    r"(?<![\w-])(?:npx|bunx|(?:pnpm|yarn)\s+dlx|npm\s+(?:exec|x))(?![\w-])"
+PACKAGE_RUNNER_PATTERN = re.compile(r"(?<![\w-])(?:npx|bunx|(?:pnpm|yarn)\s+dlx)(?![\w-])")
+# npm reaches the registry too, so it gets an allowlist rather than a blocklist of
+# the spellings that do. Three separate escapes were found by review after the
+# blocklist was written -- `npx`, then the `x` alias for `exec`, then options
+# before the subcommand -- and `npm install <pkg>@<version>` was never on it at
+# all. Naming the one subcommand this repository may run ends that class: anything
+# else is reported whether or not anyone anticipated it.
+NPM_SUBCOMMAND_PATTERN = re.compile(
+    r"(?<![\w-])npm(?:\s+-{1,2}[^\s]+)*\s+(?P<subcommand>[a-z][\w-]*)"
 )
+ALLOWED_NPM_SUBCOMMANDS = frozenset({"ci"})
+# Only executable text is scanned. A comment cannot invoke anything, and the
+# prose here has to be free to name the mechanisms it explains -- the Makefile
+# comment for `--include=dev` says what npm does under NODE_ENV=production.
+COMMENT_PATTERN = re.compile(r"(?m)#.*$")
 # Prerelease and build metadata are independent and may both appear:
 # 0.3.0-rc.1+build.5 is one version, not a version plus trailing junk.
 VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+){2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
@@ -1092,12 +1104,22 @@ def validate_tool_pins(root: Path = ROOT) -> list[str]:
                 f"devDependency provides"
             )
 
-    for relative, text in sources.items():
+    for relative, source in sources.items():
+        text = COMMENT_PATTERN.sub("", source)
         for runner in sorted(set(PACKAGE_RUNNER_PATTERN.findall(text))):
             errors.append(
                 f"{relative}: invokes the {runner} package runner; run "
                 f"node_modules/.bin/<tool> so {PACKAGE_JSON_PATH} stays the "
                 f"only definition"
+            )
+        subcommands = {
+            match.group("subcommand") for match in NPM_SUBCOMMAND_PATTERN.finditer(text)
+        }
+        for subcommand in sorted(subcommands - ALLOWED_NPM_SUBCOMMANDS):
+            allowed = ", ".join(f"`npm {name}`" for name in sorted(ALLOWED_NPM_SUBCOMMANDS))
+            errors.append(
+                f"{relative}: runs `npm {subcommand}`; only {allowed} may appear "
+                f"here, so {PACKAGE_JSON_PATH} stays the only definition"
             )
         for package in sorted(TOOL_PACKAGES):
             # Any `<package>@…` reference, not just a literal version. One form

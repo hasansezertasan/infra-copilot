@@ -1069,67 +1069,75 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                 ["skills: package.json pins '^1.0.0'; use an exact version, not a range"],
             )
 
-    def test_a_fourth_tool_cannot_hide_behind_a_package_runner(self) -> None:
+    def _makefile_running(self, root: Path, invocation: str) -> None:
+        makefile = root / "Makefile"
+        makefile.write_text(
+            makefile.read_text(encoding="utf-8") + f"fmt:\n\t{invocation} --write .\n",
+            encoding="utf-8",
+        )
+
+    #: Every way a fourth tool has been shown to reach the registry. `npx` was the
+    #: original escape, then the `x` alias, then an option before the subcommand --
+    #: each found by review after the previous fix. The last two need no runner at
+    #: all. Swept together so the next spelling fails here rather than in review.
+    REGISTRY_ESCAPES = (
+        ("npx --yes prettier@3.0.0", "invokes the npx package runner"),
+        ("bunx prettier@3.0.0", "invokes the bunx package runner"),
+        ("pnpm dlx prettier@3.0.0", "invokes the pnpm dlx package runner"),
+        ("yarn dlx prettier@3.0.0", "invokes the yarn dlx package runner"),
+        ("npm exec -- prettier@3.0.0", "runs `npm exec`"),
+        ("npm x -- prettier@3.0.0", "runs `npm x`"),
+        ("npm --silent exec -- prettier@3.0.0", "runs `npm exec`"),
+        ("npm install prettier@3.0.0", "runs `npm install`"),
+    )
+
+    def test_a_fourth_tool_cannot_reach_the_registry(self) -> None:
         """The gap a per-package `<pkg>@` scan leaves open.
 
-        `npx --yes prettier@3.0.0` names no tool this validator knows and no
-        node_modules/.bin path, so both other halves of the check pass it. That
-        is exactly how markdownlint-cli2 went unmanaged in #45; the runner is
-        matched by name so a package nobody registered cannot slip through.
+        None of these name a tool this validator knows or a node_modules/.bin
+        path, so the other two halves of the check pass every one of them. That
+        is how markdownlint-cli2 went unmanaged in #45.
+        """
+        for invocation, expected in self.REGISTRY_ESCAPES:
+            with self.subTest(invocation=invocation):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._pin_workspace(repository)
+                    self._makefile_running(repository, invocation)
+
+                    errors = validate_tool_pins(repository)
+
+                    self.assertEqual(len(errors), 1, errors)
+                    self.assertIn(expected, errors[0])
+
+    def test_the_install_this_repository_runs_is_allowed(self) -> None:
+        """The allowlist has to let the real Makefile through, options and all."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._pin_workspace(repository)
+            self._makefile_running(repository, "npm ci --include=dev")
+
+            self.assertEqual(validate_tool_pins(repository), [])
+
+    def test_a_comment_is_not_an_invocation(self) -> None:
+        """Prose must be free to name the mechanism it is explaining.
+
+        The Makefile comment justifying `--include=dev` describes what npm does
+        under NODE_ENV=production; a scan that cannot tell that from a recipe
+        would force the explanation out of the file that needs it.
         """
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
             self._pin_workspace(repository)
             makefile = repository / "Makefile"
             makefile.write_text(
-                makefile.read_text(encoding="utf-8")
-                + "fmt:\n\tnpx --yes prettier@3.0.0 --write .\n",
+                "# npm install prettier@3.0.0 is what this target must never do,\n"
+                "# and npx would be another way to do it.\n"
+                + makefile.read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
 
-            self.assertEqual(
-                validate_tool_pins(repository),
-                [
-                    "Makefile: invokes the npx package runner; run "
-                    "node_modules/.bin/<tool> so package.json stays the "
-                    "only definition"
-                ],
-            )
-
-    def test_every_package_runner_alias_is_rejected(self) -> None:
-        """`npm x` is `npm exec`, so listing one spelling guards nothing.
-
-        Each of these reaches the registry, which is the mechanism the manifest
-        replaces; a runner the pattern does not know is a fourth tool nobody
-        registered, by another name.
-        """
-        for invocation, reported in (
-            ("npx --yes prettier@3.0.0", "npx"),
-            ("bunx prettier@3.0.0", "bunx"),
-            ("pnpm dlx prettier@3.0.0", "pnpm dlx"),
-            ("yarn dlx prettier@3.0.0", "yarn dlx"),
-            ("npm exec -- prettier@3.0.0", "npm exec"),
-            ("npm x -- prettier@3.0.0", "npm x"),
-        ):
-            with self.subTest(invocation=invocation):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    makefile = repository / "Makefile"
-                    makefile.write_text(
-                        makefile.read_text(encoding="utf-8")
-                        + f"fmt:\n\t{invocation} --write .\n",
-                        encoding="utf-8",
-                    )
-
-                    self.assertEqual(
-                        validate_tool_pins(repository),
-                        [
-                            f"Makefile: invokes the {reported} package runner; run "
-                            "node_modules/.bin/<tool> so package.json stays the "
-                            "only definition"
-                        ],
-                    )
+            self.assertEqual(validate_tool_pins(repository), [])
 
     def test_workflow_may_not_reintroduce_its_own_pin(self) -> None:
         """package.json is the only definition; a second one is the drift itself.

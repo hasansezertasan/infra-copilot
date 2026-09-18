@@ -134,8 +134,14 @@ difference is whether the resource already exists at the provider.
 rejects any `Makefile` or workflow that reintroduces a `<tool>@<version>` of its own.
 
 Bump with `npm install <tool>@<version> --save-exact --save-dev` and commit
-`package-lock.json` alongside — Renovate's native npm manager does the same, so a new
-`devDependencies` entry is kept current without anyone registering it anywhere.
+`package-lock.json` alongside. Renovate's native npm manager does the same, so an
+existing entry stays current with no configuration.
+
+Adding a *new* tool takes one more edit: `TOOL_PACKAGES` in `scripts/validate.py`, which
+lists the same three packages. The duplication is deliberate — it is what makes deleting
+a tool from `devDependencies` fail instead of silently shrinking what the validator
+guards (the #22 failure) — so `make check` rejects a manifest entry it does not know, and
+says so by name. Renovate needs no such edit; this is only the repository's own check.
 
 ## Releasing
 
