@@ -5,8 +5,8 @@ allowed-tools: Read, Bash, Glob, Grep
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1178c635db8d2dc9b09b96c4187cd6fd3b05b1b3d86bf57aa192b39d5b11c847
-Source-Hash: blake3:004c8824ba78072796bcace4aa12822dc049b83c5c98d9488158d507f9c65d62
+Content-Hash: blake3:0969f0317517d061f30c9fca9698ae0e34d7ebbba12ca2bf01b88df1a2b2c112
+Source-Hash: blake3:cb09f3f5d4a8bf386877a3510a4dacb2b2bef0b5c58db098d0d9dd2200e0ad8d
 Schema-Version: v1
 -->
 
@@ -28,8 +28,10 @@ Load `../skills/status/SKILL.md` and drive it:
 4. **Report** the phase-by-phase table and a verdict mapping the first red step to the
    skill that fixes it (setup / import / prune / add). Three exceptions the skill defines, and it owns
    the detail: a red *migration* step in phases 5–6 is expected for most repos — say so,
-   don't flag as failure — but a red `prune-spent-imports` is actionable and routes to
-   `prune`, so never fold it into that exemption;
+   don't flag as failure — but a red `prune-spent-imports` is actionable, so never fold it
+   into that exemption; which skill it routes to is the verdict table's call, because the
+   same red means *spent, clean them up* after an applied run and *unfinished, keep going*
+   before one;
    `status-check-context` exiting 1 maps to **no skill**, because it is fixed directly in
    `terraform/github/branch_protection.tf`; and `status-check-context` exiting 2 is
    `CANNOT VERIFY` — report it as `?` with its cause and route nowhere, since an

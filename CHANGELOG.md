@@ -31,7 +31,12 @@
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
   `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
-- The HCL scan no longer tracks `/* */`: an unquoted `/*` search cannot tell a comment
+- The heredoc tag is matched unquoted, as Terraform's spec defines it (`<<`/`<<-` plus a
+  bare identifier, never `<<"EOT"`): the optional quote was borrowed from shell and let
+  `command = "cat <<EOF"` match on the string's own closing quote and hide every block
+  below. Inline block comments in a header (`import /* see #123 */ {`) are stripped within
+  a line, statelessly, so a legal header still matches.
+- The HCL scan no longer tracks `/* */` across lines: an unquoted `/*` search cannot tell a comment
   opener from `target = "example.com/*"`, the canonical Cloudflare page-rule glob, and one
   of those discarded every line after it. Commented-out blocks now report as leftovers,
   which is the harmless direction and asks for a real cleanup.

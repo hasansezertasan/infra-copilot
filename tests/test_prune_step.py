@@ -315,6 +315,37 @@ class PruneStepTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
 
+    def test_a_string_ending_in_a_heredoc_marker_opens_nothing(self) -> None:
+        """`command = "cat <<EOF"` — the marker is last on the line but quoted.
+
+        The earlier fix anchored the opener at end of line, which the trailing
+        ` }` in its own test satisfied; a string that *ends* the line did not.
+        Terraform heredoc tags are unquoted by spec, so allowing an optional
+        quote was the bug: it matched on the string's own closing quote.
+        """
+        result = self._run(
+            {
+                "terraform/cloudflare/a.tf": (
+                    'resource "null_resource" "r" {\n'
+                    '  command = "cat <<EOF"\n}\n\n'
+                    "import {\n  to = cloudflare_dns_record.www\n  id = \"abc\"\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_an_inline_block_comment_in_a_header_is_still_a_block(self) -> None:
+        """`import /* see #123 */ {` is a legal header; HCL allows a comment there."""
+        result = self._run(
+            {
+                "terraform/cloudflare/b.tf": (
+                    "import /* imported in #123 */ {\n"
+                    "  to = cloudflare_dns_record.api\n  id = \"def\"\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
     def test_uncommitted_files_are_not_evidence(self) -> None:
         """The blocks are pruned by a PR, so only committed ones count."""
         result = self._run(
@@ -410,8 +441,6 @@ class MigrateImportCheckTests(unittest.TestCase):
         self.assertNotIn("--error-unmatch terraform/cloudflare/generated.tf", self.step)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 @unittest.skipUnless(os.name == "posix", "the runbook's helpers are POSIX shell")
@@ -497,3 +526,18 @@ class RunbookHelperTests(unittest.TestCase):
 
     def test_an_unmigrated_address_is_reported_absent(self) -> None:
         self.assertFalse(self._ask("held 'aws_instance.old'"))
+
+
+class FileLayoutTests(unittest.TestCase):
+    """A `unittest.main()` above a test class skips it and still reports OK."""
+
+    def test_nothing_is_defined_after_the_main_guard(self) -> None:
+        text = Path(__file__).read_text(encoding="utf-8")
+        guard = text.index('if __name__ == "__main__":')
+        self.assertNotIn(
+            "\nclass ", text[guard:], "a class after the guard never runs directly"
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

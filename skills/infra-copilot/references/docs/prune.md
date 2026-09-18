@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:434a7207333c4b2f93fa67069573916e8ebd62cf724a84977df2d6d6bca31899
-Source-Hash: blake3:004c8824ba78072796bcace4aa12822dc049b83c5c98d9488158d507f9c65d62
+Content-Hash: blake3:138637d622d415308f462c39a401b98b07b98b034d870f94e59398811d10667f
+Source-Hash: blake3:cb09f3f5d4a8bf386877a3510a4dacb2b2bef0b5c58db098d0d9dd2200e0ad8d
 Schema-Version: v1
 -->
 
@@ -186,8 +186,10 @@ cannot settle as pending until a plan says otherwise; never the reverse.
 **Held proves the address is managed**, not that what sits there is the object the block
 named. The two diverge only if something *created* a resource at that address instead of
 importing it — an apply made outside this workflow, since the import check rejects any plan
-containing a create. Where that is plausible, run `terraform state show <address>` and
-compare against the block's `id` first; a prune would otherwise certify the duplicate it
+containing a create. Where that is plausible, run `terraform state show '<address>'` and
+compare against the block's `id` first — single-quoted, because a keyed address carries its
+own quotes and brackets (`cloudflare_dns_record.this["www"]`) that the shell would otherwise
+eat or glob; a prune would otherwise certify the duplicate it
 exists to prevent.
 
 ## Refuse on a dirty plan

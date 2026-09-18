@@ -56,8 +56,10 @@ preflight — is in
 
    - **Non-mutating checks** (API reads, file existence, tool versions — phases 0–3;
      phase 4's `status-check-context` and `hcp-apply-scope`; phase 5's
-     `prune-spent-imports`, which is one `git grep` over `HEAD` (tri-state: exit 2 means
-     git was unreadable, report `?`); and every Phase 6 step, including the read-only `new-provider-plan`
+     `prune-spent-imports`, which reads `HEAD` with `git ls-tree` and `git show`, then
+     scans `.tf` with `awk` and `.tf.json` with `jq` (tri-state: exit 2 means it could not
+     verify — git unreadable, `jq` missing, no temp file, or a `.tf.json` that does not
+     parse — report `?`); and every Phase 6 step, including the read-only `new-provider-plan`
      evidence check) — run them directly.
      `status-check-context` is two `gh api` reads and a comparison in `$TMPDIR`;
      `hcp-apply-scope` lists workspaces and reads the permissions HCP reports for the

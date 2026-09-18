@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:d0fa0c6a7df263b06976e9f13ccd695c5e767224d84eca0ab94bccc9a1a9275f
-Source-Hash: blake3:004c8824ba78072796bcace4aa12822dc049b83c5c98d9488158d507f9c65d62
+Content-Hash: blake3:0992a7a55ddc56e48944b28b7cdad60484d15cd9dda9f3d012439c76dc767952
+Source-Hash: blake3:cb09f3f5d4a8bf386877a3510a4dacb2b2bef0b5c58db098d0d9dd2200e0ad8d
 Schema-Version: v1
 -->
 
@@ -63,8 +63,10 @@ preflight — is in
 
    - **Non-mutating checks** (API reads, file existence, tool versions — phases 0–3;
      phase 4's `status-check-context` and `hcp-apply-scope`; phase 5's
-     `prune-spent-imports`, which is one `git grep` over `HEAD` (tri-state: exit 2 means
-     git was unreadable, report `?`); and every Phase 6 step, including the read-only `new-provider-plan`
+     `prune-spent-imports`, which reads `HEAD` with `git ls-tree` and `git show`, then
+     scans `.tf` with `awk` and `.tf.json` with `jq` (tri-state: exit 2 means it could not
+     verify — git unreadable, `jq` missing, no temp file, or a `.tf.json` that does not
+     parse — report `?`); and every Phase 6 step, including the read-only `new-provider-plan`
      evidence check) — run them directly.
      `status-check-context` is two `gh api` reads and a comparison in `$TMPDIR`;
      `hcp-apply-scope` lists workspaces and reads the permissions HCP reports for the

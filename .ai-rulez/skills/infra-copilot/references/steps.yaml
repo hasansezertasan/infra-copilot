@@ -1349,9 +1349,9 @@ steps:
       # spaces missed, minified JSON missed, a nested `locals` key matching, a multiline
       # JavaScript `import {` in a heredoc matching -- were all one defect: a line regex
       # cannot see whether a line is inside a heredoc, a comment, or an object. So each
-      # candidate blob is read once: `jq` decides JSON, and an awk pass that tracks
-      # heredoc bodies and /* */ regions decides HCL. Both surfaces, because phase 6
-      # already accepts `*.tf.json` as leaf configuration.
+      # candidate blob is read once: `jq` decides JSON, and an awk pass that skips heredoc
+      # bodies and comments decides HCL. Both surfaces, because phase 6 already accepts
+      # `*.tf.json` as leaf configuration.
       #
       # The awk pass strips CR first (a consuming repo need not normalize line endings,
       # and a trailing \r defeats both the opener match and the terminator match), then
@@ -1360,13 +1360,20 @@ steps:
       # keeps `# Example: <<EOF` and `cmd = "cat <<EOF"` from opening a phantom heredoc
       # that swallows the rest of the file.
       #
-      # It does NOT track /* */ regions. It did for one round, and that cost more than it
-      # bought: an unquoted `/*` search cannot tell a comment opener from an ordinary
-      # Cloudflare value -- `target = "example.com/*"` is the canonical page-rule glob --
-      # and one of those silently discarded every line after it, block included. Not
-      # tracking them means dead commented-out HCL inside /* */ reports as a leftover,
-      # which is the harmless direction and arguably the right one: a spent block
-      # commented out rather than deleted is still something to clean up.
+      # /* */ is handled only WITHIN a line, statelessly: `import /* see #123 */ {` is a
+      # legal header and must still match. An unterminated `/*` is left alone rather than
+      # opening a region, which is the whole point -- tracking regions across lines lasted
+      # one round and cost more than it bought, because an unquoted `/*` search cannot
+      # tell a comment opener from an ordinary Cloudflare value (`target =
+      # "example.com/*"` is the canonical page-rule glob) and one of those silently
+      # discarded every line after it, block included. So dead HCL inside a multi-line
+      # /* */ still reports as a leftover: the harmless direction, and arguably the right
+      # one, since a spent block commented out rather than deleted is still cleanup.
+      #
+      # The heredoc tag is unquoted by spec -- Terraform's heredoc is `<<` or `<<-` plus a
+      # bare identifier, never `<<"EOT"`. Allowing an optional quote there was borrowed
+      # from shell, and it let `command = "cat <<EOF"` match on its closing quote and
+      # swallow the rest of the file.
       #
       # ponytail: a scanner, not an HCL lexer, and it stops here deliberately. Nothing
       # destructive hangs off this step -- it routes status, it does not gate a deletion.
@@ -1400,17 +1407,21 @@ steps:
         echo "git ls-tree failed - cannot verify what is committed" >&2
         exit 2
       }
-      # An `import`/`moved` block opener, ignoring heredoc bodies and /* */ regions. HCL
-      # has no nested one-shot blocks, so any surviving opener is top-level by definition.
+      # An `import`/`moved` block opener, ignoring heredoc bodies and comments. HCL has no
+      # nested one-shot blocks, so any surviving opener is top-level by definition.
       hcl_scan='
         { sub(/\r$/, "") }
         h != "" { t=$0; sub(/^[ \t]+/,"",t); sub(/[ \t]+$/,"",t); if (t == h) h=""; next }
         { line=$0
+          while ((i = index(line, "/*")) > 0) {
+            rest = substr(line, i+2); j = index(rest, "*/")
+            if (j == 0) break
+            line = substr(line, 1, i-1) " " substr(rest, j+2) }
           sub(/[#].*$/, "", line); sub(/\/\/.*$/, "", line)
           if (line ~ /^[ \t]*(import|moved)[ \t]*\{[ \t]*$/) { f=1; exit }
-          if (match(line, /<<[-~]?"?[A-Za-z_][A-Za-z0-9_]*"?[ \t]*$/)) {
+          if (match(line, /<<[-~]?[A-Za-z_][A-Za-z0-9_]*[ \t]*$/)) {
             m=substr(line, RSTART, RLENGTH)
-            sub(/^<<[-~]?"?/, "", m); sub(/"?[ \t]*$/, "", m); h=m } }
+            sub(/^<<[-~]?/, "", m); sub(/[ \t]*$/, "", m); h=m } }
         END { exit !f }'
       # Both lists are files, not shell strings: a literal newline inside a string -- or a
       # heredoc terminator, which must sit at column 0 -- dedents out of this YAML block

@@ -179,8 +179,10 @@ cannot settle as pending until a plan says otherwise; never the reverse.
 **Held proves the address is managed**, not that what sits there is the object the block
 named. The two diverge only if something *created* a resource at that address instead of
 importing it — an apply made outside this workflow, since the import check rejects any plan
-containing a create. Where that is plausible, run `terraform state show <address>` and
-compare against the block's `id` first; a prune would otherwise certify the duplicate it
+containing a create. Where that is plausible, run `terraform state show '<address>'` and
+compare against the block's `id` first — single-quoted, because a keyed address carries its
+own quotes and brackets (`cloudflare_dns_record.this["www"]`) that the shell would otherwise
+eat or glob; a prune would otherwise certify the duplicate it
 exists to prevent.
 
 ## Refuse on a dirty plan
