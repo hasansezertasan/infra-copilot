@@ -1,0 +1,297 @@
+"""The per-host record and the derived skill closure.
+
+Both exist because a fact was stated in more than one place: the four hosts'
+capabilities, and "which skills does this skill need." These assert the gate that
+keeps the single copy single.
+"""
+
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from scripts.validate import (
+    host_records,
+    skill_closure,
+    validate_host_contract,
+)
+
+
+HOSTS_TABLE = """# Host capability records
+
+| Host | Native question tool | Modes | Install guide |
+|---|---|---|---|
+| Claude Code | `AskUserQuestion` | single | `docs/install-claude-code.md` |
+| Codex CLI | `request_user_input` | single | `docs/install-codex.md` |
+"""
+PROTOCOL = """# Protocol
+
+### Asking a decision
+
+Use the host's tool only when [`hosts.md`](hosts.md) records `AskUserQuestion` for it.
+"""
+
+
+def build_repository(root: Path, **overrides: str) -> Path:
+    """A minimal tree shaped like the real one, with named files overridden."""
+    files = {
+        "skills/infra-copilot/references/hosts.md": HOSTS_TABLE,
+        "skills/infra-copilot/references/protocol.md": PROTOCOL,
+        ".ai-rulez/skills/infra-copilot/references/protocol.md": PROTOCOL,
+        "docs/install-claude-code.md": "See references/hosts.md.",
+        "docs/install-codex.md": "See references/hosts.md.",
+        "README.md": "docs/install-claude-code.md docs/install-codex.md",
+    }
+    files.update(overrides)
+    for relative, content in files.items():
+        if content is None:
+            continue
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    return root
+
+
+class HostRecordTests(unittest.TestCase):
+    def test_parses_tool_and_guide_from_each_row(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(Path(directory))
+            self.assertEqual(
+                host_records(root),
+                {
+                    "Claude Code": ("AskUserQuestion", "docs/install-claude-code.md"),
+                    "Codex CLI": ("request_user_input", "docs/install-codex.md"),
+                },
+            )
+
+    def test_accepts_a_consistent_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(validate_host_contract(build_repository(Path(directory))), [])
+
+    def test_rejects_a_row_whose_install_guide_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(Path(directory))
+            (root / "docs/install-codex.md").unlink()
+            self.assertIn(
+                "skills/infra-copilot/references/hosts.md: Codex CLI names "
+                "docs/install-codex.md, which is missing",
+                validate_host_contract(root),
+            )
+
+    def test_rejects_a_guide_that_restates_instead_of_citing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory),
+                **{"docs/install-codex.md": "Codex uses `request_user_input`."},
+            )
+            self.assertIn(
+                "docs/install-codex.md: does not link references/hosts.md; per-host "
+                "capabilities must be cited there, not restated here",
+                validate_host_contract(root),
+            )
+
+    def test_rejects_a_guide_absent_from_the_table(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory), **{"docs/install-emacs.md": "references/hosts.md"}
+            )
+            self.assertIn(
+                "docs/install-emacs.md: install guide is not listed in "
+                "skills/infra-copilot/references/hosts.md",
+                validate_host_contract(root),
+            )
+
+    def test_rejects_a_readme_that_does_not_link_a_guide(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory), **{"README.md": "docs/install-claude-code.md"}
+            )
+            self.assertIn(
+                "README.md: install table does not link docs/install-codex.md",
+                validate_host_contract(root),
+            )
+
+    def test_rejects_a_protocol_that_names_no_question_tool(self) -> None:
+        """The AskUserQuestion grant in commands/ had no consumer for four releases.
+
+        Deleting the protocol rule would silently restore that state, so the rule's
+        absence has to be an error rather than a quiet regression.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory),
+                **{
+                    "skills/infra-copilot/references/protocol.md": (
+                        "### Asking a decision\n\nRead [`hosts.md`](hosts.md)."
+                    )
+                },
+            )
+            self.assertIn(
+                "skills/infra-copilot/references/protocol.md: names no question tool "
+                "from skills/infra-copilot/references/hosts.md; the allowed-tools "
+                "grant in commands/ would have no consumer",
+                validate_host_contract(root),
+            )
+
+    def test_rejects_a_protocol_that_does_not_reference_the_table(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory),
+                **{
+                    "skills/infra-copilot/references/protocol.md": (
+                        "### Asking a decision\n\nUse `AskUserQuestion`."
+                    )
+                },
+            )
+            self.assertIn(
+                "skills/infra-copilot/references/protocol.md: does not reference hosts.md",
+                validate_host_contract(root),
+            )
+
+    def test_rejects_a_protocol_missing_the_decision_section(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory),
+                **{
+                    "skills/infra-copilot/references/protocol.md": (
+                        "See [`hosts.md`](hosts.md) and use `AskUserQuestion`."
+                    )
+                },
+            )
+            self.assertIn(
+                "skills/infra-copilot/references/protocol.md: has no "
+                "'### Asking a decision' section",
+                validate_host_contract(root),
+            )
+
+    def test_the_english_word_question_does_not_satisfy_the_tool_check(self) -> None:
+        """`question` is OpenCode's tool name, so a substring test is nearly vacuous."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory),
+                **{
+                    "skills/infra-copilot/references/hosts.md": HOSTS_TABLE.replace(
+                        "`AskUserQuestion`", "`question`"
+                    ).replace("`request_user_input`", "`question`"),
+                    "skills/infra-copilot/references/protocol.md": (
+                        "### Asking a decision\n\nAsk a questionnaire per "
+                        "[`hosts.md`](hosts.md)."
+                    ),
+                },
+            )
+            self.assertIn(
+                "skills/infra-copilot/references/protocol.md: names no question tool "
+                "from skills/infra-copilot/references/hosts.md; the allowed-tools "
+                "grant in commands/ would have no consumer",
+                validate_host_contract(root),
+            )
+
+    def test_an_added_column_does_not_break_every_row(self) -> None:
+        """hosts.md invites new per-host columns; a last-column anchor forbids them."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory),
+                **{
+                    "skills/infra-copilot/references/hosts.md": HOSTS_TABLE.replace(
+                        "`docs/install-claude-code.md` |",
+                        "`docs/install-claude-code.md` | `hooks/hooks.json` |",
+                    )
+                },
+            )
+            self.assertEqual(
+                host_records(root)["Claude Code"],
+                ("AskUserQuestion", "docs/install-claude-code.md"),
+            )
+            self.assertEqual(validate_host_contract(root), [])
+
+    def test_rejects_a_row_whose_tool_cell_is_not_an_identifier(self) -> None:
+        """A dropped row used to resurface as an unrelated orphan-guide complaint."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory),
+                **{
+                    "skills/infra-copilot/references/hosts.md": HOSTS_TABLE.replace(
+                        "`request_user_input`", "request_user_input"
+                    )
+                },
+            )
+            self.assertIn(
+                "skills/infra-copilot/references/hosts.md: Codex CLI has no question "
+                "tool in column 2; it must be a backticked identifier such as "
+                "`AskUserQuestion`",
+                validate_host_contract(root),
+            )
+
+    def test_reports_an_unparseable_table_once(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_repository(
+                Path(directory),
+                **{"skills/infra-copilot/references/hosts.md": "# no table here\n"},
+            )
+            self.assertEqual(
+                validate_host_contract(root),
+                [
+                    "skills/infra-copilot/references/hosts.md: no host capability rows "
+                    "parsed; each row needs a `tool` column and a `docs/install-*.md` "
+                    "column"
+                ],
+            )
+
+
+class SkillClosureTests(unittest.TestCase):
+    @staticmethod
+    def write_skill(root: Path, name: str, body: str) -> None:
+        path = root / ".ai-rulez/skills" / name / "SKILL.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+
+    def test_router_links_are_not_dependencies(self) -> None:
+        """The hub links every action skill; needing none of them is the point.
+
+        A naive "any ../<skill>/ link" rule makes the hub depend on all four, and
+        every closure becomes the full install -- which is the behavior this whole
+        change exists to replace.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_skill(root, "infra-copilot", "[setup](../setup/SKILL.md)")
+            self.write_skill(root, "setup", "[p](../infra-copilot/references/protocol.md)")
+            self.assertEqual(skill_closure("infra-copilot", root), ["infra-copilot"])
+            self.assertEqual(skill_closure("setup", root), ["infra-copilot", "setup"])
+
+    def test_closure_is_transitive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_skill(root, "prune", "[s](../status/references/scan.md)")
+            self.write_skill(root, "status", "[p](../infra-copilot/references/protocol.md)")
+            self.write_skill(root, "infra-copilot", "no dependencies")
+            self.assertEqual(
+                skill_closure("prune", root), ["infra-copilot", "prune", "status"]
+            )
+
+    def test_a_cycle_terminates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_skill(root, "a", "[b](../b/references/x.md)")
+            self.write_skill(root, "b", "[a](../a/references/x.md)")
+            self.assertEqual(skill_closure("a", root), ["a", "b"])
+
+
+class ShippedClosureTests(unittest.TestCase):
+    def test_every_action_skill_needs_the_hub(self) -> None:
+        """What docs/install-opencode.md tells users to type, asserted here offline.
+
+        make smoke-closure proves the same thing by installing it; this catches the
+        regression without the npm download.
+        """
+        for skill in ("setup", "import", "add", "status"):
+            with self.subTest(skill=skill):
+                self.assertEqual(skill_closure(skill), sorted([skill, "infra-copilot"]))
+
+    def test_the_hub_installs_alone(self) -> None:
+        self.assertEqual(skill_closure("infra-copilot"), ["infra-copilot"])
+
+
+if __name__ == "__main__":
+    unittest.main()

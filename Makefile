@@ -69,7 +69,32 @@ smoke-opencode:  ## Install into a throwaway copy and assert the OpenCode skill 
 	fi && \
 	test -f .agents/skills/infra-copilot/references/protocol.md && \
 	test -f .agents/skills/infra-copilot/references/decisions.md.example && \
+	test -f .agents/skills/infra-copilot/references/hosts.md && \
 	echo "smoke-opencode: $$actual skills installed, references present"
+
+# The single-skill install the OpenCode guide documents. `skills add` resolves no
+# dependencies, so the guide names each skill by hand -- this proves the list it names
+# is still the whole closure. Without it, "install status and whatever it needs" is a
+# sentence in a document, and the first skill to gain a dependency makes it wrong.
+#
+# A separate copy because the target above already installed all five: `skills add` adds,
+# so a subset install into the same tree would find them and prove nothing.
+.PHONY: smoke-closure
+smoke-closure:  ## Install one skill's derived closure and assert it resolves exactly
+	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
+	cp -R . "$$tmp/repo" && \
+	rm -rf "$$tmp/repo/.agents/skills" "$$tmp/repo/skills-lock.json" && \
+	cd "$$tmp/repo" && \
+	closure=$$($(PYTHON) scripts/validate.py --closure status) && \
+	$(SKILLS) add . --agent opencode $$closure -y --copy && \
+	installed=$$(find .agents/skills -name SKILL.md -exec dirname {} \; | \
+	  xargs -n1 basename | sort | tr '\n' ' ') && \
+	if [ "$$installed" != "infra-copilot status " ]; then \
+	  echo "smoke-closure: $$closure installed '$$installed', expected 'infra-copilot status '" >&2; \
+	  exit 1; \
+	fi && \
+	test -f .agents/skills/infra-copilot/references/protocol.md && \
+	echo "smoke-closure: $$closure resolves to $$installed"
 
 .PHONY: preflight
 preflight:  ## Check the tools every other target needs are present
@@ -138,5 +163,5 @@ check: lint validate test  ## Everything CI runs on a pull request
 # #43, where the tests finished in 65s and the download took 421s). It runs as its own
 # CI job so validation is never gated behind it.
 .PHONY: check-all
-check-all: check smoke-opencode  ## check plus the OpenCode install smoke test
+check-all: check smoke-opencode smoke-closure  ## check plus the OpenCode install smoke tests
 	@echo "all checks passed"

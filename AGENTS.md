@@ -10,10 +10,10 @@ most likely way to get it wrong is to edit the wrong copy of a file.
 skill — and editing them is silently undone by the next `make generate`.
 
 Before editing any file under those paths, check `.ai-rulez-generated.json`. If the path
-is listed (36 are), edit its source under `.ai-rulez/` instead, then run `make generate`.
+is listed (37 are), edit its source under `.ai-rulez/` instead, then run `make generate`.
 
 Most Markdown docs under `skills/infra-copilot/references/` carry an
-`AI-RULEZ :: GENERATED FILE — DO NOT EDIT` header, but **22 of the 36 do not** — the
+`AI-RULEZ :: GENERATED FILE — DO NOT EDIT` header, but **22 of the 37 do not** — the
 JSON manifests (`marketplace.json`, `plugin.json`), `config.md.example`,
 `decisions.md.example`, `steps.yaml`, shell checks (`hcp-apply-scope.sh`,
 `hcp-bootstrap-workspaces.sh`, `hcp-current-plan.sh`, `leaf-cloud.sh`,

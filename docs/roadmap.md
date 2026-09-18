@@ -49,13 +49,16 @@ oversight. Each item links to the issue that owns it.
   ([#42](https://github.com/hasansezertasan/infra-copilot/issues/42))
 - **No subagents.** The read-only, context-heavy `status` scan runs in the main context.
   ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
-- **Host question capability is undeclared.** Three commands grant `AskUserQuestion` — a
-  Claude-only tool — that nothing instructs the agent to use. The *handoff* block for
-  unblocking a `HUMAN` step is already specified host-neutrally in `protocol.md`; the gap is
-  the undeclared per-host capability, and what a *choosing* step (which provider flavor,
-  whether to adopt a discovered resource) should do where native question tools differ.
-  ([#12](https://github.com/hasansezertasan/infra-copilot/issues/12))
-- **Install is all-or-nothing.** There is no way to install `status` alone.
+- **Host capability records are hand-maintained and unverifiable.** `hosts.md` states each
+  host's native question tool and its modes and choice counts, and the protocol's
+  *Asking a decision* rule reads it. Nothing can prove a row is true: no host publishes a
+  machine-readable capability record, so validation gates citation and existence only.
+  A wrong row degrades a question to text, which is the safe direction, but it is still
+  wrong. ([#12](https://github.com/hasansezertasan/infra-copilot/issues/12))
+- **Per-skill install exists on OpenCode only.** `--skill status --skill infra-copilot`
+  installs one skill and its closure there. The other three hosts install the whole
+  plugin because their native mechanisms offer no per-skill selection; a repo-specific
+  installer that added one is explicitly not planned.
   ([#20](https://github.com/hasansezertasan/infra-copilot/issues/20))
 
 ## Not planned
