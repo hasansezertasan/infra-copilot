@@ -1360,12 +1360,21 @@ steps:
       # keeps `# Example: <<EOF` and `cmd = "cat <<EOF"` from opening a phantom heredoc
       # that swallows the rest of the file.
       #
+      # It does NOT track /* */ regions. It did for one round, and that cost more than it
+      # bought: an unquoted `/*` search cannot tell a comment opener from an ordinary
+      # Cloudflare value -- `target = "example.com/*"` is the canonical page-rule glob --
+      # and one of those silently discarded every line after it, block included. Not
+      # tracking them means dead commented-out HCL inside /* */ reports as a leftover,
+      # which is the harmless direction and arguably the right one: a spent block
+      # commented out rather than deleted is still something to clean up.
+      #
       # ponytail: a scanner, not an HCL lexer, and it stops here deliberately. Nothing
       # destructive hangs off this step -- it routes status, it does not gate a deletion.
       # A false positive sends someone to a runbook that finds nothing; a false negative
       # leaves inert blocks unflagged. The gate that matters is the plan pair in
       # docs/prune.md, which Terraform itself evaluates. Reach for a real parser only if
-      # this ever gates something that writes.
+      # this ever gates something that writes -- and prefer deleting a rule to teaching
+      # this one about quoting.
       #
       # terraform/modules/ is excluded: one-shot blocks there are not this step's to call
       # leftover. Each consuming state reads them separately, so `moved` is the module's
@@ -1397,13 +1406,6 @@ steps:
         { sub(/\r$/, "") }
         h != "" { t=$0; sub(/^[ \t]+/,"",t); sub(/[ \t]+$/,"",t); if (t == h) h=""; next }
         { line=$0
-          while (1) {
-            if (c) { i=index(line,"*/"); if (i==0) { line=""; break }
-                     line=substr(line,i+2); c=0 }
-            else   { i=index(line,"/*"); if (i==0) break
-                     rest=substr(line,i+2); line=substr(line,1,i-1)
-                     j=index(rest,"*/"); if (j==0) { c=1; break }
-                     line=line substr(rest,j+2) } }
           sub(/[#].*$/, "", line); sub(/\/\/.*$/, "", line)
           if (line ~ /^[ \t]*(import|moved)[ \t]*\{[ \t]*$/) { f=1; exit }
           if (match(line, /<<[-~]?"?[A-Za-z_][A-Za-z0-9_]*"?[ \t]*$/)) {

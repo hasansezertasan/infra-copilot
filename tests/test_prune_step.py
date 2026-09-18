@@ -231,8 +231,29 @@ class PruneStepTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_a_block_comment_is_not_a_block(self) -> None:
-        """Was a documented ceiling: dead commented-out HCL read as live work."""
+    def test_a_glob_in_a_string_does_not_hide_the_rest_of_the_file(self) -> None:
+        """`target = "example.com/*"` is the canonical Cloudflare page-rule value.
+
+        Tracking /* */ regions meant one of these discarded every line after it,
+        block included — which is why the tracking is gone.
+        """
+        result = self._run(
+            {
+                "terraform/cloudflare/pr.tf": (
+                    'resource "cloudflare_page_rule" "redirect" {\n'
+                    '  target = "example.com/*"\n}\n\n'
+                    "import {\n  to = cloudflare_dns_record.www\n  id = \"abc\"\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_a_commented_out_block_is_reported(self) -> None:
+        """The accepted ceiling, and the harmless direction.
+
+        A spent block commented out rather than deleted is still something to
+        clean up, so reporting it is arguably right rather than merely tolerable.
+        """
         result = self._run(
             {
                 "terraform/cloudflare/dns.tf": (
@@ -241,7 +262,7 @@ class PruneStepTests(unittest.TestCase):
                 ),
             }
         )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
 
     def test_json_indentation_is_not_structure(self) -> None:
         """Four spaces and minified both used to read green with blocks committed."""

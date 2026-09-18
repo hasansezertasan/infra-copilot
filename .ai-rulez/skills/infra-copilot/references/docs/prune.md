@@ -80,10 +80,14 @@ indent-matched grep above does not; use it on any JSON leaf you are unsure about
 candidate.** A grep cannot see what a line is inside, and three shapes match without being
 one-shot blocks: a `/* … */` block comment around dead HCL, a heredoc carrying JavaScript
 (`import {` on its own line above `handler,` in an inline Worker script), and a `.tf.json`
-key nested below the top level. Delete commented-out blocks rather than pruning them, and
-leave script content alone. `prune-spent-imports` in [`../steps.yaml`](../steps.yaml) does
-parse these — it tracks heredoc and comment regions and reads JSON with `jq` — so a hit it
-does *not* report is not a candidate here either.
+key nested below the top level. Leave script content alone; a commented-out block is dead
+code, so delete the comment rather than pruning what is inside it.
+
+`prune-spent-imports` in [`../steps.yaml`](../steps.yaml) discriminates two of the three —
+it skips heredoc bodies and line comments, and reads JSON with `jq` — so a hit it does not
+report is not a candidate here either. It deliberately does **not** track `/* … */`, because
+telling a comment opener from `target = "example.com/*"` needs a lexer, so it reports
+commented-out blocks. That is the harmless direction, and the cleanup it asks for is real.
 
 cf-terraforming appends its blocks to the file holding the generated HCL. The runbook in
 [`import.md`](import.md) pipes one zone into a single `generated.tf`, but an adoption that

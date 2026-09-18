@@ -173,7 +173,20 @@ preflight — is in
    `imports: 0` there would report a finished migration as unfinished indefinitely, because
    the normal merge workflow never produces a second no-op run for the same commit — until
    the prune PR does, which is why the `imports: 0` half exists at all and why it is the
-   stronger evidence once `prune-spent-imports` is green. Phase 5
+   stronger evidence once `prune-spent-imports` is green.
+
+   The `applied` half is **deliberately count-blind**, unlike the phase-6 predicate above,
+   and the asymmetry is the point. It correlates on the latest run for the *current*
+   revision, so once phase 5 is genuinely finished every later Cloudflare change is that
+   run: a phase-6 revision that adds one record applies with `creates: 1`. Requiring zero
+   creates here would fail that run on both halves and report phase 5 unfinished forever
+   after, routing the user to the import flow for work that finished weeks earlier. The
+   case it would buy — a prune merged before its import applied, so the apply created
+   duplicates and still reported `applied` — is caught where it can still be prevented
+   rather than diagnosed: the `migrate-import` check plans the leaf and exits red on
+   `will be created`, and the runbook refuses to remove a block whose address is absent
+   from state. Once such a run has applied, no count read here undoes it. Prefer the
+   signal that fires before the apply. Phase 5
    is **incomplete** only when the latest run has *not* applied and its plan still counts
    imports, or when you cannot read that evidence at all. Only call phase 5 actionable when
    resources demonstrably exist at the provider but aren't in state, or when spent blocks
