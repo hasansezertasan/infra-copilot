@@ -8,6 +8,8 @@
 # Absolute via $(CURDIR) because `smoke-opencode` runs the binary from a temp copy of
 # the tree: a relative node_modules/.bin/skills would not resolve from there, and the
 # failure reads as a bare "command not found" inside a directory nobody recognises.
+# Every recipe quotes them for the same reason they are absolute: a checkout under a
+# path with a space would otherwise run its first word and exit 127.
 
 PYTHON ?= python3
 AI_RULEZ := $(CURDIR)/node_modules/.bin/ai-rulez
@@ -27,23 +29,28 @@ help:  ## Show this help
 
 # `npm ci` installs exactly the lockfile, so the transitive tree is pinned too.
 #
+# --include=dev because every tool here is a devDependency and npm defaults `omit` to
+# `dev` when NODE_ENV=production. Without it a production-ish shell gets an install that
+# exits 0 having written no binaries at all, and the stamp below would then record that
+# as a success -- so every later target skips the install and fails on a missing tool.
+#
 # The target is a stamp rather than node_modules itself, because `npm ci` deletes the
 # directory and recreates it as it goes: an install killed partway leaves node_modules
 # newer than the lockfile, and a bare directory target would then call itself satisfied
 # and run binaries that were never installed. Make only reaches the touch when npm ci
 # exited 0, and npm ci having just deleted the directory took the old stamp with it.
 $(INSTALL_STAMP): package-lock.json package.json
-	npm ci
+	npm ci --include=dev
 	@touch $@
 
 .PHONY: generate
 generate: $(INSTALL_STAMP)  ## Regenerate the host packages from .ai-rulez/ (edit sources, never skills/)
-	$(AI_RULEZ) generate --plugin
+	"$(AI_RULEZ)" generate --plugin
 
 .PHONY: validate
 validate: $(INSTALL_STAMP)  ## Validate the ai-rulez config, the committed payloads, links, and adapters
-	$(AI_RULEZ) validate
-	$(AI_RULEZ) verify --plugin
+	"$(AI_RULEZ)" validate
+	"$(AI_RULEZ)" verify --plugin
 	$(PYTHON) scripts/validate.py
 	$(PYTHON) scripts/check_upstream.py --offline
 
@@ -74,7 +81,7 @@ smoke-opencode: $(INSTALL_STAMP)  ## Install into a throwaway copy and assert th
 	cp -R . "$$tmp/repo" && \
 	rm -rf "$$tmp/repo/.agents/skills" "$$tmp/repo/skills-lock.json" "$$tmp/repo/node_modules" && \
 	cd "$$tmp/repo" && \
-	$(SKILLS) add . --agent opencode --skill '*' -y --copy && \
+	"$(SKILLS)" add . --agent opencode --skill '*' -y --copy && \
 	expected=$$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]') && \
 	actual=$$(find .agents/skills -name SKILL.md | wc -l | tr -d '[:space:]') && \
 	if [ "$$actual" != "$$expected" ]; then \
@@ -101,7 +108,7 @@ preflight:  ## Check the tools every other target needs are present
 # sources, so linting the output would report each finding once per host package.
 .PHONY: lint
 lint: $(INSTALL_STAMP)  ## Lint the hand-authored Markdown
-	$(MARKDOWNLINT)
+	"$(MARKDOWNLINT)"
 
 # Removes only build output. `.agents/plugins/marketplace.json` is tracked and required
 # by validate_layout, so `.agents/` is never removed wholesale.

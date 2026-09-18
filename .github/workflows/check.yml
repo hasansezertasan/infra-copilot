@@ -26,12 +26,15 @@ jobs:
           # because each job downloaded a different subset on demand, so a shared
           # immutable entry was whichever job saved first. `npm ci` installs the same
           # locked closure everywhere, so one cache keyed on package-lock.json is right.
+          #
+          # Restoring the cache is all this does here: the install itself belongs to
+          # `make`, whose stamp target runs `npm ci`. A step running it first would only
+          # be undone -- npm ci deletes node_modules, stamp included, so make would
+          # reinstall the whole closure a second time in every job.
           cache: npm
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-      - name: Install the pinned npm tools
-        run: npm ci
       - name: Run all checks
         run: make check
 
@@ -47,8 +50,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Install the pinned npm tools
-        run: npm ci
       - name: Smoke-test the OpenCode payload
         run: make smoke-opencode
 
