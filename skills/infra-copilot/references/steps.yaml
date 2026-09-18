@@ -549,6 +549,9 @@ steps:
         #   --create-bucket-configuration LocationConstraint="$STATE_REGION"
         aws s3api put-bucket-versioning --bucket "$STATE_BUCKET" \
           --versioning-configuration Status=Enabled
+        aws s3api put-public-access-block --bucket "$STATE_BUCKET" \
+          --public-access-block-configuration \
+          "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
         aws dynamodb create-table --table-name "$STATE_LOCK_TABLE" \
           --region "$STATE_REGION" \
           --attribute-definitions AttributeName=LockID,AttributeType=S \
@@ -853,6 +856,15 @@ steps:
       You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR.
       Verify that the plan-cloudflare job runs and finishes successfully.
     check: |
+      # Reject uncommitted changes to relevant paths - a stale run cannot prove current state
+      git diff --quiet -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
+        echo "Uncommitted changes in relevant paths - commit before accepting plan evidence" >&2
+        exit 1
+      }
+      git diff --cached --quiet -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
+        echo "Staged changes in relevant paths - commit before accepting plan evidence" >&2
+        exit 1
+      }
       # Find the newest commit that changed relevant paths
       target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
@@ -885,6 +897,15 @@ steps:
       You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR.
       Verify that the plan-github job runs and finishes successfully.
     check: |
+      # Reject uncommitted changes to relevant paths - a stale run cannot prove current state
+      git diff --quiet -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
+        echo "Uncommitted changes in relevant paths - commit before accepting plan evidence" >&2
+        exit 1
+      }
+      git diff --cached --quiet -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
+        echo "Staged changes in relevant paths - commit before accepting plan evidence" >&2
+        exit 1
+      }
       # Find the newest commit that changed relevant paths
       target_sha=$(git log --format=%H -1 -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
@@ -1151,6 +1172,15 @@ steps:
       if [ "$BACKEND" = "object-storage" ]; then
         # In object-storage mode, verify via the GitHub Actions plan workflow
         git ls-files --error-unmatch terraform/cloudflare/generated.tf >/dev/null 2>&1 || exit 1
+        # Reject uncommitted changes to relevant paths - a stale run cannot prove current state
+        git diff --quiet -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
+          echo "Uncommitted changes in relevant paths - commit before accepting plan evidence" >&2
+          exit 1
+        }
+        git diff --cached --quiet -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
+          echo "Staged changes in relevant paths - commit before accepting plan evidence" >&2
+          exit 1
+        }
         # Find the newest commit that changed relevant paths
         target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
         [ -n "$target_sha" ] || exit 1
@@ -1851,6 +1881,28 @@ steps:
         fi
         [ "$plan_has_auth" = "true" ] && [ "$apply_has_auth" = "true" ] || exit 1
       fi
+      # Require backend-specific auth action in BOTH jobs when using a cloud backend
+      # This ensures state access works at apply time, not just plan time
+      case "$STATE_BACKEND" in
+        gcs)
+          printf '%s' "$plan_job" | grep -v '#' | grep -q 'google-github-actions/auth' || exit 1
+          printf '%s' "$apply_job" | grep -v '#' | grep -q 'google-github-actions/auth' || exit 1
+          ;;
+        s3)
+          printf '%s' "$plan_job" | grep -v '#' | grep -q 'aws-actions/configure-aws-credentials' || exit 1
+          printf '%s' "$apply_job" | grep -v '#' | grep -q 'aws-actions/configure-aws-credentials' || exit 1
+          ;;
+        azurerm)
+          printf '%s' "$plan_job" | grep -v '#' | grep -q 'azure/login' || exit 1
+          printf '%s' "$apply_job" | grep -v '#' | grep -q 'azure/login' || exit 1
+          ;;
+      esac
+      # Verify adopted leaf's backend.tf has complete locking configuration
+      if [ "$STATE_BACKEND" = "s3" ]; then
+        grep -Fq "$STATE_LOCK_TABLE" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+      elif [ "$STATE_BACKEND" = "azurerm" ]; then
+        grep -q 'use_azuread_auth[[:space:]]*=[[:space:]]*true' "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+      fi
       # Verify aggregate plan job includes the new provider in needs AND success check
       plan_needs=$(yq -r '.jobs.plan.needs | @csv' .github/workflows/terraform-plan.yml 2>/dev/null || \
         grep -A1 'plan:' .github/workflows/terraform-plan.yml | grep 'needs:')
@@ -1873,6 +1925,12 @@ steps:
       if ! printf '%s' "$apply_changes" | grep -q "$NEW_PROVIDER:"; then
         grep -E "^[[:space:]]+$NEW_PROVIDER:" .github/workflows/terraform-apply.yml >/dev/null || exit 1
       fi
+      # Verify changes job outputs the new provider filter result
+      apply_changes_outputs=$(yq -r '.jobs.changes.outputs' .github/workflows/terraform-apply.yml 2>/dev/null || \
+        sed -n '/^  changes:/,/^  [a-z][a-z0-9_-]*:/p' .github/workflows/terraform-apply.yml | grep -E 'outputs:' -A20)
+      printf '%s' "$apply_changes_outputs" | grep -q "$NEW_PROVIDER" || exit 1
+      # Verify apply job has if condition referencing the filter output
+      printf '%s' "$apply_job" | grep -qE "needs\\.changes\\.outputs\\.$NEW_PROVIDER|changes\\.outputs\\.$NEW_PROVIDER" || exit 1
       git ls-files --error-unmatch \
         .github/workflows/terraform-plan.yml \
         .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
@@ -1893,6 +1951,15 @@ steps:
       Trigger via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR,
       and verify the plan job for $NEW_PROVIDER succeeds.
     check: |
+      # Reject uncommitted changes to relevant paths - a stale run cannot prove current state
+      git diff --quiet -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
+        echo "Uncommitted changes in relevant paths - commit before accepting plan evidence" >&2
+        exit 1
+      }
+      git diff --cached --quiet -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock || {
+        echo "Staged changes in relevant paths - commit before accepting plan evidence" >&2
+        exit 1
+      }
       # Find the newest commit that changed relevant paths
       target_sha=$(git log --format=%H -1 -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
