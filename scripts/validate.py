@@ -1762,6 +1762,22 @@ HOOK_TIMEOUT = 10
 HOOK_DESCRIPTION = 'Announce that infra-copilot is installed when the working directory looks like a managed infra repo.'
 
 
+def _output_branch(script: str) -> str | None:
+    """The host-output conditional of session-start.sh, or None when absent.
+
+    Scoped rather than searched: a comment naming a variable satisfied a
+    whole-file test while the branch that decides the output shape never tested
+    it, so the hook ran and emitted the fallback shape. Naming is not testing --
+    the same distinction the callback check already draws between a command that
+    mentions the implementation and one that runs it.
+    """
+    start = script.find('if [ -n "$')
+    if start < 0:
+        return None
+    end = script.find("; then", start)
+    return None if end < 0 else script[start:end]
+
+
 def expected_hook_command(root_variable: str) -> str:
     """The callback command a host's manifest must carry, verbatim."""
     return HOOK_COMMAND_TEMPLATE.format(root=root_variable)
@@ -2222,12 +2238,14 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
     # The manifest and the record can agree on a variable the shared script does
     # not test, in which case the hook runs and emits the fallback output shape
     # instead of this host's -- the announcement disappearing on a green gate.
-    script = read_document(root / HOOK_IMPLEMENTATION) or ""
-    if f"${{{recorded_root}:-}}" not in script:
+    branch = _output_branch(read_document(root / HOOK_IMPLEMENTATION) or "")
+    if branch is None:
+        return [f"{HOOK_IMPLEMENTATION}: has no host-output conditional to check"]
+    if f'[ -n "${{{recorded_root}:-}}" ]' not in branch:
         return [
-            f"{HOOK_IMPLEMENTATION}: does not test ${{{recorded_root}:-}}, which "
-            f"{HOSTS_DOCUMENT} records as {row['Host']}'s root; the hook would emit "
-            "another host's output shape"
+            f"{HOOK_IMPLEMENTATION}: its host-output conditional does not test "
+            f"${{{recorded_root}:-}}, which {HOSTS_DOCUMENT} records as "
+            f"{row['Host']}'s root; the hook would run and emit another host's shape"
         ]
 
     # The whole manifest, rendered from the record. Every shape question the old

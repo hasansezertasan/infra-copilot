@@ -1412,6 +1412,58 @@ class CrossArtifactTests(unittest.TestCase):
         )
         self.assertTrue(any("does not test" in e for e in validate_host_dialects(root)))
 
+    def test_a_root_named_only_outside_the_conditional_is_rejected(self) -> None:
+        """Naming is not testing. A comment, or an assignment elsewhere in the
+        script, satisfied a whole-file search while the branch that decides the
+        output shape never tested the variable -- so the hook ran and emitted the
+        fallback shape.
+        """
+        for label, addition in (
+            ("a comment", '\n# ${NEW_PLUGIN_ROOT:-}\n'),
+            ("unrelated code", '\nX="${NEW_PLUGIN_ROOT:-}"\n'),
+            ("nothing at all", ""),
+        ):
+            with self.subTest(mention=label):
+                root = self._renamed_root(addition)
+                self.assertTrue(
+                    any("does not test" in e for e in validate_host_dialects(root))
+                )
+
+    def test_a_root_added_to_the_conditional_is_accepted(self) -> None:
+        """The honest edit -- record, manifest and branch moved together."""
+        root = self._renamed_root("")
+        script = root / "hooks/session-start.sh"
+        script.write_text(
+            script.read_text(encoding="utf-8").replace(
+                'if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]', 'if [ -n "${NEW_PLUGIN_ROOT:-}" ]'
+            ),
+            encoding="utf-8",
+        )
+        self.assertEqual(validate_host_dialects(root), [])
+
+    def _renamed_root(self, addition: str) -> Path:
+        root = self._root()
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "`CLAUDE_PLUGIN_ROOT`", "`NEW_PLUGIN_ROOT`", 1
+            ),
+            encoding="utf-8",
+        )
+        manifest = root / HOOK_PATH
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8").replace(
+                "CLAUDE_PLUGIN_ROOT", "NEW_PLUGIN_ROOT"
+            ),
+            encoding="utf-8",
+        )
+        if addition:
+            script = root / "hooks/session-start.sh"
+            script.write_text(
+                script.read_text(encoding="utf-8") + addition, encoding="utf-8"
+            )
+        return root
+
     def test_delegation_requires_the_row_to_be_marked_shipped(self) -> None:
         """"records a subagent" is true of unshipped rows too, so the gate has to
         name the shipped state or an absent agent can be called."""
