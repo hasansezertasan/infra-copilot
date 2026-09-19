@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1ba5b06a6d75693dc95ad746a238950494cb7610892d3f9a5717b3b77864344d
-Source-Hash: blake3:61826de7d2ba0e5892366c5a88ebe56c047c7bd1d55ef5af24384ad3df6321fd
+Content-Hash: blake3:86e009ebeed6c82ed9b237cfd684d38ea4a6b5e81bcf6f616508817bdf81cf95
+Source-Hash: blake3:a1b92c11a3a7463ec7aa55fb3c2189f0298e1f9e4ed8f646f0314bc77ecb97e7
 Schema-Version: v1
 -->
 
@@ -196,10 +196,15 @@ preflight — is in
    do not send the user to the Cloudflare import flow because a GitHub `moved` block is
    waiting to be pruned. Judge each leaf's evidence from that leaf.
 
-   Infer *done* from committed state plus the latest run for the current revision:
-   a committed `terraform/cloudflare/generated*.tf` exists — cf-terraforming output is
-   split by zone and resource type, so match the glob rather than a single
-   `generated.tf` — **and** that run either carries status `applied` — it executed its
+   Infer *done* from committed state plus the latest run for the current revision, **read
+   against the leaf holding the blocks, not against Cloudflare**. The committed evidence is
+   that leaf's adoption HCL: for `terraform/cloudflare` it is `generated*.tf` — cf-terraforming
+   output is split by zone and resource type, so match the glob rather than a single
+   `generated.tf` — and for a GitHub or additional-provider leaf it is whatever that
+   adoption wrote, since nothing generates a fixed filename there. The run is that leaf's
+   own workspace run. Requiring Cloudflare's generator output would report a correctly
+   applied HCP GitHub import as unfinished, which is the same leaf-blindness the routing
+   rule above exists to prevent. Then that run either carries status `applied` — it executed its
    plan, imports included — or its plan summary reports `imports: 0` **with `creates: 0`
    and `destroys: 0`**. Read the summary with the plan-summary helper in
    [`docs/hcp-api.md`](docs/hcp-api.md).

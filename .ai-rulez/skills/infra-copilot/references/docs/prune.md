@@ -69,7 +69,7 @@ applies:
 
 ```sh
 cd terraform/<leaf>
-grep -rnE '^[[:space:]]*(import|moved)[[:space:]]*\{[[:space:]]*((#|//).*)?$' *.tf
+grep -rnE '^[[:space:]]*(import|moved)[[:space:]]*(\{|/\*)' *.tf
 grep -rnE '^ {0,2}"(import|moved)"[[:space:]]*:' *.tf.json          # JSON leaves
 ```
 
@@ -79,6 +79,11 @@ removing the key. Every rule below applies unchanged; only the editing differs. 
 **top-level** key counts: an ordinary nested one named `import` — inside `locals`, say — is
 configuration. `jq -e 'has("import") or has("moved")'` answers that exactly, and the
 indent-matched grep above does not; use it on any JSON leaf you are unsure about.
+
+The opener is matched up to `{` **or** `/*`, because a comment may stand in for whitespace
+in a header — `import /* imported in #123 */ {` is a block, and `prune-spent-imports`
+counts it, so a discovery that required `{` to end the line would report the file as red
+with nothing to find.
 
 **These two commands find lines, not blocks — read each hit before treating it as a
 candidate.** A grep cannot see what a line is inside, and three shapes match without being
@@ -136,10 +141,18 @@ That costs nothing, because this section was never the evidence: it is a pre-fil
 front of the plan pair, and the plan pair is what decides. So in object-storage mode the
 plan pair **is** the whole procedure, read from the workflow rather than the terminal:
 
-1. Run `terraform-plan.yml` for the current revision and read it — the *before* plan. It
-   must be clean: no `will be imported`, no pending move, nothing else outstanding.
-2. Remove the candidate blocks on a branch, push, run the workflow again, read the *after*
+1. Remove the candidate blocks on a branch, push, and read that run's plan — the *after*
    plan. `No changes.` means they were inert; anything else means restore them.
+2. That single plan carries both halves here. A block that had not applied leaves its
+   resource in the config and out of state, so removing it plans a **create**; an
+   unapplied move plans its rename; and an unrelated pending change is not `No changes.`
+   either. `No changes.` excludes all three at once.
+
+The before-plan is a convenience in HCP mode — fail fast, before editing — not a separate
+safety property, and here it is **not obtainable**: `terraform-plan.yml` gates each leaf's
+job on `dorny/paths-filter`, so a dispatch on a branch with no Terraform delta from its
+base skips the very job you wanted. The deletion is what creates the delta. Do not read a
+skipped job as a clean before-plan.
 
 Both plans authenticate because the workflow holds the credential. The address table below
 is skipped, not failed — treat every block as undecided and let the two plans settle it,

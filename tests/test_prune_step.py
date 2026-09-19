@@ -590,6 +590,49 @@ class MigrateImportCheckTests(unittest.TestCase):
         hcp_branch = self.step.split("# HCP mode: local terraform plan", 1)[1]
         self.assertIn("generated*.tf", hcp_branch)
 
+    def test_the_step_declares_itself_tri_state(self) -> None:
+        """Without it, the `?` row in status.md's table can never be reached."""
+        self.assertIn("tri_state: true", self.step)
+
+    def test_a_github_outage_is_unknown_not_unfinished(self) -> None:
+        """`gh help exit-codes`: 1 is any failure, 4 is auth — neither is evidence.
+
+        Run the object-storage branch with a `gh` that always fails, and assert
+        it reports "cannot verify" rather than routing to corrective work.
+        """
+        body = literal_check(self.step)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "bin").mkdir()
+            stub = root / "bin/gh"
+            stub.write_text("#!/bin/sh\nexit 4\n", encoding="utf-8")
+            stub.chmod(0o755)
+            leaf = root / "terraform/cloudflare"
+            leaf.mkdir(parents=True)
+            (leaf / "generated.tf").write_text("# adopted\n", encoding="utf-8")
+            env = {
+                **os.environ,
+                "PATH": f"{root / 'bin'}:{os.environ['PATH']}",
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_SYSTEM": "/dev/null",
+                "HOME": str(root),
+                "GIT_AUTHOR_NAME": "t",
+                "GIT_AUTHOR_EMAIL": "t@example.invalid",
+                "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@example.invalid",
+                "BACKEND": "object-storage",
+                "REPO": "o/r",
+            }
+            for cmd in (["git", "init", "-q"], ["git", "add", "-A"],
+                        ["git", "commit", "-qm", "init"]):
+                subprocess.run(cmd, cwd=root, env=env, check=True)
+            result = subprocess.run(
+                ["/bin/sh", "-c", body], cwd=root, env=env,
+                capture_output=True, text=True,
+            )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("cannot verify", result.stderr)
+
     def test_generated_file_evidence_is_a_glob(self) -> None:
         """A real adoption splits cf-terraforming output by zone and resource type."""
         self.assertIn("terraform/cloudflare/generated*.tf", self.step)

@@ -31,6 +31,14 @@
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
   `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
+- `migrate-import` is tri-state: a `gh` failure — an outage, an expired login (`gh` exits
+  4), an unreadable log — now exits 2 (`?`) instead of 1, so an absence of evidence stops
+  being reported as an unfinished import.
+- The phase-5 completion predicate reads the leaf holding the blocks rather than always
+  Cloudflare, so an applied HCP GitHub import is no longer unrepresentable.
+- The runbook's discovery matches `import /* … */ {` headers, which the scanner already
+  counted, and the object-storage plan pair no longer asks for a before-plan the shipped
+  workflow cannot produce on an unchanged revision.
 - `prune-spent-imports` scans exactly what the runbook discovers — a leaf's root-level
   files — so a nested `terraform/<leaf>/modules/...` tree no longer holds phase 5 red with
   nothing the runbook will offer as a candidate.

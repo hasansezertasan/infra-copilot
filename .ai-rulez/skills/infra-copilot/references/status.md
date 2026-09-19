@@ -189,10 +189,15 @@ preflight — is in
    do not send the user to the Cloudflare import flow because a GitHub `moved` block is
    waiting to be pruned. Judge each leaf's evidence from that leaf.
 
-   Infer *done* from committed state plus the latest run for the current revision:
-   a committed `terraform/cloudflare/generated*.tf` exists — cf-terraforming output is
-   split by zone and resource type, so match the glob rather than a single
-   `generated.tf` — **and** that run either carries status `applied` — it executed its
+   Infer *done* from committed state plus the latest run for the current revision, **read
+   against the leaf holding the blocks, not against Cloudflare**. The committed evidence is
+   that leaf's adoption HCL: for `terraform/cloudflare` it is `generated*.tf` — cf-terraforming
+   output is split by zone and resource type, so match the glob rather than a single
+   `generated.tf` — and for a GitHub or additional-provider leaf it is whatever that
+   adoption wrote, since nothing generates a fixed filename there. The run is that leaf's
+   own workspace run. Requiring Cloudflare's generator output would report a correctly
+   applied HCP GitHub import as unfinished, which is the same leaf-blindness the routing
+   rule above exists to prevent. Then that run either carries status `applied` — it executed its
    plan, imports included — or its plan summary reports `imports: 0` **with `creates: 0`
    and `destroys: 0`**. Read the summary with the plan-summary helper in
    [`docs/hcp-api.md`](docs/hcp-api.md).

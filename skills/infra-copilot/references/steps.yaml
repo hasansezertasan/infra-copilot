@@ -1150,6 +1150,7 @@ steps:
     phase: 5
     provider: cloudflare
     actor: AGENT
+    tri_state: true   # exit 2 = could not verify; see protocol.md
     title: Generate HCL + import blocks, verify plan imports (not creates)
     why: Bring existing zone/records under management without recreating them.
     run: |
@@ -1183,10 +1184,22 @@ steps:
         [ -n "$target_sha" ] || exit 1
         # Get the newest run on the current branch (workflow_dispatch runs at HEAD, not target_sha)
         branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)
+        # gh's own status, separately from what it returned: `gh help exit-codes` gives 1
+        # for any failure and 4 for authentication, so an outage or an expired login is
+        # indistinguishable from "no run" unless the code is read. Reporting either as a
+        # failed step would route someone to corrective work on no evidence at all.
         run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --branch "$branch" --limit 10 \
           --json databaseId,conclusion,event,headSha \
           -q '[.[] | select(.event=="pull_request" or .event=="workflow_dispatch")][0]' 2>/dev/null)
-        [ -n "$run_info" ] || exit 1
+        gh_rc=$?
+        [ "$gh_rc" -eq 0 ] || {
+          echo "gh run list failed (exit $gh_rc) - cannot verify the plan" >&2
+          exit 2
+        }
+        [ -n "$run_info" ] || {
+          echo "no plan run for this branch - cannot verify the plan" >&2
+          exit 2
+        }
         run_id=$(printf '%s' "$run_info" | jq -r '.databaseId')
         run_sha=$(printf '%s' "$run_info" | jq -r '.headSha')
         conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion')
@@ -1196,9 +1209,22 @@ steps:
         # Get the job ID for plan-cloudflare
         job_id=$(gh run view "$run_id" --repo "$REPO" --json jobs \
           -q '.jobs[] | select(.name=="plan-cloudflare" and .conclusion=="success") | .databaseId' 2>/dev/null)
-        [ -n "$job_id" ] || exit 1
+        gh_rc=$?
+        [ "$gh_rc" -eq 0 ] || {
+          echo "gh run view failed (exit $gh_rc) - cannot verify the plan" >&2
+          exit 2
+        }
+        [ -n "$job_id" ] || {
+          echo "no successful plan-cloudflare job in run $run_id - cannot verify" >&2
+          exit 2
+        }
         # Get logs for the specific job (avoids parsing issues with full run logs)
         job_logs=$(gh run view "$run_id" --repo "$REPO" --job "$job_id" --log 2>/dev/null)
+        gh_rc=$?
+        [ "$gh_rc" -eq 0 ] && [ -n "$job_logs" ] || {
+          echo "could not read the plan log (gh exit $gh_rc) - cannot verify" >&2
+          exit 2
+        }
         # Completion predicate:
         # - Reject if plan creates or destroys resources (import must be additive-only)
         # - Accept if 'will be imported' (pending) OR 'No changes' (done - post-apply no-op)
@@ -1237,6 +1263,11 @@ steps:
             --status success --limit 100 \
             --json databaseId,conclusion,headSha \
             -q '[.[] | select(.conclusion=="success")]' 2>/dev/null)
+          gh_rc=$?
+          [ "$gh_rc" -eq 0 ] || {
+            echo "gh run list failed (exit $gh_rc) - cannot verify the apply" >&2
+            exit 2
+          }
           found_valid_apply=false
           for apply_run in $(printf '%s' "$apply_runs" | jq -r '.[] | @base64'); do
             apply_sha=$(printf '%s' "$apply_run" | base64 -d | jq -r '.headSha')
