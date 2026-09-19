@@ -35,7 +35,7 @@ file is safe to edit. The manifest is the authority; the header is only a conven
 | Codex marketplace | `.agents/plugins/marketplace.json` | hand-authored — edit directly |
 | Repository validators | `scripts/validate.py`, `tests/` | `make check` |
 | The SessionStart hook | `hooks/session-start.sh`, `hooks/hooks.json` | hand-authored — `ai-rulez` has no hook support |
-| Tool pins | `Makefile` + `README.md` together | `make check` |
+| Tool pins | `package.json` + `package-lock.json`; a *new* tool also needs `TOOL_PACKAGES`. Never write `<tool>@<version>` in a `Makefile` or workflow, comments included | `make check` |
 
 ## Rule 2: run `make check`
 
@@ -74,5 +74,5 @@ assumed: every run re-derives it by executing each step's `check`.
   written for — a skill body must never name a host's tool; it reads the record instead.
   Change a capability there, not in an adapter.
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full loop and
+See [`CONTRIBUTING.md`](.github/CONTRIBUTING.md) for the full loop and
 [`docs/roadmap.md`](docs/roadmap.md) for what is deliberately unbuilt.

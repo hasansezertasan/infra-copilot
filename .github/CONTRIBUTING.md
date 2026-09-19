@@ -46,7 +46,7 @@ Hand-authored, and safe to edit directly:
 | `scripts/validate.py`, `tests/` | The repository's own validators |
 | `hooks/` | The SessionStart hook; `ai-rulez` has no hook support, so these are hand-authored |
 | `Makefile`, `.github/workflows/` | Build and CI |
-| `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`, `docs/` | Documentation |
+| `README.md`, `CHANGELOG.md`, `.github/CONTRIBUTING.md`, `AGENTS.md`, `docs/` | Documentation |
 
 ## The loop
 
@@ -76,12 +76,16 @@ Generated files are committed on purpose, so users can install the plugin withou
 | `make smoke-opencode` | installs a throwaway copy of the tree and asserts the OpenCode payload |
 | `make check-all` | `check` plus the smoke test |
 | `make clean` | removes `.agents/skills`, `skills-lock.json`, `__pycache__` |
-| `make preflight` | checks `node`, `npx` and `python3` are present |
+| `make preflight` | checks `node`, `npm` and `python3` are present |
 | `make release` | regenerates, verifies the worktree is clean, runs `check-all`, prints the tag command |
 
-`smoke-opencode` is outside `check` on purpose: it downloads the `skills` installer, and
-on one run the tests took 65 seconds while that download took 421. It is a separate CI
-job, so a slow registry never gates validation, but it still blocks the merge.
+`smoke-opencode` is outside `check` on purpose: installing the plugin is a different
+claim from the payloads being valid, so it is a separate CI job with its own signal, and
+it still blocks the merge. It used to be separated for cost — `npx --yes skills@…`
+resolved the installer on every run, 421 seconds against 65 for the tests — but `skills`
+is pure JavaScript, and `npm ci` now installs it with the rest of the locked closure from
+a cache every job shares. `ai-rulez` is the exception: its launcher pulls a ~16MB Go
+binary from GitHub releases the first time each job runs it, which no npm cache holds.
 
 `make smoke-opencode` runs against a copy of the working tree in a temp directory, so it
 writes nothing into your checkout. That is deliberate: `skills add --copy` produces
@@ -129,20 +133,34 @@ difference is whether the resource already exists at the provider.
 
 ## Tool versions
 
-`Makefile` is the **only** definition of the versions this repository invokes
-(`AI_RULEZ_VERSION`, `SKILLS_VERSION`). `scripts/validate.py` asserts that `README.md`
-documents the same versions, and rejects any workflow that reintroduces its own pin.
+`package.json` is the **only** definition of the versions this repository invokes. The
+`Makefile` runs `node_modules/.bin/<tool>`, so it names tools and never versions;
+`scripts/validate.py` asserts every tool it runs resolves from `devDependencies`, and
+rejects any `Makefile` or workflow that reintroduces a `<tool>@<version>` of its own.
 
-Bump them in the `Makefile` and update the README in the same commit.
+Bump with `npm install <tool>@<version> --save-exact --save-dev` and commit
+`package-lock.json` alongside. Renovate's native npm manager does the same, so an
+existing entry stays current with no configuration.
+
+`scripts/validate.py` scans those two files whole, comments included, so prose in
+them may not spell a pin either — write `ai-rulez 4.11.3`, not `ai-rulez@4.11.3`, and
+name a tool's path as `node_modules/.bin/<tool>` rather than reaching into a package.
+Deciding which text was a comment meant deciding where a shell comment begins, and that
+question has a whole grammar behind it; not asking it is cheaper than answering it, and
+no comment here needs the `@`.
+
+Adding a *new* tool takes one more edit: `TOOL_PACKAGES` in `scripts/validate.py`, which
+lists the same three packages. The duplication is deliberate — it is what makes deleting
+a tool from `devDependencies` fail instead of silently shrinking what the validator
+guards (the #22 failure) — so `make check` rejects a manifest entry it does not know, and
+says so by name. Renovate needs no such edit; this is only the repository's own check.
 
 ## Releasing
 
 `make release` regenerates the host packages, refuses to continue if generation left the
 worktree dirty, runs **`check-all`**, and prints the tag command. `check-all` rather than
 `check` because it includes the OpenCode smoke test that `release.yml` runs — so a green
-`make release` means the release workflow will not fail on it. That test downloads the
-`skills` installer, so `make release` needs network and can take minutes when the registry
-is slow.
+`make release` means the release workflow will not fail on it.
 
 It does not bump anything — the bump is one edit to `[plugin].version` in
 `.ai-rulez/config.toml`, after which `ai-rulez` propagates it to the three generated

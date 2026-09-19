@@ -14,8 +14,8 @@
 # them from language stats, so a review shows the .ai-rulez/ source change
 # rather than the same edit repeated across every host package.
 # Edit .ai-rulez/ — never these.
-# These four patterns cover exactly the 28 paths in .ai-rulez-generated.json
-# (21 + 4 + 2 + 1). The manifest itself is generated too, but cannot list itself.
+# These four patterns cover exactly the 37 paths in .ai-rulez-generated.json
+# (30 + 4 + 2 + 1). The manifest itself is generated too, but cannot list itself.
 skills/**                linguist-generated=true
 commands/**              linguist-generated=true
 .claude-plugin/**        linguist-generated=true
