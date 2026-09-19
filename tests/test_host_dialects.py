@@ -598,6 +598,25 @@ class HookCommandTests(unittest.TestCase):
                 's="${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"; '
                 '[ -f "$s" ] && exit 0; sh "$s"',
             ),
+            (
+                "inverted guard",
+                's="${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"; '
+                '[ ! -f "$s" ] || exit 0; sh "$s"',
+            ),
+            (
+                "guard on an unrelated path",
+                's="${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"; '
+                '[ -f /etc/passwd ] || exit 0; sh "$s"',
+            ),
+            (
+                "adapter-owned trailing command",
+                'sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"; touch /tmp/x',
+            ),
+            (
+                "two invocations",
+                'sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"; '
+                'sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"',
+            ),
         ):
             with self.subTest(form=label):
                 self.assertFalse(_runs_implementation(command), command)
@@ -1019,7 +1038,9 @@ class SixthRoundTests(unittest.TestCase):
         entry["hooks"].append(json.loads(json.dumps(entry["hooks"][0])))
         path.write_text(json.dumps(payload), encoding="utf-8")
         self.assertTrue(
-            any("same callback twice" in e for e in validate_host_dialects(root))
+            any("callbacks" in e for e in validate_host_dialects(root)),
+            "one announcement is the contract, so a second callback is rejected "
+            "whether or not it is identical",
         )
 
     def test_a_malformed_numeric_escape_is_rejected(self) -> None:
@@ -1085,6 +1106,97 @@ class HeaderCardinalityTests(unittest.TestCase):
         document.write_text("".join(lines), encoding="utf-8")
         self.assertTrue(
             any("repeats the column" in e for e in validate_host_dialects(root))
+        )
+
+
+class SeventhRoundTests(unittest.TestCase):
+    """Shapes that survived the previous round's boundaries."""
+
+    def _root(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_root(directory.name)
+
+    def test_an_indented_line_outside_tools_is_rejected(self) -> None:
+        """`tools` is the only structured field this contract has, so indentation
+        anywhere else is invalid YAML and the host discovers no agent."""
+        root = self._root()
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "name: infra-auditor", "name: infra-auditor\n  garbage: true", 1
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("indented under" in e for e in validate_host_dialects(root)))
+
+    def test_a_second_callback_is_rejected_however_it_differs(self) -> None:
+        """One announcement is the contract; two callbacks differing only by name
+        both run."""
+        root = self._root()
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        entry = payload["hooks"]["SessionStart"][0]
+        extra = json.loads(json.dumps(entry["hooks"][0]))
+        extra["name"] = "another"
+        entry["hooks"].append(extra)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertTrue(any("callbacks" in e for e in validate_host_dialects(root)))
+
+    def test_any_relative_runbook_path_is_rejected(self) -> None:
+        """`references/status.md` resolves into the consumer exactly as the longer
+        spelling does."""
+        root = self._root()
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "`status.md`, `protocol.md`, and `steps.yaml`.", "`references/status.md`.", 1
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("relative runbook path" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_non_string_matcher_is_rejected(self) -> None:
+        """str() erased the type, so a numeric matcher compared equal to its
+        textual spelling."""
+        for value in (123, None, True):
+            with self.subTest(matcher=value):
+                root = self._root()
+                path = root / HOOK_PATH
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                payload["hooks"]["SessionStart"][0]["matcher"] = value
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                self.assertTrue(
+                    any("not a string" in e for e in validate_host_dialects(root))
+                )
+
+    def test_a_dialect_without_a_skill_loader_cannot_ship(self) -> None:
+        """The manifest's first instruction is to load the runbook by name, and
+        no tool in the YAML-list grant can do it."""
+        root = self._root()
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8")
+            .replace("| Antigravity | `agents/` | YAML list |", "| Antigravity | `elsewhere/` | YAML list |", 1)
+            .replace(
+                "`run_command` | not recorded | no — path collision |",
+                "`run_command` | `agy_task` | **yes** |",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        shipped = root / "elsewhere"
+        shipped.mkdir()
+        (shipped / f"{AGENT_STEM}.md").write_text(
+            '---\nname: infra-auditor\ndescription: "Scan."\ntools:\n  - view_file\n'
+            "  - grep_search\n  - find_by_name\n  - run_command\n---\n"
+            "Invoke the `infra-copilot` skill, then follow status.md.\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("no skill-loading tool" in e for e in validate_host_dialects(root))
         )
 
 

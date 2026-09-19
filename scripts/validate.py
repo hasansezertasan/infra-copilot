@@ -1509,7 +1509,12 @@ MATCHER_PIPE = "{pipe}"
 AGENT_REQUIRED_TOOLS = {
     "comma string": ("Skill", "Bash"),
     "bool map": ("skill", "bash"),
-    "YAML list": ("run_command",),
+    # No skill-loading tool is recorded for this dialect, and the manifest's first
+    # instruction is to load the runbook by name. A row without one cannot ship:
+    # every delegated run would fail before reaching the scan. Recorded in
+    # hosts.md as one of the reasons that row is unshipped; enforced here so the
+    # record cannot be flipped without the missing capability being established.
+    "YAML list": None,
     "none": (),
 }
 #: Tools that would make the read-only contract unstatable.
@@ -1548,7 +1553,10 @@ AGENT_NEGATOR = re.compile(
     r"\b(?:never|not|nor|avoid|don'?t|cannot|can'?t|refuse)\b[^.;:\n]{0,24}$",
     re.IGNORECASE,
 )
-AGENT_FORBIDDEN_PATH = "skills/infra-copilot/references/"
+#: Any relative path to the runbook, not one spelling. The agent's working
+#: directory is the consuming repository, so `references/status.md` resolves
+#: there just as `skills/infra-copilot/references/status.md` does.
+AGENT_FORBIDDEN_PATH = re.compile(r"(?<![\w/])[\w.-]+(?:/[\w.-]+)*/status\.md")
 #: An adapter budget, in the spirit of MAX_DESCRIPTION_BUDGET: the runbook owns
 #: scope, guardrails and the report contract, and a manifest with room to restate
 #: them will.
@@ -1608,75 +1616,78 @@ def _expand(word: str, variables: dict[str, str]) -> str:
     return re.sub(r"\$\{?([A-Za-z_]\w*)([^}]*)\}?", substitute, word)
 
 
+#: A statement the walker recognises as harmless scaffolding around the one
+#: invocation: a variable assignment, a test, or a terminal.
+HOOK_TEST = re.compile(r"\A(?:\[|test\b)")
+HOOK_TERMINAL = re.compile(r"\A(?:exit|return|exec)\b")
+#: A positive existence test, which is the only guard shape the shipped manifests
+#: use and the only one whose relationship to the operand is decidable here.
+HOOK_POSITIVE_TEST = re.compile(r"\A\[\s+-[a-z]+\s+(\S+)\s*\]\Z|\Atest\s+-[a-z]+\s+(\S+)\Z")
+
+
 def _runs_implementation(command: str, rooted: bool = False) -> bool:
-    """Whether ``command`` actually executes the shared hook script.
+    """Whether ``command`` runs the shared hook script, and nothing else.
 
-    A regex over the whole string was defeated four times -- `echo sh <path>`,
-    `x=<path>; sh -c true`, `sh -c 'echo "$s"'`, and reassigning the variable
-    after it was set. Each patch matched one more spelling of "the path and a
-    shell both appear somewhere". So this walks the statements in order instead,
-    tracking assignments, and asks the only question that matters: is the script
-    the operand the shell is given?
+    The whole command is inspected, not just up to the first match: a callback
+    is the adapter's only chance to add behaviour, and `sh <impl>; touch /tmp/x`
+    used to pass because the walker returned as soon as it recognised the
+    invocation.
 
-    ponytail: a statement walker with single-level expansion, not a shell parser.
-    It models what these manifests contain -- assignments, tests, and one shell
-    invocation -- and refuses anything it cannot follow, which is the safe
-    direction for a gate. Command substitution, functions and eval are not
-    modelled and will simply fail the check.
+    Accepted shape: assignments, positive existence tests guarding `|| exit`,
+    and exactly one shell invocation whose operand is the recorded
+    implementation. Anything else -- another command, an inverted guard, a
+    terminal that is not guarded that way -- fails.
+
+    ponytail: a statement walker over the one command shape these manifests use,
+    not a shell parser. It refuses what it cannot follow, which is the safe
+    direction for a gate; command substitution, functions and eval are not
+    modelled and fail.
     """
     variables: dict[str, str] = {}
-    unreachable = False
-    # Operators are kept, not discarded: `exit 0; sh <path>` never reaches the
-    # shell, and `false && sh <path>` reaches it only on a condition that is not
-    # the manifest's to assume. A statement counts only when it is sequenced
-    # unconditionally after everything before it.
     parts = re.split(r"(\|\||&&|[;&|\n])", command)
-    preceding = None
+    invocations = 0
     previous = ""
+    preceding = None
     for index in range(0, len(parts), 2):
         statement = parts[index].strip()
-        operator = parts[index - 1].strip() if index else None
         if index:
-            preceding = operator
+            preceding = parts[index - 1].strip()
         if not statement:
             continue
         last, previous = previous, statement
-        sequenced = preceding in (None, ";", "")
-        if re.match(r"\A(?:exit|return|exec)\b", statement):
-            # Unconditional, or guarded by something that is not a test. The
-            # shipped form's `[ -f "$s" ] || exit 0` is a real guard; `false ||
-            # exit 0` always exits, and the walker treated both as skippable.
-            # Distinguishing them means asking whether the guard is a test, which
-            # is the only part of the condition that is decidable here.
-            if preceding != "||" or not HOOK_GUARD.match(last):
-                unreachable = True
+        if HOOK_TERMINAL.match(statement):
+            # A terminal is tolerable only as `<positive test on the operand> ||
+            # exit`: that runs when the script is missing. `&& exit` runs when it
+            # is present, and `[ ! -f "$s" ] || exit` inverts the condition so the
+            # exit fires exactly when the script is there.
+            guard = HOOK_POSITIVE_TEST.match(last) if preceding == "||" else None
+            if guard is None:
+                return False
+            # The guard must be about the things this command resolves: the
+            # plugin root, or the script itself. The shipped form tests both --
+            # `[ -n "$r" ] || exit 0` then `[ -f "$s" ] || exit 0`.
+            target = _expand(guard.group(1) or guard.group(2), variables)
+            if not (HOOK_OPERAND.match(target) or target == HOOK_ROOT_SENTINEL):
+                return False
             continue
         assignment = re.match(r"\A([A-Za-z_]\w*)=(.*)\Z", statement)
         if assignment:
-            # Order matters: a later assignment replaces an earlier one, which is
-            # how `s=<path>; s=/bin/true; sh "$s"` used to pass.
             variables[assignment.group(1)] = _expand(assignment.group(2), variables)
             continue
-        if not HOOK_SHELL.match(statement) or unreachable or not sequenced:
+        if HOOK_TEST.match(statement):
             continue
+        if not HOOK_SHELL.match(statement):
+            return False  # adapter-owned behaviour beside the shared implementation
         arguments = statement.split()[1:]
-        if any(argument.startswith("-") for argument in arguments):
-            # `sh -c ...` runs a command string, not a script file. The shipped
-            # manifests pass the script directly, so any flag means this is not
-            # the invocation being claimed.
-            continue
-        if not arguments:
-            continue
+        if any(argument.startswith("-") for argument in arguments) or not arguments:
+            return False
         operand = _expand(arguments[0], variables)
         if not HOOK_OPERAND.match(operand):
-            continue
-        # A bare relative path is resolved against the *consuming* repository at
-        # run time, so it runs a consumer-owned script or nothing at all. A
-        # manifest that claims the shared implementation has to be rooted.
+            return False
         if rooted and not operand.startswith(HOOK_ROOT_SENTINEL):
-            continue
-        return True
-    return False
+            return False
+        invocations += 1
+    return invocations == 1
 
 
 def dialect_headers(root: Path = ROOT, heading: str = "") -> list[str]:
@@ -2008,7 +2019,15 @@ def _check_agent(relative: str, text: str, row: dict[str, str], render, dialect:
                 f"{relative}: frontmatter tools {declared[0].strip()!r} != {render(names)!r} "
                 f"as {HOSTS_DOCUMENT} records it; a wrong dialect fails silently"
             )
-        for required in AGENT_REQUIRED_TOOLS.get(dialect, ()):
+        capabilities = AGENT_REQUIRED_TOOLS.get(dialect, ())
+        if capabilities is None:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: the {dialect!r} dialect records no skill-loading "
+                "tool, so a shipped agent could never load the runbook it is told to; "
+                "establish one and record it before marking this row shipped"
+            )
+            capabilities = ()
+        for required in capabilities:
             if required not in names:
                 errors.append(
                     f"{HOSTS_DOCUMENT}: the shipped subagent row omits {required!r}; the "
@@ -2088,8 +2107,16 @@ def _frontmatter_defect(body: str, dialect: str = "") -> str | None:
         return 'unbalanced " quote'
     seen: list[str] = []
     for number, line in enumerate(body.splitlines(), start=1):
-        if not line.strip() or line.lstrip().startswith(("#", "-")) or line[:1].isspace():
+        if not line.strip() or line.lstrip().startswith("#"):
             continue
+        if line[:1].isspace() or line.lstrip().startswith("-"):
+            # Indentation is legal only under `tools`, the one structured field
+            # this contract has. Treating every indented line as a continuation
+            # accepted `  garbage: true` under a scalar, which is invalid YAML
+            # there and leaves the host discovering no agent at all.
+            if seen and seen[-1] == "tools":
+                continue
+            return f"line {number} is indented under {seen[-1] if seen else 'nothing'!r}"
         key = re.match(r"\A([A-Za-z_][\w.-]*):(?:\s|\Z)", line)
         if key is None:
             return f"line {number} is neither a comment, a continuation, nor a key"
@@ -2149,10 +2176,11 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
             f"{relative}: carries no un-negated instruction to follow "
             f"{AGENT_RUNBOOK[1]!r}; naming the runbook is not delegating to it"
         )
-    if AGENT_FORBIDDEN_PATH in text:
+    if found := AGENT_FORBIDDEN_PATH.search(text):
         errors.append(
-            f"{relative}: carries the repo-relative path {AGENT_FORBIDDEN_PATH!r}, which "
-            "resolves into the consuming repository rather than the plugin payload"
+            f"{relative}: carries the relative runbook path {found.group(0)!r}, which "
+            "resolves into the consuming repository rather than the plugin payload; "
+            "load the skill by name instead"
         )
     if len(text.splitlines()) > AGENT_MAX_LINES:
         errors.append(
@@ -2190,7 +2218,15 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
             "no siblings of 'hooks' -- Antigravity counts each one as a hook"
         )
     recorded = row["Matcher"].strip("`").replace(MATCHER_PIPE, "|")
-    matchers = [str(entry.get("matcher")) for entry in entries if isinstance(entry, dict)]
+    typed = [entry.get("matcher") for entry in entries if isinstance(entry, dict)]
+    if any(not isinstance(matcher, str) for matcher in typed):
+        # str() erased the type, so a numeric or null matcher compared equal to
+        # its textual spelling and the host would have no pattern to match on.
+        return errors + [
+            f"{relative}: a SessionStart matcher is not a string "
+            f"({[type(m).__name__ for m in typed]})"
+        ]
+    matchers = list(typed)
     if len(matchers) != len(set(matchers)):
         # A set collapsed duplicates, and each copy then passed independently, so
         # the host registered the same command twice and announced twice.
@@ -2251,11 +2287,12 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
                 f"{HOOK_IMPLEMENTATION}, rooted at the host's recorded variable, to a "
                 "shell; a bare relative path resolves against the consuming repository"
             )
-        rendered = [json.dumps(callback, sort_keys=True) for callback in callbacks]
-        if len(rendered) != len(set(rendered)):
+        if len(callbacks) > 1:
+            # Distinctness is not the contract -- one announcement is. Two
+            # callbacks differing only by name or timeout both run.
             errors.append(
-                f"{relative}: a SessionStart entry declares the same callback twice; "
-                "both are registered, so the announcement fires twice"
+                f"{relative}: a SessionStart entry declares {len(callbacks)} callbacks; "
+                "each one runs, so the announcement fires more than once"
             )
         if any(callback.get("type") != "command" for callback in callbacks):
             errors.append(
