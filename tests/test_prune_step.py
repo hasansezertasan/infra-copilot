@@ -248,17 +248,45 @@ class PruneStepTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
 
-    def test_a_commented_out_block_is_reported(self) -> None:
-        """The accepted ceiling, and the harmless direction.
+    def test_a_commented_out_block_is_not_reported(self) -> None:
+        """Deliberate reversal: commented-out HCL is a comment.
 
-        A spent block commented out rather than deleted is still something to
-        clean up, so reporting it is arguably right rather than merely tolerable.
+        This reported for several rounds, as the price of not tracking `/* */`
+        regions — which was unsafe only because `target = "example.com/*"` looked
+        like a comment opener. Once `scan()` knows a `/*` inside a string is not
+        one, the regions can be tracked and this reads correctly.
         """
         result = self._run(
             {
                 "terraform/cloudflare/dns.tf": (
                     "/*\nimport {\n  to = a.b\n  id = \"x\"\n}\n*/\n"
                     'resource "cloudflare_dns_record" "a" {\n  name = "a"\n}\n'
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_heredoc_after_a_conditional_still_opens(self) -> None:
+        """`var.enabled ? <<EOT` — no allow-list of preceding characters any more."""
+        result = self._run(
+            {
+                "terraform/cloudflare/a.tf": (
+                    'resource "cloudflare_worker_script" "w" {\n'
+                    "  content = var.enabled ? <<EOT\n"
+                    'import {\n  handler,\n} from "./m.js"\n'
+                    'EOT\n  : ""\n}\n'
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_heredoc_marker_in_a_free_standing_comment_opens_nothing(self) -> None:
+        """An illustrative `x = <<EOT` in a comment must not swallow the file."""
+        result = self._run(
+            {
+                "terraform/cloudflare/b.tf": (
+                    "/*\n  x = <<EOT\n  illustrative, never terminated\n*/\n\n"
+                    "import {\n  to = cloudflare_dns_record.www\n  id = \"abc\"\n}\n"
                 ),
             }
         )

@@ -1344,74 +1344,43 @@ steps:
       git --no-optional-locks rev-parse --git-dir >/dev/null 2>&1 || exit 2
       # A repository with no commits yet: nothing CAN be committed, so nothing is left.
       git --no-optional-locks rev-parse --verify --quiet HEAD >/dev/null || exit 0
-      # Structure is parsed, not pattern-matched. Seven review rounds of regex trades --
-      # a block comment matching, an inline comment after `{` not matching, JSON at four
-      # spaces missed, minified JSON missed, a nested `locals` key matching, a multiline
-      # JavaScript `import {` in a heredoc matching -- were all one defect: a line regex
-      # cannot see whether a line is inside a heredoc, a comment, or an object. So each
-      # candidate blob is read once: `jq` decides JSON, and an awk pass that skips heredoc
-      # bodies and comments decides HCL. Both surfaces, because phase 6 already accepts
-      # `*.tf.json` as leaf configuration.
+      # Structure is parsed, not pattern-matched: each committed blob is read once, `jq`
+      # decides JSON and a single string-aware awk pass decides HCL. Both surfaces,
+      # because phase 6 already accepts `*.tf.json` as leaf configuration.
       #
-      # The awk pass strips CR first (a consuming repo need not normalize line endings,
-      # and a trailing \r defeats both the opener match and the terminator match), then
-      # line comments, and only then looks for a heredoc opener -- anchored at end of
-      # line, because HCL requires the body to start on the next one. That anchor is what
-      # keeps `# Example: <<EOF` and `cmd = "cat <<EOF"` from opening a phantom heredoc
-      # that swallows the rest of the file.
+      # ONE primitive does the work: knowing whether a position is inside a quoted string.
+      # Seven review rounds were spent adding special cases instead -- an end-of-line
+      # anchor, a comment strip, an expression-position allow-list of `= ( , : [`, a
+      # bounded header-comment state, and a rule against tracking /* */ at all -- and each
+      # one was correct in isolation while the next context kept arriving: `#` inside a
+      # string, `//` inside a string, `/*` inside `target = "example.com/*"`, `<<EOF`
+      # inside `"cat <<EOF"`, a heredoc after `?`. They are all the same question. `scan()`
+      # answers it once, and every one of those special cases is gone: no allow-list (so a
+      # conditional arm opens a heredoc like any other expression), and /* */ is tracked
+      # generally again (safe now, because a `/*` inside a string is not a comment).
       #
-      # /* */ is handled in two bounded places, never as a general region. Within a line
-      # it is stripped outright, so `import /* see #123 */ {` matches. Across lines it is
-      # followed ONLY from a line already shaped like a header -- `^(import|moved)[ \t]*/\*`
-      # -- via `hdr`, because HCL admits exactly one cross-line header form. Verified
-      # against terraform 1.16.1 fmt: `import` with `{` on the next line is rejected, and
-      # so is a comment on its own line between them, while `import /* a\n b */ {` is
-      # valid. So the keyword and the `/*` always share a line, and that entry condition
-      # is complete for the grammar rather than a guess.
+      # Consequence worth stating: dead HCL inside /* */ is a comment, so it is NOT
+      # reported. That is a deliberate reversal -- it used to report, as the price of not
+      # tracking regions -- and it is the correct reading of the file.
       #
-      # What is deliberately NOT done is a general region: `c=1` on any `/*` lasted one
-      # round and cost more than it bought, because an unquoted `/*` search cannot tell a
-      # comment opener from an ordinary Cloudflare value (`target = "example.com/*"` is
-      # the canonical page-rule glob) and one of those silently discarded every line
-      # after it, block included. `hdr` cannot do that: no assignment line can enter it.
-      # So dead HCL inside a free-standing multi-line /* */ still reports as a leftover --
-      # the harmless direction, and arguably the right one, since a spent block commented
-      # out rather than deleted is still cleanup.
+      # Facts measured against terraform, not assumed, because the docs mislead on two:
+      #   - the delimiter grammar is `[A-Za-z_][A-Za-z0-9_-]*`: `<<END-JSON` is valid,
+      #     `<<END.JSON` and `<<1EOT` are rejected (1.16.1), and `checks/leaf-cloud.sh`
+      #     already accepts the same class;
+      #   - an indented terminator ends BOTH `<<EOT` and `<<-EOT`, so the trim is
+      #     unconditional: a plain `<<EOT` body holding an indented `EOT` plus more text
+      #     fails to parse with the error ON the following text (1.15.9 and 1.16.1);
+      #   - a heredoc tag is never quoted -- `<<"EOT"` is shell, not HCL.
       #
-      # The heredoc tag is unquoted by spec -- Terraform's heredoc is `<<` or `<<-` plus a
-      # bare identifier, never `<<"EOT"`. Allowing an optional quote there was borrowed
-      # from shell, and it let `command = "cat <<EOF"` match on its closing quote and
-      # swallow the rest of the file.
-      #
-      # The opener must also sit in an EXPRESSION position -- preceded by one of = ( , : [
-      # -- which is what keeps comment stripping from manufacturing one. `command = "cat
-      # <<EOF#"` is valid HCL whose `#` strip leaves a line ending in a bare `<<EOF`; the
-      # `cat ` in front of it is not an expression position, so it opens nothing. Those
-      # five characters were measured against terraform 1.16.1 fmt, not guessed: an opener
-      # is legal after `=`, inside a call `(`, after `,` in arguments, after `[` in a
-      # tuple, and after `:` in an object. The residual is a string whose own text reads
-      # like an assignment to a heredoc (`"x = <<EOF#"`); tracking that needs within-line
-      # quote state, which is the lexer this check is not, and the direction is harmless.
-      #
-      # The delimiter grammar is `[A-Za-z_][A-Za-z0-9_-]*` -- hyphens included, which
-      # `checks/leaf-cloud.sh` already accepts and `tests/test_new_provider_flow.py` uses
-      # as a decoy. Measured against terraform 1.16.1: `<<END-JSON` is valid, `<<END.JSON`
-      # and `<<1EOT` are rejected. Omitting the hyphen made a `<<END-JSON` body scan as
-      # HCL, so JavaScript in it reported as a live block.
-      #
-      # An indented terminator ends BOTH forms, so the trim is correct for `<<EOT` as well
-      # as `<<-EOT`. Measured, because the docs read the other way: with terraform 1.15.9
-      # and 1.16.1, a plain `<<EOT` body containing an indented `EOT` followed by more
-      # text fails to parse, and the error lands on the text AFTER the indented
-      # terminator -- so the heredoc ended there.
-      #
-      # ponytail: a scanner, not an HCL lexer, and it stops here deliberately. Nothing
-      # destructive hangs off this step -- it routes status, it does not gate a deletion.
-      # A false positive sends someone to a runbook that finds nothing; a false negative
-      # leaves inert blocks unflagged. The gate that matters is the plan pair in
-      # docs/prune.md, which Terraform itself evaluates. Reach for a real parser only if
-      # this ever gates something that writes -- and prefer deleting a rule to teaching
-      # this one about quoting.
+      # ponytail: a scanner, not an HCL parser, and the line is now a rule rather than a
+      # list. A finding of the form "marker X inside context Y" is answered by `scan()` or
+      # declined -- never by another special case, which is what turned this into seven
+      # rounds. Declining is cheap: nothing destructive hangs off this step. It routes
+      # status, it does not gate a deletion; a false positive sends someone to a runbook
+      # that finds nothing, a false negative leaves inert blocks unflagged. The gate that
+      # matters is the plan pair in docs/prune.md, which Terraform itself evaluates.
+      # Known residual: `"${f(a, "b")}"` nests quotes inside interpolation, which this
+      # counts naively. Reach for a real parser only if this ever gates something written.
       #
       # terraform/modules/ is excluded: one-shot blocks there are not this step's to call
       # leftover. Each consuming state reads them separately, so `moved` is the module's
@@ -1440,22 +1409,33 @@ steps:
       # An `import`/`moved` block opener, ignoring heredoc bodies and comments. HCL has no
       # nested one-shot blocks, so any surviving opener is top-level by definition.
       hcl_scan='
+        # One string-aware pass. `q` (in a string) resets per line -- HCL strings do not
+        # span lines; `c` (in a block comment) and `h` (in a heredoc) do not.
+        function scan(s,   i, n, ch, out) {
+          out = ""; n = length(s); i = 1
+          while (i <= n) {
+            ch = substr(s, i, 1)
+            if (c) { if (ch == "*" && substr(s, i+1, 1) == "/") { c = 0; i += 2; out = out " " }
+                     else i++
+                     continue }
+            if (q) { if (ch == "\\") { i += 2; continue }
+                     if (ch == "\"") { q = 0; out = out "\""; i++; continue }
+                     i++; continue }
+            if (ch == "\"") { q = 1; out = out "\""; i++; continue }
+            if (ch == "#") break
+            if (ch == "/" && substr(s, i+1, 1) == "/") break
+            if (ch == "/" && substr(s, i+1, 1) == "*") { c = 1; i += 2; out = out " "; continue }
+            out = out ch; i++ }
+          return out }
         { sub(/\r$/, "") }
         h != "" { t=$0; sub(/^[ \t]+/,"",t); sub(/[ \t]+$/,"",t); if (t == h) h=""; next }
-        { line=$0
-          if (hdr) { i = index(line, "*/"); if (i == 0) next
-                     line = "import " substr(line, i+2) }
-          while ((i = index(line, "/*")) > 0) {
-            rest = substr(line, i+2); j = index(rest, "*/")
-            if (j == 0) break
-            line = substr(line, 1, i-1) " " substr(rest, j+2) }
-          sub(/[#].*$/, "", line); sub(/\/\/.*$/, "", line)
-          if (line ~ /^[ \t]*(import|moved)[ \t]*\{[ \t]*$/) { f=1; exit }
-          if (line ~ /^[ \t]*(import|moved)[ \t]*\/\*/) { hdr=1; next }
-          hdr=0
-          if (match(line, /[=(,:[][ \t]*<<[-~]?[A-Za-z_][A-Za-z0-9_-]*[ \t]*$/)) {
-            m=substr(line, RSTART, RLENGTH)
-            sub(/^[=(,:[][ \t]*<<[-~]?/, "", m); sub(/[ \t]*$/, "", m); h=m } }
+        { q = 0; code = code scan($0)
+          if (c) next                     # comment still open: one logical line continues
+          if (code ~ /^[ \t]*(import|moved)[ \t]*\{[ \t]*$/) { f=1; exit }
+          if (match(code, /<<[-~]?[A-Za-z_][A-Za-z0-9_-]*[ \t]*$/)) {
+            m = substr(code, RSTART, RLENGTH)
+            sub(/^<<[-~]?/, "", m); sub(/[ \t]*$/, "", m); h = m }
+          code = "" }
         END { exit !f }'
       # Both lists are files, not shell strings: a literal newline inside a string -- or a
       # heredoc terminator, which must sit at column 0 -- dedents out of this YAML block

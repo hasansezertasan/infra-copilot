@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:320321ea300b6a9f4077c4d593e64b41549f80331fb31bb9aefa5b433070fb7f
-Source-Hash: blake3:34f51806a3ab41231dd6ecffd3cbbed2c6285483f7249f08c40fee55a0656a65
+Content-Hash: blake3:575696e99c3fcbb3d772c9217f09e0019d23718e7b05d3b9bfe8a60e07e84224
+Source-Hash: blake3:7bfda8f8cc78a8ac10d894a3051f644385db1b1467474089cb948caff867a5da
 Schema-Version: v1
 -->
 
@@ -155,24 +155,29 @@ preflight — is in
    `infra-copilot:prune`, the same blocks before one mean the import is unfinished.
 
    **That discriminator is backend-specific, and the run evidence below is HCP's.** In
-   object-storage mode there is no HCP run to read `status: applied` from, and
-   `migrate-import` returns 0 for *both* sides — a plan still saying `will be imported`
-   and a post-apply no-op — so its exit code cannot tell them apart and a pending import
-   would otherwise route to `prune`. Use the evidence that check already uses internally,
-   and correlate it with **the import commit, not with `HEAD`**: compute `target_sha`, the
-   newest commit touching that leaf, `terraform/modules`, `.infra-copilot/config.md` and
-   the mise pins, then look for a successful `terraform-apply.yml` run on `main` whose head
-   SHA **descends from `target_sha`** — `git merge-base --is-ancestor "$target_sha"
-   "$apply_sha"`. That run applied the import. No such run means it is unfinished, whatever
-   the plan says.
+   object-storage mode there is no HCP run to read `status: applied` from — but there is no
+   need to reconstruct one in prose either, because `migrate-import` is safe to run during
+   status in this mode (above) and its object-storage branch already does the whole
+   correlation: it reads the `plan-cloudflare` job log, and on a no-op plan it requires a
+   successful **`apply-cloudflare` job** — the leaf's own job, not merely a green run — in a
+   run this revision descends from. Run it, then read its outcome:
 
-   The direction matters and inverting it is the easy mistake: asking instead whether some
-   apply SHA is an ancestor of `HEAD` is satisfied by *any* earlier apply the repository has
-   ever run, so every repo with history would read as applied and every pending import would
-   route to `prune`. `gh run list --branch main --status success` filters branch and
-   outcome only — never whether the run contains the import commit — so the ancestry test is
-   what does the correlating, and it has to point from the commit to the run. Absent either,
-   the honest answer is `?`: route nowhere rather than guess.
+   | check | plan log | phase 5 |
+   |---|---|---|
+   | exit 0 | contains `will be imported` | **pending** — route to `infra-copilot:import` |
+   | exit 0 | no-op | **applied** — the apply job was verified to get here; route to `prune` |
+   | exit 1 | no-op | the apply has not landed — finish the import |
+   | exit 2 | — | `?`, route nowhere |
+
+   Do not re-derive that correlation here. An earlier version of this section did, and got
+   it wrong twice in one paragraph: it asked only whether the *run* was green, which a
+   GitHub-only run satisfies because `apply-cloudflare` is conditionally skipped; and it
+   correlated against `target_sha`, which the check's own comment rules out in as many
+   words — on a prune branch `target_sha` **is** the prune commit, so nothing can have
+   applied it before the merge, and every valid prune PR would read as an unfinished
+   import. The check tests `apply_sha` against `HEAD` instead, and is safe doing so because
+   the pending and premature-prune plans (`will be imported`, `will be created`) are both
+   rejected before that point. Two copies of this rule is one too many.
 
    **Route by the leaf the blocks are in.** `migrate-import` is Cloudflare-specific — it
    plans `terraform/cloudflare` and wants that leaf's generated HCL — while

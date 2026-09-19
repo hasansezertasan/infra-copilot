@@ -31,6 +31,17 @@
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
   `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
+- The HCL scan is string-aware in one pass, which replaces every lexical special case it
+  had accumulated — the end-of-line anchor, the comment strip, the expression-position
+  allow-list, the bounded header-comment state, and the rule against tracking `/* */`.
+  All of them answered one question (is this position inside a string?) in five partial
+  ways. A heredoc after `?` now opens like any other, a marker inside a free-standing
+  comment opens nothing, and commented-out HCL is a comment, so it is no longer reported.
+- The object-storage phase-5 discriminator defers to `migrate-import` instead of
+  restating it: that check already reads the plan job log and requires a successful
+  `apply-cloudflare` **job** the revision descends from. The prose copy checked only the
+  run — which a GitHub-only run satisfies — and correlated against `target_sha`, which the
+  check's own comment rules out because on a prune branch that is the prune commit.
 - `prune` joins the shared protocol roster in `protocol.md`, and the closure assertion
   derives the action skills from `skills/` instead of listing them, so a new skill cannot
   be silently excluded from either again.

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:eed0ff669729441e4573e70f929902e2868abf0baee06377e72689d5f85b7901
-Source-Hash: blake3:34f51806a3ab41231dd6ecffd3cbbed2c6285483f7249f08c40fee55a0656a65
+Content-Hash: blake3:72d0664e8d0de87be1926b8ee1c785f718d504484b0c5f3917a2010cf08c63e6
+Source-Hash: blake3:7bfda8f8cc78a8ac10d894a3051f644385db1b1467474089cb948caff867a5da
 Schema-Version: v1
 -->
 
@@ -94,11 +94,10 @@ one-shot blocks: a `/* … */` block comment around dead HCL, a heredoc carrying
 key nested below the top level. Leave script content alone; a commented-out block is dead
 code, so delete the comment rather than pruning what is inside it.
 
-`prune-spent-imports` in [`../steps.yaml`](../steps.yaml) discriminates two of the three —
-it skips heredoc bodies and line comments, and reads JSON with `jq` — so a hit it does not
-report is not a candidate here either. It deliberately does **not** track `/* … */`, because
-telling a comment opener from `target = "example.com/*"` needs a lexer, so it reports
-commented-out blocks. That is the harmless direction, and the cleanup it asks for is real.
+`prune-spent-imports` in [`../steps.yaml`](../steps.yaml) discriminates all three — it is
+string-aware, so it skips heredoc bodies, both comment forms, and anything inside a quoted
+value, and it reads JSON with `jq`. **A hit these greps report but that check does not is
+not a candidate**: check the leaf against it before editing, rather than trusting the grep.
 
 cf-terraforming appends its blocks to the file holding the generated HCL. The runbook in
 [`import.md`](import.md) pipes one zone into a single `generated.tf`, but an adoption that
