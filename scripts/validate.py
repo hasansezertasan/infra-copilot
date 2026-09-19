@@ -1762,6 +1762,35 @@ HOOK_TIMEOUT = 10
 HOOK_DESCRIPTION = 'Announce that infra-copilot is installed when the working directory looks like a managed infra repo.'
 
 
+#: A portable shell variable name. Anything else is not something `${X:-}` can
+#: expand, however consistently the record, the manifest and the script spell it.
+SHELL_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _disjuncts(condition: str) -> set[str]:
+    """The top-level `||` alternatives of a shell condition, normalised.
+
+    Split rather than searched. A recorded root has to be an alternative that can
+    satisfy the condition by itself; appearing *somewhere* in the text is not
+    that, as `{ [ -n "${VAR:-}" ] && false; }` shows -- valid shell, contains the
+    test, and can never make the branch true.
+
+    ponytail: a split on `||` with brace/paren groups excluded, not a shell
+    parser. It admits the flat disjunction the script actually uses and refuses
+    anything nested, which is the safe direction.
+    """
+    body = condition.split("if", 1)[-1]
+    alternatives = set()
+    for part in body.split("||"):
+        part = part.strip().strip("\\").strip()
+        # Parameter expansions carry their own braces, so they are removed before
+        # looking for the grouping that would make this alternative conditional.
+        if any(ch in re.sub(r"\$\{[^}]*\}", "", part) for ch in "{}()&"):
+            continue
+        alternatives.add(part)
+    return alternatives
+
+
 def _output_branch(script: str) -> str | None:
     """The host-output conditional of session-start.sh, or None when absent.
 
@@ -2238,13 +2267,21 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
     # The manifest and the record can agree on a variable the shared script does
     # not test, in which case the hook runs and emits the fallback output shape
     # instead of this host's -- the announcement disappearing on a green gate.
+    if not SHELL_IDENTIFIER.fullmatch(recorded_root):
+        # Rendered into two shell expansions, so a value that is not an identifier
+        # makes both fail with "Bad substitution" at run time while every
+        # comparison here still agrees.
+        return [
+            f"{HOSTS_DOCUMENT}: {row['Host']} records {recorded_root!r} as its root, "
+            "which is not a shell variable name"
+        ]
     branch = _output_branch(read_document(root / HOOK_IMPLEMENTATION) or "")
     if branch is None:
         return [f"{HOOK_IMPLEMENTATION}: has no host-output conditional to check"]
-    if f'[ -n "${{{recorded_root}:-}}" ]' not in branch:
+    if f'[ -n "${{{recorded_root}:-}}" ]' not in _disjuncts(branch):
         return [
             f"{HOOK_IMPLEMENTATION}: its host-output conditional does not test "
-            f"${{{recorded_root}:-}}, which {HOSTS_DOCUMENT} records as "
+            f"${{{recorded_root}:-}} on its own, which {HOSTS_DOCUMENT} records as "
             f"{row['Host']}'s root; the hook would run and emit another host's shape"
         ]
 

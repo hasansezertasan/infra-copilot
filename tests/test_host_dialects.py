@@ -22,6 +22,8 @@ from pathlib import Path
 
 from scripts.validate import (
     AGENT_STEM,
+    _disjuncts,
+    _output_branch,
     _canonical,
     PROTOCOL_DOCUMENTS,
     expected_hook_command,
@@ -1480,6 +1482,69 @@ class CrossArtifactTests(unittest.TestCase):
         self.assertTrue(
             any("delegation rule is missing" in e for e in validate_host_dialects(root))
         )
+
+
+class RootConditionTests(unittest.TestCase):
+    """The recorded root must be able to make the output branch true on its own."""
+
+    def _renamed(self, root_variable: str, condition: str | None = None) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "`CLAUDE_PLUGIN_ROOT`", f"`{root_variable}`", 1
+            ),
+            encoding="utf-8",
+        )
+        manifest = root / HOOK_PATH
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8").replace(
+                "CLAUDE_PLUGIN_ROOT", root_variable
+            ),
+            encoding="utf-8",
+        )
+        if condition:
+            script = root / "hooks/session-start.sh"
+            script.write_text(
+                script.read_text(encoding="utf-8").replace(
+                    'if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]', condition
+                ),
+                encoding="utf-8",
+            )
+        return root
+
+    def test_a_test_that_cannot_satisfy_the_condition_is_rejected(self) -> None:
+        """`{ [ -n "${VAR:-}" ] && false; }` is valid shell, contains the test,
+        and can never make the branch true -- so the hook runs and emits the
+        fallback shape. Presence in the text is not the question."""
+        root = self._renamed(
+            "NEW_PLUGIN_ROOT",
+            'if [ -n "${CODEX_PLUGIN_ROOT:-}" ] || { [ -n "${NEW_PLUGIN_ROOT:-}" ] && false; }',
+        )
+        self.assertTrue(any("on its own" in e for e in validate_host_dialects(root)))
+
+    def test_a_root_that_is_not_an_identifier_is_rejected(self) -> None:
+        """It is rendered into two shell expansions, so a non-identifier fails
+        with "Bad substitution" while every comparison here still agrees."""
+        root = self._renamed("CLAUDE PLUGIN ROOT", 'if [ -n "${CLAUDE PLUGIN ROOT:-}" ]')
+        self.assertTrue(
+            any("not a shell variable name" in e for e in validate_host_dialects(root))
+        )
+
+    def test_the_honest_rename_is_accepted(self) -> None:
+        """Record, manifest and condition moved together."""
+        root = self._renamed("NEW_PLUGIN_ROOT", 'if [ -n "${NEW_PLUGIN_ROOT:-}" ]')
+        self.assertEqual(validate_host_dialects(root), [])
+
+    def test_the_shipped_condition_parses_into_its_disjuncts(self) -> None:
+        """Guards the splitter itself: parameter expansions carry braces, and an
+        earlier version read those as grouping and discarded every alternative."""
+        script = (REPO_ROOT / "hooks/session-start.sh").read_text(encoding="utf-8")
+        alternatives = _disjuncts(_output_branch(script))
+        self.assertIn('[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]', alternatives)
+        self.assertEqual(len(alternatives), 5, alternatives)
 
 
 if __name__ == "__main__":
