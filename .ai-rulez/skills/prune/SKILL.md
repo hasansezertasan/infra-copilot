@@ -81,7 +81,8 @@ not withhold the PR waiting for it.
 ## Example
 
 ```text
-# terraform/cloudflare — before
+# terraform/cloudflare — before (HCP; in object-storage mode the plan pair replaces
+# the state-list filter, which cannot authenticate locally)
 $ grep -c '^import {' generated_dns.tf
 99
 $ terraform state list | grep -c cloudflare_dns_record

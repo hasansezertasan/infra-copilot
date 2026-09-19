@@ -70,7 +70,11 @@ this import applies.
 
 1. **Read config first** (shared protocol, Step 0) and export the org vars —
    [`../infra-copilot/references/config.md`](../infra-copilot/references/config.md).
-2. **Resume scan** over phase 5 of [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). The
+2. **Resume scan** over `migrate-discovery-token` and `migrate-import` in
+   [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml) — **those two steps only**, not all of
+   phase 5. `prune-spent-imports` is red for the whole of a correct import and belongs to
+   another skill; scanning it here would make the shared protocol resume at it and run the
+   prune procedure before this apply has landed. The
    discovery token is ephemeral (`check: ~`, no scriptable check) — treat it as a `HUMAN`
    step every run and delete it afterward.
 

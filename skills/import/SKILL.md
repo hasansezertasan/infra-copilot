@@ -5,8 +5,8 @@ description: "Adopt infrastructure that already exists at a provider into Terraf
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:5d95f035af46b31ab07de3684ebff9ab4efe43e2e8e7524a06b0790e2e44a81e
-Source-Hash: blake3:9d300fb864825ac356a104642ff6f005b3638b9d764e92591e15e53b0c590fdd
+Content-Hash: blake3:bd19ed5d8c8a10351ed6e3f925f35b126a7eb68ff37f12f6a0ee0e72c229aade
+Source-Hash: blake3:61826de7d2ba0e5892366c5a88ebe56c047c7bd1d55ef5af24384ad3df6321fd
 Schema-Version: v1
 -->
 
@@ -77,7 +77,11 @@ this import applies.
 
 1. **Read config first** (shared protocol, Step 0) and export the org vars —
    [`../infra-copilot/references/config.md`](../infra-copilot/references/config.md).
-2. **Resume scan** over phase 5 of [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). The
+2. **Resume scan** over `migrate-discovery-token` and `migrate-import` in
+   [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml) — **those two steps only**, not all of
+   phase 5. `prune-spent-imports` is red for the whole of a correct import and belongs to
+   another skill; scanning it here would make the shared protocol resume at it and run the
+   prune procedure before this apply has landed. The
    discovery token is ephemeral (`check: ~`, no scriptable check) — treat it as a `HUMAN`
    step every run and delete it afterward.
 

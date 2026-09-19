@@ -1317,11 +1317,13 @@ steps:
       import/moved blocks execute once and go inert; nothing else removes them, so they
       accumulate in the consuming repo and the manifest cannot see them.
     run: |
-      Follow docs/prune.md, one leaf per PR: for every `import {}` / `moved {}` block,
-      prove `terraform state list` already holds the `to =` address (for `moved`, the new
-      address present and the old absent), then delete only that block and plan.
+      Follow docs/prune.md, one leaf per PR. It owns the procedure, including which
+      evidence each backend allows: on HCP, `terraform state list` membership filters in
+      front of the plan pair; in object-storage mode the bucket credential lives in
+      Actions, so the two workflow plans carry it alone. Do not run a local `state list`
+      there — it cannot authenticate.
       Success is `No changes.` — capture it for the PR body.
-      If an address is NOT in state the apply has not landed: stop, and finish the import.
+      If a block is still pending the apply has not landed: stop, and finish the import.
     # Pure git read: no terraform, no network, nothing written -- so status may run it
     # directly, unlike the migrate-import check above.
     #
@@ -1449,11 +1451,13 @@ steps:
       # pipeline subshell, where `exit 2` would exit only the subshell.
       while IFS= read -r f; do
         [ -n "$f" ] || continue
-        case "$f" in
-          terraform/modules/*) continue ;;
-          *.tf|*.tf.json) ;;
-          *) continue ;;
-        esac
+        case "$f" in *.tf|*.tf.json) ;; *) continue ;; esac
+        # Exactly what docs/prune.md discovers: root-level files of a leaf. A nested
+        # `terraform/<leaf>/modules/...` is a module directory the runbook does not offer
+        # as a candidate, so scanning it would hold phase 5 red with nothing to prune.
+        rest=${f#terraform/}
+        case "${rest%%/*}" in modules) continue ;; esac
+        case "${rest#*/}" in */*) continue ;; esac
         blob=$(git --no-optional-locks show "HEAD:$f") || {
           echo "cannot read HEAD:$f - cannot verify what is committed" >&2
           exit 2

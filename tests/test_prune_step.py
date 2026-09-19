@@ -469,6 +469,38 @@ class PruneStepTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_a_nested_module_inside_a_leaf_is_not_scanned(self) -> None:
+        """The check scans exactly what docs/prune.md discovers: leaf root files.
+
+        A `terraform/<leaf>/modules/...` tree is not offered as a candidate by
+        the runbook, so counting it would hold phase 5 red with nothing to prune.
+        """
+        result = self._run(
+            {
+                "terraform/cloudflare/modules/dns/main.tf": (
+                    "moved {\n  from = a.b\n  to = a.c\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_leaf_root_file_beside_a_nested_module_still_counts(self) -> None:
+        """The exclusion is the nesting, not the leaf."""
+        result = self._run(
+            {
+                "terraform/cloudflare/modules/dns/main.tf": (
+                    "moved {\n  from = a.b\n  to = a.c\n}\n"
+                ),
+                "terraform/cloudflare/dns.tf": (
+                    "import {\n  to = cloudflare_dns_record.www\n  id = \"abc\"\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 1)
+        reported = result.stdout + result.stderr
+        self.assertIn("terraform/cloudflare/dns.tf", reported)
+        self.assertNotIn("modules", reported)
+
     def test_uncommitted_files_are_not_evidence(self) -> None:
         """The blocks are pruned by a PR, so only committed ones count."""
         result = self._run(

@@ -31,6 +31,11 @@
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
   `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
+- `prune-spent-imports` scans exactly what the runbook discovers — a leaf's root-level
+  files — so a nested `terraform/<leaf>/modules/...` tree no longer holds phase 5 red with
+  nothing the runbook will offer as a candidate.
+- The `import` router resumes over its own two steps rather than all of phase 5, so a
+  correct import no longer resumes into the prune procedure before its apply lands.
 - Status reports phase 5 as `?` rather than routing to `prune` when object-storage blocks
   live outside `terraform/cloudflare`: the discriminator is that leaf's check, and no
   equivalent exists for the others.

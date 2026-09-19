@@ -5,8 +5,8 @@ description: "Remove spent one-shot `import {}` and `moved {}` blocks after thei
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:d0a632186fbea487a18dba0b81d5f1086afad082451d7ec1346bf80856f69c23
-Source-Hash: blake3:9d300fb864825ac356a104642ff6f005b3638b9d764e92591e15e53b0c590fdd
+Content-Hash: blake3:bcb2c265a8dad5df7195cab42526f4eccdb7b3a000013f899f133494329b85bd
+Source-Hash: blake3:61826de7d2ba0e5892366c5a88ebe56c047c7bd1d55ef5af24384ad3df6321fd
 Schema-Version: v1
 -->
 
@@ -88,7 +88,8 @@ not withhold the PR waiting for it.
 ## Example
 
 ```text
-# terraform/cloudflare — before
+# terraform/cloudflare — before (HCP; in object-storage mode the plan pair replaces
+# the state-list filter, which cannot authenticate locally)
 $ grep -c '^import {' generated_dns.tf
 99
 $ terraform state list | grep -c cloudflare_dns_record
