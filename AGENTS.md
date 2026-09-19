@@ -36,7 +36,7 @@ manifest is the authority; the header is only a convenience.
 | Repository validators | `scripts/validate.py`, `tests/` | `make check` |
 | The SessionStart hook | `hooks/session-start.sh`, `hooks/hooks.json` (Claude only) | hand-authored — `ai-rulez` has no hook support |
 | The `infra-auditor` subagent | `agents/` (root, Claude dialect) | hand-authored — `ai-rulez` has no agent support |
-| Tool pins | `Makefile` + `README.md` together | `make check` |
+| Tool pins | `package.json` + `package-lock.json`; a *new* tool also needs `TOOL_PACKAGES`. Never write `<tool>@<version>` in a `Makefile` or workflow, comments included | `make check` |
 
 ## Rule 2: run `make check`
 

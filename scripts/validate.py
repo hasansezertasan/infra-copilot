@@ -159,18 +159,96 @@ JSON_MANIFESTS = (
     "plugin.json",
 )
 MAKEFILE_PATH = "Makefile"
-TOOL_PIN_SPECS = {
-    "ai-rulez": "AI_RULEZ_VERSION",
-    "skills": "SKILLS_VERSION",
-    "markdownlint-cli2": "MARKDOWNLINT_VERSION",
-}
-# Workflows call `make check` and must not carry their own copy of a pin; a
-# second definition is exactly the drift this check exists to prevent.
+PACKAGE_JSON_PATH = "package.json"
+# The tools package.json must pin. Listed here as well as there so deleting one
+# from devDependencies fails loudly instead of quietly narrowing the check (#22);
+# the two are asserted equal, so adding a tool means adding it in both places.
+TOOL_PACKAGES = frozenset({"ai-rulez", "markdownlint-cli2", "skills"})
+# The Makefile and the workflows call `node_modules/.bin/<tool>` and must not
+# carry a version of their own; a second definition is exactly the drift this
+# check exists to prevent.
 TOOL_PIN_WORKFLOWS = (
     ".github/workflows/check.yml",
     ".github/workflows/release.yml",
     ".github/workflows/upstream.yml",
 )
+# The Makefile names each tool by the binary npm links into node_modules/.bin,
+# which for all three equals the package name -- so a binary can be looked up in
+# devDependencies directly. A tool whose binary differs fails the lookup, which
+# is the right outcome: it needs a deliberate mapping, not a silent pass.
+NODE_BIN_PATTERN = re.compile(r"node_modules/\.bin/(?P<binary>[A-Za-z0-9._-]+)")
+# The directory named without a binary after it, which is how the check above
+# gets blinded without anything appearing to change: `BIN := $(CURDIR)/node_
+# modules/.bin` and then `$(BIN)/yaml` runs a tool no scan can see, because the
+# path is only contiguous after make expands it. Resolving make variables would
+# be a third grammar, so require the paths to stay written out instead -- the
+# convention the Makefile already follows, now enforced rather than assumed.
+NODE_BIN_UNNAMED = re.compile(r"node_modules/\.bin(?!/[A-Za-z0-9._-])")
+# node_modules entries that are not the dot-directories npm maintains: reaching
+# into a package's own files -- `node node_modules/yaml/bin.mjs` -- runs a
+# transitive CLI without going through the .bin link the scan above reads. The
+# dot-entries are ours to use (.bin holds the links, .install-stamp records the
+# install); anything else is a package's internals and gets named as such.
+NODE_MODULES_PACKAGE_PATH = re.compile(r"node_modules/(?![.])(?P<package>[^\s/]+)")
+# Comments are NOT stripped: these files may not spell a pin in prose either.
+#
+# Stripping them meant deciding where a shell comment begins, and that produced
+# five of the last six review rounds on this check -- which characters delimit a
+# word, whether an escaped one still does, and the parity of a backslash run.
+# Each fix was correct and the next edge case arrived anyway, because the
+# question has a whole shell grammar behind it.
+#
+# The rule that replaces it costs nothing: no comment in this repository spells
+# `<tool>@<version>` or a node_modules package path today, and none needs to --
+# write `ai-rulez 4.11.3`, not `ai-rulez@4.11.3`. What was tolerated is now
+# enforced, and an entire class of edge case stops existing rather than being
+# handled correctly.
+# Quoting and escaping are how the shell writes one word in pieces, so the pieces
+# are put back together before the pin scan by dropping the delimiters -- no
+# interpretation, since adjacent fragments are what concatenation is and a
+# backslash before a character is that character.
+#
+# Bash has exactly five of these forms, and all five reduce to removing ' " \ $:
+#
+#   ai-rulez'@'4.9.0   ai-rulez"@"4.9.0   ai-rulez\@4.9.0
+#   ai-rulez$'@'4.9.0  ai-rulez$"@"4.9.0
+#
+# each of which bash prints as ai-rulez@4.9.0.
+#
+# Removing delimiters is where this stops. It undoes quoting and escaping, which
+# is syntax -- characters that mark a word without being in it. It does not
+# decode escape *sequences*: `$'\x40'` is also `@` to bash, and reading it needs
+# a table of \x, \0, \u and the C escapes, which is interpretation rather than
+# removal. That is the line, and it is drawn here rather than at whichever
+# sequence gets reported next.
+#
+# It holds because this guards against the habitual form coming back -- an old
+# README line, a reflex `npx <tool>@<version>` -- not against someone determined
+# to get past it. Anyone writing `$'\x40'` to dodge a check can edit
+# package.json instead, and both are one reviewable diff.
+SHELL_WORD_DELIMITERS = re.compile(r"""['"\\$]""")
+# What this check enforces, and what it deliberately does not.
+#
+# Enforced, by substring and by data -- nothing here parses a language:
+#   * devDependencies and TOOL_PACKAGES name the same tools, at exact versions;
+#   * every node_modules/.bin binary the Makefile runs is a declared dependency;
+#   * no Makefile or workflow names `<one of ours>@<version>`.
+#
+# Not enforced: a *fourth* tool fetched by a package runner -- `npx
+# prettier@3.0.0` -- is not reported. A check for that has to decide what a file
+# executes, and this repository's files are two languages deep: YAML whose
+# quoting, comments and block scalars say which text is a command, and shell
+# whose reserved words say where one begins. Seventeen review findings landed on
+# successive attempts at that, each on the blind spot of the fix before it, and
+# closing the class needs a YAML parser and a shell parser. validate.py is
+# stdlib-only on purpose -- the Windows job runs it with no install step -- so it
+# has neither, and a partial parser is what produced the seventeen.
+#
+# It costs little, because it was never the enforcement. A tool absent from
+# package.json is never installed, so node_modules/.bin has no binary and the
+# recipe fails on a real error rather than a predicted one; the three checks
+# above still hold for the tools this repository actually pins, in any spelling,
+# because a substring search needs no grammar. See PR #70 for the full history.
 # Prerelease and build metadata are independent and may both appear:
 # 0.3.0-rc.1+build.5 is one version, not a version plus trailing junk.
 VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+){2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
@@ -1249,49 +1327,96 @@ def validate_manifest_paths(root: Path = ROOT) -> list[str]:
 
 
 def validate_tool_pins(root: Path = ROOT) -> list[str]:
-    """The Makefile owns every tool pin; README must document the same versions.
+    """package.json owns every tool version; nothing else may name one.
 
-    Previously each workflow carried its own copy of both versions, so the two
-    could drift apart silently. The Makefile is now the single definition, and
-    the workflows are asserted not to reintroduce one.
+    Forwards: every ``node_modules/.bin`` binary the Makefile runs must be a
+    declared dependency, so neither a fourth tool nor a transitive one can be
+    used without an entry that Renovate then keeps current. Backwards: no
+    Makefile or workflow may name ``<package>@<version>`` for a tool this
+    repository pins, so the manifest stays the only definition rather than
+    merely one of them. Both are substring scans over comment-stripped text and
+    neither parses a language -- see the note above ``SHELL_WORD_DELIMITERS`` for what
+    that deliberately does not cover.
+
+    This replaces a README cross-check. The versions used to be Makefile literals
+    restated in the README, which is why Renovate needed a custom manager
+    scanning both files; with npm resolving them there is nothing to restate.
     """
     errors: list[str] = []
-    makefile = (root / MAKEFILE_PATH).read_text(encoding="utf-8")
-    readme = (root / "README.md").read_text(encoding="utf-8")
-    for package, variable in TOOL_PIN_SPECS.items():
-        match = re.search(
-            rf"^{re.escape(variable)}\s*:?=\s*(?P<version>{VERSION_PATTERN})\s*$",
-            makefile,
-            re.MULTILINE,
+    try:
+        manifest = load_json(PACKAGE_JSON_PATH, root)
+    except (OSError, json.JSONDecodeError) as error:
+        return [f"{PACKAGE_JSON_PATH}: cannot read the tool manifest: {error}"]
+    declared = manifest.get("devDependencies")
+    if not isinstance(declared, dict):
+        return [f"{PACKAGE_JSON_PATH}: missing a devDependencies table"]
+
+    for package in sorted(TOOL_PACKAGES - set(declared)):
+        errors.append(f"{PACKAGE_JSON_PATH}: missing devDependency {package}")
+    for package in sorted(set(declared) - TOOL_PACKAGES):
+        errors.append(
+            f"{package}: in {PACKAGE_JSON_PATH} but not TOOL_PACKAGES; "
+            f"add it there so scripts/validate.py guards it too"
         )
-        if match is None:
-            errors.append(f"{MAKEFILE_PATH}: missing {variable}")
-            continue
-        pinned = match.group("version")
-        documented = set(
-            re.findall(rf"{re.escape(package)}@(?P<version>{VERSION_PATTERN})", readme)
-        )
-        if not documented:
-            errors.append(f"README.md: missing pinned {package} command")
-        elif documented != {pinned}:
-            details = ", ".join(sorted(documented))
+    # Exact, not a range: a caret would let CI resolve a version no one reviewed,
+    # which is the property the Makefile literals had and must not lose.
+    for package, specifier in sorted(declared.items()):
+        if not re.fullmatch(VERSION_PATTERN, str(specifier)):
             errors.append(
-                f"{package}: README documents {details}, {MAKEFILE_PATH} pins {pinned}"
+                f"{package}: {PACKAGE_JSON_PATH} pins {specifier!r}; "
+                f"use an exact version, not a range"
             )
-        for relative in TOOL_PIN_WORKFLOWS:
-            try:
-                workflow = (root / relative).read_text(encoding="utf-8")
-            except OSError as error:
-                errors.append(f"{relative}: cannot read workflow: {error}")
-                continue
-            # Any `<package>@…` reference, not just a literal version. The form
+
+    # Read once, and report an unreadable file rather than raising out of an
+    # aggregate validator: a traceback here would hide every other diagnostic.
+    sources: dict[str, str] = {}
+    for relative in (MAKEFILE_PATH, *TOOL_PIN_WORKFLOWS):
+        try:
+            sources[relative] = (root / relative).read_text(encoding="utf-8")
+        except OSError as error:
+            errors.append(f"{relative}: cannot read file: {error}")
+
+    # The Makefile only. node_modules/.bin holds the transitive closure rather
+    # than the manifest, so running one of those binaries pins nothing -- but a
+    # workflow that merely *names* a path in a step label runs nothing either,
+    # and telling those apart is the parsing this check no longer does. The
+    # workflows call `make`, which is where the binaries actually are.
+    makefile = sources.get(MAKEFILE_PATH, "")
+    for package in sorted({
+        match.group("package") for match in NODE_MODULES_PACKAGE_PATH.finditer(makefile)
+    }):
+        errors.append(
+            f"{MAKEFILE_PATH}: reaches into node_modules/{package}; run tools "
+            f"through node_modules/.bin/<tool> so this check can see them"
+        )
+    if NODE_BIN_UNNAMED.search(makefile):
+        errors.append(
+            f"{MAKEFILE_PATH}: names node_modules/.bin without a binary after it; "
+            f"write each tool's path out in full so this check can see which "
+            f"binaries run"
+        )
+    for binary in sorted(set(NODE_BIN_PATTERN.findall(makefile))):
+        if binary not in declared:
+            errors.append(
+                f"{MAKEFILE_PATH}: runs {binary}, which no {PACKAGE_JSON_PATH} "
+                f"devDependency provides"
+            )
+
+    for relative, text in sources.items():
+        for package in sorted(TOOL_PACKAGES):
+            # Any `<package>@…` reference, not just a literal version. One form
             # this replaced was indirect — `ai-rulez@${INFRA_COPILOT_..._VERSION}`
             # with the value in `env:` — so matching only a literal semver would
             # miss exactly the pattern being removed.
-            if re.search(rf"(?<![\w-]){re.escape(package)}@", workflow):
+            #
+            # A substring, so no quoting or nesting can hide it: this is the one
+            # guarantee that survived every finding on PR #70, including the
+            # cases that defeated the parsers.
+            if re.search(rf"(?<![\w/-]){re.escape(package)}@", SHELL_WORD_DELIMITERS.sub("", text)):
                 errors.append(
                     f"{relative}: invokes {package}@… directly; "
-                    f"call `make` so {MAKEFILE_PATH} stays the only definition"
+                    f"run node_modules/.bin/{package} so {PACKAGE_JSON_PATH} "
+                    f"stays the only definition"
                 )
     return errors
 
@@ -2372,6 +2497,8 @@ def validate_layout() -> list[str]:
         "docs/install-antigravity.md",
         "docs/install-opencode.md",
         ".github/renovate.json",
+        "package.json",
+        "package-lock.json",
         ".github/workflows/check.yml",
         ".github/workflows/release.yml",
         ".github/workflows/upstream.yml",
