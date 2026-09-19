@@ -27,7 +27,9 @@ from scripts.validate import (
     _output_branch,
     _canonical,
     _owner_key,
+    _without_fences,
     _without_heredocs,
+    AGENT_FORBIDDEN_PATH,
     PROTOCOL_DOCUMENTS,
     expected_hook_command,
     HOOK_IMPLEMENTATION,
@@ -1175,7 +1177,7 @@ class SeventhRoundTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertTrue(
-            any("relative runbook path" in e for e in validate_host_dialects(root))
+            any("path-qualified runbook reference" in e for e in validate_host_dialects(root))
         )
 
     def test_a_non_string_matcher_is_rejected(self) -> None:
@@ -1847,6 +1849,155 @@ class EleventhRoundTests(unittest.TestCase):
         thing it was meant to read."""
         script = (REPO_ROOT / HOOK_IMPLEMENTATION).read_text(encoding="utf-8")
         self.assertEqual(_without_heredocs(script), script.rstrip("\n"))
+
+
+class TwelfthRoundTests(unittest.TestCase):
+    """Four gates that described what the right text *looks like*, and one path
+    check applied to the directory rather than the file inside it.
+
+    The pattern across this round is the same as the last: a rule that matches a
+    shape can be satisfied by text of that shape which the host never executes --
+    a fenced example, an uncalled function, a soft-wrapped line.
+    """
+
+    def _root(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_root(directory.name)
+
+    def _agent(self, old: str, new: str) -> Path:
+        root = self._root()
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(old, new, 1), encoding="utf-8"
+        )
+        return root
+
+    def test_a_path_qualified_runbook_reference_is_rejected(self) -> None:
+        """The old pattern required a bare leading word, so the leading slash of
+        an absolute path was a reason not to match -- the one spelling that can
+        never be a payload reference was the one allowed through."""
+        for spelling in (
+            "/tmp/status.md",
+            "~/status.md",
+            "http://localhost/status.md",
+            "references/status.md",
+        ):
+            with self.subTest(path=spelling):
+                root = self._agent("`status.md`", f"`{spelling}`")
+                self.assertTrue(
+                    any("path-qualified" in e for e in validate_host_dialects(root))
+                )
+
+    def test_the_bare_runbook_name_is_still_allowed(self) -> None:
+        """The rule is "load it by name", so the name itself must pass."""
+        self.assertIsNone(AGENT_FORBIDDEN_PATH.search("status.md"))
+        self.assertEqual(validate_host_dialects(self._root()), [])
+
+    def test_a_soft_wrapped_negator_still_negates(self) -> None:
+        """A single newline inside a Markdown paragraph renders as a space, so
+        wrapping the line must not turn "Do not Invoke" into an affirmative."""
+        root = self._agent(
+            "Invoke the `infra-copilot` skill", "Do not\nInvoke the `infra-copilot` skill"
+        )
+        self.assertTrue(
+            any("no instruction to invoke" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_paragraph_break_still_ends_the_clause(self) -> None:
+        """The other direction: a negator in the previous paragraph is not this
+        directive's, or the shipped manifest could never pass."""
+        root = self._agent(
+            "Invoke the `infra-copilot` skill",
+            "Do not reconstruct the scan from memory\n\nInvoke the `infra-copilot` skill",
+        )
+        self.assertEqual(validate_host_dialects(root), [])
+
+    def test_directives_inside_a_fenced_example_do_not_count(self) -> None:
+        """A fenced block is an example. A manifest whose operative body said
+        "stop" satisfied both required directives from a block labelled invalid."""
+        root = self._agent(
+            "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+            "`status.md`, `protocol.md`, and `steps.yaml`.",
+            "Do nothing and stop. What follows is an INVALID example:\n\n"
+            "```text\nInvoke the `infra-copilot` skill, then follow its `references/` "
+            "links to\n`status.md`, `protocol.md`, and `steps.yaml`.\n```",
+        )
+        self.assertTrue(
+            any("no instruction to invoke" in e for e in validate_host_dialects(root))
+        )
+
+    def test_fence_stripping_keeps_the_rest_of_the_body(self) -> None:
+        """Blanked, not deleted, so what remains sits where it sat."""
+        stripped = _without_fences("before\n```sh\nInvoke the skill\n```\nafter\n")
+        self.assertEqual(stripped.splitlines()[0], "before")
+        self.assertEqual(stripped.splitlines()[-1], "after")
+        self.assertNotIn("Invoke", stripped)
+
+    def test_the_shipped_manifest_has_no_fences_to_strip(self) -> None:
+        """The stripper must be a no-op on the real manifest."""
+        body = (REPO_ROOT / AGENT_PATH).read_text(encoding="utf-8")
+        self.assertEqual(_without_fences(body), body.rstrip("\n"))
+
+    def test_an_uncalled_function_is_not_the_output_branch(self) -> None:
+        """A conditional in a function nobody calls is the third decoy tried
+        against "the first thing that looks like the branch"."""
+        root = self._root()
+        script = root / HOOK_IMPLEMENTATION
+        text = script.read_text(encoding="utf-8").replace(
+            'if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] \\\n    || ', "if "
+        )
+        text = text.replace(
+            "set -eu\n",
+            'set -eu\nunused_shape() {\nif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then\n:\nfi\n}\n',
+            1,
+        )
+        script.write_text(text, encoding="utf-8")
+        self.assertTrue(
+            any("no single conditional" in e for e in validate_host_dialects(root))
+        )
+
+    def test_the_branch_must_guard_the_emitting_printf(self) -> None:
+        """Anchored to what the branch is for. Removing the emission leaves
+        nothing this gate can claim to have checked."""
+        root = self._root()
+        script = root / HOOK_IMPLEMENTATION
+        script.write_text(
+            script.read_text(encoding="utf-8").replace("hookSpecificOutput", "somethingElse"),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("no single conditional" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_symlinked_agent_manifest_is_rejected(self) -> None:
+        """The directory was checked; the file inside it was not. What gets
+        committed and packaged is the link, not the content validated here."""
+        root = self._root()
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside, True)
+        elsewhere = outside / "elsewhere.md"
+        manifest = root / AGENT_PATH
+        elsewhere.write_text(manifest.read_text(encoding="utf-8"), encoding="utf-8")
+        manifest.unlink()
+        os.symlink(elsewhere, manifest)
+        self.assertTrue(
+            any("escapes the plugin root" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_symlinked_hook_manifest_is_rejected(self) -> None:
+        """Same class, same guard: the hook manifest is a constructed path too."""
+        root = self._root()
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside, True)
+        elsewhere = outside / "elsewhere.json"
+        manifest = root / HOOK_PATH
+        elsewhere.write_text(manifest.read_text(encoding="utf-8"), encoding="utf-8")
+        manifest.unlink()
+        os.symlink(elsewhere, manifest)
+        self.assertTrue(
+            any("escapes the plugin root" in e for e in validate_host_dialects(root))
+        )
 
 
 if __name__ == "__main__":

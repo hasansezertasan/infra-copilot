@@ -1720,14 +1720,32 @@ AGENT_NEGATOR = re.compile(
     r"\b(?:never|not|nor|avoid|don'?t|cannot|can'?t|refuse)\b",
     re.IGNORECASE,
 )
-#: What ends a clause for AGENT_NEGATOR. A newline counts: these manifests are
-#: Markdown, where a list item or a paragraph break separates directives as
-#: firmly as a full stop does.
-AGENT_CLAUSE_BOUNDARY = re.compile(r"[.;:\n]")
-#: Any relative path to the runbook, not one spelling. The agent's working
-#: directory is the consuming repository, so `references/status.md` resolves
-#: there just as `skills/infra-copilot/references/status.md` does.
-AGENT_FORBIDDEN_PATH = re.compile(r"(?<![\w/])[\w.-]+(?:/[\w.-]+)*/status\.md")
+#: What ends a clause for AGENT_NEGATOR: sentence punctuation, a paragraph
+#: break, or the start of a list item or heading.
+#:
+#: A bare newline does not. These manifests are Markdown, where a single newline
+#: inside a paragraph is a *soft wrap* that renders as a space -- treating it as
+#: a boundary meant "Do not\nInvoke the infra-copilot skill" read as affirmative
+#: while the agent received one sentence telling it not to load the runbook. The
+#: breaks below are the ones a reader also sees.
+AGENT_CLAUSE_BOUNDARY = re.compile(
+    r"""
+      [.;:]                      # sentence punctuation
+    | \n[ \t]*\n                 # a paragraph break
+    | \n[ \t]*(?:[-*+]|\d+[.)]|\#{1,6})[ \t]   # a list item or heading
+    """,
+    re.VERBOSE,
+)
+#: Any *path-qualified* runbook reference, not one spelling. The rule is "load
+#: it by name", so the thing to reject is the separator: a leading segment and a
+#: slash, whatever precedes them.
+#:
+#: The earlier version required the path to begin with a bare word, which made
+#: the leading slash of `/tmp/status.md` a reason to *not* match -- an absolute
+#: path, the one spelling that cannot be a plugin-payload reference at all, was
+#: the one spelling allowed through. Backslash included so a Windows-style
+#: `..\status.md` is not a third spelling.
+AGENT_FORBIDDEN_PATH = re.compile(r"[^\s`'\"]*[/\\]status\.md")
 #: An adapter budget, in the spirit of MAX_DESCRIPTION_BUDGET: the runbook owns
 #: scope, guardrails and the report contract, and a manifest with room to restate
 #: them will.
@@ -1856,27 +1874,50 @@ def _without_heredocs(script: str) -> str:
     return "\n".join(kept)
 
 
+#: The `printf` that emits the host-specific shape. This is what the conditional
+#: is *for*, so it is what the conditional is found by.
+#:
+#: Matched as a statement, not as a word: the paragraph of comment directly above
+#: the real branch names the shape too, and anchoring on the first mention put
+#: the anchor above every candidate and failed the shipped file.
+HOOK_EMISSION = re.compile(r"(?m)^[ \t]*[^#\n]*\bprintf\b.*hookSpecificOutput")
+HOOK_OUTPUT_MARKER = "hookSpecificOutput"
+#: A line-anchored root test opening a conditional.
+HOOK_BRANCH = re.compile(r'(?m)^if \[ -n "\$')
+
+
 def _output_branch(script: str) -> str | None:
-    """The host-output conditional of session-start.sh, or None when absent.
+    """The conditional guarding session-start.sh's host-specific output.
 
     Scoped rather than searched: a comment naming a variable satisfied a
     whole-file test while the branch that decides the output shape never tested
     it, so the hook ran and emitted the fallback shape. Naming is not testing --
     the same distinction the callback check already draws between a command that
     mentions the implementation and one that runs it.
+
+    Three decoys have now been tried against "the first thing that looks like the
+    branch": a commented-out copy, a copy in a discarded heredoc, and a copy
+    inside a function nobody calls. Each was answered by excluding one more kind
+    of non-executable text, and each time another kind remained. So this stops
+    describing what the branch looks like and uses what it does: the conditional
+    wanted is the one whose `then` reaches the printf that emits the host shape.
+
+    And exactly one candidate may exist. Choosing between several is how every
+    one of those decoys won; refusing to choose is the safe direction for a gate,
+    the same answer _runs_implementation() reached about parsing shell.
     """
-    # Anchored to the start of a line, past comments, and with heredoc bodies
-    # removed: `find` took the first textual match, so a commented-out copy above
-    # the real branch was what got checked, and once the anchor ruled comments
-    # out, the same decoy in a discarded heredoc did the job instead -- the
-    # validator read the recorded root from a string while the live branch tested
-    # someone else's and Claude got the fallback shape.
     script = _without_heredocs(script)
-    found = re.search(r'(?m)^if \[ -n "\$', script)
-    if found is None:
+    emission = HOOK_EMISSION.search(script)
+    if emission is None:
         return None
-    end = script.find("; then", found.start())
-    return None if end < 0 else script[found.start() : end]
+    emits = emission.start()
+    candidates = [found for found in HOOK_BRANCH.finditer(script) if found.start() < emits]
+    if len(candidates) != 1:
+        return None
+    end = script.find("; then", candidates[0].start())
+    if end < 0 or end > emits:
+        return None
+    return script[candidates[0].start() : end]
 
 
 def expected_hook_command(root_variable: str) -> str:
@@ -2128,6 +2169,16 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
             continue
         suffix, render = AGENT_DIALECTS[dialect]
         relative = f"{directory.rstrip('/')}/{AGENT_STEM}{suffix}"
+        # The directory was checked; the manifest inside it was not. A symlink at
+        # `agents/infra-auditor.md` pointing out of the tree validated clean --
+        # read_document() followed it and judged content the package will not
+        # contain, since what gets committed and shipped is the link.
+        if problem := _escapes_root(root, relative):
+            errors.append(
+                f"{relative}: {problem}; the validated content is not what the "
+                "packaged plugin carries, which is the link"
+            )
+            continue
         text = read_document(root / relative)
         if not _shipped(row["Shipped"]):
             if _owner_key(root, directory) in owned:
@@ -2296,6 +2347,35 @@ DELEGATION_MARKERS = (
 )
 
 
+#: An opening or closing code fence, at the start of a line.
+MARKDOWN_FENCE = re.compile(r"\A[ \t]{0,3}(`{3,}|~{3,})")
+
+
+def _without_fences(text: str) -> str:
+    """``text`` with every fenced code block removed, line for line.
+
+    A fenced block is an *example*, not an instruction -- which is exactly why a
+    manifest whose operative body said "stop" and whose only directives sat in a
+    block labelled "invalid example" satisfied both required directives while
+    routing nowhere. Blanked rather than deleted, like _without_heredocs(), so
+    what remains still sits where it sat.
+    """
+    kept, fence = [], None
+    for line in text.splitlines():
+        found = MARKDOWN_FENCE.match(line)
+        if fence is None:
+            if found:
+                fence = found.group(1)[0] * 3
+                kept.append("")
+                continue
+            kept.append(line)
+            continue
+        kept.append("")
+        if found and found.group(1).startswith(fence):
+            fence = None
+    return "\n".join(kept)
+
+
 def _clause_before(text: str, end: int) -> str:
     """``text`` back to the clause boundary preceding ``end``.
 
@@ -2336,7 +2416,13 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
     errors: list[str] = []
     front = SKILL_FRONTMATTER.match(text)
     body = text[front.end() :] if front else text
-    if not _positive_mentions(body, AGENT_INVOCATION.pattern):
+    # Required directives must be *operative*, so they are looked for outside
+    # fenced examples. The forbidden path keeps reading the whole body on
+    # purpose: for something that must be present, a non-operative copy proves
+    # nothing; for something that must be absent, a copy anywhere is still a copy
+    # the agent can read, and refusing it costs this manifest nothing.
+    operative = _without_fences(body)
+    if not _positive_mentions(operative, AGENT_INVOCATION.pattern):
         # Names alone were satisfied by "Never invoke `infra-copilot` or
         # `status.md`" -- both markers present, every delegated run told not to
         # load the canonical workflow.
@@ -2345,7 +2431,7 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
             "skill; an agent that does not load the runbook either restates it or "
             "does nothing"
         )
-    if not _positive_mentions(body, AGENT_RUNBOOK_DIRECTIVE.pattern):
+    if not _positive_mentions(operative, AGENT_RUNBOOK_DIRECTIVE.pattern):
         # "then do not follow status.md" named the runbook and skipped it, which
         # is the same defect as the negated skill imperative one clause earlier.
         errors.append(
@@ -2354,9 +2440,10 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
         )
     if found := AGENT_FORBIDDEN_PATH.search(body):
         errors.append(
-            f"{relative}: carries the relative runbook path {found.group(0)!r}, which "
-            "resolves into the consuming repository rather than the plugin payload; "
-            "load the skill by name instead"
+            f"{relative}: carries the path-qualified runbook reference "
+            f"{found.group(0)!r}; a relative one resolves into the consuming "
+            "repository rather than the plugin payload, and an absolute one or a URL "
+            "is not the payload at all. Load the skill by name instead"
         )
     if len(text) > AGENT_MAX_CHARACTERS:
         errors.append(
@@ -2385,6 +2472,14 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
     """
     if not (root / relative).exists():
         return [f"{relative}: {row['Host']} is marked shipped but no manifest is here"]
+    # Same reason as the agent manifest: a recorded path that stays inside the
+    # payload says nothing about the file found at it.
+    for artifact in (relative, HOOK_IMPLEMENTATION):
+        if problem := _escapes_root(root, artifact):
+            return [
+                f"{artifact}: {problem}; the validated content is not what the "
+                "packaged plugin carries, which is the link"
+            ]
     try:
         payload = load_json(relative, root)
     except (OSError, json.JSONDecodeError) as error:
@@ -2416,7 +2511,11 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
         ]
     branch = _output_branch(read_document(root / HOOK_IMPLEMENTATION) or "")
     if branch is None:
-        return [f"{HOOK_IMPLEMENTATION}: has no host-output conditional to check"]
+        return [
+            f"{HOOK_IMPLEMENTATION}: has no single conditional guarding its "
+            f"{HOOK_OUTPUT_MARKER!r} printf; exactly one line-anchored root test must "
+            "precede it, or there is no branch this gate can be said to have checked"
+        ]
     alternatives = _disjuncts(branch)
     if alternatives is None:
         # A command list, not a disjunction: `... ; false` keeps the recorded
