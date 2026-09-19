@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 from urllib.parse import unquote, urlsplit
@@ -1573,7 +1574,12 @@ def _expand(word: str, variables: dict[str, str]) -> str:
     """
     word = word.strip().strip("\"'")
     def substitute(match: re.Match[str]) -> str:
-        name = match.group(1)
+        name, operator = match.group(1), match.group(2) or ""
+        # `${PLUGIN_ROOT:+/tmp}` yields /tmp when the variable is set, so the
+        # operator is part of the value. Only an empty `:-` default and the
+        # prefix/suffix trims the shipped form uses leave the root itself.
+        if operator and not re.fullmatch(r":-|[%#]{1,2}[^}]*", operator):
+            return "\x00unknown"
         # A recorded assignment wins over the sentinel: `PLUGIN_ROOT=/tmp; sh
         # "${PLUGIN_ROOT}/hooks/session-start.sh"` trusted the name while the
         # shell would run /tmp/hooks/session-start.sh.
@@ -1582,7 +1588,7 @@ def _expand(word: str, variables: dict[str, str]) -> str:
         if name in HOOK_ROOT_VARIABLES:
             return HOOK_ROOT_SENTINEL
         return ""
-    return re.sub(r"\$\{?([A-Za-z_]\w*)[^}]*\}?", substitute, word)
+    return re.sub(r"\$\{?([A-Za-z_]\w*)([^}]*)\}?", substitute, word)
 
 
 def _runs_implementation(command: str) -> bool:
@@ -1639,21 +1645,37 @@ def _runs_implementation(command: str) -> bool:
     return False
 
 
-def dialect_rows(root: Path = ROOT, heading: str = "") -> list[list[str]]:
-    """Body rows of the hosts.md table under ``heading``, as stripped cells."""
+def dialect_rows(root: Path = ROOT, heading: str = "") -> list[dict[str, str]]:
+    """Body rows of the hosts.md table under ``heading``, keyed by column header.
+
+    Keyed rather than positional, and exact-width: a row carrying an extra cell
+    made `row[-1]` a different column from the one a reader sees under `Shipped`,
+    so the gate and the document disagreed about the same host. A row whose width
+    does not match the header is returned with a `_defect` key instead of being
+    guessed at.
+    """
     text = read_document(root / HOSTS_DOCUMENT)
     if text is None or text.count(heading) != 1:
         return []
     section = text[text.index(heading) + len(heading) :]
     cut = section.find("\n## ")
-    rows = []
+    headers: list[str] = []
+    rows: list[dict[str, str]] = []
     for line in (section if cut < 0 else section[:cut]).splitlines():
         stripped = line.strip()
         if not stripped.startswith("|") or set(stripped) <= set("|-: "):
             continue
         cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", stripped.strip("|"))]
-        if cells and cells[0] not in {"Host"}:
-            rows.append(cells)
+        if not headers:
+            headers = cells
+            continue
+        if len(cells) != len(headers):
+            rows.append({
+                "Host": cells[0] if cells else "",
+                "_defect": f"has {len(cells)} cells, not {len(headers)}",
+            })
+            continue
+        rows.append(dict(zip(headers, cells)))
     return rows
 
 
@@ -1733,18 +1755,27 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
         return errors
     if not agents or not hooks:
         return [f"{HOSTS_DOCUMENT}: no subagent or hook rows found; the record is unreadable"]
+    # Shape first: a row the reader and the gate would read differently cannot be
+    # judged, so it is reported rather than guessed at.
+    for label, rows in (("subagent", agents), ("hook", hooks)):
+        for row in rows:
+            if "_defect" in row:
+                errors.append(
+                    f"{HOSTS_DOCUMENT}: {label} row {row['Host']!r} {row['_defect']}"
+                )
+            elif _malformed_shipped(row["Shipped"]):
+                errors.append(
+                    f"{HOSTS_DOCUMENT}: {row['Host']}'s {label} Shipped cell is "
+                    f"{row['Shipped']!r}, which states neither 'yes' nor a refusal"
+                )
+    if errors:
+        return errors
     # The protocol sends a run to *its own* host's row, so a section missing a host
     # leaves that run with no delegation or hook decision at all. The question-tool
     # table is the authoritative host set; both sections must match it exactly.
     expected = set(host_records(root))
     for label, rows in (("subagent", agents), ("hook", hooks)):
-        for row in rows:
-            if _malformed_shipped(row[-1]):
-                errors.append(
-                    f"{HOSTS_DOCUMENT}: {row[0]}'s {label} Shipped cell is {row[-1]!r}, "
-                    "which states neither the affirmative 'yes' nor a refusal"
-                )
-        present = [row[0] for row in rows if row]
+        present = [row["Host"] for row in rows]
         if len(present) != len(set(present)):
             errors.append(f"{HOSTS_DOCUMENT}: the {label} section repeats a host row")
         if set(present) != expected:
@@ -1752,23 +1783,15 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                 f"{HOSTS_DOCUMENT}: the {label} section covers {sorted(set(present))}, "
                 f"not the recorded hosts {sorted(expected)}"
             )
+    if errors:
+        return errors
 
-    for row in agents + hooks:
-        if len(row) < 4:
-            errors.append(f"{HOSTS_DOCUMENT}: row {row[:1]} is missing columns")
-    agents = [row for row in agents if len(row) >= 5]
-    hooks = [row for row in hooks if len(row) >= 4]
-    owners = [row for row in agents if _shipped(row[-1])]
-    # Per directory, not globally. Claude and Antigravity collide at root agents/ and
-    # only one of them may own it, but .codex/agents/ and .opencode/agents/ are
-    # independent -- a global count would make those rows impossible to graduate.
-    # Zero shipped rows is also legal: withdrawing the agent is a state the record
-    # may express, and the unshipped-path rule then keeps the file from lingering.
+    owners = [row for row in agents if _shipped(row["Shipped"])]
     owned: dict[str, list[str]] = {}
     for row in owners:
-        # Normalised: `agents/` and `./agents/` are one discovery directory, and
-        # keying by the raw spelling let two rows own it while each looked unique.
-        owned.setdefault(_canonical(row[1].strip("`")), []).append(row[0])
+        owned.setdefault(
+            _canonical(row["Discovery path"].strip("`")), []
+        ).append(row["Host"])
     for directory, sharing in sorted(owned.items()):
         if len(sharing) > 1:
             errors.append(
@@ -1776,86 +1799,94 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                 "directory cannot hold incompatible tools dialects, so only one may"
             )
     for row in agents:
-        directory = row[1].strip("`")
+        directory = row["Discovery path"].strip("`")
         if problem := _escapes_root(root, directory):
             errors.append(
                 f"{HOSTS_DOCUMENT}: subagent path {directory!r} {problem}; an installed "
                 "plugin resolves it against its own payload and finds nothing"
             )
             continue
-        dialect = next((key for key in AGENT_DIALECTS if row[2].startswith(key)), None)
+        dialect = next(
+            (k for k in AGENT_DIALECTS if row["`tools` dialect"].startswith(k)), None
+        )
         if dialect is None:
-            errors.append(f"{HOSTS_DOCUMENT}: {row[0]} declares an unknown tools dialect")
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {row['Host']} declares an unknown tools dialect"
+            )
             continue
         suffix, render = AGENT_DIALECTS[dialect]
         relative = f"{directory.rstrip('/')}/{AGENT_STEM}{suffix}"
         text = read_document(root / relative)
-        if not _shipped(row[-1]):
-            # The documented collision: an unshipped row may name the directory the
-            # shipped one owns. The owner's dialect check governs that file, and
-            # reporting it here would make the collision unshippable rather than recorded.
+        if not _shipped(row["Shipped"]):
             if _canonical(directory) in owned:
                 continue
-            # The host discovers the directory, not the recorded filename, so every
-            # manifest in it counts -- `.codex/agents/rogue.toml` passed while only
-            # the expected name was opened.
             for stray in sorted((root / directory).glob("*")):
                 if stray.is_file():
                     errors.append(
-                        f"{directory.rstrip('/')}/{stray.name}: {row[0]}'s row is not "
-                        "marked shipped, so this manifest asserts wiring nothing has "
-                        "demonstrated"
+                        f"{directory.rstrip('/')}/{stray.name}: {row['Host']}'s row is "
+                        "not marked shipped, so this manifest asserts wiring nothing "
+                        "has demonstrated"
                     )
             continue
+        if row["Invocation tool"].strip("` ") in {"not recorded", "—", ""}:
+            # The delegation rule gates on this tool being declared and allowed, so a
+            # shipped row without one leaves that gate nothing to evaluate.
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {row['Host']}'s subagent row is shipped but records "
+                "no invocation tool; the availability gate would have nothing to check"
+            )
         if text is None:
-            errors.append(f"{relative}: {row[0]} is marked shipped but no manifest is here")
+            errors.append(
+                f"{relative}: {row['Host']} is marked shipped but no manifest is here"
+            )
             continue
-        # The host discovers the whole directory, not the one filename this record
-        # names. An unrecorded sibling is an agent nobody reviewed, with whatever
-        # grant it declares -- `agents/rogue.md` carrying `tools: Write` passed.
         for stray in sorted((root / directory).glob("*")):
             if stray.is_file() and stray.name != f"{AGENT_STEM}{suffix}":
                 errors.append(
                     f"{directory.rstrip('/')}/{stray.name}: no subagent row records this "
-                    f"manifest, and {row[0]} discovers every file in {directory!r}"
+                    f"manifest, and {row['Host']} discovers every file in {directory!r}"
                 )
         errors.extend(_check_agent(relative, text, row, render, dialect))
 
     for row in hooks:
-        relative = row[1].strip("`").split("`")[0].split(" ")[0].strip()
-        if relative not in {"none", "—", ""} and (problem := _escapes_root(root, relative)):
+        relative = row["Manifest path"].strip("`").split("`")[0].split(" ")[0].strip()
+        if relative not in {"none", "—", ""} and (
+            problem := _escapes_root(root, relative)
+        ):
             errors.append(
-                f"{HOSTS_DOCUMENT}: hook path {relative!r} {problem}; the validator would "
-                "read and accept an artifact no installed plugin can reach"
+                f"{HOSTS_DOCUMENT}: hook path {relative!r} {problem}; the validator "
+                "would read and accept an artifact no installed plugin can reach"
             )
             continue
-        if not _shipped(row[-1]):
+        if not _shipped(row["Shipped"]):
             if relative not in {"none", "—", ""} and (root / relative).exists():
                 errors.append(
-                    f"{relative}: {row[0]}'s row is not marked shipped, so this manifest "
-                    "asserts a discovery path nothing has demonstrated"
+                    f"{relative}: {row['Host']}'s row is not marked shipped, so this "
+                    "manifest asserts a discovery path nothing has demonstrated"
                 )
             continue
         errors.extend(_check_hook(root, relative, row))
     return errors
 
 
-def _check_agent(relative: str, text: str, row: list[str], render, dialect: str) -> list[str]:
+def _check_agent(relative: str, text: str, row: dict[str, str], render, dialect: str) -> list[str]:
     errors: list[str] = []
     if render is None:
         # TOML, whose tools are inherited: there is no frontmatter, and the name is
         # a top-level key. Requiring YAML here made the Codex row unable to graduate
         # in the one format its own record describes.
-        declared = re.findall(r'(?m)^name\s*=\s*"([^"]*)"', text)
-        if len(declared) != 1:
-            # Duplicate TOML keys make the document invalid outright, so the host
-            # registers nothing -- while a first-match read saw the right name.
+        # Parsed, not pattern-matched. tomllib is in the standard library, so unlike
+        # the YAML frontmatter there is no dependency to weigh -- and a parse rejects
+        # duplicate keys and every other malformed construct at once, which is what
+        # the host itself does before it can load the agent.
+        try:
+            document = tomllib.loads(text)
+        except tomllib.TOMLDecodeError as error:
+            return [f"{relative}: is not valid TOML ({error})"]
+        if document.get("name") != AGENT_STEM:
             errors.append(
-                f"{relative}: declares {len(declared)} `name` keys; exactly one is "
-                "required, and a duplicate makes the manifest invalid TOML"
+                f"{relative}: declares name {document.get('name')!r}, not {AGENT_STEM!r}"
             )
-        elif declared[0] != AGENT_STEM:
-            errors.append(f"{relative}: must declare name {AGENT_STEM!r}")
         return errors + _check_agent_body(relative, text)
     front = SKILL_FRONTMATTER.match(text)
     if front is None:
@@ -1878,7 +1909,7 @@ def _check_agent(relative: str, text: str, row: list[str], render, dialect: str)
     elif declared_names[0].strip("\"'") != AGENT_STEM:
         errors.append(f"{relative}: must declare name {AGENT_STEM!r}; the protocol delegates to it")
     if render is not None:
-        names = re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", row[3])
+        names = re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", row["Tool names"])
         declared = re.findall(r"^tools:.*?(?=^\S|\Z)", body + "\n", re.MULTILINE | re.DOTALL)
         if len(declared) != 1:
             errors.append(
@@ -1918,13 +1949,18 @@ AGENT_FRONTMATTER_KEYS = {"name", "description", "tools"}
 #: Keys a particular dialect adds. OpenCode's manifests declare `mode: subagent`,
 #: which is part of that dialect rather than a stray field.
 AGENT_DIALECT_KEYS = {"bool map": {"mode"}}
+#: A dialect key whose value is part of the contract. `mode: primary` registers a
+#: primary agent, not the subagent the protocol tries to invoke.
+AGENT_DIALECT_VALUES = {"bool map": {"mode": "subagent"}}
 #: The delegation rule's shape. Both gates have to be stated, because a record
 #: says the agent was *shipped*, never that this session can reach it -- and the
 #: inline fallback is what makes a denied tool a fallback rather than an error.
 #: (The equivalent assertion for the question rule was lost when this branch
 #: merged main; this is its replacement for the section this PR owns.)
 DELEGATION_HEADING = "### Running the scan in an isolated context"
-DELEGATION_MARKERS = ("infra-auditor", "records a subagent", "declared", "inline")
+DELEGATION_MARKERS = (
+    "infra-auditor", "records a subagent", "declared", "Invocation tool", "inline",
+)
 
 
 def _frontmatter_defect(body: str, dialect: str = "") -> str | None:
@@ -1950,6 +1986,10 @@ def _frontmatter_defect(body: str, dialect: str = "") -> str | None:
         seen.append(name)
     if missing := allowed - set(seen):
         return f"missing {sorted(missing)}"
+    for key, expected in AGENT_DIALECT_VALUES.get(dialect, {}).items():
+        found = re.search(rf"(?m)^{key}:\s*(.*)$", body)
+        if found is not None and found.group(1).strip().strip("\"'") != expected:
+            return f"{key} is {found.group(1).strip()!r}, not {expected!r}"
     description = re.search(r"(?m)^description:\s*(.*)$", body)
     if description is not None and not re.fullmatch(r'"[^"]*"', description.group(1).strip()):
         # A flow collection here is valid YAML and still not a description, which
@@ -1999,10 +2039,10 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
     return errors
 
 
-def _check_hook(root: Path, relative: str, row: list[str]) -> list[str]:
+def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
     errors: list[str] = []
     if not (root / relative).exists():
-        return [f"{relative}: {row[0]} is marked shipped but no manifest is here"]
+        return [f"{relative}: {row['Host']} is marked shipped but no manifest is here"]
     try:
         payload = load_json(relative, root)
         entries = payload["hooks"]["SessionStart"]
@@ -2025,13 +2065,28 @@ def _check_hook(root: Path, relative: str, row: list[str]) -> list[str]:
             f"{relative}: top-level keys {sorted(payload)} != ['hooks']; a manifest takes "
             "no siblings of 'hooks' -- Antigravity counts each one as a hook"
         )
-    recorded = row[2].strip("`").replace(MATCHER_PIPE, "|")
+    recorded = row["Matcher"].strip("`").replace(MATCHER_PIPE, "|")
     actual = {str(entry.get("matcher")) for entry in entries if isinstance(entry, dict)}
     if actual != {recorded}:
         errors.append(
             f"{relative}: SessionStart matcher {sorted(actual)} != {recorded!r} as "
-            f"{HOSTS_DOCUMENT} records it for {row[0]}"
+            f"{HOSTS_DOCUMENT} records it for {row['Host']}"
         )
+    recorded_root = row["Root variable"].strip("` ")
+    if recorded_root not in {"—", ""}:
+        foreign = {
+            variable
+            for variable in re.findall(r"\b([A-Z_]*PLUGIN_ROOT)\b", json.dumps(payload))
+            if variable != recorded_root
+        }
+        if foreign:
+            # The variables are not interchangeable: a Claude manifest reading
+            # CODEX_PLUGIN_ROOT finds nothing, exits before running the script,
+            # and the announcement disappears with no error to notice.
+            errors.append(
+                f"{relative}: resolves its root from {sorted(foreign)}, but "
+                f"{HOSTS_DOCUMENT} records {recorded_root!r} for {row['Host']}"
+            )
     for entry in entries:
         nested = entry.get("hooks") if isinstance(entry, dict) else None
         if nested is not None and not isinstance(nested, list):

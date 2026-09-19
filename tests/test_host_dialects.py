@@ -67,8 +67,8 @@ class RecordTests(unittest.TestCase):
         made those rows impossible to graduate.
         """
         rows = dialect_rows(REPO_ROOT, "## Subagent manifests")
-        shipped = [r for r in rows if r[-1].strip("* ").lower().startswith("yes")]
-        directories = [r[1].strip("`") for r in shipped]
+        shipped = [r for r in rows if r["Shipped"].strip("* ").lower() == "yes"]
+        directories = [r["Discovery path"].strip("`") for r in shipped]
         self.assertEqual(len(directories), len(set(directories)), directories)
 
 
@@ -186,8 +186,8 @@ class AgentTests(unittest.TestCase):
         document = root / HOSTS_DOCUMENT
         document.write_text(
             document.read_text(encoding="utf-8").replace(
-                "`Grep`, `Skill` | **yes** |",
-                "`Grep`, `Skill` | no — withdrawn |",
+                "`Grep`, `Skill` | `Task` | **yes** |",
+                "`Grep`, `Skill` | `Task` | no — withdrawn |",
                 1,
             ),
             encoding="utf-8",
@@ -210,8 +210,8 @@ class AgentTests(unittest.TestCase):
         document = root / HOSTS_DOCUMENT
         document.write_text(
             document.read_text(encoding="utf-8").replace(
-                "| `.codex/agents/` | none — session tools are inherited | — | no — not exercised |",
-                "| `.codex/agents/` | none — session tools are inherited | — | **yes** |",
+                "| `.codex/agents/` | none — session tools are inherited | — | not recorded | no — not exercised |",
+                "| `.codex/agents/` | none — session tools are inherited | — | `codex_task` | **yes** |",
                 1,
             ),
             encoding="utf-8",
@@ -232,7 +232,7 @@ class AgentTests(unittest.TestCase):
         document = root / HOSTS_DOCUMENT
         document.write_text(
             document.read_text(encoding="utf-8").replace(
-                "`run_command` | no — path collision |", "`run_command` | **yes** |", 1
+                "`run_command` | not recorded | no — path collision |", "`run_command` | `Task` | **yes** |", 1
             ),
             encoding="utf-8",
         )
@@ -345,10 +345,10 @@ class MalformedRecordTests(unittest.TestCase):
         """`| yes |` entered the shipped list and then indexed off the end,
         raising IndexError before the missing-column diagnostic could run."""
         root = self._root(
-            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | no — not exercised |",
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | not recorded | no — not exercised |",
             "| yes |",
         )
-        self.assertTrue(any("missing columns" in e for e in validate_host_dialects(root)))
+        self.assertTrue(any("cells, not" in e for e in validate_host_dialects(root)))
 
     def test_a_hook_path_may_not_escape_the_plugin_root(self) -> None:
         """Containment was applied to agent paths only, so a hook row of
@@ -399,7 +399,7 @@ class CoverageAndGrantTests(unittest.TestCase):
         """The protocol sends a run to its own host's row, so a missing row
         leaves that run with no delegation or hook decision at all."""
         root = self._root(
-            "| Codex CLI | `.codex/agents/` | none — session tools are inherited | — | no — not exercised |\n",
+            "| Codex CLI | `.codex/agents/` | none — session tools are inherited | — | not recorded | no — not exercised |\n",
             "",
         )
         self.assertTrue(
@@ -444,8 +444,8 @@ class CoverageAndGrantTests(unittest.TestCase):
         """OpenCode's native grant is lowercase, so one global Claude-cased pair
         made that row unsatisfiable however it was written."""
         root = self._root(
-            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | no — not exercised |",
-            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash`, `skill` | **yes** |",
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | not recorded | no — not exercised |",
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash`, `skill` | `question` | **yes** |",
         )
         shipped = root / ".opencode/agents"
         shipped.mkdir(parents=True)
@@ -516,8 +516,8 @@ class AmbiguityTests(unittest.TestCase):
         """A duplicate key makes the document invalid TOML, so the host registers
         nothing -- while a first-match read saw the right name."""
         root = self._root(
-            "| `.codex/agents/` | none — session tools are inherited | — | no — not exercised |",
-            "| `.codex/agents/` | none — session tools are inherited | — | **yes** |",
+            "| `.codex/agents/` | none — session tools are inherited | — | not recorded | no — not exercised |",
+            "| `.codex/agents/` | none — session tools are inherited | — | `codex_task` | **yes** |",
         )
         shipped = root / ".codex/agents"
         shipped.mkdir(parents=True)
@@ -526,7 +526,10 @@ class AmbiguityTests(unittest.TestCase):
             'developer_instructions = """Invoke the infra-copilot skill, then follow status.md."""\n',
             encoding="utf-8",
         )
-        self.assertTrue(any("`name` keys" in e for e in validate_host_dialects(root)))
+        self.assertTrue(
+            any("not valid TOML" in e for e in validate_host_dialects(root)),
+            "a duplicate key makes the document unparseable, which is the real failure",
+        )
 
     def test_a_repeated_capability_heading_is_rejected(self) -> None:
         """A second table was ignored while a reader sees two competing records."""
@@ -578,6 +581,7 @@ class HookCommandTests(unittest.TestCase):
             ("guarded by &&", "false && sh hooks/session-start.sh"),
             ("guarded by ||", "true || sh hooks/session-start.sh"),
             ("root variable reassigned", 'PLUGIN_ROOT=/tmp; sh "${PLUGIN_ROOT}/hooks/session-start.sh"'),
+            ("alternate-value expansion", 'sh "${PLUGIN_ROOT:+/tmp}/hooks/session-start.sh"'),
         ):
             with self.subTest(form=label):
                 self.assertFalse(_runs_implementation(command), command)
@@ -600,8 +604,8 @@ class DialectAndShapeTests(unittest.TestCase):
         """One Claude-cased tuple let OpenCode's lowercase `write` through,
         handing a read-only auditor a direct write capability."""
         root = self._root(
-            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | no — not exercised |",
-            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash`, `skill`, `write` | **yes** |",
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | not recorded | no — not exercised |",
+            "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash`, `skill`, `write` | `question` | **yes** |",
         )
         shipped = root / ".opencode/agents"
         shipped.mkdir(parents=True)
@@ -634,9 +638,9 @@ class DialectAndShapeTests(unittest.TestCase):
     def test_a_shipped_cell_must_be_the_exact_affirmative(self) -> None:
         """`yes — withdrawn` read as shipped, so a trailing comment could turn a
         refusal into a capability claim."""
-        root = self._root("`Grep`, `Skill` | **yes** |", "`Grep`, `Skill` | yes — withdrawn |")
+        root = self._root("`Grep`, `Skill` | `Task` | **yes** |", "`Grep`, `Skill` | `Task` | yes — withdrawn |")
         self.assertTrue(
-            any("neither the affirmative" in e for e in validate_host_dialects(root))
+            any("neither 'yes' nor a refusal" in e for e in validate_host_dialects(root))
         )
 
     def test_a_non_list_sessionstart_is_reported_not_raised(self) -> None:
@@ -664,9 +668,9 @@ class ShapeTests(unittest.TestCase):
         document.write_text(
             document.read_text(encoding="utf-8").replace(
                 "| Antigravity | `agents/` | YAML list | `view_file`, `grep_search`, "
-                "`find_by_name`, `run_command` | no — path collision |",
+                "`find_by_name`, `run_command` | not recorded | no — path collision |",
                 "| Antigravity | `./agents/` | comma string | `Read`, `Bash`, `Glob`, "
-                "`Grep`, `Skill` | **yes** |",
+                "`Grep`, `Skill` | `Task` | **yes** |",
                 1,
             ),
             encoding="utf-8",
@@ -779,6 +783,101 @@ class DirectiveAndFrontmatterTests(unittest.TestCase):
         self.assertTrue(
             any("delegation rule is missing" in e for e in validate_host_dialects(root))
         )
+
+
+class RecordedValueTests(unittest.TestCase):
+    """Columns added because the gate was trusting things the table never said."""
+
+    def _root(self, old: str, new: str) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / HOSTS_DOCUMENT
+        text = document.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_a_manifest_may_only_use_its_own_root_variable(self) -> None:
+        """Claude reading CODEX_PLUGIN_ROOT finds nothing, exits before running
+        the script, and the announcement disappears with no error to notice."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        manifest = root / HOOK_PATH
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8").replace(
+                "CLAUDE_PLUGIN_ROOT", "CODEX_PLUGIN_ROOT"
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("records 'CLAUDE_PLUGIN_ROOT'" in e for e in validate_host_dialects(root))
+        )
+
+    def test_an_extra_cell_is_rejected(self) -> None:
+        """`row[-1]` read the extra cell while a reader saw the named column, so
+        the gate and the document disagreed about the same host."""
+        root = self._root("| `Task` | **yes** |", "| `Task` | no — not exercised | **yes** |")
+        self.assertTrue(any("cells, not" in e for e in validate_host_dialects(root)))
+
+    def test_a_shipped_row_must_record_an_invocation_tool(self) -> None:
+        """The delegation gate checks that tool is available; without one there is
+        nothing to check."""
+        root = self._root("| `Task` | **yes** |", "| not recorded | **yes** |")
+        self.assertTrue(
+            any("no invocation tool" in e for e in validate_host_dialects(root))
+        )
+
+    def test_an_opencode_manifest_must_stay_a_subagent(self) -> None:
+        """`mode: primary` registers a primary agent, not the subagent the
+        protocol invokes."""
+        root = self._root(
+            "| `read`, `grep`, `glob`, `bash` | not recorded | no — not exercised |",
+            "| `read`, `grep`, `glob`, `bash`, `skill` | `question` | **yes** |",
+        )
+        shipped = root / ".opencode/agents"
+        shipped.mkdir(parents=True)
+        (shipped / f"{AGENT_STEM}.md").write_text(
+            '---\nname: infra-auditor\ndescription: "Scan."\nmode: primary\n'
+            "tools:\n  read: true\n  grep: true\n  glob: true\n  bash: true\n"
+            "  skill: true\n---\nInvoke the `infra-copilot` skill, then follow status.md.\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any("not 'subagent'" in e for e in validate_host_dialects(root)))
+
+    def test_a_toml_manifest_is_parsed(self) -> None:
+        """tomllib is stdlib, so unlike YAML there is no dependency to weigh -- and
+        a parse rejects every malformed construct at once."""
+        row = "| Codex CLI | `.codex/agents/` | none — session tools are inherited | — | not recorded | no — not exercised |"
+        shipped_row = "| Codex CLI | `.codex/agents/` | none — session tools are inherited | — | `codex_task` | **yes** |"
+        for label, body, expect_clean in (
+            ("unterminated", 'name = "infra-auditor"\nbroken = [\n', False),
+            ("duplicate key", 'name = "infra-auditor"\nname = "wrong"\n', False),
+            (
+                "valid",
+                'name = "infra-auditor"\ndeveloper_instructions = """Invoke the '
+                'infra-copilot skill, then follow status.md."""\n',
+                True,
+            ),
+        ):
+            with self.subTest(document=label):
+                root = self._root(row, shipped_row)
+                shipped = root / ".codex/agents"
+                shipped.mkdir(parents=True)
+                (shipped / f"{AGENT_STEM}.toml").write_text(body, encoding="utf-8")
+                errors = validate_host_dialects(root)
+                if expect_clean:
+                    self.assertEqual(errors, [])
+                else:
+                    self.assertTrue(any("not valid TOML" in e for e in errors), errors)
+
+    def test_the_protocol_names_no_host_specific_tool(self) -> None:
+        """It reads the Invocation tool column instead, the way the decision rule
+        reads the question tool."""
+        for relative in PROTOCOL_DOCUMENTS:
+            with self.subTest(document=relative):
+                self.assertNotIn("Task", (REPO_ROOT / relative).read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

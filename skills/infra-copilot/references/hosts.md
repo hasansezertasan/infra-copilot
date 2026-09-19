@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e9935eddcb9312fa86862dbe90fa899cbd4f4de5edffcec7f7e4c4f02518a6e4
-Source-Hash: blake3:f05c95924d359be3b9b1df5176db65ffaf06269e2715aa8e1fa6f7298feb574b
+Content-Hash: blake3:1d7cb897e6593082d7349e7cb77b47869b7092e86a2dd14a166278e212008011
+Source-Hash: blake3:ad0d69acdb8c6dbebd388dd5f61d2cd6864256ec0f028e2820fb65627b8b3927
 Schema-Version: v1
 -->
 
@@ -41,12 +41,18 @@ One agent ships — `infra-auditor`, which runs the read-only `status` scan in i
 context. Every host below discovers subagents; they disagree on where and in what
 dialect, and a wrong dialect **fails silently** on both hosts that were tested.
 
-| Host | Discovery path | `tools` dialect | Tool names | Shipped |
-|---|---|---|---|---|
-| Claude Code | `agents/` | comma string | `Read`, `Bash`, `Glob`, `Grep`, `Skill` | **yes** |
-| Antigravity | `agents/` | YAML list | `view_file`, `grep_search`, `find_by_name`, `run_command` | no — path collision |
-| Codex CLI | `.codex/agents/` | none — session tools are inherited | — | no — not exercised |
-| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | no — not exercised |
+| Host | Discovery path | `tools` dialect | Tool names | Invocation tool | Shipped |
+|---|---|---|---|---|---|
+| Claude Code | `agents/` | comma string | `Read`, `Bash`, `Glob`, `Grep`, `Skill` | `Task` | **yes** |
+| Antigravity | `agents/` | YAML list | `view_file`, `grep_search`, `find_by_name`, `run_command` | not recorded | no — path collision |
+| Codex CLI | `.codex/agents/` | none — session tools are inherited | — | not recorded | no — not exercised |
+| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, `bash` | not recorded | no — not exercised |
+
+**Invocation tool** is what a caller uses to reach the agent, and the delegation rule in
+[`protocol.md`](protocol.md) requires it to be declared and allowed before delegating —
+a shipped row says the agent exists, never that this session can reach it. `not recorded`
+means nobody has established the name on that host, which is one more reason those rows
+are not shipped: there would be nothing to check the availability gate against.
 
 **Only one host can be served.** Claude and Antigravity both auto-discover the *same*
 root `agents/` directory and neither honours an override — an `agents` key in the
@@ -72,12 +78,18 @@ discovery fact that was established and an execution fact that was not — disco
 execution, and shipping a manifest that never fires is indistinguishable from one that
 works until someone needs it.
 
-| Host | Manifest path | Matcher | Shipped |
-|---|---|---|---|
-| Claude Code | `hooks/hooks.json` | `startup{pipe}resume{pipe}clear{pipe}compact` | **yes** |
-| Antigravity | `hooks.json` (repository **root**, not `hooks/`) | `*` | no — never observed firing |
-| Codex CLI | `hooks/hooks-codex.json` | `*` | no — gated, never observed firing |
-| OpenCode | — | — | no mechanism |
+| Host | Manifest path | Matcher | Root variable | Shipped |
+|---|---|---|---|---|
+| Claude Code | `hooks/hooks.json` | `startup{pipe}resume{pipe}clear{pipe}compact` | `CLAUDE_PLUGIN_ROOT` | **yes** |
+| Antigravity | `hooks.json` (repository **root**, not `hooks/`) | `*` | `ANTIGRAVITY_PLUGIN_ROOT` | no — never observed firing |
+| Codex CLI | `hooks/hooks-codex.json` | `*` | `CODEX_PLUGIN_ROOT` | no — gated, never observed firing |
+| OpenCode | — | — | — | no mechanism |
+
+**Root variable** is the one this host exports, and a manifest may resolve its root only
+from its own. The variables are not interchangeable: a Claude manifest reading
+`CODEX_PLUGIN_ROOT` finds nothing, exits before running the script, and the announcement
+silently disappears — which is indistinguishable from a working hook until someone looks
+for it.
 
 `{pipe}` stands for a literal `|` in the matcher: a Markdown table cell cannot carry one,
 and escaping it (`\|`) would put an escape into a value that is compared byte-for-byte

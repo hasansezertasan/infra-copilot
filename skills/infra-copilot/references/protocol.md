@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9828765ff3ecca5f6add32795468eddf030ea80cb37ab11e6d78db18c2fdc945
-Source-Hash: blake3:f05c95924d359be3b9b1df5176db65ffaf06269e2715aa8e1fa6f7298feb574b
+Content-Hash: blake3:f56f5ffd0151eb93f96657f04fcb55a0fd35d71e1230a5b6962dfe4a1680d68e
+Source-Hash: blake3:ad0d69acdb8c6dbebd388dd5f61d2cd6864256ec0f028e2820fb65627b8b3927
 Schema-Version: v1
 -->
 
@@ -223,14 +223,19 @@ The scan is read-only, walks every phase, and produces a large amount of interme
 output — API JSON, per-step exit codes, tool versions — whose only consumer is the phase
 table and the verdict. **`status` and only `status`** may delegate it to the
 **`infra-auditor`** agent — and only when [`hosts.md`](hosts.md) records a subagent
-manifest for this host **and** the host's subagent-invocation tool is currently declared
+manifest for this host **and** the invocation tool that row records is currently declared
 and allowed.
 
 Both gates, for the same reason the question rule needs both: the record says the agent
-was shipped, never that this session can reach it. Hosts gate tools per session, so
-`/infra-status` run where `Task` is denied would meet a shipped row and then fail on the
-call — replacing the scan it promised with an error. A denied tool is a fallback
+was shipped, never that this session can reach it. Hosts gate tools per session, so a
+`status` run where the recorded tool is denied would meet a shipped row and then fail on
+the call — replacing the scan it promised with an error. A denied tool is a fallback
 condition, not an error condition.
+
+Read the tool's name from the **Invocation tool** column, the same way the decision rule
+reads the question tool: never carry one in a skill body. A row whose invocation tool is
+`not recorded` cannot clear the availability gate at all, which is one more reason such a
+row is not shipped.
 
 What the agent returns is [`status.md`](status.md)'s report **in full**: the preflight
 line, the phase table, and the verdict. Delegation moves where the scan runs, never what
