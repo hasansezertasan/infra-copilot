@@ -205,24 +205,31 @@ class AgentTests(unittest.TestCase):
 
 
     def test_a_second_host_may_ship_at_an_independent_path(self) -> None:
-        """Graduating Codex at .codex/agents/ must not trip the collision rule."""
+        """Graduating OpenCode at .opencode/agents/ must not trip the collision
+        rule, which exists only for the shared root agents/ directory.
+
+        OpenCode rather than Codex: the inherited-tools dialect cannot express
+        the read-only grant, so it is unshippable for a different reason.
+        """
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = build_root(directory.name)
         document = root / HOSTS_DOCUMENT
         document.write_text(
             document.read_text(encoding="utf-8").replace(
-                "| `.codex/agents/` | none — session tools are inherited | — | not recorded | no — not exercised |",
-                "| `.codex/agents/` | none — session tools are inherited | — | `codex_task` | **yes** |",
+                "| `read`, `grep`, `glob`, `bash` | not recorded | no — not exercised |",
+                "| `read`, `grep`, `glob`, `bash`, `skill` | `question` | **yes** |",
                 1,
             ),
             encoding="utf-8",
         )
-        shipped = root / ".codex/agents"
+        shipped = root / ".opencode/agents"
         shipped.mkdir(parents=True)
-        (shipped / f"{AGENT_STEM}.toml").write_text(
-            'name = "infra-auditor"\n'
-            'developer_instructions = """Invoke the infra-copilot skill, then follow status.md."""\n',
+        (shipped / f"{AGENT_STEM}.md").write_text(
+            '---\nname: infra-auditor\ndescription: "Read-only scan."\n'
+            "mode: subagent\ntools:\n  read: true\n  grep: true\n  glob: true\n"
+            "  bash: true\n  skill: true\n---\n"
+            "Invoke the `infra-copilot` skill, then follow status.md.\n",
             encoding="utf-8",
         )
         self.assertEqual(validate_host_dialects(root), [])
@@ -625,6 +632,24 @@ class HookCommandTests(unittest.TestCase):
                 'x=`id`; sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"',
             ),
             (
+                "guard whose success blocks the run",
+                's="${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"; '
+                '[ -z "$s" ] || exit 0; sh "$s"',
+            ),
+            (
+                "guarded exec runs a command",
+                's="${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"; '
+                '[ -f "$s" ] || exec touch /tmp/adapter-owned; sh "$s"',
+            ),
+            (
+                "trim removes a path component",
+                'sh "${CLAUDE_PLUGIN_ROOT%/*}/hooks/session-start.sh"',
+            ),
+            (
+                "prefix trim",
+                'sh "${CLAUDE_PLUGIN_ROOT##*/}/hooks/session-start.sh"',
+            ),
+            (
                 "redirection discards the announcement",
                 'r="${CLAUDE_PLUGIN_ROOT:-}"; s="${r%/}/hooks/session-start.sh"; '
                 'sh "$s" >/dev/null',
@@ -923,10 +948,13 @@ class RecordedValueTests(unittest.TestCase):
                 shipped.mkdir(parents=True)
                 (shipped / f"{AGENT_STEM}.toml").write_text(body, encoding="utf-8")
                 errors = validate_host_dialects(root)
+                # The row is unshippable regardless -- inherited tools cannot
+                # express the grant -- so this asserts only the parse verdict.
+                parse_errors = [e for e in errors if "not valid TOML" in e]
                 if expect_clean:
-                    self.assertEqual(errors, [])
+                    self.assertEqual(parse_errors, [], errors)
                 else:
-                    self.assertTrue(any("not valid TOML" in e for e in errors), errors)
+                    self.assertTrue(parse_errors, errors)
 
     def test_the_protocol_names_no_host_specific_tool(self) -> None:
         """It reads the Invocation tool column instead, the way the decision rule
@@ -1217,7 +1245,7 @@ class SeventhRoundTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertTrue(
-            any("no skill-loading tool" in e for e in validate_host_dialects(root))
+            any("cannot express the grant" in e for e in validate_host_dialects(root))
         )
 
 
@@ -1310,6 +1338,66 @@ class NinthRoundTests(unittest.TestCase):
         self.assertIn("skills/infra-copilot/references/hosts.md", readme)
         for copied in ("hooks-codex.json", "experimental flag", "root `hooks.json`"):
             self.assertNotIn(copied, readme)
+
+
+class TenthRoundTests(unittest.TestCase):
+    def _root(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_root(directory.name)
+
+    def test_a_doubled_quote_name_is_rejected(self) -> None:
+        """YAML reads `''infra-auditor''` as the literal `'infra-auditor'`, while
+        an even quote count and strip() both saw the expected stem."""
+        root = self._root()
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "name: infra-auditor", "name: ''infra-auditor''", 1
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("must declare name" in e for e in validate_host_dialects(root))
+        )
+
+    def test_an_inherited_tools_dialect_cannot_ship(self) -> None:
+        """Session tools are inherited, so the read-only grant the protocol
+        promises can be neither expressed nor checked."""
+        root = self._root()
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "| — | not recorded | no — not exercised |", "| — | `codex_task` | **yes** |", 1
+            ),
+            encoding="utf-8",
+        )
+        shipped = root / ".codex/agents"
+        shipped.mkdir(parents=True)
+        (shipped / f"{AGENT_STEM}.toml").write_text(
+            'name = "infra-auditor"\ndeveloper_instructions = """Invoke the '
+            'infra-copilot skill, then follow status.md."""\n',
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("cannot express the grant" in e for e in validate_host_dialects(root))
+        )
+
+    def test_the_status_only_boundary_is_part_of_the_rule(self) -> None:
+        """Without it an action run could delegate, and the status runbook
+        substitutes away the current-checkout checks resumption needs."""
+        root = self._root()
+        for relative in PROTOCOL_DOCUMENTS:
+            document = root / relative
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    "**`status` and only `status`**", "**any skill**"
+                ),
+                encoding="utf-8",
+            )
+        self.assertTrue(
+            any("delegation rule is missing" in e for e in validate_host_dialects(root))
+        )
 
 
 if __name__ == "__main__":

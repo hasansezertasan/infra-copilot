@@ -1640,7 +1640,10 @@ AGENT_REQUIRED_TOOLS = {
     # hosts.md as one of the reasons that row is unshipped; enforced here so the
     # record cannot be flipped without the missing capability being established.
     "YAML list": None,
-    "none": (),
+    # Session tools are inherited, so the read-only grant the protocol promises
+    # cannot be expressed or checked. Unshippable for the same reason the
+    # YAML-list dialect is: the record would claim a narrowing that does not exist.
+    "none": None,
 }
 #: Tools that would make the read-only contract unstatable.
 #: Keyed by dialect, like AGENT_REQUIRED_TOOLS and for the same reason: one
@@ -1732,7 +1735,10 @@ def _expand(word: str, variables: dict[str, str]) -> str:
         # `${PLUGIN_ROOT:+/tmp}` yields /tmp when the variable is set, so the
         # operator is part of the value. Only an empty `:-` default and the
         # prefix/suffix trims the shipped form uses leave the root itself.
-        if operator and not re.fullmatch(r":-|[%#]{1,2}[^}]*", operator):
+        # Only `:-` with an empty default and the shipped `%/` trailing-slash
+        # trim. `%/*` and `##*/` remove path components, so the command would run
+        # outside the payload while still looking rooted.
+        if operator and operator not in (":-", "%/"):
             return "\x00unknown"
         # A recorded assignment wins over the sentinel: `PLUGIN_ROOT=/tmp; sh
         # "${PLUGIN_ROOT}/hooks/session-start.sh"` trusted the name while the
@@ -1756,7 +1762,13 @@ HOOK_REDIRECTION = re.compile(r"(?<!\S)[0-9]*[<>]")
 HOOK_TERMINAL = re.compile(r"\A(?:exit|return|exec)\b")
 #: A positive existence test, which is the only guard shape the shipped manifests
 #: use and the only one whose relationship to the operand is decidable here.
-HOOK_POSITIVE_TEST = re.compile(r"\A\[\s+-[a-z]+\s+(\S+)\s*\]\Z|\Atest\s+-[a-z]+\s+(\S+)\Z")
+#: Predicates whose *success* means the invocation can proceed: the root is
+#: non-empty, or the script is there. `-z` is the inverse -- it succeeds when the
+#: value is empty, so `[ -z "$s" ] || exit 0` exits on every real path.
+HOOK_GUARD_PREDICATES = ("-n", "-f", "-e", "-r", "-x", "-s")
+HOOK_POSITIVE_TEST = re.compile(
+    r"\A\[\s+(-[a-z]+)\s+(\S+)\s*\]\Z|\Atest\s+(-[a-z]+)\s+(\S+)\Z"
+)
 
 
 def _runs_implementation(command: str, rooted: bool = False) -> bool:
@@ -1804,13 +1816,21 @@ def _runs_implementation(command: str, rooted: bool = False) -> bool:
             # exit`: that runs when the script is missing. `&& exit` runs when it
             # is present, and `[ ! -f "$s" ] || exit` inverts the condition so the
             # exit fires exactly when the script is there.
-            guard = HOOK_POSITIVE_TEST.match(last) if preceding == "||" else None
+            # Only `exit` may be guarded. `[ -f "$s" ] || exec touch /tmp/x`
+            # runs adapter-owned behaviour when the script is missing, which is
+            # the branch the guard exists to make a no-op.
+            if not re.match(r"\Aexit\b", statement) or preceding != "||":
+                return False
+            guard = HOOK_POSITIVE_TEST.match(last)
             if guard is None:
                 return False
             # The guard must be about the things this command resolves: the
             # plugin root, or the script itself. The shipped form tests both --
             # `[ -n "$r" ] || exit 0` then `[ -f "$s" ] || exit 0`.
-            target = _expand(guard.group(1) or guard.group(2), variables)
+            predicate = guard.group(1) or guard.group(3)
+            if predicate not in HOOK_GUARD_PREDICATES:
+                return False
+            target = _expand(guard.group(2) or guard.group(4), variables)
             if not (HOOK_OPERAND.match(target) or target == HOOK_ROOT_SENTINEL):
                 return False
             continue
@@ -2073,6 +2093,16 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                         "has demonstrated"
                     )
             continue
+        if AGENT_REQUIRED_TOOLS.get(dialect, ()) is None:
+            # Checked here rather than in _check_agent: the TOML branch returns
+            # before that point, so the dialect least able to express the grant
+            # was the one never asked about it.
+            errors.append(
+                f"{HOSTS_DOCUMENT}: the {dialect!r} dialect cannot express the grant the "
+                "protocol promises -- no recorded skill-loading tool, or tools inherited "
+                "from the session -- so this row cannot be marked shipped until the host "
+                "can enforce and record a restricted grant"
+            )
         if row["Invocation tool"].strip("` ") in {"not recorded", "—", ""}:
             # The delegation rule gates on this tool being declared and allowed, so a
             # shipped row without one leaves that gate nothing to evaluate.
@@ -2161,7 +2191,7 @@ def _check_agent(relative: str, text: str, row: dict[str, str], render, dialect:
             f"{relative}: frontmatter declares {len(declared_names)} `name` fields; "
             "exactly one is required for the registered name to be unambiguous"
         )
-    elif declared_names[0].strip("\"'") != AGENT_STEM:
+    elif _plain_scalar(declared_names[0]) != AGENT_STEM:
         # The full scalar: YAML reads `name: infra-auditor garbage` as one value,
         # while a first-token capture saw the right name and the host registered
         # a different one.
@@ -2179,15 +2209,7 @@ def _check_agent(relative: str, text: str, row: dict[str, str], render, dialect:
                 f"{relative}: frontmatter tools {declared[0].strip()!r} != {render(names)!r} "
                 f"as {HOSTS_DOCUMENT} records it; a wrong dialect fails silently"
             )
-        capabilities = AGENT_REQUIRED_TOOLS.get(dialect, ())
-        if capabilities is None:
-            errors.append(
-                f"{HOSTS_DOCUMENT}: the {dialect!r} dialect records no skill-loading "
-                "tool, so a shipped agent could never load the runbook it is told to; "
-                "establish one and record it before marking this row shipped"
-            )
-            capabilities = ()
-        for required in capabilities:
+        for required in AGENT_REQUIRED_TOOLS.get(dialect) or ():
             if required not in names:
                 errors.append(
                     f"{HOSTS_DOCUMENT}: the shipped subagent row omits {required!r}; the "
@@ -2227,12 +2249,35 @@ DELEGATION_HEADING = "### Running the scan in an isolated context"
 DELEGATION_MARKERS = (
     "infra-auditor", "records a subagent", r"declared\s+and\s+allowed",
     "Invocation tool", "inline",
+    # The scope boundary is load-bearing: an action skill's resume scan needs the
+    # current-checkout checks the status runbook substitutes away.
+    r"`status`\s+and\s+only\s+`status`", r"`setup`,\s+`import`,\s+and\s+`add`",
 )
 
 
 #: The escapes YAML defines inside a double-quoted scalar. Anything else makes the
 #: document unparseable, so the host discovers no agent at all.
 YAML_ESCAPES = set('0abtnvfre "/\\N_LP\tx')
+
+
+def _plain_scalar(value: str) -> str | None:
+    """The value a YAML scalar carries, or None when it is not a valid one.
+
+    Quotes are parsed, not stripped: `''infra-auditor''` has an even quote count
+    and reduces to the expected stem under strip(), while YAML reads the doubled
+    quotes as literal characters and registers `'infra-auditor'` instead.
+    """
+    value = value.strip()
+    if value.startswith("'") and value.endswith("'") and len(value) >= 2:
+        inner = value[1:-1]
+        if "'" in inner.replace("''", ""):
+            return None
+        return inner.replace("''", "'")
+    if value.startswith('"') and value.endswith('"') and len(value) >= 2:
+        return None if _quoted_scalar_defect(value) else value[1:-1]
+    if '"' in value or "'" in value:
+        return None
+    return value
 
 
 def _quoted_scalar_defect(value: str) -> str | None:
