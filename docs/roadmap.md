@@ -60,12 +60,13 @@ oversight. Each item links to the issue that owns it.
   be a second copy that nothing keeps in step when a host graduates. A test fails if a
   manifest appears at a path no row marks shipped.
   ([#42](https://github.com/hasansezertasan/infra-copilot/issues/42))
-- **The subagent ships to one host.** `infra-auditor` runs the scan in an isolated
-  context on Claude. Claude and Antigravity both auto-discover root `agents/` and neither
-  honours an override, and their `tools` shapes are incompatible, so the file carries
-  Claude's and Antigravity goes without. Its read-only promise is still unenforced for
-  the reason above — it is context isolation, not a sandbox.
-  ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
+- **The subagent does not ship everywhere.** `infra-auditor` runs the scan in an
+  isolated context. Which hosts ship it, the discovery path each uses, the `tools`
+  dialect each needs, and the evidence behind every exclusion are recorded in
+  [`hosts.md`](../skills/infra-copilot/references/hosts.md) — repeating them here would
+  be a second copy that nothing keeps in step when a host graduates. Its read-only
+  promise is still unenforced for the reason above — it is context isolation, not a
+  sandbox. ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
 - **Host capability records are hand-maintained and unverifiable.** `hosts.md` states each
   host's native question tool and its modes and choice counts, and the protocol's
   *Asking a decision* rule reads it. Nothing can prove a row is true: no host publishes a

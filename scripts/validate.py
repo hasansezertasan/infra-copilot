@@ -1707,14 +1707,23 @@ AGENT_INVOCATION = re.compile(r"\bInvoke the `?infra-copilot`? skill\b")
 AGENT_RUNBOOK_DIRECTIVE = re.compile(
     r"\b(?:follow|run|use|read|consult)\b[^.]{0,60}?status\.md"
 )
-#: A negator anywhere in the same clause disqualifies what follows it. Bounded by
-#: clause punctuation and a short distance, because the negator and the thing it
-#: negates are usually separated by a verb -- "do not *follow* status.md" slipped
-#: past a rule that required them adjacent.
+#: A negator anywhere in the same clause disqualifies what follows it.
+#:
+#: The clause is the bound, and it is the *whole* clause. Earlier versions also
+#: capped the distance -- first adjacency, which "do not *follow* status.md"
+#: walked past, then 24 characters, which "Do not under any circumstances
+#: whatsoever Invoke the infra-copilot skill" walked past in turn. Any fixed
+#: lookback is a padding budget for whoever wants to invert the directive, so
+#: _clause_before() hands this the text back to the last clause boundary and the
+#: length of the padding stops mattering.
 AGENT_NEGATOR = re.compile(
-    r"\b(?:never|not|nor|avoid|don'?t|cannot|can'?t|refuse)\b[^.;:\n]{0,24}$",
+    r"\b(?:never|not|nor|avoid|don'?t|cannot|can'?t|refuse)\b",
     re.IGNORECASE,
 )
+#: What ends a clause for AGENT_NEGATOR. A newline counts: these manifests are
+#: Markdown, where a list item or a paragraph break separates directives as
+#: firmly as a full stop does.
+AGENT_CLAUSE_BOUNDARY = re.compile(r"[.;:\n]")
 #: Any relative path to the runbook, not one spelling. The agent's working
 #: directory is the consuming repository, so `references/status.md` resolves
 #: there just as `skills/infra-copilot/references/status.md` does.
@@ -1726,6 +1735,14 @@ AGENT_MAX_LINES = 40
 #: And a character budget, because `agents/` is outside the Markdown line-length
 #: lint: thousands of words on one physical line kept the line count green while
 #: making the manifest exactly the second authority the budget exists to prevent.
+#:
+#: Measured over the *complete* manifest, frontmatter included. The directive
+#: checks below read the body only -- deliberately, since a description is
+#: discovery metadata rather than instructions -- and measuring size the same way
+#: left `description:` unbounded, so 12 KB of workflow prose rode into the host's
+#: routing surface behind a green gate. Nothing else bounds it: the aggregate
+#: MAX_DESCRIPTION_BUDGET covers `.ai-rulez/skills/*/SKILL.md` and never sees
+#: `agents/`.
 AGENT_MAX_CHARACTERS = 2600
 #: The one shell script every hook manifest must hand to a shell. Adapters carry
 #: the discovery path and the matcher; the behaviour is shared.
@@ -1812,6 +1829,33 @@ def _next_heading(section: str) -> int:
     return -1 if found is None else found.start()
 
 
+#: The start of a heredoc, and the delimiter that ends it. `<<-` strips leading
+#: tabs from the terminator; quoting the delimiter suppresses expansion and
+#: changes nothing about where the body ends.
+HEREDOC_START = re.compile(r"<<-?\s*['\"]?([A-Za-z_]\w*)['\"]?")
+
+
+def _without_heredocs(script: str) -> str:
+    """``script`` with every heredoc body removed, line for line.
+
+    A heredoc body is data the shell hands to a command, not code it runs, so a
+    conditional written inside one is text that looks executable and is not. The
+    lines are replaced rather than deleted so that what remains still reads as
+    the script it came from.
+    """
+    kept, terminator = [], None
+    for line in script.splitlines():
+        if terminator is not None:
+            kept.append("")
+            if line.strip() == terminator:
+                terminator = None
+            continue
+        kept.append(line)
+        if found := HEREDOC_START.search(line):
+            terminator = found.group(1)
+    return "\n".join(kept)
+
+
 def _output_branch(script: str) -> str | None:
     """The host-output conditional of session-start.sh, or None when absent.
 
@@ -1821,9 +1865,13 @@ def _output_branch(script: str) -> str | None:
     the same distinction the callback check already draws between a command that
     mentions the implementation and one that runs it.
     """
-    # Anchored to the start of a line and skipping comments: `find` took the
-    # first textual match, so a commented-out copy above the real branch was
-    # what got checked while the shell ignored it entirely.
+    # Anchored to the start of a line, past comments, and with heredoc bodies
+    # removed: `find` took the first textual match, so a commented-out copy above
+    # the real branch was what got checked, and once the anchor ruled comments
+    # out, the same decoy in a discarded heredoc did the job instead -- the
+    # validator read the recorded root from a string while the live branch tested
+    # someone else's and Claude got the fallback shape.
+    script = _without_heredocs(script)
     found = re.search(r'(?m)^if \[ -n "\$', script)
     if found is None:
         return None
@@ -1899,6 +1947,28 @@ def dialect_rows(root: Path = ROOT, heading: str = "") -> list[dict[str, str]]:
 def _canonical(relative: str) -> str:
     """A recorded path reduced to one spelling, so equivalents compare equal."""
     return posixpath.normpath(relative.rstrip("/") or ".")
+
+
+def _owner_key(root: Path, relative: str) -> str:
+    """The physical directory a recorded discovery path names.
+
+    Lexical normalisation is not enough to decide who owns a directory. It makes
+    `agents/`, `./agents/` and `agents` one key, but a symlink is a fourth
+    spelling the filesystem resolves and `posixpath` cannot see: `alias/` next to
+    `agents/` keyed as two owners while every read through either reached the one
+    manifest, so two hosts held a directory the record says only one may.
+
+    _escapes_root() deliberately permits an in-tree symlink, so resolving here is
+    what keeps that permission from also granting a second owner. Falls back to
+    the lexical key when the path does not resolve -- an unshipped row may name a
+    directory that does not exist yet, and that is not this function's error to
+    report.
+    """
+    try:
+        resolved = (root / relative).resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return _canonical(relative)
+    return _canonical(resolved.as_posix())
 
 
 def _escapes_root(root: Path, relative: str) -> str | None:
@@ -2032,7 +2102,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     owned: dict[str, list[str]] = {}
     for row in owners:
         owned.setdefault(
-            _canonical(row["Discovery path"].strip("`")), []
+            _owner_key(root, row["Discovery path"].strip("`")), []
         ).append(row["Host"])
     for directory, sharing in sorted(owned.items()):
         if len(sharing) > 1:
@@ -2060,7 +2130,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
         relative = f"{directory.rstrip('/')}/{AGENT_STEM}{suffix}"
         text = read_document(root / relative)
         if not _shipped(row["Shipped"]):
-            if _canonical(directory) in owned:
+            if _owner_key(root, directory) in owned:
                 continue
             for stray in sorted((root / directory).glob("*")):
                 if stray.is_file():
@@ -2226,10 +2296,26 @@ DELEGATION_MARKERS = (
 )
 
 
+def _clause_before(text: str, end: int) -> str:
+    """``text`` back to the clause boundary preceding ``end``.
+
+    The polarity of a directive is decided by its own clause, not by a window of
+    fixed width: padding between the negator and the imperative is free to write
+    and was twice enough to invert a gate that measured characters.
+    """
+    boundaries = AGENT_CLAUSE_BOUNDARY.finditer(text, 0, end)
+    return text[max((found.end() for found in boundaries), default=0) : end]
+
+
 def _positive_mentions(text: str, pattern: str) -> bool:
-    """Whether ``pattern`` occurs at least once without a negator before it."""
+    """Whether ``pattern`` occurs at least once un-negated in its own clause.
+
+    One un-negated occurrence is enough: a document may discuss the negative case
+    ("never carry one in a skill body") as long as it also states the positive
+    directive somewhere.
+    """
     return any(
-        AGENT_NEGATOR.search(text[max(0, match.start() - 40) : match.start()]) is None
+        AGENT_NEGATOR.search(_clause_before(text, match.start())) is None
         for match in re.finditer(pattern, text)
     )
 
@@ -2242,11 +2328,15 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
     not what the agent is given as instructions -- so a manifest whose directives
     live there and whose body says "Do nothing." satisfied the contract while
     instructing nothing.
+
+    The character budget is the exception and spans the whole file: metadata the
+    agent is not given is still metadata the *caller* is given, so an unbounded
+    `description:` is a second authority over routing.
     """
     errors: list[str] = []
     front = SKILL_FRONTMATTER.match(text)
-    text = text[front.end() :] if front else text
-    if not _positive_mentions(text, AGENT_INVOCATION.pattern):
+    body = text[front.end() :] if front else text
+    if not _positive_mentions(body, AGENT_INVOCATION.pattern):
         # Names alone were satisfied by "Never invoke `infra-copilot` or
         # `status.md`" -- both markers present, every delegated run told not to
         # load the canonical workflow.
@@ -2255,14 +2345,14 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
             "skill; an agent that does not load the runbook either restates it or "
             "does nothing"
         )
-    if not _positive_mentions(text, AGENT_RUNBOOK_DIRECTIVE.pattern):
+    if not _positive_mentions(body, AGENT_RUNBOOK_DIRECTIVE.pattern):
         # "then do not follow status.md" named the runbook and skipped it, which
         # is the same defect as the negated skill imperative one clause earlier.
         errors.append(
             f"{relative}: carries no un-negated instruction to follow "
             f"{AGENT_RUNBOOK[1]!r}; naming the runbook is not delegating to it"
         )
-    if found := AGENT_FORBIDDEN_PATH.search(text):
+    if found := AGENT_FORBIDDEN_PATH.search(body):
         errors.append(
             f"{relative}: carries the relative runbook path {found.group(0)!r}, which "
             "resolves into the consuming repository rather than the plugin payload; "
@@ -2273,9 +2363,12 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
             f"{relative}: {len(text)} characters > {AGENT_MAX_CHARACTERS}; the line "
             "budget alone is not a size budget when one line may be any length"
         )
-    if len(text.splitlines()) > AGENT_MAX_LINES:
+    # Lines stay on the body: the rationale is restating the runbook, which is a
+    # body concern, and frontmatter is four lines whose length the character
+    # budget above already prices.
+    if len(body.splitlines()) > AGENT_MAX_LINES:
         errors.append(
-            f"{relative}: {len(text.splitlines())} lines > {AGENT_MAX_LINES}; a host "
+            f"{relative}: {len(body.splitlines())} lines > {AGENT_MAX_LINES}; a host "
             "manifest is an adapter, and one long enough to restate the runbook's scope, "
             "guardrails or report contract becomes a second authority"
         )

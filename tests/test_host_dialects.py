@@ -17,6 +17,7 @@ import json
 import re
 import shutil
 import tempfile
+import os
 import unittest
 from pathlib import Path
 
@@ -25,8 +26,11 @@ from scripts.validate import (
     _disjuncts,
     _output_branch,
     _canonical,
+    _owner_key,
+    _without_heredocs,
     PROTOCOL_DOCUMENTS,
     expected_hook_command,
+    HOOK_IMPLEMENTATION,
     HOSTS_DOCUMENT,
     dialect_rows,
     validate_host_dialects,
@@ -1301,7 +1305,26 @@ class NinthRoundTests(unittest.TestCase):
     #: Prose pages that may cite the capability record but must not restate it.
     #: The same drift was reported three times -- README, then docs/roadmap.md and
     #: docs/policy.md -- because fixing one file left the class open.
-    CITING_DOCUMENTS = ("README.md", "docs/roadmap.md", "docs/policy.md")
+    CITING_DOCUMENTS = (
+        "README.md",
+        "docs/roadmap.md",
+        "docs/policy.md",
+        ".github/CONTRIBUTING.md",
+    )
+    #: Facts hosts.md owns, in the spellings the prose actually used. Hook facts
+    #: and subagent facts are listed together because splitting the assertion is
+    #: what let this recur: the hook strings were pinned, and the subagent
+    #: enumeration one bullet below went on restating the same record.
+    COPIED_FACTS = (
+        "hooks-codex.json",
+        "experimental flag",
+        "root `hooks.json`",
+        "interactive trust review",
+        "auto-discover root `agents/`",
+        "auto-discover this one directory",
+        "honours an override",
+        "Antigravity goes without",
+    )
 
     def test_prose_cites_the_record_rather_than_copying_it(self) -> None:
         """hosts.md is the single capability record. A page repeating it is a
@@ -1311,13 +1334,15 @@ class NinthRoundTests(unittest.TestCase):
             with self.subTest(document=relative):
                 text = (REPO_ROOT / relative).read_text(encoding="utf-8")
                 self.assertIn("references/hosts.md", text, "must cite the record")
-                for copied in (
-                    "hooks-codex.json",
-                    "experimental flag",
-                    "root `hooks.json`",
-                    "interactive trust review",
-                ):
+                for copied in self.COPIED_FACTS:
                     self.assertNotIn(copied, text)
+
+    def test_the_record_itself_still_states_those_facts(self) -> None:
+        """The copied-fact list is only meaningful while hosts.md is where they
+        live: a fact deleted everywhere would pass the assertion above."""
+        record = (REPO_ROOT / HOSTS_DOCUMENT).read_text(encoding="utf-8")
+        for owned in ("agents/", "override", "dialect", "hooks.json"):
+            self.assertIn(owned, record)
 
     def test_the_policy_page_describes_the_shipped_agent(self) -> None:
         """It called the subagent "worth building" while this PR ships it, so a
@@ -1687,6 +1712,141 @@ class ExecutableAnchorTests(unittest.TestCase):
                 self.assertTrue(
                     any("no session source matches" in e for e in validate_host_dialects(root))
                 )
+
+
+class EleventhRoundTests(unittest.TestCase):
+    """Four gates that measured a proxy for the thing they were gating.
+
+    Each is a padding attack in a different currency -- characters before a
+    negator, characters of frontmatter, a spelling of a directory, a line that
+    looks like code. In every case the validator read one artifact and the host
+    would have run another.
+    """
+
+    def _root(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_root(directory.name)
+
+    def _agent(self, old: str, new: str) -> Path:
+        root = self._root()
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(old, new, 1), encoding="utf-8"
+        )
+        return root
+
+    def test_a_padded_negator_still_negates(self) -> None:
+        """The lookback was 24 characters, so the inversion only had to be wordy:
+        this manifest tells every delegated run not to load the runbook."""
+        root = self._agent(
+            "Invoke the `infra-copilot` skill",
+            "Do not under any circumstances whatsoever Invoke the "
+            "`infra-copilot` skill",
+        )
+        self.assertTrue(
+            any("no instruction to invoke" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_padded_negator_cannot_invert_the_delegation_rule(self) -> None:
+        """The same helper gates protocol.md's markers, where inverting
+        `declared and allowed` turns the availability gate inside out."""
+        root = self._root()
+        for relative in PROTOCOL_DOCUMENTS:
+            document = root / relative
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    "is currently declared\nand allowed",
+                    "is not under any circumstances whatsoever currently declared\n"
+                    "and allowed",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+        self.assertTrue(
+            any("declared" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_negator_in_an_earlier_clause_does_not_carry(self) -> None:
+        """The clause is the bound, so widening the lookback must not start
+        reading a previous sentence's negative as this directive's."""
+        root = self._agent(
+            "Invoke the `infra-copilot` skill",
+            "Do not reconstruct the scan from memory. Invoke the "
+            "`infra-copilot` skill",
+        )
+        self.assertEqual(validate_host_dialects(root), [])
+
+    def test_the_size_budget_counts_frontmatter(self) -> None:
+        """Directives are read from the body, and measuring size the same way
+        left `description:` unbounded -- 12 KB of prose on the host's routing
+        surface behind a green gate."""
+        root = self._agent(
+            "Read-only infra-copilot status scan",
+            "Read-only infra-copilot status scan "
+            + "smuggled workflow prose " * 500,
+        )
+        self.assertTrue(
+            any("characters >" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_symlinked_discovery_path_is_the_same_owner(self) -> None:
+        """`posixpath.normpath` cannot see a symlink, so `alias/` beside
+        `agents/` keyed as two owners of the one manifest."""
+        root = self._root()
+        os.symlink("agents", root / "alias")
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "| Antigravity | `agents/` | YAML list | `view_file`, `grep_search`, "
+                "`find_by_name`, `run_command` | not recorded | no — path collision |",
+                "| Antigravity | `alias/` | comma string | `Read`, `Bash`, `Glob`, "
+                "`Grep`, `Skill` | `Task` | **yes** |",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertEqual(_owner_key(root, "alias/"), _owner_key(root, "agents/"))
+        self.assertTrue(
+            any("cannot hold incompatible" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_heredoc_is_not_the_output_branch(self) -> None:
+        """A conditional inside a heredoc is data the shell never runs. The
+        validator read the recorded root out of one while the live branch tested
+        another host's and Claude got the fallback shape."""
+        root = self._root()
+        script = root / HOOK_IMPLEMENTATION
+        text = script.read_text(encoding="utf-8").replace(
+            'if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] \\\n    || ', "if "
+        )
+        text = text.replace(
+            "set -eu\n",
+            "set -eu\n: <<'NOTES'\n"
+            'if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || [ -n "${PLUGIN_ROOT:-}" ]; then\n'
+            "NOTES\n",
+            1,
+        )
+        script.write_text(text, encoding="utf-8")
+        self.assertTrue(
+            any("does not test" in e for e in validate_host_dialects(root))
+        )
+
+    def test_heredoc_stripping_keeps_the_rest_of_the_script(self) -> None:
+        """Bodies are blanked, not deleted: what remains must still be the
+        script it came from, or the branch after one would move."""
+        stripped = _without_heredocs(
+            "before\ncat <<'EOF'\nif [ -n \"$X\" ]; then\nEOF\nafter\n"
+        )
+        self.assertEqual(stripped.splitlines()[0], "before")
+        self.assertEqual(stripped.splitlines()[-1], "after")
+        self.assertNotIn("if [", stripped)
+
+    def test_the_shipped_script_has_no_heredocs_to_strip(self) -> None:
+        """The stripper must be a no-op on the real file, or it is rewriting the
+        thing it was meant to read."""
+        script = (REPO_ROOT / HOOK_IMPLEMENTATION).read_text(encoding="utf-8")
+        self.assertEqual(_without_heredocs(script), script.rstrip("\n"))
 
 
 if __name__ == "__main__":
