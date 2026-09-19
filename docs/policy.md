@@ -98,9 +98,10 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 Invoking `/infra-setup` does not require Claude to call the `Skill` tool, so
 `Skill(infra-copilot:setup)` does not cover it. Every action skill has a matching command
-— `/infra-setup`, `/infra-import`, `/infra-add` — so a rule set denying only the skills
-leaves the primary invocation path open. If your host exposes a rule type for command
-invocation, deny both surfaces; check its documentation rather than assuming one exists.
+— `/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add` — so a rule set denying
+only the skills leaves the primary invocation path open. If your host exposes a rule type
+for command invocation, deny both surfaces; check its documentation rather than assuming
+one exists.
 
 **6. Secret files are readable by any subprocess.** Worth stating separately from bypass
 3: `Read(./.env)` and friends constrain the Read tool, so `cat .env`, `cat .env.local`,

@@ -6,7 +6,7 @@ description: "Greenfield bootstrap of a Terraform + Cloudflare + GitHub infra re
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:4151e8bc9ca5274e79f1a006526dca517db2c9fb89a1b9379b829f33bcab0f5e
-Source-Hash: blake3:211018040308a43d41444d0ef87deb5d5b10c68fa32cefc61fc8394cf36c58e6
+Source-Hash: blake3:744b5d1691c4012b0deb26beefa54eaeb11fc23c8f6b6f442b3a923ed0e00c29
 Schema-Version: v1
 -->
 

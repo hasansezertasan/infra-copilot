@@ -19,7 +19,8 @@ Reinstall the plugin with the same command, then **restart**. There is no in-pla
 
 ## Invoke
 
-`/infra-setup`, `/infra-import`, `/infra-add`, `/infra-status`, or natural language.
+`/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add`, `/infra-status`, or natural
+language.
 
 ## Verify
 

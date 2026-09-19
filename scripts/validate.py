@@ -20,6 +20,7 @@ SKILL_FRONTMATTER = re.compile(
 COMMAND_TOOLS = {
     "infra-add.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
     "infra-import.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
+    "infra-prune.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
     "infra-setup.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
     "infra-status.md": "Read, Bash, Glob, Grep",
 }
