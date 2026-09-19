@@ -47,7 +47,7 @@ Hand-authored, and safe to edit directly:
 | `scripts/validate.py`, `tests/` | The repository's own validators |
 | `hooks/` | The SessionStart hook; `ai-rulez` has no hook support, so these are hand-authored |
 | `Makefile`, `.github/workflows/` | Build and CI |
-| `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`, `docs/` | Documentation |
+| `README.md`, `CHANGELOG.md`, `.github/CONTRIBUTING.md`, `AGENTS.md`, `docs/` | Documentation |
 
 ## The loop
 
