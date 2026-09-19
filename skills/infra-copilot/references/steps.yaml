@@ -1204,7 +1204,16 @@ steps:
         run_sha=$(printf '%s' "$run_info" | jq -r '.headSha')
         conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion')
         # Verify the run includes the relevant changes (target_sha is ancestor of or equals run_sha)
-        git merge-base --is-ancestor "$target_sha" "$run_sha" || exit 1
+        # --is-ancestor gives 0/1 for yes/no and >1 for "could not evaluate" -- a shallow
+        # clone need not hold an older commit at all. Collapsing those into "no" reports
+        # an unreadable history as an unfinished import.
+        git merge-base --is-ancestor "$target_sha" "$run_sha" 2>/dev/null
+        anc_rc=$?
+        [ "$anc_rc" -le 1 ] || {
+          echo "cannot evaluate ancestry (git exit $anc_rc; shallow clone?) - cannot verify" >&2
+          exit 2
+        }
+        [ "$anc_rc" -eq 0 ] || exit 1
         [ "$conclusion" = "success" ] || exit 1
         # Get the job ID for plan-cloudflare
         job_id=$(gh run view "$run_id" --repo "$REPO" --json jobs \
@@ -1273,7 +1282,13 @@ steps:
             apply_sha=$(printf '%s' "$apply_run" | base64 -d | jq -r '.headSha')
             apply_id=$(printf '%s' "$apply_run" | base64 -d | jq -r '.databaseId')
             # Verify this revision descends from the applied commit
-            if git merge-base --is-ancestor "$apply_sha" HEAD 2>/dev/null; then
+            git merge-base --is-ancestor "$apply_sha" HEAD 2>/dev/null
+            anc_rc=$?
+            [ "$anc_rc" -le 1 ] || {
+              echo "cannot evaluate ancestry (git exit $anc_rc; shallow clone?) - cannot verify" >&2
+              exit 2
+            }
+            if [ "$anc_rc" -eq 0 ]; then
               apply_job=$(gh run view "$apply_id" --repo "$REPO" --json jobs \
                 -q '.jobs[] | select(.name=="apply-cloudflare" and .conclusion=="success") | .databaseId' 2>/dev/null)
               gh_rc=$?
@@ -1491,6 +1506,7 @@ steps:
         # `terraform/<leaf>/modules/...` is a module directory the runbook does not offer
         # as a candidate, so scanning it would hold phase 5 red with nothing to prune.
         rest=${f#terraform/}
+        case "$rest" in */*) ;; *) continue ;; esac   # terraform/main.tf has no leaf
         case "${rest%%/*}" in modules) continue ;; esac
         case "${rest#*/}" in */*) continue ;; esac
         blob=$(git --no-optional-locks show "HEAD:$f") || {
@@ -1505,8 +1521,10 @@ steps:
               echo "$f is not valid JSON - cannot verify what is committed" >&2
               exit 2
             }
-            printf '%s' "$blob" | jq -e 'has("import") or has("moved")' >/dev/null 2>&1 \
-              && printf '%s\n' "$f" >>"$found"
+            # `has()` is true for `"import": []`, which is a key with no block under it.
+            printf '%s' "$blob" | jq -e '[.import, .moved] | map(select(. != null))
+              | map(if type == "array" then length else 1 end) | (add // 0) > 0' \
+              >/dev/null 2>&1 && printf '%s\n' "$f" >>"$found"
             ;;
           *)
             printf '%s' "$blob" | awk "$hcl_scan" && printf '%s\n' "$f" >>"$found"

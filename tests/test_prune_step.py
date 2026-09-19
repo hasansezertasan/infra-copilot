@@ -501,6 +501,20 @@ class PruneStepTests(unittest.TestCase):
         self.assertIn("terraform/cloudflare/dns.tf", reported)
         self.assertNotIn("modules", reported)
 
+    def test_an_empty_json_collection_is_not_a_block(self) -> None:
+        """`jq has()` is true for `"import": []` — a key with nothing under it."""
+        result = self._run(
+            {"terraform/cloudflare/a.tf.json": '{\n  "import": []\n}\n'}
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_file_directly_under_terraform_has_no_leaf(self) -> None:
+        """`terraform/main.tf` is outside the runbook's `terraform/<leaf>` scope."""
+        result = self._run(
+            {"terraform/main.tf": "import {\n  to = a.b\n  id = \"x\"\n}\n"}
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_uncommitted_files_are_not_evidence(self) -> None:
         """The blocks are pruned by a PR, so only committed ones count."""
         result = self._run(

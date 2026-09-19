@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:86e009ebeed6c82ed9b237cfd684d38ea4a6b5e81bcf6f616508817bdf81cf95
-Source-Hash: blake3:a2da6ec7ad999e5cdd5b3714c12d7d4a743adace6ab0bbaea904a011b16c141d
+Content-Hash: blake3:53cd99b4d193e12d980338ecf67c27770f8ae9937d6dd0f2d3e139010ac4e60b
+Source-Hash: blake3:744b5d1691c4012b0deb26beefa54eaeb11fc23c8f6b6f442b3a923ed0e00c29
 Schema-Version: v1
 -->
 
@@ -165,7 +165,7 @@ preflight — is in
    | check | plan log | phase 5 |
    |---|---|---|
    | exit 0 | contains `will be imported` | **pending** — route to `infra-copilot:import` |
-   | exit 0 | no-op | **applied** — the apply job was verified to get here; route to `prune` |
+   | exit 0 | no-op | **applied** — the apply job was verified to get here; route to `prune`, unless the leftovers include `moved {}` (below) |
    | exit 1 | no-op | the apply has not landed — finish the import |
    | exit 2 | — | `?`, route nowhere |
 
@@ -177,6 +177,14 @@ preflight — is in
    and route nowhere. Do not fall through to `prune` — the same red means *pending* before
    the apply, and pruning a pending import is the one outcome this phase exists to prevent.
    The human can settle it by reading that leaf's plan log; status cannot.
+
+   **A `moved {}` leftover is not settled by that row either.** The verified apply proves
+   the run applied *its own* revision; a move committed afterwards was never in it, and a
+   move is not an import, a create or a destroy, so neither the plan log nor the counts
+   show it as outstanding. Where `prune-spent-imports` names a file holding `moved {}`,
+   report `?` for that leaf rather than routing to `prune` — the same answer the HCP
+   predicate gives for the same reason. Only the runbook's own plan, which prints a pending
+   rename, settles it, and that plan belongs to the prune workflow rather than to status.
 
    Do not re-derive that correlation here. An earlier version of this section did, and got
    it wrong twice in one paragraph: it asked only whether the *run* was green, which a

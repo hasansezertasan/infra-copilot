@@ -31,6 +31,11 @@
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
   `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
+- Ancestry that git cannot evaluate — a shallow clone missing an older commit — reports
+  `?` rather than "not an ancestor", which had read as an unfinished import.
+- The scan requires a leaf directory (`terraform/<leaf>/<file>`), so a stray
+  `terraform/main.tf` no longer reports a block the runbook has no leaf to process; and an
+  empty `"import": []` collection is a key with no block under it, not a leftover.
 - Backend-specific prune mechanics live only in `docs/prune.md`. The manifest `run:`, the
   router and the command adapter say which evidence the backend allows and defer for the
   detail, rather than each carrying a copy that drifts when the procedure changes.
@@ -80,9 +85,10 @@
   or `[`, the five measured against terraform `fmt`), so stripping a `#` from a value like
   `command = "cat <<EOF#"` can no longer manufacture one and hide the blocks below it.
 - The status runbook now names the object-storage discriminator between a pending import
-  and an applied one — a successful `terraform-apply.yml` run on `main` that is an ancestor
-  of `HEAD` — since `migrate-import` returns 0 for both and the surrounding evidence was
-  HCP-only.
+  and an applied one, since `migrate-import` returns 0 for both and the surrounding
+  evidence was HCP-only. It does so by deferring to that check rather than restating it:
+  the check validates the leaf's own `apply-cloudflare` job and its ancestry, which a
+  run-level test would not — a GitHub-only run satisfies that.
 - Header block comments are followed across lines, but only from a line already shaped
   like a one-shot header. Terraform 1.16.1 `fmt` rejects `import` with the brace on the
   next line and rejects a comment line between them, so `import /* a\n b */ {` is the only

@@ -158,7 +158,7 @@ preflight — is in
    | check | plan log | phase 5 |
    |---|---|---|
    | exit 0 | contains `will be imported` | **pending** — route to `infra-copilot:import` |
-   | exit 0 | no-op | **applied** — the apply job was verified to get here; route to `prune` |
+   | exit 0 | no-op | **applied** — the apply job was verified to get here; route to `prune`, unless the leftovers include `moved {}` (below) |
    | exit 1 | no-op | the apply has not landed — finish the import |
    | exit 2 | — | `?`, route nowhere |
 
@@ -170,6 +170,14 @@ preflight — is in
    and route nowhere. Do not fall through to `prune` — the same red means *pending* before
    the apply, and pruning a pending import is the one outcome this phase exists to prevent.
    The human can settle it by reading that leaf's plan log; status cannot.
+
+   **A `moved {}` leftover is not settled by that row either.** The verified apply proves
+   the run applied *its own* revision; a move committed afterwards was never in it, and a
+   move is not an import, a create or a destroy, so neither the plan log nor the counts
+   show it as outstanding. Where `prune-spent-imports` names a file holding `moved {}`,
+   report `?` for that leaf rather than routing to `prune` — the same answer the HCP
+   predicate gives for the same reason. Only the runbook's own plan, which prints a pending
+   rename, settles it, and that plan belongs to the prune workflow rather than to status.
 
    Do not re-derive that correlation here. An earlier version of this section did, and got
    it wrong twice in one paragraph: it asked only whether the *run* was green, which a
