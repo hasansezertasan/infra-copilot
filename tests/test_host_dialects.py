@@ -582,6 +582,8 @@ class HookCommandTests(unittest.TestCase):
             ("guarded by ||", "true || sh hooks/session-start.sh"),
             ("root variable reassigned", 'PLUGIN_ROOT=/tmp; sh "${PLUGIN_ROOT}/hooks/session-start.sh"'),
             ("alternate-value expansion", 'sh "${PLUGIN_ROOT:+/tmp}/hooks/session-start.sh"'),
+            ("exec replaces the shell",
+             'exec /bin/true; sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"'),
         ):
             with self.subTest(form=label):
                 self.assertFalse(_runs_implementation(command), command)
@@ -878,6 +880,78 @@ class RecordedValueTests(unittest.TestCase):
         for relative in PROTOCOL_DOCUMENTS:
             with self.subTest(document=relative):
                 self.assertNotIn("Task", (REPO_ROOT / relative).read_text(encoding="utf-8"))
+
+
+class RootedAndBodyTests(unittest.TestCase):
+    """Where the command runs from, and where the instructions have to live."""
+
+    def _hook(self, command: str) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["hooks"]["SessionStart"][0]["hooks"] = [
+            {"type": "command", "command": command}
+        ]
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return root
+
+    def test_a_bare_relative_operand_is_rejected(self) -> None:
+        """The hook runs with the *consuming* repository as its directory, so a
+        relative path runs a consumer-owned script or nothing."""
+        root = self._hook("sh hooks/session-start.sh")
+        self.assertTrue(any("rooted at" in e for e in validate_host_dialects(root)))
+
+    def test_duplicate_sessionstart_entries_are_rejected(self) -> None:
+        """A set collapsed them and each copy passed independently, so the host
+        registered the command twice and announced twice."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["hooks"]["SessionStart"].append(
+            json.loads(json.dumps(payload["hooks"]["SessionStart"][0]))
+        )
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertTrue(
+            any("duplicate matchers" in e for e in validate_host_dialects(root))
+        )
+
+    def test_directives_must_be_in_the_body(self) -> None:
+        """Frontmatter is discovery metadata, not the agent's instructions, so a
+        description carrying both directives over a body of "Do nothing." is an
+        agent that is never told to do anything."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        (root / AGENT_PATH).write_text(
+            "---\nname: infra-auditor\n"
+            'description: "Invoke the infra-copilot skill and follow status.md."\n'
+            "tools: Read, Bash, Glob, Grep, Skill\n---\n\nDo nothing.\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("no instruction to invoke" in e for e in validate_host_dialects(root))
+        )
+
+    def test_an_invalid_yaml_escape_is_rejected(self) -> None:
+        """`\\q` is not a YAML escape, so the host parses nothing and discovers
+        no agent while the protocol keeps delegating."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                'description: "Read-only', 'description: "Bad \\q Read-only', 1
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("invalid escape" in e for e in validate_host_dialects(root))
+        )
 
 
 if __name__ == "__main__":

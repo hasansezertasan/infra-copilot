@@ -1591,7 +1591,7 @@ def _expand(word: str, variables: dict[str, str]) -> str:
     return re.sub(r"\$\{?([A-Za-z_]\w*)([^}]*)\}?", substitute, word)
 
 
-def _runs_implementation(command: str) -> bool:
+def _runs_implementation(command: str, rooted: bool = False) -> bool:
     """Whether ``command`` actually executes the shared hook script.
 
     A regex over the whole string was defeated four times -- `echo sh <path>`,
@@ -1623,7 +1623,7 @@ def _runs_implementation(command: str) -> bool:
         if not statement:
             continue
         sequenced = preceding in (None, ";", "")
-        if re.match(r"\A(?:exit|return)\b", statement) and sequenced:
+        if re.match(r"\A(?:exit|return|exec)\b", statement) and sequenced:
             unreachable = True
             continue
         assignment = re.match(r"\A([A-Za-z_]\w*)=(.*)\Z", statement)
@@ -1640,8 +1640,17 @@ def _runs_implementation(command: str) -> bool:
             # manifests pass the script directly, so any flag means this is not
             # the invocation being claimed.
             continue
-        if arguments and HOOK_OPERAND.match(_expand(arguments[0], variables)):
-            return True
+        if not arguments:
+            continue
+        operand = _expand(arguments[0], variables)
+        if not HOOK_OPERAND.match(operand):
+            continue
+        # A bare relative path is resolved against the *consuming* repository at
+        # run time, so it runs a consumer-owned script or nothing at all. A
+        # manifest that claims the shared implementation has to be rooted.
+        if rooted and not operand.startswith(HOOK_ROOT_SENTINEL):
+            continue
+        return True
     return False
 
 
@@ -1963,6 +1972,28 @@ DELEGATION_MARKERS = (
 )
 
 
+#: The escapes YAML defines inside a double-quoted scalar. Anything else makes the
+#: document unparseable, so the host discovers no agent at all.
+YAML_ESCAPES = set('0abtnvfre "/\\N_LP\tx')
+
+
+def _quoted_scalar_defect(value: str) -> str | None:
+    """Why ``value`` is not a well-formed double-quoted YAML scalar."""
+    if not re.fullmatch(r'"[^"]*"', value):
+        return "description is not a single double-quoted scalar"
+    inner = value[1:-1]
+    index = 0
+    while index < len(inner):
+        if inner[index] == "\\":
+            following = inner[index + 1] if index + 1 < len(inner) else ""
+            if following not in YAML_ESCAPES:
+                return f"description carries the invalid escape '\\{following}'"
+            index += 2
+            continue
+        index += 1
+    return None
+
+
 def _frontmatter_defect(body: str, dialect: str = "") -> str | None:
     """Why ``body`` is not this adapter's frontmatter, or None when it is."""
     allowed = AGENT_FRONTMATTER_KEYS | AGENT_DIALECT_KEYS.get(dialect, set())
@@ -1991,10 +2022,10 @@ def _frontmatter_defect(body: str, dialect: str = "") -> str | None:
         if found is not None and found.group(1).strip().strip("\"'") != expected:
             return f"{key} is {found.group(1).strip()!r}, not {expected!r}"
     description = re.search(r"(?m)^description:\s*(.*)$", body)
-    if description is not None and not re.fullmatch(r'"[^"]*"', description.group(1).strip()):
+    if description is not None and _quoted_scalar_defect(description.group(1).strip()):
         # A flow collection here is valid YAML and still not a description, which
         # is the case a conforming parser would wave through.
-        return "description is not a single double-quoted scalar"
+        return _quoted_scalar_defect(description.group(1).strip())
     return None
 
 
@@ -2007,8 +2038,17 @@ def _positive_mentions(text: str, pattern: str) -> bool:
 
 
 def _check_agent_body(relative: str, text: str) -> list[str]:
-    """Rules every dialect shares: delegate, no consumer-relative path, stay small."""
+    """Rules every dialect shares: delegate, no consumer-relative path, stay small.
+
+    The directives are looked for in the *body* only. Frontmatter is discovery
+    metadata -- a description tells a caller when to reach for the agent and is
+    not what the agent is given as instructions -- so a manifest whose directives
+    live there and whose body says "Do nothing." satisfied the contract while
+    instructing nothing.
+    """
     errors: list[str] = []
+    front = SKILL_FRONTMATTER.match(text)
+    text = text[front.end() :] if front else text
     if not _positive_mentions(text, AGENT_INVOCATION.pattern):
         # Names alone were satisfied by "Never invoke `infra-copilot` or
         # `status.md`" -- both markers present, every delegated run told not to
@@ -2066,7 +2106,15 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
             "no siblings of 'hooks' -- Antigravity counts each one as a hook"
         )
     recorded = row["Matcher"].strip("`").replace(MATCHER_PIPE, "|")
-    actual = {str(entry.get("matcher")) for entry in entries if isinstance(entry, dict)}
+    matchers = [str(entry.get("matcher")) for entry in entries if isinstance(entry, dict)]
+    if len(matchers) != len(set(matchers)):
+        # A set collapsed duplicates, and each copy then passed independently, so
+        # the host registered the same command twice and announced twice.
+        errors.append(
+            f"{relative}: SessionStart declares {len(matchers)} entries with duplicate "
+            "matchers; one entry per matcher, or the announcement fires twice"
+        )
+    actual = set(matchers)
     if actual != {recorded}:
         errors.append(
             f"{relative}: SessionStart matcher {sorted(actual)} != {recorded!r} as "
@@ -2113,10 +2161,11 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
         ]
         if not commands:
             errors.append(f"{relative}: a SessionStart entry declares no hooks to run")
-        elif not all(_runs_implementation(command) for command in commands):
+        elif not all(_runs_implementation(command, rooted=True) for command in commands):
             errors.append(
-                f"{relative}: a SessionStart command does not hand {HOOK_IMPLEMENTATION} "
-                "to a shell; naming the path is not running it"
+                f"{relative}: a SessionStart command does not hand "
+                f"{HOOK_IMPLEMENTATION}, rooted at the host's recorded variable, to a "
+                "shell; a bare relative path resolves against the consuming repository"
             )
         if any(callback.get("type") != "command" for callback in callbacks):
             errors.append(
