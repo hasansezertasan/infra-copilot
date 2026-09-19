@@ -2295,9 +2295,9 @@ def validate_layout() -> list[str]:
     """
     required = (
         "Makefile",
-        ".markdownlint-cli2.jsonc",
+        ".config/.markdownlint-cli2.jsonc",
         "AGENTS.md",
-        "CONTRIBUTING.md",
+        ".github/CONTRIBUTING.md",
         "docs/roadmap.md",
         "docs/policy.md",
         # One page per host in hosts.md. Listed here because the caution in #17 is

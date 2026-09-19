@@ -804,7 +804,7 @@ class LintScopeTests(unittest.TestCase):
 
     def test_root_config_lints_the_canonical_sources(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        config = (root / ".markdownlint-cli2.jsonc").read_text(encoding="utf-8")
+        config = (root / ".config/.markdownlint-cli2.jsonc").read_text(encoding="utf-8")
         self.assertIn(".ai-rulez/**/*.md", config)
 
     def test_nested_config_relaxes_only_line_width(self) -> None:
@@ -958,7 +958,7 @@ class GeneratedInventoryDocsTests(unittest.TestCase):
             if "AI-RULEZ :: GENERATED FILE"
             not in (root / path).read_text(encoding="utf-8", errors="replace")
         ]
-        for document in ("AGENTS.md", "CONTRIBUTING.md"):
+        for document in ("AGENTS.md", ".github/CONTRIBUTING.md"):
             text = (root / document).read_text(encoding="utf-8")
             self.assertIn(
                 str(len(outputs)), text, f"{document} does not quote {len(outputs)} outputs"
