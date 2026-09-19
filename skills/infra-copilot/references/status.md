@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:0992a7a55ddc56e48944b28b7cdad60484d15cd9dda9f3d012439c76dc767952
-Source-Hash: blake3:e861568529d649a54ac5b524fa7e60618ff78f80e97ab9e85e90a5246827d8eb
+Content-Hash: blake3:af9b9e81b4e83de9307c7926a8beb14d73f33357d0389e2c8e3f75540c1a0b77
+Source-Hash: blake3:8566dcaf7326033922ad6b7f228aaa8a1d59ac0a776d30da9bd2f303d7833035
 Schema-Version: v1
 -->
 
@@ -153,6 +153,17 @@ preflight — is in
    from a spent one either — that needs state membership, which needs an init — so read it
    together with the run evidence below: spent blocks after an applied run route to
    `infra-copilot:prune`, the same blocks before one mean the import is unfinished.
+
+   **That discriminator is backend-specific, and the run evidence below is HCP's.** In
+   object-storage mode there is no HCP run to read `status: applied` from, and
+   `migrate-import` returns 0 for *both* sides — a plan still saying `will be imported`
+   and a post-apply no-op — so its exit code cannot tell them apart and a pending import
+   would otherwise route to `prune`. Use the evidence that check already uses internally:
+   a successful `terraform-apply.yml` run on `main` whose head SHA is an **ancestor of
+   `HEAD`** is the applied side; no such run means the import is unfinished, whatever the
+   plan says. Read it with `gh run list --repo "$REPO" --workflow terraform-apply.yml
+   --branch main --status success` and `git merge-base --is-ancestor`. Absent that, the
+   honest answer is `?` — route nowhere rather than guessing which of the two it is.
 
    **Route by the leaf the blocks are in.** `migrate-import` is Cloudflare-specific — it
    plans `terraform/cloudflare` and wants that leaf's generated HCL — while

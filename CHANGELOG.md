@@ -31,6 +31,13 @@
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
   `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
+- A heredoc opener is recognized only in an expression position (after `=`, `(`, `,`, `:`
+  or `[`, the five measured against terraform `fmt`), so stripping a `#` from a value like
+  `command = "cat <<EOF#"` can no longer manufacture one and hide the blocks below it.
+- The status runbook now names the object-storage discriminator between a pending import
+  and an applied one — a successful `terraform-apply.yml` run on `main` that is an ancestor
+  of `HEAD` — since `migrate-import` returns 0 for both and the surrounding evidence was
+  HCP-only.
 - Header block comments are followed across lines, but only from a line already shaped
   like a one-shot header. Terraform 1.16.1 `fmt` rejects `import` with the brace on the
   next line and rejects a comment line between them, so `import /* a\n b */ {` is the only

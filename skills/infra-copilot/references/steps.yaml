@@ -1383,6 +1383,22 @@ steps:
       # from shell, and it let `command = "cat <<EOF"` match on its closing quote and
       # swallow the rest of the file.
       #
+      # The opener must also sit in an EXPRESSION position -- preceded by one of = ( , : [
+      # -- which is what keeps comment stripping from manufacturing one. `command = "cat
+      # <<EOF#"` is valid HCL whose `#` strip leaves a line ending in a bare `<<EOF`; the
+      # `cat ` in front of it is not an expression position, so it opens nothing. Those
+      # five characters were measured against terraform 1.16.1 fmt, not guessed: an opener
+      # is legal after `=`, inside a call `(`, after `,` in arguments, after `[` in a
+      # tuple, and after `:` in an object. The residual is a string whose own text reads
+      # like an assignment to a heredoc (`"x = <<EOF#"`); tracking that needs within-line
+      # quote state, which is the lexer this check is not, and the direction is harmless.
+      #
+      # An indented terminator ends BOTH forms, so the trim is correct for `<<EOT` as well
+      # as `<<-EOT`. Measured, because the docs read the other way: with terraform 1.15.9
+      # and 1.16.1, a plain `<<EOT` body containing an indented `EOT` followed by more
+      # text fails to parse, and the error lands on the text AFTER the indented
+      # terminator -- so the heredoc ended there.
+      #
       # ponytail: a scanner, not an HCL lexer, and it stops here deliberately. Nothing
       # destructive hangs off this step -- it routes status, it does not gate a deletion.
       # A false positive sends someone to a runbook that finds nothing; a false negative
@@ -1431,9 +1447,9 @@ steps:
           if (line ~ /^[ \t]*(import|moved)[ \t]*\{[ \t]*$/) { f=1; exit }
           if (line ~ /^[ \t]*(import|moved)[ \t]*\/\*/) { hdr=1; next }
           hdr=0
-          if (match(line, /<<[-~]?[A-Za-z_][A-Za-z0-9_]*[ \t]*$/)) {
+          if (match(line, /[=(,:[][ \t]*<<[-~]?[A-Za-z_][A-Za-z0-9_]*[ \t]*$/)) {
             m=substr(line, RSTART, RLENGTH)
-            sub(/^<<[-~]?/, "", m); sub(/[ \t]*$/, "", m); h=m } }
+            sub(/^[=(,:[][ \t]*<<[-~]?/, "", m); sub(/[ \t]*$/, "", m); h=m } }
         END { exit !f }'
       # Both lists are files, not shell strings: a literal newline inside a string -- or a
       # heredoc terminator, which must sit at column 0 -- dedents out of this YAML block

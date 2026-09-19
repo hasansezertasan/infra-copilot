@@ -147,6 +147,17 @@ preflight — is in
    together with the run evidence below: spent blocks after an applied run route to
    `infra-copilot:prune`, the same blocks before one mean the import is unfinished.
 
+   **That discriminator is backend-specific, and the run evidence below is HCP's.** In
+   object-storage mode there is no HCP run to read `status: applied` from, and
+   `migrate-import` returns 0 for *both* sides — a plan still saying `will be imported`
+   and a post-apply no-op — so its exit code cannot tell them apart and a pending import
+   would otherwise route to `prune`. Use the evidence that check already uses internally:
+   a successful `terraform-apply.yml` run on `main` whose head SHA is an **ancestor of
+   `HEAD`** is the applied side; no such run means the import is unfinished, whatever the
+   plan says. Read it with `gh run list --repo "$REPO" --workflow terraform-apply.yml
+   --branch main --status success` and `git merge-base --is-ancestor`. Absent that, the
+   honest answer is `?` — route nowhere rather than guessing which of the two it is.
+
    **Route by the leaf the blocks are in.** `migrate-import` is Cloudflare-specific — it
    plans `terraform/cloudflare` and wants that leaf's generated HCL — while
    `prune-spent-imports` is provider-neutral and scans every leaf. A repo whose only

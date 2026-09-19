@@ -383,6 +383,45 @@ class PruneStepTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
 
+    def test_comment_stripping_cannot_manufacture_a_heredoc(self) -> None:
+        """`command = "cat <<EOF#"` is valid HCL; the `#` strip leaves a bare tag.
+
+        The opener must sit in an expression position — `cat ` is not one — so
+        nothing opens and the block below is still found.
+        """
+        result = self._run(
+            {
+                "terraform/cloudflare/a.tf": (
+                    'resource "null_resource" "r" {\n'
+                    '  command = "cat <<EOF#"\n}\n\n'
+                    "import {\n  to = cloudflare_dns_record.www\n  id = \"abc\"\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_a_real_heredoc_still_opens_from_every_expression_position(self) -> None:
+        """The five positions measured against terraform fmt: = ( , : [ ."""
+        for pos, line in (
+            ("assign", "  x = <<EOT"),
+            ("call", "  x = jsonencode(<<EOT"),
+            ("arg", '  x = join("", [<<EOT'),
+            ("tuple", "  x = [<<EOT"),
+            ("object", "  x = { k : <<EOT"),
+        ):
+            with self.subTest(position=pos):
+                result = self._run(
+                    {
+                        "terraform/cloudflare/a.tf": (
+                            'resource "null_resource" "r" {\n'
+                            f"{line}\nimport {{\nEOT\n}}\n"
+                        ),
+                    }
+                )
+                self.assertEqual(
+                    result.returncode, 0, result.stdout + result.stderr
+                )
+
     def test_uncommitted_files_are_not_evidence(self) -> None:
         """The blocks are pruned by a PR, so only committed ones count."""
         result = self._run(
