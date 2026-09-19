@@ -8,10 +8,19 @@ oversight. Each item links to the issue that owns it.
 - **GCP is a template, not a runbook.** `references/gcp.md` is marked *TEMPLATE — not
   active*, and its Workload Identity Federation section has a literal `...` where the
   pool, provider, attribute mapping, and trust condition belong. ([#6](https://github.com/hasansezertasan/infra-copilot/issues/6))
-- **Nothing owns the post-adoption prune.** `import {}` and `moved {}` blocks are one-shot
-  instructions that go inert once applied, and no skill or step removes them. Phase-5
-  completion currently means the opposite of the correct end state.
-  ([#9](https://github.com/hasansezertasan/infra-copilot/issues/9))
+- **The prune step cannot tell a pending block from a spent one.** `prune-spent-imports`
+  is a `git`/`grep` read, so it goes red whenever an `import {}` or `moved {}` block is
+  committed — which is also true mid-import, before the apply. Proving spent-ness needs
+  `terraform state list`, an init, which `status` may not run. The `prune` skill carries
+  the per-block state check instead, and the step's failure message names both readings.
+  Tightening it means teaching `status` to read state membership without touching the
+  working tree. ([#9](https://github.com/hasansezertasan/infra-copilot/issues/9))
+- **CI does not open the prune PR.** The mechanical half — branch, delete blocks, plan,
+  open the PR — could be a workflow, but only triggered on **apply completion** (not PR
+  merge, which races the apply) and only reusing the skill's preconditions rather than
+  re-implementing them in `sed`. Whether the workflow can get provider credentials for the
+  verification plan is unsettled; without them it opens an unverified PR and the skill
+  still has to run. ([#68](https://github.com/hasansezertasan/infra-copilot/issues/68))
 - **Phases 5 and 6 are normally not applicable.** Import only matters if resources
   pre-exist, and the provider-neutral Phase 6 has no instances until
   `additional_providers` is populated. Once an entry or an extra Terraform leaf exists,
@@ -33,7 +42,7 @@ oversight. Each item links to the issue that owns it.
 - **Claude Code's command-level rules cannot constrain this plugin.** `docs/policy.md`
   documents the bypasses the plugin's own guidance supplies, so no profile ships and none
   should (#14). **No rule type holds** — including `Skill()` denies, which the
-  `/infra-setup`, `/infra-import` and `/infra-add` commands reach around. The gaps that
+  `/infra-setup`, `/infra-import`, `/infra-prune` and `/infra-add` commands reach around. The gaps that
   remain are not documentation gaps: they need sandbox isolation, or the agent running as
   a **separate lower-privilege HCP principal** — not a scope removed from the user token
   `terraform login` mints, which has none ([#52](https://github.com/hasansezertasan/infra-copilot/issues/52)).

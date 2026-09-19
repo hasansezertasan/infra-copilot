@@ -5,8 +5,8 @@ allowed-tools: Read, Bash, Glob, Grep
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:49ac5b0da06f1eb0af226bc68306b4cd8e17a1aa9810266ffc31bf78ee4d0889
-Source-Hash: blake3:211018040308a43d41444d0ef87deb5d5b10c68fa32cefc61fc8394cf36c58e6
+Content-Hash: blake3:0969f0317517d061f30c9fca9698ae0e34d7ebbba12ca2bf01b88df1a2b2c112
+Source-Hash: blake3:1c623a6b4e8ec5329f0a004c93e23de7a30a7048d6e01b869f5819abb12c9c4b
 Schema-Version: v1
 -->
 
@@ -26,8 +26,12 @@ Load `../skills/status/SKILL.md` and drive it:
 3. **Full resume scan** over all phases of [`steps.yaml`](../skills/infra-copilot/references/steps.yaml). Run
    `check`s only — never a step's `run`, never a handoff block.
 4. **Report** the phase-by-phase table and a verdict mapping the first red step to the
-   skill that fixes it (setup / import / add). Three exceptions the skill defines, and it owns
-   the detail: phases 5–6 red is expected for most repos — say so, don't flag as failure;
+   skill that fixes it (setup / import / prune / add). Three exceptions the skill defines, and it owns
+   the detail: a red *migration* step in phases 5–6 is expected for most repos — say so,
+   don't flag as failure — but a red `prune-spent-imports` is actionable, so never fold it
+   into that exemption; which skill it routes to is the verdict table's call, because the
+   same red means *spent, clean them up* after an applied run and *unfinished, keep going*
+   before one;
    `status-check-context` exiting 1 maps to **no skill**, because it is fixed directly in
    `terraform/github/branch_protection.tf`; and `status-check-context` exiting 2 is
    `CANNOT VERIFY` — report it as `?` with its cause and route nowhere, since an

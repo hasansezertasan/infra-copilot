@@ -84,5 +84,12 @@ cd terraform/gcp && terraform plan  # expect: imported, not created
 Open a PR (Conventional title). The four required checks run
 ([`ci.md`](docs/ci.md)); a maintainer reads the plan (UI or the
 [HCP API toolkit](docs/hcp-api.md)) and confirms the apply on merge. The import executes as a
-real run — after which the `import` blocks can be removed in a follow-up (they're one-shot;
-the resources are managed by their addresses thereafter).
+real run.
+
+**The blocks then have to come out, in a second PR.** `import {}` and `moved {}` are
+one-shot: once that run applies, the resources are managed by their addresses and the
+blocks are inert — but nothing removes them on its own, and a repo that defers it
+accumulates them. That prune is its own workflow, with its own preconditions (state must
+already hold each address, and only instruction blocks may be touched): see
+[`prune.md`](docs/prune.md) and the `infra-copilot:prune` skill. Never in the same PR as
+the import — the apply has to land in between.

@@ -148,11 +148,15 @@ terraform plan      # expect: every existing resource shown as "will import", no
 
 `terraform plan` from the CLI is allowed against a VCS-connected HCP workspace (it runs as a speculative plan in HCP); `terraform apply` from the CLI is intentionally blocked. The plan output streams back to your terminal with a link to the HCP run.
 
+Commit the reviewed HCL once this plan looks right: the `migrate-import` step refuses a dirty leaf, since a local plan reads your working tree while the run applies the commit. Committing does not apply anything.
+
 If `plan` shows any `create` for a resource that already exists, the resource name or import ID in `generated.tf` is wrong — fix before opening a PR. The real apply happens when the PR merges and a maintainer confirms in HCP (or scripts the confirm via `POST /api/v2/runs/<id>/actions/apply`).
 
 ## When to re-run
 
 Re-run `cf-terraforming generate` whenever new resources appear in Cloudflare that you want Terraform to manage. The cleanest workflow is to write new resources directly in Terraform from the start; cf-terraforming is for one-time onboarding of legacy state, not steady-state operations.
+
+The `import {}` blocks it emits are one-shot in the same way: after the run that applies them, they are inert instructions sitting in the leaf. Removing them is a separate PR with its own preconditions — [`prune.md`](prune.md), the `infra-copilot:prune` skill. Do not fold it into the import PR; the apply has to land first.
 
 > Note: cf-terraforming is **not** intended for use in CI. It runs locally during onboarding, output is reviewed by a human, then committed.
 

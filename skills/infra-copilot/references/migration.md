@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:3c15bf5e9dae060bc08a0f9d08ac7e125f6b7fdd06eaa7660563274899c1c6ca
-Source-Hash: blake3:211018040308a43d41444d0ef87deb5d5b10c68fa32cefc61fc8394cf36c58e6
+Content-Hash: blake3:0c9fc0d73593778cc5d9c8f0f30991d9c429a98f8d5170e22877c16cfa479732
+Source-Hash: blake3:1c623a6b4e8ec5329f0a004c93e23de7a30a7048d6e01b869f5819abb12c9c4b
 Schema-Version: v1
 -->
 
@@ -91,5 +91,12 @@ cd terraform/gcp && terraform plan  # expect: imported, not created
 Open a PR (Conventional title). The four required checks run
 ([`ci.md`](docs/ci.md)); a maintainer reads the plan (UI or the
 [HCP API toolkit](docs/hcp-api.md)) and confirms the apply on merge. The import executes as a
-real run — after which the `import` blocks can be removed in a follow-up (they're one-shot;
-the resources are managed by their addresses thereafter).
+real run.
+
+**The blocks then have to come out, in a second PR.** `import {}` and `moved {}` are
+one-shot: once that run applies, the resources are managed by their addresses and the
+blocks are inert — but nothing removes them on its own, and a repo that defers it
+accumulates them. That prune is its own workflow, with its own preconditions (state must
+already hold each address, and only instruction blocks may be touched): see
+[`prune.md`](docs/prune.md) and the `infra-copilot:prune` skill. Never in the same PR as
+the import — the apply has to land in between.

@@ -1,6 +1,6 @@
 ---
 name: import
-description: "Adopt infrastructure that already exists at a provider into Terraform without recreating it, verifying the plan shows imports rather than creates. Cloudflare has a scripted cf-terraforming flow; every other provider uses the same import-block pattern by hand. Use when a plan wants to create things that are already live. Runs after infra-copilot:setup reaches green plans; for things that do not exist yet use infra-copilot:add."
+description: "Adopt infrastructure that already exists at a provider into Terraform without recreating it, verifying the plan shows imports rather than creates. Use when a plan wants to create things that are already live; runs after infra-copilot:setup reaches green plans. Not for things that do not exist yet (infra-copilot:add), nor for removing the spent blocks afterwards (infra-copilot:prune)."
 ---
 
 # infra-copilot: import
@@ -61,6 +61,11 @@ write `terraform/cloudflare/generated.tf` for repos that live in the GitHub leaf
 The manifest's phase-5 steps are Cloudflare-specific — for other providers, there's no
 `check` to resume against; verify by hand with the same imports-not-creates plan diff.
 
+Phase 5 has a third step, `prune-spent-imports`, which is provider-neutral and **not this
+skill's**: it reads red while one-shot blocks are still committed, and
+[`../prune/SKILL.md`](../prune/SKILL.md) owns it. Leave it red here — it only clears after
+this import applies.
+
 ## Workflow
 
 1. **Read config first** (shared protocol, Step 0) and export the org vars —
@@ -68,6 +73,13 @@ The manifest's phase-5 steps are Cloudflare-specific — for other providers, th
 2. **Resume scan** over phase 5 of [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). The
    discovery token is ephemeral (`check: ~`, no scriptable check) — treat it as a `HUMAN`
    step every run and delete it afterward.
+
+   A green `migrate-import` does **not** mean there is nothing left to adopt. Terraform
+   cannot see an object it does not manage, so a repo whose first adoption applied plans
+   `No changes.` even with a hundred untouched records still live at the provider. Green
+   only says the committed config has no *pending* imports. When the user names something
+   to adopt, run discovery and confirm that thing is in state — never close the request on
+   the resume scan alone.
 3. **Follow the runbook** [`../infra-copilot/references/docs/import.md`](../infra-copilot/references/docs/import.md) for the
    `cf-terraforming` invocation and the import-block workflow; the cross-provider pattern
    (applying the same generate→import→verify loop to other providers) is in
@@ -85,8 +97,18 @@ resource and would duplicate it. If a change *legitimately* adds a new resource 
 imports, review by hand (and consider whether that new resource belongs in
 `infra-copilot:add` instead).
 
-Once green: delete the throwaway discovery token, commit `generated.tf`, and the resources
-are under management.
+**Commit the reviewed HCL before expecting the step to go green.** The check plans what is
+committed and refuses a dirty `terraform/cloudflare`, because a local plan reads the
+working tree while HCP applies the commit. So the order is: generate, review, `terraform
+plan` by hand to see the imports, commit, then run the check. Committing is not applying —
+the apply still happens on merge, confirmed by a human.
+
+Once green: delete the throwaway discovery token, and the resources are under management.
+
+**Then hand off to `infra-copilot:prune`** — but only after this PR has merged *and
+applied*. The `import` blocks are one-shot; once the run executes them they are inert, and
+[`../prune/SKILL.md`](../prune/SKILL.md) removes them in a second PR that ends on
+`No changes.` Removing them any earlier turns every pending import into a create.
 
 ## Example
 

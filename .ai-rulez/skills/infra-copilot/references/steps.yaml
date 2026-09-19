@@ -1,6 +1,7 @@
-# Machine-readable manifest shared by the infra-copilot skills (setup/import/add/status).
+# Machine-readable manifest shared by the infra-copilot skills
+# (setup/import/prune/add/status).
 #
-# Read this alongside protocol.md and whichever action skill (setup/import/add/status)
+# Read this alongside protocol.md and whichever action skill (setup/import/prune/add/status)
 # routes into it. An agent walks these steps
 # top-to-bottom. On every run it FIRST executes each step's `check` to find where
 # setup already is (resume protocol), then resumes at the first red check.
@@ -1164,7 +1165,9 @@ steps:
     check: |
       if [ "$BACKEND" = "object-storage" ]; then
         # In object-storage mode, verify via the GitHub Actions plan workflow
-        git ls-files --error-unmatch terraform/cloudflare/generated.tf >/dev/null 2>&1 || exit 1
+        # A real cf-terraforming adoption splits its output by zone and resource type, so
+        # `generated.tf` is one possible name among several, not the name.
+        [ -n "$(git --no-optional-locks ls-files -- ':/terraform/cloudflare/generated*.tf')" ] || exit 1
         # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
         # Fail closed: if git status fails, treat as dirty rather than clean
         dirty_status=$(git status --porcelain -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock) || {
@@ -1218,17 +1221,28 @@ steps:
         fi
         # Accept no-op plan only if imports were actually applied (check apply workflow)
         if printf '%s' "$job_logs" | grep -qE 'No changes|Your infrastructure matches the configuration'; then
-          # Verify imports were applied by checking for successful apply-cloudflare run
-          # whose headSha includes the import commit (target_sha is already computed above)
-          apply_runs=$(gh run list --repo "$REPO" --workflow terraform-apply.yml --branch main --limit 10 \
+          # Verify imports were applied by checking for a successful apply-cloudflare run
+          # this revision descends from. NOT one that descends from target_sha: on a prune
+          # branch target_sha IS the prune commit, and nothing can have applied it before
+          # the merge -- which would report every valid prune PR as an unfinished import.
+          # The weaker test is still safe here, because a plan with pending imports says
+          # 'will be imported' and a premature prune says 'will be created'; both are
+          # rejected above, so only a genuinely realized leaf reaches this point.
+          # --limit caps what is FETCHED, before any filtering, and the apply workflow
+          # runs for every terraform/** push -- so ten runs of history can easily predate
+          # nothing at all. A prune deferred by a couple of weeks needs to still find the
+          # import's apply. --status success spends the budget only on runs that can
+          # match; beyond 100, this reports red and a human confirms the apply.
+          apply_runs=$(gh run list --repo "$REPO" --workflow terraform-apply.yml --branch main \
+            --status success --limit 100 \
             --json databaseId,conclusion,headSha \
             -q '[.[] | select(.conclusion=="success")]' 2>/dev/null)
           found_valid_apply=false
           for apply_run in $(printf '%s' "$apply_runs" | jq -r '.[] | @base64'); do
             apply_sha=$(printf '%s' "$apply_run" | base64 -d | jq -r '.headSha')
             apply_id=$(printf '%s' "$apply_run" | base64 -d | jq -r '.databaseId')
-            # Verify the apply run includes the import commit
-            if git merge-base --is-ancestor "$target_sha" "$apply_sha" 2>/dev/null; then
+            # Verify this revision descends from the applied commit
+            if git merge-base --is-ancestor "$apply_sha" HEAD 2>/dev/null; then
               apply_job=$(gh run view "$apply_id" --repo "$REPO" --json jobs \
                 -q '.jobs[] | select(.name=="apply-cloudflare" and .conclusion=="success") | .databaseId' 2>/dev/null)
               if [ -n "$apply_job" ]; then
@@ -1240,25 +1254,248 @@ steps:
           if [ "$found_valid_apply" = "true" ]; then
             exit 0  # Import completed - apply workflow ran for the import commit
           fi
-          echo "Import check: plan shows 'No changes' but no successful apply-cloudflare run for this import commit found" >&2
+          echo "Import check: plan shows 'No changes' but this revision descends from no successful apply-cloudflare run" >&2
           echo "Run terraform-apply workflow to complete the import" >&2
           exit 1
         fi
         echo "Import check failed: expected 'will be imported' or 'No changes'" >&2
         exit 1
       else
-        # HCP mode: local terraform plan
+        # HCP mode: local terraform plan. Accept EITHER pending imports OR a no-op plan:
+        # once the import applies -- and especially once prune-spent-imports removes the
+        # spent blocks -- the plan reads 'No changes.', which is the correct terminal
+        # state. Demanding 'will be imported' made this step green only while work was
+        # outstanding and permanently red once it was finished.
+        # Committed HCL first, for BOTH outcomes below. A local plan reads the working
+        # tree, so uncommitted generated HCL plans pending imports that no run can ever
+        # apply -- and prune-spent-imports, which reads HEAD, would be green too, leaving
+        # phase 5 all green with nothing committed. For the no-op outcome the same file is
+        # what separates "everything was adopted" from "nothing ever was". Root-anchored,
+        # because the plan below runs from inside the leaf.
+        [ -n "$(git --no-optional-locks ls-files -- ':/terraform/cloudflare/generated*.tf')" ] || exit 1
+        # Tracked is not committed: an edit to a tracked file still plans locally while
+        # HEAD -- the thing CI applies, and the thing prune-spent-imports reads -- knows
+        # nothing about it. Fail closed if the status read itself fails, as the
+        # object-storage branch above does.
+        # Same paths the object-storage branch above rejects on: a working-tree config.md
+        # picks the backend and workspace this very check reads, and mise pins the
+        # terraform that runs the plan -- so either one dirty means the plan came from a
+        # configuration the commit does not describe.
+        dirty=$(git --no-optional-locks status --porcelain -- ':/terraform/cloudflare' \
+          ':/terraform/modules' ':/.infra-copilot/config.md' ':/mise.toml' ':/mise.lock') || {
+          echo "git status failed - cannot verify the plan matches the commit" >&2
+          exit 1
+        }
+        [ -z "$dirty" ] || {
+          echo "uncommitted changes under terraform/cloudflare, the config, or the tool pins - commit before the plan is evidence" >&2
+          exit 1
+        }
         cd terraform/cloudflare
         p=$(mktemp)
         trap 'rm -f "$p"' EXIT
-        terraform plan -input=false -no-color >"$p" 2>&1 \
-          && grep -q 'will be imported' "$p" \
-          && ! grep -q 'will be created' "$p" \
-          && ! grep -qE 'will be destroyed|will be deleted' "$p" \
-          && ! grep -qE 'will no longer be managed|will be forgotten' "$p"
+        terraform plan -input=false -no-color >"$p" 2>&1 || exit 1
+        grep -q 'will be created' "$p" && exit 1
+        grep -qE 'will be destroyed|will be deleted' "$p" && exit 1
+        grep -qE 'will no longer be managed|will be forgotten' "$p" && exit 1
+        grep -q 'will be imported' "$p" && exit 0
+        grep -qE 'No changes|Your infrastructure matches the configuration' "$p"
       fi
-    produces: generated.tf with import blocks; plan shows imports only
+    # Green means the COMMITTED config has no pending imports -- never that the provider
+    # holds nothing else worth adopting: Terraform cannot see an unmanaged object, so a
+    # second adoption request plans `No changes.` exactly like a finished one. An explicit
+    # import run re-runs discovery regardless of this check; only the resume scan for work
+    # already written into the config may trust it.
+    produces: committed generated*.tf; a plan showing imports, or none left to make
     docs: migration.md
+
+  - id: prune-spent-imports
+    phase: 5
+    provider: repo
+    actor: AGENT
+    title: No spent one-shot import/moved blocks left committed
+    why: >-
+      import/moved blocks execute once and go inert; nothing else removes them, so they
+      accumulate in the consuming repo and the manifest cannot see them.
+    run: |
+      Follow docs/prune.md, one leaf per PR: for every `import {}` / `moved {}` block,
+      prove `terraform state list` already holds the `to =` address (for `moved`, the new
+      address present and the old absent), then delete only that block and plan.
+      Success is `No changes.` — capture it for the PR body.
+      If an address is NOT in state the apply has not landed: stop, and finish the import.
+    # Pure git read: no terraform, no network, nothing written -- so status may run it
+    # directly, unlike the migrate-import check above.
+    #
+    # It greps HEAD, not the working tree, because the claim is "still committed": a file
+    # deleted on disk but not yet committed is a prune in progress, not a finished one.
+    # The pathspec is root-anchored (`:/`) so the answer does not depend on the working
+    # directory -- migrate-import above ends with a bare `cd terraform/cloudflare`, and a
+    # runner that shares one shell across checks would otherwise silently scan one leaf.
+    #
+    # Deliberate ceiling: this asserts the blocks are GONE, not that the ones present are
+    # spent, because spent-ness needs `terraform state list` (an init, i.e. a mutating
+    # check status could not run). So a repo mid-import -- blocks written, apply not yet
+    # landed -- also reads red here; the message names both readings, and the prune skill
+    # itself refuses to remove a block whose address is missing from state. Tighten only
+    # by teaching status to read state membership without touching the working tree.
+    tri_state: true   # exit 2 = could not verify; see protocol.md
+    check: |
+      # Not a repository, or one whose metadata cannot be read: that is ignorance, not
+      # evidence, so it is exit 2 rather than a red step routing anyone to prune.
+      git --no-optional-locks rev-parse --git-dir >/dev/null 2>&1 || exit 2
+      # A repository with no commits yet: nothing CAN be committed, so nothing is left.
+      git --no-optional-locks rev-parse --verify --quiet HEAD >/dev/null || exit 0
+      # Structure is parsed, not pattern-matched. Seven review rounds of regex trades --
+      # a block comment matching, an inline comment after `{` not matching, JSON at four
+      # spaces missed, minified JSON missed, a nested `locals` key matching, a multiline
+      # JavaScript `import {` in a heredoc matching -- were all one defect: a line regex
+      # cannot see whether a line is inside a heredoc, a comment, or an object. So each
+      # candidate blob is read once: `jq` decides JSON, and an awk pass that skips heredoc
+      # bodies and comments decides HCL. Both surfaces, because phase 6 already accepts
+      # `*.tf.json` as leaf configuration.
+      #
+      # The awk pass strips CR first (a consuming repo need not normalize line endings,
+      # and a trailing \r defeats both the opener match and the terminator match), then
+      # line comments, and only then looks for a heredoc opener -- anchored at end of
+      # line, because HCL requires the body to start on the next one. That anchor is what
+      # keeps `# Example: <<EOF` and `cmd = "cat <<EOF"` from opening a phantom heredoc
+      # that swallows the rest of the file.
+      #
+      # /* */ is handled in two bounded places, never as a general region. Within a line
+      # it is stripped outright, so `import /* see #123 */ {` matches. Across lines it is
+      # followed ONLY from a line already shaped like a header -- `^(import|moved)[ \t]*/\*`
+      # -- via `hdr`, because HCL admits exactly one cross-line header form. Verified
+      # against terraform 1.16.1 fmt: `import` with `{` on the next line is rejected, and
+      # so is a comment on its own line between them, while `import /* a\n b */ {` is
+      # valid. So the keyword and the `/*` always share a line, and that entry condition
+      # is complete for the grammar rather than a guess.
+      #
+      # What is deliberately NOT done is a general region: `c=1` on any `/*` lasted one
+      # round and cost more than it bought, because an unquoted `/*` search cannot tell a
+      # comment opener from an ordinary Cloudflare value (`target = "example.com/*"` is
+      # the canonical page-rule glob) and one of those silently discarded every line
+      # after it, block included. `hdr` cannot do that: no assignment line can enter it.
+      # So dead HCL inside a free-standing multi-line /* */ still reports as a leftover --
+      # the harmless direction, and arguably the right one, since a spent block commented
+      # out rather than deleted is still cleanup.
+      #
+      # The heredoc tag is unquoted by spec -- Terraform's heredoc is `<<` or `<<-` plus a
+      # bare identifier, never `<<"EOT"`. Allowing an optional quote there was borrowed
+      # from shell, and it let `command = "cat <<EOF"` match on its closing quote and
+      # swallow the rest of the file.
+      #
+      # The opener must also sit in an EXPRESSION position -- preceded by one of = ( , : [
+      # -- which is what keeps comment stripping from manufacturing one. `command = "cat
+      # <<EOF#"` is valid HCL whose `#` strip leaves a line ending in a bare `<<EOF`; the
+      # `cat ` in front of it is not an expression position, so it opens nothing. Those
+      # five characters were measured against terraform 1.16.1 fmt, not guessed: an opener
+      # is legal after `=`, inside a call `(`, after `,` in arguments, after `[` in a
+      # tuple, and after `:` in an object. The residual is a string whose own text reads
+      # like an assignment to a heredoc (`"x = <<EOF#"`); tracking that needs within-line
+      # quote state, which is the lexer this check is not, and the direction is harmless.
+      #
+      # The delimiter grammar is `[A-Za-z_][A-Za-z0-9_-]*` -- hyphens included, which
+      # `checks/leaf-cloud.sh` already accepts and `tests/test_new_provider_flow.py` uses
+      # as a decoy. Measured against terraform 1.16.1: `<<END-JSON` is valid, `<<END.JSON`
+      # and `<<1EOT` are rejected. Omitting the hyphen made a `<<END-JSON` body scan as
+      # HCL, so JavaScript in it reported as a live block.
+      #
+      # An indented terminator ends BOTH forms, so the trim is correct for `<<EOT` as well
+      # as `<<-EOT`. Measured, because the docs read the other way: with terraform 1.15.9
+      # and 1.16.1, a plain `<<EOT` body containing an indented `EOT` followed by more
+      # text fails to parse, and the error lands on the text AFTER the indented
+      # terminator -- so the heredoc ended there.
+      #
+      # ponytail: a scanner, not an HCL lexer, and it stops here deliberately. Nothing
+      # destructive hangs off this step -- it routes status, it does not gate a deletion.
+      # A false positive sends someone to a runbook that finds nothing; a false negative
+      # leaves inert blocks unflagged. The gate that matters is the plan pair in
+      # docs/prune.md, which Terraform itself evaluates. Reach for a real parser only if
+      # this ever gates something that writes -- and prefer deleting a rule to teaching
+      # this one about quoting.
+      #
+      # terraform/modules/ is excluded: one-shot blocks there are not this step's to call
+      # leftover. Each consuming state reads them separately, so `moved` is the module's
+      # upgrade path -- Terraform calls removing one a breaking change and recommends
+      # retaining historical module moves -- and `import`, while genuinely spent once
+      # applied, is spent only per consumer, a set no scan here can close. docs/prune.md
+      # refuses both, so counting them would hold phase 5 red over work with no runbook.
+      # ponytail: module blocks are left to a human; lift this when consumers are
+      # enumerable (a lockfile of consuming states) rather than grepped for.
+      # https://developer.hashicorp.com/terraform/language/modules/develop/refactoring
+      command -v jq >/dev/null 2>&1 || {
+        echo "jq is required to read Terraform JSON leaves - cannot verify" >&2
+        exit 2
+      }
+      # A directory prefix, not a glob: ls-tree matches paths by prefix and takes no
+      # :(exclude) magic, so extensions and terraform/modules/ are filtered in the loop.
+      # --full-name and the root-anchored `:/` keep the answer independent of the working
+      # directory -- migrate-import above ends with a bare `cd terraform/cloudflare`.
+      list=$(mktemp) || exit 2
+      found=$(mktemp) || exit 2
+      trap 'rm -f "$list" "$found"' EXIT
+      git --no-optional-locks ls-tree -r --full-name --name-only HEAD -- ':/terraform' >"$list" || {
+        echo "git ls-tree failed - cannot verify what is committed" >&2
+        exit 2
+      }
+      # An `import`/`moved` block opener, ignoring heredoc bodies and comments. HCL has no
+      # nested one-shot blocks, so any surviving opener is top-level by definition.
+      hcl_scan='
+        { sub(/\r$/, "") }
+        h != "" { t=$0; sub(/^[ \t]+/,"",t); sub(/[ \t]+$/,"",t); if (t == h) h=""; next }
+        { line=$0
+          if (hdr) { i = index(line, "*/"); if (i == 0) next
+                     line = "import " substr(line, i+2) }
+          while ((i = index(line, "/*")) > 0) {
+            rest = substr(line, i+2); j = index(rest, "*/")
+            if (j == 0) break
+            line = substr(line, 1, i-1) " " substr(rest, j+2) }
+          sub(/[#].*$/, "", line); sub(/\/\/.*$/, "", line)
+          if (line ~ /^[ \t]*(import|moved)[ \t]*\{[ \t]*$/) { f=1; exit }
+          if (line ~ /^[ \t]*(import|moved)[ \t]*\/\*/) { hdr=1; next }
+          hdr=0
+          if (match(line, /[=(,:[][ \t]*<<[-~]?[A-Za-z_][A-Za-z0-9_-]*[ \t]*$/)) {
+            m=substr(line, RSTART, RLENGTH)
+            sub(/^[=(,:[][ \t]*<<[-~]?/, "", m); sub(/[ \t]*$/, "", m); h=m } }
+        END { exit !f }'
+      # Both lists are files, not shell strings: a literal newline inside a string -- or a
+      # heredoc terminator, which must sit at column 0 -- dedents out of this YAML block
+      # scalar and truncates the check. Redirecting a file in also keeps the loop out of a
+      # pipeline subshell, where `exit 2` would exit only the subshell.
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        case "$f" in
+          terraform/modules/*) continue ;;
+          *.tf|*.tf.json) ;;
+          *) continue ;;
+        esac
+        blob=$(git --no-optional-locks show "HEAD:$f") || {
+          echo "cannot read HEAD:$f - cannot verify what is committed" >&2
+          exit 2
+        }
+        case "$f" in
+          *.tf.json)
+            # A .tf.json that does not parse is not evidence either way: terraform would
+            # reject it too, so say so rather than calling the leaf clean.
+            printf '%s' "$blob" | jq -e . >/dev/null 2>&1 || {
+              echo "$f is not valid JSON - cannot verify what is committed" >&2
+              exit 2
+            }
+            printf '%s' "$blob" | jq -e 'has("import") or has("moved")' >/dev/null 2>&1 \
+              && printf '%s\n' "$f" >>"$found"
+            ;;
+          *)
+            printf '%s' "$blob" | awk "$hcl_scan" && printf '%s\n' "$f" >>"$found"
+            ;;
+        esac
+      done <"$list"
+      [ -s "$found" ] || exit 0
+      echo "one-shot import/moved blocks still committed in:" >&2
+      cat "$found" >&2
+      echo "If their apply has landed they are spent: infra-copilot:prune removes them." >&2
+      echo "If it has not, they are still pending: finish infra-copilot:import first." >&2
+      exit 1
+    produces: a leaf whose plan is `No changes.` with no inert instruction blocks left
+    docs: docs/prune.md
 
   # ── Phase 6 — additional providers (parameterized; optional) ────────────
   # Run the inventory once, then instantiate the remaining sequence once per
