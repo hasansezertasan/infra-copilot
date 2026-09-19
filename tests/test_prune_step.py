@@ -594,6 +594,7 @@ class MigrateImportCheckTests(unittest.TestCase):
         """Without it, the `?` row in status.md's table can never be reached."""
         self.assertIn("tri_state: true", self.step)
 
+    @unittest.skipUnless(os.name == "posix", "runs the check body through /bin/sh")
     def test_a_github_outage_is_unknown_not_unfinished(self) -> None:
         """`gh help exit-codes`: 1 is any failure, 4 is auth — neither is evidence.
 
@@ -632,6 +633,17 @@ class MigrateImportCheckTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("cannot verify", result.stderr)
+
+    def test_every_gh_call_checks_its_own_status(self) -> None:
+        """Tri-state is only as good as its least-guarded call site.
+
+        The first pass guarded four of five and left the apply-job lookup
+        inside the loop, where a failure read as "not applied".
+        """
+        body = literal_check(self.step)
+        calls = body.count("$(gh ")
+        guards = body.count('[ "$gh_rc" -eq 0 ]')
+        self.assertEqual(calls, guards, f"{calls} gh calls, {guards} status checks")
 
     def test_generated_file_evidence_is_a_glob(self) -> None:
         """A real adoption splits cf-terraforming output by zone and resource type."""

@@ -31,6 +31,9 @@
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
   `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
+- Backend-specific prune mechanics live only in `docs/prune.md`. The manifest `run:`, the
+  router and the command adapter say which evidence the backend allows and defer for the
+  detail, rather than each carrying a copy that drifts when the procedure changes.
 - `migrate-import` is tri-state: a `gh` failure — an outage, an expired login (`gh` exits
   4), an unreadable log — now exits 2 (`?`) instead of 1, so an absence of evidence stops
   being reported as an unfinished import.

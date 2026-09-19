@@ -5,8 +5,8 @@ description: "Remove spent one-shot `import {}` and `moved {}` blocks after thei
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:bcb2c265a8dad5df7195cab42526f4eccdb7b3a000013f899f133494329b85bd
-Source-Hash: blake3:a1b92c11a3a7463ec7aa55fb3c2189f0298e1f9e4ed8f646f0314bc77ecb97e7
+Content-Hash: blake3:c16fe175baf7371b374102c8b8618cb34be4adbc8da82c76cba08ec1a51263ee
+Source-Hash: blake3:a2da6ec7ad999e5cdd5b3714c12d7d4a743adace6ab0bbaea904a011b16c141d
 Schema-Version: v1
 -->
 
@@ -41,13 +41,13 @@ So:
 1. Touch **only** `import {}` and `moved {}` blocks. Never `resource`, `data`, `module`,
    `provider`, `locals`, or `variable`. Removing a resource is `add`'s inverse and is not
    this workflow.
-2. Decide with a **plan pair**, not a hunch: the leaf plans with nothing pending *before*
-   the edit, and `No changes.` *after* it. A block that has not run still shows up — a
-   pending `import` prints `will be imported`, a pending `moved` prints its rename — so
-   that pair is what separates spent from pending. `terraform state list` membership is
-   the cheap pre-filter in front of it, never the sole evidence: address shapes like an
-   aggregate module target or a `count` added on one side defeat it. The runbook has the
-   rules and the cases where only a plan can answer.
+2. Decide with **Terraform**, not a hunch: the plan after the edit must read
+   `No changes.` A block that has not run still shows up — a pending `import` prints
+   `will be imported`, a pending `moved` prints its rename — so the plan is what separates
+   spent from pending. How many plans, where they run, and whether `terraform state list`
+   can filter in front of them is the **backend's** answer and the runbook's to give; it
+   is not the same for HCP and object-storage. Membership is never the sole evidence
+   anywhere: an aggregate module target or a `count` added on one side defeats it.
 3. **Refuse on a dirty plan.** If the leaf does not plan cleanly apart from the blocks you
    are about to remove, stop and report rather than prune into an unrelated diff.
 4. **One pull request per leaf.** Leaves have separate workspaces and separate applies.
@@ -66,10 +66,8 @@ So:
    [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). Green means no one-shot blocks are
    committed and there is nothing to do.
 3. **Follow the runbook** [`../infra-copilot/references/docs/prune.md`](../infra-copilot/references/docs/prune.md): discover
-   candidates, prove each block spent by the evidence that backend allows — `terraform
-   state list` membership in front of the plan pair on HCP, the two workflow plans alone
-   in object-storage mode, where the bucket credential lives in Actions — delete only the
-   block, plan, open the PR.
+   candidates, prove each block spent by the evidence that backend allows — the runbook
+   says which — delete only the block, plan, open the PR.
 4. If the before-plan still carries the block's own import or move, the apply has not
    landed. Stop and say so — that is `infra-copilot:import` finishing its work, not a
    prune.
@@ -88,8 +86,7 @@ not withhold the PR waiting for it.
 ## Example
 
 ```text
-# terraform/cloudflare — before (HCP; in object-storage mode the plan pair replaces
-# the state-list filter, which cannot authenticate locally)
+# terraform/cloudflare — before (HCP; object-storage differs, see the runbook)
 $ grep -c '^import {' generated_dns.tf
 99
 $ terraform state list | grep -c cloudflare_dns_record

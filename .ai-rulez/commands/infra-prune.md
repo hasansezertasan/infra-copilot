@@ -16,10 +16,9 @@ Load `../skills/prune/SKILL.md` and drive it:
 2. **Resume scan** over `prune-spent-imports` in
    [`steps.yaml`](../skills/infra-copilot/references/steps.yaml). Green means nothing is left to prune.
 3. **Follow the runbook** [`prune.md`](../skills/infra-copilot/references/docs/prune.md): prove each block
-   spent by the evidence that backend allows — `terraform state list` membership in front
-   of the plan pair on HCP, the two workflow plans alone in object-storage mode, where the
-   bucket credential lives in Actions and a local `state list` cannot authenticate. Only
-   `import {}` and `moved {}` blocks — never a `resource`, `data`, `module`, or `provider`.
+   spent by the evidence that backend allows — the runbook says which, and the answer
+   differs between HCP and object-storage. Only `import {}` and `moved {}` blocks — never
+   a `resource`, `data`, `module`, or `provider`.
 4. **Success = plan shows `No changes.`** A `will be created` means the block was still
    pending, not spent — restore it. Recovery differs by block: a pending `import {}` means
    finishing `infra-copilot:import`; a pending `moved {}` means letting the move apply,

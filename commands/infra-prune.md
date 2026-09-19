@@ -5,8 +5,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:d4e10f150508311093582256972a1527270d4235ef7a009082f656e49a94aa8d
-Source-Hash: blake3:a1b92c11a3a7463ec7aa55fb3c2189f0298e1f9e4ed8f646f0314bc77ecb97e7
+Content-Hash: blake3:c37d9bb66be3c7a5330ceeed95fcb70530bae29c78de97db4e41cade2c8a391e
+Source-Hash: blake3:a2da6ec7ad999e5cdd5b3714c12d7d4a743adace6ab0bbaea904a011b16c141d
 Schema-Version: v1
 -->
 
@@ -23,10 +23,9 @@ Load `../skills/prune/SKILL.md` and drive it:
 2. **Resume scan** over `prune-spent-imports` in
    [`steps.yaml`](../skills/infra-copilot/references/steps.yaml). Green means nothing is left to prune.
 3. **Follow the runbook** [`prune.md`](../skills/infra-copilot/references/docs/prune.md): prove each block
-   spent by the evidence that backend allows — `terraform state list` membership in front
-   of the plan pair on HCP, the two workflow plans alone in object-storage mode, where the
-   bucket credential lives in Actions and a local `state list` cannot authenticate. Only
-   `import {}` and `moved {}` blocks — never a `resource`, `data`, `module`, or `provider`.
+   spent by the evidence that backend allows — the runbook says which, and the answer
+   differs between HCP and object-storage. Only `import {}` and `moved {}` blocks — never
+   a `resource`, `data`, `module`, or `provider`.
 4. **Success = plan shows `No changes.`** A `will be created` means the block was still
    pending, not spent — restore it. Recovery differs by block: a pending `import {}` means
    finishing `infra-copilot:import`; a pending `moved {}` means letting the move apply,

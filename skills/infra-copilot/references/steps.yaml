@@ -1276,6 +1276,11 @@ steps:
             if git merge-base --is-ancestor "$apply_sha" HEAD 2>/dev/null; then
               apply_job=$(gh run view "$apply_id" --repo "$REPO" --json jobs \
                 -q '.jobs[] | select(.name=="apply-cloudflare" and .conclusion=="success") | .databaseId' 2>/dev/null)
+              gh_rc=$?
+              [ "$gh_rc" -eq 0 ] || {
+                echo "gh run view failed (exit $gh_rc) - cannot verify the apply" >&2
+                exit 2
+              }
               if [ -n "$apply_job" ]; then
                 found_valid_apply=true
                 break
@@ -1348,11 +1353,10 @@ steps:
       import/moved blocks execute once and go inert; nothing else removes them, so they
       accumulate in the consuming repo and the manifest cannot see them.
     run: |
-      Follow docs/prune.md, one leaf per PR. It owns the procedure, including which
-      evidence each backend allows: on HCP, `terraform state list` membership filters in
-      front of the plan pair; in object-storage mode the bucket credential lives in
-      Actions, so the two workflow plans carry it alone. Do not run a local `state list`
-      there — it cannot authenticate.
+      Follow docs/prune.md, one leaf per PR. It owns the procedure **and** which evidence
+      each backend allows — how many plans, where they run, and whether a local
+      `terraform state list` is available at all. Do not restate those mechanics here or
+      in a router; they have changed twice and every copy drifted.
       Success is `No changes.` — capture it for the PR body.
       If a block is still pending the apply has not landed: stop, and finish the import.
     # Pure git read: no terraform, no network, nothing written -- so status may run it
