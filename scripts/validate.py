@@ -1609,6 +1609,16 @@ REQUIRED_HEADERS = {
     },
     "## Hook discovery": {"Host", "Manifest path", "Matcher", "Root variable", "Shipped"},
 }
+#: The one command allowed to delegate, whose grant must carry the recorded
+#: invocation tool -- and the host that grant belongs to.
+#:
+#: `commands/*.md` with an `allowed-tools` line is Claude's adapter format;
+#: hosts.md records that Codex exposes no plugin slash commands at all and that
+#: OpenCode loads skills through its own tool. So there is no `allowed-tools`
+#: anywhere to check another host's invocation tool against, and the cross-check
+#: applies to the row whose adapter this actually is.
+STATUS_COMMAND = "infra-status.md"
+STATUS_COMMAND_HOST = "Claude Code"
 AGENT_STEM = "infra-auditor"
 #: How each dialect spells a whole frontmatter block, given the tool names its
 #: row records. `{description}` is the only free value.
@@ -2001,7 +2011,21 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                 "from the session -- so this row cannot be marked shipped until the host "
                 "can enforce and record a restricted grant"
             )
-        if row["Invocation tool"].strip("` ") in {"not recorded", "—", ""}:
+        invocation = row["Invocation tool"].strip("` ")
+        if invocation not in {"not recorded", "—", ""} and row["Host"] == STATUS_COMMAND_HOST:
+            # The command that delegates has to be granted the tool this row
+            # names. Renaming the capability here while `allowed-tools` still
+            # lists the old one leaves /infra-status silently falling back.
+            granted = [
+                tool.strip() for tool in COMMAND_TOOLS[STATUS_COMMAND].split(",")
+            ]
+            if invocation not in granted:
+                errors.append(
+                    f"{HOSTS_DOCUMENT}: {row['Host']} records {invocation!r} as its "
+                    f"invocation tool, but {STATUS_COMMAND} grants {granted}; the "
+                    "delegation the protocol describes would not be permitted"
+                )
+        if invocation in {"not recorded", "—", ""}:
             # The delegation rule gates on this tool being declared and allowed, so a
             # shipped row without one leaves that gate nothing to evaluate.
             errors.append(
@@ -2112,7 +2136,7 @@ def _check_agent(relative: str, text: str, row: dict[str, str], render, dialect:
 #: inline fallback is what makes a denied tool a fallback rather than an error.
 DELEGATION_HEADING = "### Running the scan in an isolated context"
 DELEGATION_MARKERS = (
-    "infra-auditor", "records a subagent", r"declared\s+and\s+allowed",
+    "infra-auditor", r"marked\s+shipped", r"declared\s+and\s+allowed",
     "Invocation tool", "inline",
     # The scope boundary is load-bearing: an action skill's resume scan needs the
     # current-checkout checks the status runbook substitutes away.
@@ -2195,6 +2219,16 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
     matcher = row["Matcher"].strip("`").replace(MATCHER_PIPE, "|")
     if recorded_root in {"—", ""}:
         return [f"{HOSTS_DOCUMENT}: {row['Host']} is shipped but records no root variable"]
+    # The manifest and the record can agree on a variable the shared script does
+    # not test, in which case the hook runs and emits the fallback output shape
+    # instead of this host's -- the announcement disappearing on a green gate.
+    script = read_document(root / HOOK_IMPLEMENTATION) or ""
+    if f"${{{recorded_root}:-}}" not in script:
+        return [
+            f"{HOOK_IMPLEMENTATION}: does not test ${{{recorded_root}:-}}, which "
+            f"{HOSTS_DOCUMENT} records as {row['Host']}'s root; the hook would emit "
+            "another host's output shape"
+        ]
 
     # The whole manifest, rendered from the record. Every shape question the old
     # version asked one at a time -- sibling events, extra top-level keys,

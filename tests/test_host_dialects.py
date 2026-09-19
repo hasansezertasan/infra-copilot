@@ -1365,5 +1365,70 @@ class TenthRoundTests(unittest.TestCase):
         )
 
 
+class CrossArtifactTests(unittest.TestCase):
+    """The record has to agree with the adapters that consume it.
+
+    These are the checks the render-and-compare refactor kept: unlike shell or
+    YAML shape, agreement between two files is not derivable from either one.
+    """
+
+    def _root(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_root(directory.name)
+
+    def test_the_invocation_tool_must_be_granted_to_the_status_command(self) -> None:
+        """Renaming the capability here while `allowed-tools` lists the old one
+        leaves /infra-status silently falling back to an inline scan."""
+        root = self._root()
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "| `Task` | **yes** |", "| `Dispatch` | **yes** |", 1
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("would not be permitted" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_shipped_root_must_be_handled_by_the_shared_script(self) -> None:
+        """The record and the manifest can agree on a variable session-start.sh
+        does not test, and the hook then emits another host's output shape."""
+        root = self._root()
+        document = root / HOSTS_DOCUMENT
+        manifest = root / HOOK_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "`CLAUDE_PLUGIN_ROOT`", "`NEW_PLUGIN_ROOT`", 1
+            ),
+            encoding="utf-8",
+        )
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8").replace(
+                "CLAUDE_PLUGIN_ROOT", "NEW_PLUGIN_ROOT"
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("does not test" in e for e in validate_host_dialects(root)))
+
+    def test_delegation_requires_the_row_to_be_marked_shipped(self) -> None:
+        """"records a subagent" is true of unshipped rows too, so the gate has to
+        name the shipped state or an absent agent can be called."""
+        root = self._root()
+        for relative in PROTOCOL_DOCUMENTS:
+            document = root / relative
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    "delegate only where that row is marked shipped",
+                    "delegate wherever a row exists",
+                ),
+                encoding="utf-8",
+            )
+        self.assertTrue(
+            any("delegation rule is missing" in e for e in validate_host_dialects(root))
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
