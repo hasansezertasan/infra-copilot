@@ -1523,7 +1523,13 @@ class RootConditionTests(unittest.TestCase):
             "NEW_PLUGIN_ROOT",
             'if [ -n "${CODEX_PLUGIN_ROOT:-}" ] || { [ -n "${NEW_PLUGIN_ROOT:-}" ] && false; }',
         )
-        self.assertTrue(any("on its own" in e for e in validate_host_dialects(root)))
+        errors = validate_host_dialects(root)
+        # Either diagnosis is correct: the braces make it not a plain disjunction,
+        # and the test inside them cannot satisfy the condition alone.
+        self.assertTrue(
+            any("on its own" in e or "plain `||` disjunction" in e for e in errors),
+            errors,
+        )
 
     def test_a_root_that_is_not_an_identifier_is_rejected(self) -> None:
         """It is rendered into two shell expansions, so a non-identifier fails
@@ -1545,6 +1551,67 @@ class RootConditionTests(unittest.TestCase):
         alternatives = _disjuncts(_output_branch(script))
         self.assertIn('[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]', alternatives)
         self.assertEqual(len(alternatives), 5, alternatives)
+
+
+class PortabilityAndBoundaryTests(unittest.TestCase):
+    def _root(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_root(directory.name)
+
+    def test_a_command_list_is_not_a_disjunction(self) -> None:
+        """`... ; false` keeps the recorded test as an exact alternative while
+        the last command decides the result."""
+        root = self._root()
+        script = root / "hooks/session-start.sh"
+        script.write_text(
+            script.read_text(encoding="utf-8").replace(
+                '|| [ -n "${PLUGIN_ROOT:-}" ]; then',
+                '|| [ -n "${PLUGIN_ROOT:-}" ]; false; then',
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("plain `||` disjunction" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_subsection_ends_at_any_heading(self) -> None:
+        """Stopping only at another `###` let a `##` follow immediately, so the
+        subsection could be emptied while prose from the unrelated section
+        satisfied every marker."""
+        for level in ("#", "##", "###"):
+            with self.subTest(heading=level):
+                root = self._root()
+                for relative in PROTOCOL_DOCUMENTS:
+                    document = root / relative
+                    document.write_text(
+                        document.read_text(encoding="utf-8").replace(
+                            "### Running the scan in an isolated context\n",
+                            f"### Running the scan in an isolated context\n\n{level} Unrelated\n",
+                            1,
+                        ),
+                        encoding="utf-8",
+                    )
+                self.assertTrue(
+                    any("delegation rule is missing" in e for e in validate_host_dialects(root))
+                )
+
+    def test_the_validator_imports_without_tomllib(self) -> None:
+        """tomllib is 3.11+, and the repository's baseline is whatever `python3`
+        is -- the Makefile says 3.11 affects the release target only. A
+        module-level import broke `make check` for a 3.10 contributor before any
+        check could run.
+        """
+        import ast
+
+        source = (REPO_ROOT / "scripts/validate.py").read_text(encoding="utf-8")
+        top_level = [
+            alias.name
+            for node in ast.parse(source).body
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        ]
+        self.assertNotIn("tomllib", top_level)
 
 
 if __name__ == "__main__":

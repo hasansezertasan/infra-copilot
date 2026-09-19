@@ -7,7 +7,6 @@ import json
 import posixpath
 import re
 import sys
-import tomllib
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 from urllib.parse import unquote, urlsplit
@@ -1767,7 +1766,7 @@ HOOK_DESCRIPTION = 'Announce that infra-copilot is installed when the working di
 SHELL_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
-def _disjuncts(condition: str) -> set[str]:
+def _disjuncts(condition: str) -> set[str] | None:
     """The top-level `||` alternatives of a shell condition, normalised.
 
     Split rather than searched. A recorded root has to be an alternative that can
@@ -1780,6 +1779,12 @@ def _disjuncts(condition: str) -> set[str]:
     anything nested, which is the safe direction.
     """
     body = condition.split("if", 1)[-1]
+    if ";" in body:
+        # _output_branch already stops before the `; then`, so a remaining `;`
+        # means the condition is a command list. Its result is the last command's,
+        # not the disjunction's, which is how `... ; false` kept the recorded test
+        # as an exact member while always evaluating false.
+        return None
     alternatives = set()
     for part in body.split("||"):
         part = part.strip().strip("\\").strip()
@@ -1789,6 +1794,18 @@ def _disjuncts(condition: str) -> set[str]:
             continue
         alternatives.add(part)
     return alternatives
+
+
+def _next_heading(section: str) -> int:
+    """Offset of the next Markdown heading, or -1.
+
+    Any level: a subsection ends at the next `#`, `##` or `###`, not only at
+    another `###`. Stopping at same-level headings alone let a `##` be inserted
+    directly after the subsection, so its own body could be emptied while
+    marker-bearing prose from the unrelated section satisfied every check.
+    """
+    found = re.search(r"(?m)^#{1,3} ", section)
+    return -1 if found is None else found.start()
 
 
 def _output_branch(script: str) -> str | None:
@@ -1948,7 +1965,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
             )
             continue
         section = protocol[protocol.index(DELEGATION_HEADING) + len(DELEGATION_HEADING) :]
-        cut = section.find("\n### ")
+        cut = _next_heading(section)
         section = section if cut < 0 else section[:cut]
         for marker in DELEGATION_MARKERS:
             # Affirmative, not present: "never declared or allowed" and "never run
@@ -2121,6 +2138,19 @@ def _check_agent(relative: str, text: str, row: dict[str, str], render, dialect:
     if dialect == "none":
         # TOML: the body lives in a multi-line string, so there is no fixed block
         # to compare. tomllib is stdlib, so this one is genuinely parsed.
+        # Imported here, not at module load: tomllib is 3.11+, while the
+        # repository's baseline is whatever `python3` is -- the Makefile says
+        # 3.11 "only affects this maintainer target". A module-level import broke
+        # `make check` for a 3.10 contributor before any check could run. This
+        # branch is unreachable for a shipped row today, since the dialect that
+        # needs it cannot express the read-only grant.
+        try:
+            import tomllib
+        except ModuleNotFoundError:
+            return [
+                f"{relative}: parsing this dialect needs Python 3.11+ for tomllib; "
+                f"this interpreter is {sys.version_info.major}.{sys.version_info.minor}"
+            ]
         try:
             document = tomllib.loads(text)
         except tomllib.TOMLDecodeError as error:
@@ -2278,7 +2308,15 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
     branch = _output_branch(read_document(root / HOOK_IMPLEMENTATION) or "")
     if branch is None:
         return [f"{HOOK_IMPLEMENTATION}: has no host-output conditional to check"]
-    if f'[ -n "${{{recorded_root}:-}}" ]' not in _disjuncts(branch):
+    alternatives = _disjuncts(branch)
+    if alternatives is None:
+        # A command list, not a disjunction: `... ; false` keeps the recorded
+        # test as an exact member while the last command decides the result.
+        return [
+            f"{HOOK_IMPLEMENTATION}: its host-output conditional is not a plain "
+            "`||` disjunction, so testing the recorded root does not decide it"
+        ]
+    if f'[ -n "${{{recorded_root}:-}}" ]' not in alternatives:
         return [
             f"{HOOK_IMPLEMENTATION}: its host-output conditional does not test "
             f"${{{recorded_root}:-}} on its own, which {HOSTS_DOCUMENT} records as "
