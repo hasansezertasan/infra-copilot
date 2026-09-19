@@ -599,6 +599,9 @@ class HookCommandTests(unittest.TestCase):
         ("foreign root variable",
          'r="${CODEX_PLUGIN_ROOT:-}"; [ -n "$r" ] || exit 0; '
          's="${r%/}/hooks/session-start.sh"; [ -f "$s" ] || exit 0; sh "$s"'),
+        ("assignment that alters command lookup",
+         'PATH=/definitely-missing; r="${CLAUDE_PLUGIN_ROOT:-}"; '
+         's="${r%/}/hooks/session-start.sh"; sh "$s"'),
         ("two invocations",
          'sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"; '
          'sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"'),
