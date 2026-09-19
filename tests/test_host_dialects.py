@@ -613,6 +613,22 @@ class HookCommandTests(unittest.TestCase):
                 'sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"; touch /tmp/x',
             ),
             (
+                "invocation gated by a test",
+                '[ -f /definitely-missing ] && sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"',
+            ),
+            (
+                "command substitution in an assignment",
+                'x="$(touch /tmp/adapter-owned)"; sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"',
+            ),
+            (
+                "backtick substitution",
+                'x=`id`; sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"',
+            ),
+            (
+                "unterminated quote",
+                'sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh',
+            ),
+            (
                 "two invocations",
                 'sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"; '
                 'sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"',
@@ -1198,6 +1214,53 @@ class SeventhRoundTests(unittest.TestCase):
         self.assertTrue(
             any("no skill-loading tool" in e for e in validate_host_dialects(root))
         )
+
+
+class EighthRoundTests(unittest.TestCase):
+    """Budgets and duplicates the previous round's shapes still allowed."""
+
+    def _root(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_root(directory.name)
+
+    def test_an_unterminated_single_quote_is_rejected(self) -> None:
+        """Only double quotes were balanced, and the name comparison stripped the
+        stray one -- while a YAML parser rejects the document."""
+        root = self._root()
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "name: infra-auditor", "name: 'infra-auditor", 1
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("unbalanced" in e for e in validate_host_dialects(root)))
+
+    def test_the_adapter_budget_bounds_size_not_just_lines(self) -> None:
+        """`agents/` is outside the Markdown line-length lint, so thousands of
+        words on one physical line kept the line count green."""
+        root = self._root()
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8") + "\nLong. " + ("workflow " * 3000) + "\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any("characters >" in e for e in validate_host_dialects(root)))
+
+    def test_a_repeated_delegation_section_is_rejected(self) -> None:
+        """The agent reads the whole protocol, so a second copy could contradict
+        the first while only the first was validated."""
+        root = self._root()
+        for relative in PROTOCOL_DOCUMENTS:
+            document = root / relative
+            document.write_text(
+                document.read_text(encoding="utf-8")
+                + "\n## Later\n\n### Running the scan in an isolated context\n\n"
+                "Never delegate.\n",
+                encoding="utf-8",
+            )
+        self.assertTrue(any("occurs 2 times" in e for e in validate_host_dialects(root)))
 
 
 if __name__ == "__main__":

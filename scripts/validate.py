@@ -1561,6 +1561,10 @@ AGENT_FORBIDDEN_PATH = re.compile(r"(?<![\w/])[\w.-]+(?:/[\w.-]+)*/status\.md")
 #: scope, guardrails and the report contract, and a manifest with room to restate
 #: them will.
 AGENT_MAX_LINES = 40
+#: And a character budget, because `agents/` is outside the Markdown line-length
+#: lint: thousands of words on one physical line kept the line count green while
+#: making the manifest exactly the second authority the budget exists to prevent.
+AGENT_MAX_CHARACTERS = 2600
 #: The one shell script every hook manifest must hand to a shell. Adapters carry
 #: the discovery path and the matcher; the behaviour is shared.
 HOOK_IMPLEMENTATION = "hooks/session-start.sh"
@@ -1619,6 +1623,8 @@ def _expand(word: str, variables: dict[str, str]) -> str:
 #: A statement the walker recognises as harmless scaffolding around the one
 #: invocation: a variable assignment, a test, or a terminal.
 HOOK_TEST = re.compile(r"\A(?:\[|test\b)")
+#: Anything that executes while a word is evaluated.
+HOOK_SUBSTITUTION = re.compile(r"\$\(|`")
 HOOK_TERMINAL = re.compile(r"\A(?:exit|return|exec)\b")
 #: A positive existence test, which is the only guard shape the shipped manifests
 #: use and the only one whose relationship to the operand is decidable here.
@@ -1643,6 +1649,14 @@ def _runs_implementation(command: str, rooted: bool = False) -> bool:
     direction for a gate; command substitution, functions and eval are not
     modelled and fail.
     """
+    if HOOK_SUBSTITUTION.search(command):
+        # `x="$(touch /tmp/x)"` runs while the assignment is evaluated, so an
+        # assignment is only harmless when it substitutes nothing executable.
+        return False
+    if command.count('"') % 2 or command.count("'") % 2:
+        # The shell fails on an unterminated string before it runs anything; the
+        # expander stripped end quotes without pairing them.
+        return False
     variables: dict[str, str] = {}
     parts = re.split(r"(\|\||&&|[;&|\n])", command)
     invocations = 0
@@ -1678,6 +1692,11 @@ def _runs_implementation(command: str, rooted: bool = False) -> bool:
             continue
         if not HOOK_SHELL.match(statement):
             return False  # adapter-owned behaviour beside the shared implementation
+        if preceding not in (None, ";", ""):
+            # `[ -f /missing ] && sh <impl>` runs the hook only when the test
+            # passes. The manifest claims the announcement unconditionally, so a
+            # conditionally reached invocation is not that claim.
+            return False
         arguments = statement.split()[1:]
         if any(argument.startswith("-") for argument in arguments) or not arguments:
             return False
@@ -1816,8 +1835,14 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
             ]
     for relative in PROTOCOL_DOCUMENTS:
         protocol = read_document(root / relative)
-        if protocol is None or DELEGATION_HEADING not in protocol:
-            errors.append(f"{relative}: no {DELEGATION_HEADING!r} section")
+        if protocol is None or protocol.count(DELEGATION_HEADING) != 1:
+            # Exactly one: the agent reads the whole document, so a second copy
+            # could contradict the first while only the first was validated.
+            errors.append(
+                f"{relative}: {DELEGATION_HEADING!r} occurs "
+                f"{0 if protocol is None else protocol.count(DELEGATION_HEADING)} times; "
+                "exactly one is required"
+            )
             continue
         section = protocol[protocol.index(DELEGATION_HEADING) + len(DELEGATION_HEADING) :]
         cut = section.find("\n### ")
@@ -2103,8 +2128,9 @@ def _frontmatter_defect(body: str, dialect: str = "") -> str | None:
     for opener, closer in (("[", "]"), ("{", "}")):
         if body.count(opener) != body.count(closer):
             return f"unbalanced {opener}{closer}"
-    if body.count('"') % 2:
-        return 'unbalanced " quote'
+    for quote in ('"', "'"):
+        if body.count(quote) % 2:
+            return f"unbalanced {quote} quote"
     seen: list[str] = []
     for number, line in enumerate(body.splitlines(), start=1):
         if not line.strip() or line.lstrip().startswith("#"):
@@ -2181,6 +2207,11 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
             f"{relative}: carries the relative runbook path {found.group(0)!r}, which "
             "resolves into the consuming repository rather than the plugin payload; "
             "load the skill by name instead"
+        )
+    if len(text) > AGENT_MAX_CHARACTERS:
+        errors.append(
+            f"{relative}: {len(text)} characters > {AGENT_MAX_CHARACTERS}; the line "
+            "budget alone is not a size budget when one line may be any length"
         )
     if len(text.splitlines()) > AGENT_MAX_LINES:
         errors.append(
