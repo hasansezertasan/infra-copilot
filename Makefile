@@ -61,8 +61,8 @@ check-upstream:  ## Compare audited external versions against current upstream r
 	$(PYTHON) scripts/check_upstream.py
 
 .PHONY: test
-# PYTHONDONTWRITEBYTECODE keeps __pycache__ out of the checkout; the repo has no
-# .gitignore yet, so a local `make test` would otherwise leave the tree dirty.
+# PYTHONDONTWRITEBYTECODE keeps __pycache__ out of the checkout. .gitignore covers it
+# too, but not writing the files at all beats ignoring them after the fact.
 test:  ## Run the repository validator tests
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest discover -s tests
 
@@ -137,12 +137,20 @@ preflight:  ## Check the tools every other target needs are present
 	fi; \
 	echo "preflight: node $$(node --version), $(PYTHON) $$($(PYTHON) --version 2>&1 | cut -d" " -f2)"
 
-# Rules live in .markdownlint-cli2.jsonc, chosen to match the prose style already in the
-# repository. Generated trees are excluded there: their content is owned by .ai-rulez/
-# sources, so linting the output would report each finding once per host package.
+# Rules live in .config/.markdownlint-cli2.jsonc, chosen to match the prose style already
+# in the repository. Generated trees are excluded there: their content is owned by
+# .ai-rulez/ sources, so linting the output would report each finding once per host
+# package.
+#
+# --config is required: markdownlint-cli2 discovers a config only at the repository root
+# and in the directory of each linted file, never in .config/. Both ways of getting it
+# wrong exit 2, not 0 -- a bad path is ENOENT, and a bare invocation with no config has
+# no globs to lint and prints usage -- so this cannot degrade into a silent default-rule
+# pass. The `globs` key is still honoured from a --config file and still resolves against
+# the repository root, which is why no glob arguments are needed here.
 .PHONY: lint
 lint: $(INSTALL_STAMP)  ## Lint the hand-authored Markdown
-	"$(MARKDOWNLINT)"
+	"$(MARKDOWNLINT)" --config .config/.markdownlint-cli2.jsonc
 
 # Removes only build output. `.agents/plugins/marketplace.json` is tracked and required
 # by validate_layout, so `.agents/` is never removed wholesale.

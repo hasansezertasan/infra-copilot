@@ -76,5 +76,5 @@ assumed: every run re-derives it by executing each step's `check`.
   written for — a skill body must never name a host's tool; it reads the record instead.
   Change a capability there, not in an adapter.
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full loop and
+See [`CONTRIBUTING.md`](.github/CONTRIBUTING.md) for the full loop and
 [`docs/roadmap.md`](docs/roadmap.md) for what is deliberately unbuilt.
