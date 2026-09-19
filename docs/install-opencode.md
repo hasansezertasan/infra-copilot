@@ -34,9 +34,9 @@ npx skills add hasansezertasan/infra-copilot --agent opencode \
 ```
 
 Repeat `--skill` per skill; a comma-separated list matches nothing. The same shape works
-for `setup`, `import`, and `add`. `make smoke-closure` installs this exact closure and
+for `setup`, `import`, `prune`, and `add`. `make smoke-closure` installs this exact closure and
 fails if it resolves to anything other than `status` plus the hub, so the pairing above
-cannot silently rot. (`make smoke-opencode` installs all five and only counts them; it
+cannot silently rot. (`make smoke-opencode` installs all six and only counts them; it
 would not notice.)
 
 ## Update
@@ -59,7 +59,7 @@ wrong; leaving them untracked and unmentioned is what causes surprise diffs.
 
 ## Invoke
 
-Ask OpenCode to use `infra-copilot`, `setup`, `import`, `add`, or `status`. Skills load
+Ask OpenCode to use `infra-copilot`, `setup`, `import`, `prune`, `add`, or `status`. Skills load
 on demand through the native `skill` tool; there are no plugin-defined slash commands.
 
 ## Verify

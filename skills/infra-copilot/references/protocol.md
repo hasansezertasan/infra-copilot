@@ -1,14 +1,14 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:f56f5ffd0151eb93f96657f04fcb55a0fd35d71e1230a5b6962dfe4a1680d68e
-Source-Hash: blake3:ad0d69acdb8c6dbebd388dd5f61d2cd6864256ec0f028e2820fb65627b8b3927
+Content-Hash: blake3:fff8675e677273145508393275e63597b2e7e17dcbf2d752f513df537ffba791
+Source-Hash: blake3:1d150026df76ec0f5865f7d11c5df1e3df34807ce128764a1fd92671b9c0988d
 Schema-Version: v1
 -->
 
 
 # The infra-copilot protocol (shared)
 
-Every `infra-copilot` skill — `setup`, `import`, `add`, `status` — runs on the same small
+Every `infra-copilot` skill — `setup`, `import`, `prune`, `add`, `status` — runs on the same small
 protocol: the **actor split**, the **handoff block**, the **resume scan**, and the
 **preflight**. It lives here once so the action skills stay thin routers and never drift
 apart. Read this file whenever a skill says "follow the shared protocol."

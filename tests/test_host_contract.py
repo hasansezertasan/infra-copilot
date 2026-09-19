@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 
 from scripts.validate import (
+    ROOT,
     ROUTER_SKILLS,
     host_records,
     skill_closure,
@@ -364,9 +365,35 @@ class ShippedClosureTests(unittest.TestCase):
         make smoke-closure proves the same thing by installing it; this catches the
         regression without the npm download.
         """
-        for skill in ("setup", "import", "add", "status"):
+        action_skills = sorted(
+            p.name
+            for p in (ROOT / "skills").iterdir()
+            if p.is_dir() and p.name not in ROUTER_SKILLS
+        )
+        # Derived, not listed: `prune` shipped without being added to the literal
+        # roster here or in protocol.md, so a sixth skill would have gone the same way.
+        self.assertIn("prune", action_skills)
+        for skill in action_skills:
             with self.subTest(skill=skill):
                 self.assertEqual(skill_closure(skill), sorted([skill, "infra-copilot"]))
+
+    def test_the_protocol_names_every_action_skill(self) -> None:
+        """`prune` delegated to protocol.md while protocol.md disclaimed it.
+
+        The roster is prose, so nothing caught the omission; this is what
+        catches the next one.
+        """
+        protocol = (
+            ROOT / ".ai-rulez/skills/infra-copilot/references/protocol.md"
+        ).read_text(encoding="utf-8")
+        roster = protocol.split("runs on the same small", 1)[0]
+        for skill in sorted(
+            p.name
+            for p in (ROOT / "skills").iterdir()
+            if p.is_dir() and p.name not in ROUTER_SKILLS
+        ):
+            with self.subTest(skill=skill):
+                self.assertIn(f"`{skill}`", roster)
 
     def test_the_hub_contributes_only_itself_as_a_dependency(self) -> None:
         """As a closure *member* the hub adds nothing else; as a root it is rejected.

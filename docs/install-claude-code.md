@@ -23,8 +23,8 @@ start, so a running session keeps the versions it started with.
 
 ## Invoke
 
-`/infra-setup`, `/infra-import`, `/infra-add`, `/infra-status`, or plain natural language
-("use infra-copilot to check where infra stands").
+`/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add`, `/infra-status`, or plain
+natural language ("use infra-copilot to check where infra stands").
 
 A `SessionStart` hook announces the plugin when the working directory carries
 `.infra-copilot/config.md`, the legacy `.claude/infra-copilot.local.md`, or a

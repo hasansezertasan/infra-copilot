@@ -10,16 +10,16 @@ most likely way to get it wrong is to edit the wrong copy of a file.
 skill — and editing them is silently undone by the next `make generate`.
 
 Before editing any file under those paths, check `.ai-rulez-generated.json`. If the path
-is listed (37 are), edit its source under `.ai-rulez/` instead, then run `make generate`.
+is listed (40 are), edit its source under `.ai-rulez/` instead, then run `make generate`.
 
 Most generated files carry an `AI-RULEZ :: GENERATED FILE — DO NOT EDIT` header, but
-**13 of the 37 do not**, because a Markdown comment block would not be valid in them — the
-JSON manifests (`marketplace.json`, `plugin.json`), `config.md.example`,
-`decisions.md.example`, `steps.yaml`, shell checks (`hcp-apply-scope.sh`,
-`hcp-bootstrap-workspaces.sh`, `hcp-current-plan.sh`, `leaf-cloud.sh`,
-`status-check-context.sh`), and YAML workflow templates (`terraform-apply.yml`,
-`terraform-plan.yml`). Absence of the header is not evidence a file is safe to edit. The
-manifest is the authority; the header is only a convenience.
+**13 of the 40 do not** — every non-Markdown output, because a Markdown comment is not
+valid in them: the JSON manifests (`marketplace.json`, `plugin.json`),
+`config.md.example`, `decisions.md.example`, `steps.yaml`, shell checks
+(`hcp-apply-scope.sh`, `hcp-bootstrap-workspaces.sh`, `hcp-current-plan.sh`,
+`leaf-cloud.sh`, `status-check-context.sh`), and the YAML workflow templates
+(`terraform-apply.yml`, `terraform-plan.yml`). Absence of the header is not evidence a
+file is safe to edit. The manifest is the authority; the header is only a convenience.
 
 ## File resolution
 
@@ -57,7 +57,7 @@ it as it is.
 
 ## Architecture, in one paragraph
 
-Four action skills — `setup`, `import`, `add`, `status` — are thin routers over one hub
+Five action skills — `setup`, `import`, `prune`, `add`, `status` — are thin routers over one hub
 skill, `infra-copilot`, whose `references/` directory owns the behavior: `steps.yaml` (a
 phase-tagged step manifest with a `check` per step), `protocol.md` (the actor model, the
 handoff block, the resume scan, preflight), provider deep-dives, and runbooks. Host

@@ -24,15 +24,15 @@ Content-Hash: blake3:…
 -->
 ```
 
-Thirteen of the 37 have no such header, because a comment block would not be valid in
-them — `.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`,
+Thirteen of the 40 have no such header — the outputs that are not Markdown:
+`.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`,
 `.codex-plugin/plugin.json`, `config.md.example`, `decisions.md.example`, `steps.yaml`,
 `checks/status-check-context.sh`, `checks/hcp-apply-scope.sh`,
 `checks/hcp-bootstrap-workspaces.sh`, `checks/leaf-cloud.sh`,
 `checks/hcp-current-plan.sh`, `templates/terraform-apply.yml`, and
 `templates/terraform-plan.yml` — so a missing header proves nothing.
 
-`.ai-rulez-generated.json` is the authoritative list — 37 paths today. If a file is in
+`.ai-rulez-generated.json` is the authoritative list — 40 paths today. If a file is in
 there, edit its source instead.
 
 ### What is *not* generated
