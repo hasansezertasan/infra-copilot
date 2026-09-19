@@ -31,6 +31,11 @@
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
   `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
+- `prune` joins the shared protocol roster in `protocol.md`, and the closure assertion
+  derives the action skills from `skills/` instead of listing them, so a new skill cannot
+  be silently excluded from either again.
+- Prune completion is stated per leaf: the leaf's clean post-edit plan is its signal, not
+  `prune-spent-imports`, which scans every leaf and stays red until the last is pruned.
 - Heredoc delimiters may contain hyphens (`<<END-JSON`), matching `checks/leaf-cloud.sh`
   and Terraform itself; without it, such a body scanned as HCL and its JavaScript reported
   as a live block.

@@ -70,7 +70,11 @@ So:
 `terraform plan` for the leaf reports **`No changes. Your infrastructure matches the
 configuration.`** with no `will be created`, `will be imported`, or `will be destroyed`.
 Capture that output for the pull request body — it is the evidence that the removed blocks
-were inert. `prune-spent-imports` then reads green for that leaf.
+were inert. **That plan is the leaf's completion signal**, not the manifest check:
+`prune-spent-imports` scans every leaf at once, so it stays red until the last one is
+pruned. With blocks in two leaves, a correct first PR leaves it red — that is the second
+leaf reporting, not a failure of the first. Do not combine leaves to turn it green, and do
+not withhold the PR waiting for it.
 
 ## Example
 

@@ -5,8 +5,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:fad00d1fa9f0bbb3be1248f08a94c3fecd783d39be9773f4142a9f2e9739c19e
-Source-Hash: blake3:1c623a6b4e8ec5329f0a004c93e23de7a30a7048d6e01b869f5819abb12c9c4b
+Content-Hash: blake3:d4e10f150508311093582256972a1527270d4235ef7a009082f656e49a94aa8d
+Source-Hash: blake3:34f51806a3ab41231dd6ecffd3cbbed2c6285483f7249f08c40fee55a0656a65
 Schema-Version: v1
 -->
 
@@ -22,8 +22,10 @@ Load `../skills/prune/SKILL.md` and drive it:
 1. **Read config first** — [`config.md`](../skills/infra-copilot/references/config.md).
 2. **Resume scan** over `prune-spent-imports` in
    [`steps.yaml`](../skills/infra-copilot/references/steps.yaml). Green means nothing is left to prune.
-3. **Follow the runbook** [`prune.md`](../skills/infra-copilot/references/docs/prune.md): per block, prove
-   `terraform state list` already holds the `to =` address before removing it. Only
+3. **Follow the runbook** [`prune.md`](../skills/infra-copilot/references/docs/prune.md): prove each block
+   spent by the evidence that backend allows — `terraform state list` membership in front
+   of the plan pair on HCP, the two workflow plans alone in object-storage mode, where the
+   bucket credential lives in Actions and a local `state list` cannot authenticate. Only
    `import {}` and `moved {}` blocks — never a `resource`, `data`, `module`, or `provider`.
 4. **Success = plan shows `No changes.`** A `will be created` means the block was still
    pending, not spent — restore it. Recovery differs by block: a pending `import {}` means

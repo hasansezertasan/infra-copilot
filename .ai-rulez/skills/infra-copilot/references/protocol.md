@@ -1,7 +1,7 @@
 
 # The infra-copilot protocol (shared)
 
-Every `infra-copilot` skill — `setup`, `import`, `add`, `status` — runs on the same small
+Every `infra-copilot` skill — `setup`, `import`, `prune`, `add`, `status` — runs on the same small
 protocol: the **actor split**, the **handoff block**, the **resume scan**, and the
 **preflight**. It lives here once so the action skills stay thin routers and never drift
 apart. Read this file whenever a skill says "follow the shared protocol."

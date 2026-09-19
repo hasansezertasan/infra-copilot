@@ -5,8 +5,8 @@ description: "Remove spent one-shot `import {}` and `moved {}` blocks after thei
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:34f492108e3f9b3b144a5ae001842a2f9c64102ba0c95fb7ac571bed7d7252de
-Source-Hash: blake3:1c623a6b4e8ec5329f0a004c93e23de7a30a7048d6e01b869f5819abb12c9c4b
+Content-Hash: blake3:d4a366d512d018ec1093670125cc625b1c29021c7b3d2f603d75bd240566f59b
+Source-Hash: blake3:34f51806a3ab41231dd6ecffd3cbbed2c6285483f7249f08c40fee55a0656a65
 Schema-Version: v1
 -->
 
@@ -77,7 +77,11 @@ So:
 `terraform plan` for the leaf reports **`No changes. Your infrastructure matches the
 configuration.`** with no `will be created`, `will be imported`, or `will be destroyed`.
 Capture that output for the pull request body — it is the evidence that the removed blocks
-were inert. `prune-spent-imports` then reads green for that leaf.
+were inert. **That plan is the leaf's completion signal**, not the manifest check:
+`prune-spent-imports` scans every leaf at once, so it stays red until the last one is
+pruned. With blocks in two leaves, a correct first PR leaves it red — that is the second
+leaf reporting, not a failure of the first. Do not combine leaves to turn it green, and do
+not withhold the PR waiting for it.
 
 ## Example
 
