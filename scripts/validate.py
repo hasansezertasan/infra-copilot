@@ -1610,20 +1610,44 @@ REQUIRED_HEADERS = {
     "## Hook discovery": {"Host", "Manifest path", "Matcher", "Root variable", "Shipped"},
 }
 AGENT_STEM = "infra-auditor"
-AGENT_DIALECTS = {
-    "comma string": (".md", lambda names: "tools: " + ", ".join(names)),
-    "YAML list": (".md", lambda names: "tools:\n" + "\n".join(f"  - {n}" for n in names)),
-    "bool map": (".md", lambda names: "tools:\n" + "\n".join(f"  {n}: true" for n in names)),
-    "none": (".toml", None),
+#: How each dialect spells a whole frontmatter block, given the tool names its
+#: row records. `{description}` is the only free value.
+#:
+#: Rendered and compared rather than validated field by field. The previous
+#: version checked properties -- allowed keys, no duplicates, balanced quotes,
+#: valid escapes, escape payload widths, indentation, scalar shape -- and each
+#: rule left an adjacent malformation to probe, because YAML is larger than any
+#: list of rules about it. A rendered block answers all of them at once: an
+#: unknown key, a doubled quote, an invalid escape and an indented mapping all
+#: fail as "not equal" without a rule apiece, and no YAML parser is needed to say
+#: so.
+AGENT_FRONTMATTER = {
+    "comma string": (
+        ".md",
+        "name: {name}\ndescription: \"{description}\"\ntools: {tools}",
+        lambda names: ", ".join(names),
+    ),
+    "YAML list": (
+        ".md",
+        "name: {name}\ndescription: \"{description}\"\ntools:\n{tools}",
+        lambda names: "\n".join(f"  - {name}" for name in names),
+    ),
+    "bool map": (
+        ".md",
+        "name: {name}\ndescription: \"{description}\"\nmode: subagent\ntools:\n{tools}",
+        lambda names: "\n".join(f"  {name}: true" for name in names),
+    ),
+    # TOML, parsed with tomllib rather than rendered: its body is prose in a
+    # multi-line string, so there is no fixed block to compare against.
+    "none": (".toml", None, None),
 }
-#: hosts.md writes a literal "|" in a matcher as {pipe}: a Markdown cell cannot
-#: carry one, and escaping it would put the escape into a value compared
-#: byte-for-byte against the shipped manifest.
-MATCHER_PIPE = "{pipe}"
-#: Tools the shipped manifest's own instructions depend on: it loads the runbook
-#: through the skill tool and its scan runs shell checks. Deliberately not derived
-#: from the table -- the table records what is granted, this what is needed, and
-#: deriving one from the other would only compare the grant with itself.
+#: A description may not carry a quote or a backslash. That is not a style rule:
+#: it removes every escape and quoting question from this document by
+#: construction, which is what the escape-validation rules were reaching for.
+AGENT_DESCRIPTION = re.compile(r'\A[^"\\\n]+\Z')
+AGENT_DIALECTS = {name: (suffix, body) for name, (suffix, body, _) in AGENT_FRONTMATTER.items()}
+
+
 #: Keyed by dialect, in each host's own spelling. One global Claude-cased pair
 #: meant the OpenCode row could never graduate: its native grant is lowercase, so
 #: `Skill`/`Bash` were unsatisfiable however the row was written.
@@ -1696,167 +1720,41 @@ AGENT_MAX_CHARACTERS = 2600
 #: The one shell script every hook manifest must hand to a shell. Adapters carry
 #: the discovery path and the matcher; the behaviour is shared.
 HOOK_IMPLEMENTATION = "hooks/session-start.sh"
-#: ponytail: substring + shell-present, not a shell parse. The shipped commands
-#: resolve the path into a variable first (`s="${r%/}/hooks/session-start.sh"; sh
-#: "$s"`), so the two cannot be required adjacent. This rejects the failure that
-#: happens -- a no-op adapter that merely names the path, which `echo <path>`
-#: passed -- and not a command contriving to run an unrelated shell beside it.
-HOOK_SHELL = re.compile(r"\A(?:ba|z|da)?sh\s")
-#: What may guard a terminal statement, and only after `||`. `[ ... ]` and
-#: `test ...` are conditions whose truth depends on the environment, so
-#: `[ -f "$s" ] || exit 0` runs the exit precisely when the script is missing.
-#: `&& exit` is the inverse -- it exits when the script *is* there -- and
-#: `false || exit 0` simply exits, so neither is a guard.
-HOOK_GUARD = re.compile(r"\A(?:\[|test\b)")
-#: The variables a host exports for its plugin root. A command may only reach the
-#: implementation through one of them, so they expand to a sentinel that the
-#: operand pattern anchors on -- `sh /tmp/hooks/session-start.sh` runs a different
-#: file and must not pass for ending in the right suffix.
-HOOK_ROOT_VARIABLES = frozenset({
-    "CLAUDE_PLUGIN_ROOT", "CODEX_PLUGIN_ROOT", "ANTIGRAVITY_PLUGIN_ROOT",
-    "AGY_PLUGIN_ROOT", "PLUGIN_ROOT",
-})
-HOOK_ROOT_SENTINEL = "\x00root"
-HOOK_OPERAND = re.compile(
-    rf"\A(?:{re.escape(HOOK_ROOT_SENTINEL)})?/?{re.escape(HOOK_IMPLEMENTATION)}\Z"
+#: The one command every host's SessionStart callback runs, as a template over
+#: the root variable that host's row records.
+#:
+#: Compared byte-for-byte rather than analysed. The previous version modelled
+#: POSIX shell -- assignments, guards, terminals, expansions, redirections -- to
+#: decide whether a command "ran the implementation", and every tightening left
+#: an adjacent spelling to probe: `echo sh <path>`, `sh -c true`, a reassigned
+#: variable, `exec`, `false || exit`, `&& exit`, `[ ! -f ]`, `[ -z ]`, `%/*`,
+#: `>/dev/null`, a trailing `touch`. Twenty-two spellings, each finding correct,
+#: none of them a manifest anyone would write.
+#:
+#: The input here is closed: four hand-authored adapters, one line each, derived
+#: from a record this file already owns. For a closed set, rendering the expected
+#: value and comparing is both shorter and complete -- every one of those
+#: spellings fails as "not equal" without a rule of its own. It is the same
+#: choice COMMAND_TOOLS already makes for `allowed-tools`.
+#:
+#: The cost is deliberate: changing the command means changing the record in the
+#: same commit, which is the coupling this table exists to enforce.
+HOOK_COMMAND_TEMPLATE = (
+    'r="${{{root}:-}}"; [ -n "$r" ] || exit 0; '
+    's="${{r%/}}/hooks/session-start.sh"; [ -f "$s" ] || exit 0; sh "$s"'
 )
+#: hosts.md writes a literal "|" in a matcher as {pipe}: a Markdown cell cannot
+#: carry one, and escaping it would put the escape into a value compared
+#: byte-for-byte against the shipped manifest.
+MATCHER_PIPE = "{pipe}"
+#: The rest of the callback, which is identical on every host.
+HOOK_TIMEOUT = 10
+HOOK_DESCRIPTION = 'Announce that infra-copilot is installed when the working directory looks like a managed infra repo.'
 
 
-def _expand(word: str, variables: dict[str, str]) -> str:
-    """A shell word with its variable references substituted.
-
-    Suffix and default operators (`${r%/}`, `${X:-}`) are reduced to the variable
-    name: this decides whether a path is *present* in the operand, and neither
-    operator can introduce one.
-    """
-    word = word.strip().strip("\"'")
-    def substitute(match: re.Match[str]) -> str:
-        name, operator = match.group(1), match.group(2) or ""
-        # `${PLUGIN_ROOT:+/tmp}` yields /tmp when the variable is set, so the
-        # operator is part of the value. Only an empty `:-` default and the
-        # prefix/suffix trims the shipped form uses leave the root itself.
-        # Only `:-` with an empty default and the shipped `%/` trailing-slash
-        # trim. `%/*` and `##*/` remove path components, so the command would run
-        # outside the payload while still looking rooted.
-        if operator and operator not in (":-", "%/"):
-            return "\x00unknown"
-        # A recorded assignment wins over the sentinel: `PLUGIN_ROOT=/tmp; sh
-        # "${PLUGIN_ROOT}/hooks/session-start.sh"` trusted the name while the
-        # shell would run /tmp/hooks/session-start.sh.
-        if name in variables:
-            return variables[name]
-        if name in HOOK_ROOT_VARIABLES:
-            return HOOK_ROOT_SENTINEL
-        return ""
-    return re.sub(r"\$\{?([A-Za-z_]\w*)([^}]*)\}?", substitute, word)
-
-
-#: A statement the walker recognises as harmless scaffolding around the one
-#: invocation: a variable assignment, a test, or a terminal.
-HOOK_TEST = re.compile(r"\A(?:\[|test\b)")
-#: Anything that executes while a word is evaluated.
-HOOK_SUBSTITUTION = re.compile(r"\$\(|`")
-#: A redirection sends the hook's JSON somewhere other than the host, which is
-#: the announcement silently disappearing while the command still "runs".
-HOOK_REDIRECTION = re.compile(r"(?<!\S)[0-9]*[<>]")
-HOOK_TERMINAL = re.compile(r"\A(?:exit|return|exec)\b")
-#: A positive existence test, which is the only guard shape the shipped manifests
-#: use and the only one whose relationship to the operand is decidable here.
-#: Predicates whose *success* means the invocation can proceed: the root is
-#: non-empty, or the script is there. `-z` is the inverse -- it succeeds when the
-#: value is empty, so `[ -z "$s" ] || exit 0` exits on every real path.
-HOOK_GUARD_PREDICATES = ("-n", "-f", "-e", "-r", "-x", "-s")
-HOOK_POSITIVE_TEST = re.compile(
-    r"\A\[\s+(-[a-z]+)\s+(\S+)\s*\]\Z|\Atest\s+(-[a-z]+)\s+(\S+)\Z"
-)
-
-
-def _runs_implementation(command: str, rooted: bool = False) -> bool:
-    """Whether ``command`` runs the shared hook script, and nothing else.
-
-    The whole command is inspected, not just up to the first match: a callback
-    is the adapter's only chance to add behaviour, and `sh <impl>; touch /tmp/x`
-    used to pass because the walker returned as soon as it recognised the
-    invocation.
-
-    Accepted shape: assignments, positive existence tests guarding `|| exit`,
-    and exactly one shell invocation whose operand is the recorded
-    implementation. Anything else -- another command, an inverted guard, a
-    terminal that is not guarded that way -- fails.
-
-    ponytail: a statement walker over the one command shape these manifests use,
-    not a shell parser. It refuses what it cannot follow, which is the safe
-    direction for a gate; command substitution, functions and eval are not
-    modelled and fail.
-    """
-    if HOOK_REDIRECTION.search(command):
-        return False
-    if HOOK_SUBSTITUTION.search(command):
-        # `x="$(touch /tmp/x)"` runs while the assignment is evaluated, so an
-        # assignment is only harmless when it substitutes nothing executable.
-        return False
-    if command.count('"') % 2 or command.count("'") % 2:
-        # The shell fails on an unterminated string before it runs anything; the
-        # expander stripped end quotes without pairing them.
-        return False
-    variables: dict[str, str] = {}
-    parts = re.split(r"(\|\||&&|[;&|\n])", command)
-    invocations = 0
-    previous = ""
-    preceding = None
-    for index in range(0, len(parts), 2):
-        statement = parts[index].strip()
-        if index:
-            preceding = parts[index - 1].strip()
-        if not statement:
-            continue
-        last, previous = previous, statement
-        if HOOK_TERMINAL.match(statement):
-            # A terminal is tolerable only as `<positive test on the operand> ||
-            # exit`: that runs when the script is missing. `&& exit` runs when it
-            # is present, and `[ ! -f "$s" ] || exit` inverts the condition so the
-            # exit fires exactly when the script is there.
-            # Only `exit` may be guarded. `[ -f "$s" ] || exec touch /tmp/x`
-            # runs adapter-owned behaviour when the script is missing, which is
-            # the branch the guard exists to make a no-op.
-            if not re.match(r"\Aexit\b", statement) or preceding != "||":
-                return False
-            guard = HOOK_POSITIVE_TEST.match(last)
-            if guard is None:
-                return False
-            # The guard must be about the things this command resolves: the
-            # plugin root, or the script itself. The shipped form tests both --
-            # `[ -n "$r" ] || exit 0` then `[ -f "$s" ] || exit 0`.
-            predicate = guard.group(1) or guard.group(3)
-            if predicate not in HOOK_GUARD_PREDICATES:
-                return False
-            target = _expand(guard.group(2) or guard.group(4), variables)
-            if not (HOOK_OPERAND.match(target) or target == HOOK_ROOT_SENTINEL):
-                return False
-            continue
-        assignment = re.match(r"\A([A-Za-z_]\w*)=(.*)\Z", statement)
-        if assignment:
-            variables[assignment.group(1)] = _expand(assignment.group(2), variables)
-            continue
-        if HOOK_TEST.match(statement):
-            continue
-        if not HOOK_SHELL.match(statement):
-            return False  # adapter-owned behaviour beside the shared implementation
-        if preceding not in (None, ";", ""):
-            # `[ -f /missing ] && sh <impl>` runs the hook only when the test
-            # passes. The manifest claims the announcement unconditionally, so a
-            # conditionally reached invocation is not that claim.
-            return False
-        arguments = statement.split()[1:]
-        if any(argument.startswith("-") for argument in arguments) or not arguments:
-            return False
-        operand = _expand(arguments[0], variables)
-        if not HOOK_OPERAND.match(operand):
-            return False
-        if rooted and not operand.startswith(HOOK_ROOT_SENTINEL):
-            return False
-        invocations += 1
-    return invocations == 1
+def expected_hook_command(root_variable: str) -> str:
+    """The callback command a host's manifest must carry, verbatim."""
+    return HOOK_COMMAND_TEMPLATE.format(root=root_variable)
 
 
 def dialect_headers(root: Path = ROOT, heading: str = "") -> list[str]:
@@ -2145,15 +2043,15 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
 
 
 def _check_agent(relative: str, text: str, row: dict[str, str], render, dialect: str) -> list[str]:
+    """Hold a shipped agent manifest to what its row implies.
+
+    The frontmatter is rendered from the record and compared as a block; the body
+    keeps its directive rules, because prose is not derivable.
+    """
     errors: list[str] = []
-    if render is None:
-        # TOML, whose tools are inherited: there is no frontmatter, and the name is
-        # a top-level key. Requiring YAML here made the Codex row unable to graduate
-        # in the one format its own record describes.
-        # Parsed, not pattern-matched. tomllib is in the standard library, so unlike
-        # the YAML frontmatter there is no dependency to weigh -- and a parse rejects
-        # duplicate keys and every other malformed construct at once, which is what
-        # the host itself does before it can load the agent.
+    if dialect == "none":
+        # TOML: the body lives in a multi-line string, so there is no fixed block
+        # to compare. tomllib is stdlib, so this one is genuinely parsed.
         try:
             document = tomllib.loads(text)
         except tomllib.TOMLDecodeError as error:
@@ -2162,10 +2060,6 @@ def _check_agent(relative: str, text: str, row: dict[str, str], render, dialect:
             errors.append(
                 f"{relative}: declares name {document.get('name')!r}, not {AGENT_STEM!r}"
             )
-        # Only the field the host actually gives the agent. Searching the whole
-        # source let a comment carry the directives while
-        # `developer_instructions = "Do nothing."` was what Codex would load --
-        # the same defect the YAML branch had with its frontmatter description.
         instructions = document.get("developer_instructions")
         if not isinstance(instructions, str):
             return errors + [
@@ -2173,78 +2067,49 @@ def _check_agent(relative: str, text: str, row: dict[str, str], render, dialect:
                 "is the agent's body, and the directives have to live in it"
             ]
         return errors + _check_agent_body(relative, instructions)
+
     front = SKILL_FRONTMATTER.match(text)
     if front is None:
-        return [f"{relative}: no YAML frontmatter to read `tools` and `name` from"]
+        return [f"{relative}: has no frontmatter block"]
     body = front.group("body")
-    if problem := _frontmatter_defect(body, dialect):
-        # The host parses the whole document before it discovers the agent, so one
-        # malformed field removes `infra-auditor` entirely while the protocol keeps
-        # delegating to it -- and reading only `name` and `tools` could not see it.
-        return [f"{relative}: frontmatter is not well formed ({problem})"]
-    declared_names = [value.strip() for value in re.findall(r"(?m)^name:\s*(.*)$", body)]
-    if len(declared_names) != 1:
-        # Duplicate YAML keys are ambiguous -- rejected by strict parsers, resolved
-        # to the last value by others -- so a first-match read could see the right
-        # name while the host registered the wrong one, or none.
-        errors.append(
-            f"{relative}: frontmatter declares {len(declared_names)} `name` fields; "
-            "exactly one is required for the registered name to be unambiguous"
-        )
-    elif _plain_scalar(declared_names[0]) != AGENT_STEM:
-        # The full scalar: YAML reads `name: infra-auditor garbage` as one value,
-        # while a first-token capture saw the right name and the host registered
-        # a different one.
-        errors.append(f"{relative}: must declare name {AGENT_STEM!r}; the protocol delegates to it")
-    if render is not None:
-        names = re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", row["Tool names"])
-        declared = re.findall(r"^tools:.*?(?=^\S|\Z)", body + "\n", re.MULTILINE | re.DOTALL)
-        if len(declared) != 1:
+    description = re.search(r'(?m)^description:\s*"([^"]*)"\s*$', body)
+    if description is None or not AGENT_DESCRIPTION.fullmatch(description.group(1)):
+        return [
+            f"{relative}: needs a `description:` on one line, double-quoted, carrying "
+            "no quote or backslash of its own"
+        ]
+    names = re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", row["Tool names"])
+    _, template, render_tools = AGENT_FRONTMATTER[dialect]
+    expected = template.format(
+        name=AGENT_STEM, description=description.group(1), tools=render_tools(names)
+    )
+    if body.strip("\n") != expected:
+        # One comparison in place of the field-by-field rules: an unknown or
+        # duplicated key, a doubled quote, an invalid escape, an indented mapping,
+        # a wrong dialect or a renamed agent all differ from this block.
+        return [
+            f"{relative}: frontmatter does not match what {HOSTS_DOCUMENT} records for "
+            f"{row['Host']}. Expected:\n{expected}\nFound:\n{body.strip(chr(10))}"
+        ]
+    for required in AGENT_REQUIRED_TOOLS.get(dialect) or ():
+        if required not in names:
             errors.append(
-                f"{relative}: frontmatter declares {len(declared)} `tools` fields; exactly "
-                "one is required for the grant to be unambiguous"
+                f"{HOSTS_DOCUMENT}: the shipped subagent row omits {required!r}; the "
+                "manifest loads the runbook through the skill tool and runs shell "
+                "checks, so a delegated run would fail"
             )
-        elif names and declared[0].strip() != render(names):
+    for forbidden in AGENT_FORBIDDEN_TOOLS.get(dialect, ()):
+        if forbidden in names:
             errors.append(
-                f"{relative}: frontmatter tools {declared[0].strip()!r} != {render(names)!r} "
-                f"as {HOSTS_DOCUMENT} records it; a wrong dialect fails silently"
+                f"{HOSTS_DOCUMENT}: the shipped subagent row grants {forbidden!r}; the "
+                "scan is read-only and the recorded grant is what says so"
             )
-        for required in AGENT_REQUIRED_TOOLS.get(dialect) or ():
-            if required not in names:
-                errors.append(
-                    f"{HOSTS_DOCUMENT}: the shipped subagent row omits {required!r}; the "
-                    "manifest loads the runbook through the skill tool and runs shell "
-                    "checks, so a delegated run would fail"
-                )
-        for forbidden in AGENT_FORBIDDEN_TOOLS.get(dialect, ()):
-            if forbidden in names:
-                errors.append(
-                    f"{HOSTS_DOCUMENT}: the shipped subagent row grants {forbidden!r}; the "
-                    "scan is read-only and the recorded grant is what says so"
-                )
     return errors + _check_agent_body(relative, text)
 
 
-#: Every key this adapter's frontmatter may carry. It is a fixed three-field
-#: contract, not arbitrary user YAML, so the shape is checkable exactly.
-#:
-#: ponytail: a whitelist, not a parser. The repository ships no YAML dependency
-#: and CI runs a bare interpreter -- validate_manifest_shape declines one for
-#: steps.yaml on the same grounds -- and for this file a whitelist is the stronger
-#: check anyway: a conforming parser would accept `description: [foo, bar]`, which
-#: is valid YAML and still wrong for an agent manifest.
-AGENT_FRONTMATTER_KEYS = {"name", "description", "tools"}
-#: Keys a particular dialect adds. OpenCode's manifests declare `mode: subagent`,
-#: which is part of that dialect rather than a stray field.
-AGENT_DIALECT_KEYS = {"bool map": {"mode"}}
-#: A dialect key whose value is part of the contract. `mode: primary` registers a
-#: primary agent, not the subagent the protocol tries to invoke.
-AGENT_DIALECT_VALUES = {"bool map": {"mode": "subagent"}}
 #: The delegation rule's shape. Both gates have to be stated, because a record
 #: says the agent was *shipped*, never that this session can reach it -- and the
 #: inline fallback is what makes a denied tool a fallback rather than an error.
-#: (The equivalent assertion for the question rule was lost when this branch
-#: merged main; this is its replacement for the section this PR owns.)
 DELEGATION_HEADING = "### Running the scan in an isolated context"
 DELEGATION_MARKERS = (
     "infra-auditor", "records a subagent", r"declared\s+and\s+allowed",
@@ -2253,98 +2118,6 @@ DELEGATION_MARKERS = (
     # current-checkout checks the status runbook substitutes away.
     r"`status`\s+and\s+only\s+`status`", r"`setup`,\s+`import`,\s+and\s+`add`",
 )
-
-
-#: The escapes YAML defines inside a double-quoted scalar. Anything else makes the
-#: document unparseable, so the host discovers no agent at all.
-YAML_ESCAPES = set('0abtnvfre "/\\N_LP\tx')
-
-
-def _plain_scalar(value: str) -> str | None:
-    """The value a YAML scalar carries, or None when it is not a valid one.
-
-    Quotes are parsed, not stripped: `''infra-auditor''` has an even quote count
-    and reduces to the expected stem under strip(), while YAML reads the doubled
-    quotes as literal characters and registers `'infra-auditor'` instead.
-    """
-    value = value.strip()
-    if value.startswith("'") and value.endswith("'") and len(value) >= 2:
-        inner = value[1:-1]
-        if "'" in inner.replace("''", ""):
-            return None
-        return inner.replace("''", "'")
-    if value.startswith('"') and value.endswith('"') and len(value) >= 2:
-        return None if _quoted_scalar_defect(value) else value[1:-1]
-    if '"' in value or "'" in value:
-        return None
-    return value
-
-
-def _quoted_scalar_defect(value: str) -> str | None:
-    """Why ``value`` is not a well-formed double-quoted YAML scalar."""
-    if not re.fullmatch(r'"[^"]*"', value):
-        return "description is not a single double-quoted scalar"
-    inner = value[1:-1]
-    index = 0
-    while index < len(inner):
-        if inner[index] == "\\":
-            following = inner[index + 1] if index + 1 < len(inner) else ""
-            if following not in YAML_ESCAPES:
-                return f"description carries the invalid escape '\\{following}'"
-            width = {"x": 2, "u": 4, "U": 8}.get(following, 0)
-            payload = inner[index + 2 : index + 2 + width]
-            if len(payload) != width or any(c not in "0123456789abcdefABCDEF" for c in payload):
-                # \x takes exactly two hex digits, \u four, \U eight. A short or
-                # non-hex payload makes the document unparseable.
-                return f"description carries a malformed '\\{following}' escape"
-            index += 2 + width
-            continue
-        index += 1
-    return None
-
-
-def _frontmatter_defect(body: str, dialect: str = "") -> str | None:
-    """Why ``body`` is not this adapter's frontmatter, or None when it is."""
-    allowed = AGENT_FRONTMATTER_KEYS | AGENT_DIALECT_KEYS.get(dialect, set())
-    for opener, closer in (("[", "]"), ("{", "}")):
-        if body.count(opener) != body.count(closer):
-            return f"unbalanced {opener}{closer}"
-    for quote in ('"', "'"):
-        if body.count(quote) % 2:
-            return f"unbalanced {quote} quote"
-    seen: list[str] = []
-    for number, line in enumerate(body.splitlines(), start=1):
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        if line[:1].isspace() or line.lstrip().startswith("-"):
-            # Indentation is legal only under `tools`, the one structured field
-            # this contract has. Treating every indented line as a continuation
-            # accepted `  garbage: true` under a scalar, which is invalid YAML
-            # there and leaves the host discovering no agent at all.
-            if seen and seen[-1] == "tools":
-                continue
-            return f"line {number} is indented under {seen[-1] if seen else 'nothing'!r}"
-        key = re.match(r"\A([A-Za-z_][\w.-]*):(?:\s|\Z)", line)
-        if key is None:
-            return f"line {number} is neither a comment, a continuation, nor a key"
-        name = key.group(1)
-        if name not in allowed:
-            return f"unknown key {name!r} on line {number}"
-        if name in seen:
-            return f"duplicate key {name!r} on line {number}"
-        seen.append(name)
-    if missing := allowed - set(seen):
-        return f"missing {sorted(missing)}"
-    for key, expected in AGENT_DIALECT_VALUES.get(dialect, {}).items():
-        found = re.search(rf"(?m)^{key}:\s*(.*)$", body)
-        if found is not None and found.group(1).strip().strip("\"'") != expected:
-            return f"{key} is {found.group(1).strip()!r}, not {expected!r}"
-    description = re.search(r"(?m)^description:\s*(.*)$", body)
-    if description is not None and _quoted_scalar_defect(description.group(1).strip()):
-        # A flow collection here is valid YAML and still not a description, which
-        # is the case a conforming parser would wave through.
-        return _quoted_scalar_defect(description.group(1).strip())
-    return None
 
 
 def _positive_mentions(text: str, pattern: str) -> bool:
@@ -2404,114 +2177,55 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
 
 
 def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
-    errors: list[str] = []
+    """Hold a shipped hook manifest to the shape and command its row records.
+
+    The manifest is a fixed shape -- one event, one entry, one callback -- so it
+    is compared against a rendered expectation rather than inspected property by
+    property. The command in particular is byte-for-byte: see
+    HOOK_COMMAND_TEMPLATE for why analysing it was the wrong tool.
+    """
     if not (root / relative).exists():
         return [f"{relative}: {row['Host']} is marked shipped but no manifest is here"]
     try:
         payload = load_json(relative, root)
-        entries = payload["hooks"]["SessionStart"]
-    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
-        return [f"{relative}: no SessionStart hooks entry to check ({error})"]
-    if not isinstance(entries, list):
-        # A valid JSON document can still be the wrong shape. Iterating it raised
-        # TypeError and ended the run instead of reporting the manifest.
-        return [
-            f"{relative}: hooks.SessionStart is {type(entries).__name__}, not a list"
-        ]
-    if set(payload.get("hooks", {})) != {"SessionStart"}:
-        errors.append(
-            f"{relative}: declares hook events {sorted(payload.get('hooks', {}))}; only "
-            "SessionStart is recorded, and a sibling such as PreToolUse would run "
-            "behaviour no capability record authorises"
-        )
-    if set(payload) != {"hooks"}:
-        errors.append(
-            f"{relative}: top-level keys {sorted(payload)} != ['hooks']; a manifest takes "
-            "no siblings of 'hooks' -- Antigravity counts each one as a hook"
-        )
-    recorded = row["Matcher"].strip("`").replace(MATCHER_PIPE, "|")
-    typed = [entry.get("matcher") for entry in entries if isinstance(entry, dict)]
-    if any(not isinstance(matcher, str) for matcher in typed):
-        # str() erased the type, so a numeric or null matcher compared equal to
-        # its textual spelling and the host would have no pattern to match on.
-        return errors + [
-            f"{relative}: a SessionStart matcher is not a string "
-            f"({[type(m).__name__ for m in typed]})"
-        ]
-    matchers = list(typed)
-    if len(matchers) != len(set(matchers)):
-        # A set collapsed duplicates, and each copy then passed independently, so
-        # the host registered the same command twice and announced twice.
-        errors.append(
-            f"{relative}: SessionStart declares {len(matchers)} entries with duplicate "
-            "matchers; one entry per matcher, or the announcement fires twice"
-        )
-    actual = set(matchers)
-    if actual != {recorded}:
-        errors.append(
-            f"{relative}: SessionStart matcher {sorted(actual)} != {recorded!r} as "
-            f"{HOSTS_DOCUMENT} records it for {row['Host']}"
-        )
+    except (OSError, json.JSONDecodeError) as error:
+        return [f"{relative}: is not readable JSON ({error})"]
+
     recorded_root = row["Root variable"].strip("` ")
-    if recorded_root not in {"—", ""}:
-        foreign = {
-            variable
-            for variable in re.findall(r"\b([A-Z_]*PLUGIN_ROOT)\b", json.dumps(payload))
-            if variable != recorded_root
+    matcher = row["Matcher"].strip("`").replace(MATCHER_PIPE, "|")
+    if recorded_root in {"—", ""}:
+        return [f"{HOSTS_DOCUMENT}: {row['Host']} is shipped but records no root variable"]
+
+    # The whole manifest, rendered from the record. Every shape question the old
+    # version asked one at a time -- sibling events, extra top-level keys,
+    # duplicate entries or callbacks, a non-string matcher or command, a foreign
+    # root variable, a redirection, an added statement -- is answered by this
+    # single comparison, because none of them produce this document.
+    expected = {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "matcher": matcher,
+                    "hooks": [
+                        {
+                            "name": "infra-copilot-session-start",
+                            "type": "command",
+                            "command": expected_hook_command(recorded_root),
+                            "timeout": HOOK_TIMEOUT,
+                            "description": HOOK_DESCRIPTION,
+                        }
+                    ],
+                }
+            ]
         }
-        if foreign:
-            # The variables are not interchangeable: a Claude manifest reading
-            # CODEX_PLUGIN_ROOT finds nothing, exits before running the script,
-            # and the announcement disappears with no error to notice.
-            errors.append(
-                f"{relative}: resolves its root from {sorted(foreign)}, but "
-                f"{HOSTS_DOCUMENT} records {recorded_root!r} for {row['Host']}"
-            )
-    for entry in entries:
-        nested = entry.get("hooks") if isinstance(entry, dict) else None
-        if nested is not None and not isinstance(nested, list):
-            # Same shape check as hooks.SessionStart, one level down: a truthy
-            # non-iterable raised TypeError and ended the run.
-            errors.append(
-                f"{relative}: a SessionStart entry's hooks is "
-                f"{type(nested).__name__}, not a list"
-            )
-            continue
-        callbacks = [callback for callback in nested or [] if isinstance(callback, dict)]
-        # Typed, not just present: a non-string `command` reached the membership
-        # test and raised TypeError, aborting validation instead of reporting it.
-        for callback in callbacks:
-            if not isinstance(callback.get("command", ""), str):
-                errors.append(
-                    f"{relative}: a SessionStart command is "
-                    f"{type(callback.get('command')).__name__}, not a string"
-                )
-        commands = [
-            callback["command"]
-            for callback in callbacks
-            if isinstance(callback.get("command"), str)
+    }
+    if payload != expected:
+        return [
+            f"{relative}: does not match what {HOSTS_DOCUMENT} records for "
+            f"{row['Host']}. Expected:\n{json.dumps(expected, indent=2)}\n"
+            f"Found:\n{json.dumps(payload, indent=2, default=repr)}"
         ]
-        if not commands:
-            errors.append(f"{relative}: a SessionStart entry declares no hooks to run")
-        elif not all(_runs_implementation(command, rooted=True) for command in commands):
-            errors.append(
-                f"{relative}: a SessionStart command does not hand "
-                f"{HOOK_IMPLEMENTATION}, rooted at the host's recorded variable, to a "
-                "shell; a bare relative path resolves against the consuming repository"
-            )
-        if len(callbacks) > 1:
-            # Distinctness is not the contract -- one announcement is. Two
-            # callbacks differing only by name or timeout both run.
-            errors.append(
-                f"{relative}: a SessionStart entry declares {len(callbacks)} callbacks; "
-                "each one runs, so the announcement fires more than once"
-            )
-        if any(callback.get("type") != "command" for callback in callbacks):
-            errors.append(
-                f"{relative}: a SessionStart callback is not type 'command'; only a "
-                "command callback runs the shared implementation"
-            )
-    return errors
+    return []
 
 
 def validate_layout() -> list[str]:
