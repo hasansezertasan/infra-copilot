@@ -5,8 +5,8 @@ description: "Remove spent one-shot `import {}` and `moved {}` blocks after thei
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:d4a366d512d018ec1093670125cc625b1c29021c7b3d2f603d75bd240566f59b
-Source-Hash: blake3:7bfda8f8cc78a8ac10d894a3051f644385db1b1467474089cb948caff867a5da
+Content-Hash: blake3:d0a632186fbea487a18dba0b81d5f1086afad082451d7ec1346bf80856f69c23
+Source-Hash: blake3:9d300fb864825ac356a104642ff6f005b3638b9d764e92591e15e53b0c590fdd
 Schema-Version: v1
 -->
 
@@ -66,8 +66,10 @@ So:
    [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). Green means no one-shot blocks are
    committed and there is nothing to do.
 3. **Follow the runbook** [`../infra-copilot/references/docs/prune.md`](../infra-copilot/references/docs/prune.md): discover
-   candidates, check each address against `terraform state list`, delete only the block,
-   plan, open the PR.
+   candidates, prove each block spent by the evidence that backend allows — `terraform
+   state list` membership in front of the plan pair on HCP, the two workflow plans alone
+   in object-storage mode, where the bucket credential lives in Actions — delete only the
+   block, plan, open the PR.
 4. If the before-plan still carries the block's own import or move, the apply has not
    landed. Stop and say so — that is `infra-copilot:import` finishing its work, not a
    prune.

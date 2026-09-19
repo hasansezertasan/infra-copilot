@@ -162,6 +162,15 @@ preflight — is in
    | exit 1 | no-op | the apply has not landed — finish the import |
    | exit 2 | — | `?`, route nowhere |
 
+   **That check is Cloudflare's.** It reads `plan-cloudflare` and `apply-cloudflare`, so it
+   discriminates only that leaf. `plan-github-gha` checks job success and nothing more, and
+   an additional-provider leaf has no equivalent at all — so in object-storage mode a red
+   `prune-spent-imports` whose blocks live in `terraform/github` or a provider leaf is
+   **ambiguous, and stays that way**: report phase 5 as `?` for that leaf, name the blocks,
+   and route nowhere. Do not fall through to `prune` — the same red means *pending* before
+   the apply, and pruning a pending import is the one outcome this phase exists to prevent.
+   The human can settle it by reading that leaf's plan log; status cannot.
+
    Do not re-derive that correlation here. An earlier version of this section did, and got
    it wrong twice in one paragraph: it asked only whether the *run* was green, which a
    GitHub-only run satisfies because `apply-cloudflare` is conditionally skipped; and it
@@ -187,6 +196,15 @@ preflight — is in
    plan, imports included — or its plan summary reports `imports: 0` **with `creates: 0`
    and `destroys: 0`**. Read the summary with the plan-summary helper in
    [`docs/hcp-api.md`](docs/hcp-api.md).
+
+   **Those counts see imports, not moves.** A pending `moved {}` plans as zero added, zero
+   changed, zero destroyed — the rename is a state operation, not a resource change — so a
+   revision carrying an unapplied move satisfies `imports: 0`, `creates: 0` and
+   `destroys: 0` exactly as a finished adoption does. The counts half is therefore evidence
+   only when the committed leftovers are `import` blocks. When `prune-spent-imports` names
+   a file holding `moved {}`, use the `applied` half or report `?`; never read a clean
+   speculative plan as proof a move has landed. The runbook's before-plan does catch it —
+   a pending move prints its rename — but that plan is the prune workflow's, not status's.
 
    The creates clause is not decoration: a prune done *before* its import applied produces
    exactly `imports: 0` with creates — Terraform no longer knows the live resources are

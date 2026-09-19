@@ -1370,7 +1370,13 @@ steps:
       #   - an indented terminator ends BOTH `<<EOT` and `<<-EOT`, so the trim is
       #     unconditional: a plain `<<EOT` body holding an indented `EOT` plus more text
       #     fails to parse with the error ON the following text (1.15.9 and 1.16.1);
-      #   - a heredoc tag is never quoted -- `<<"EOT"` is shell, not HCL.
+      #   - a heredoc tag is never quoted -- `<<"EOT"` is shell, not HCL;
+      #   - the opener brace ENDS its line: `import { to = x` with `id` on the next line is
+      #     rejected as an "Invalid single-argument block definition" (1.15.9 and 1.16.1).
+      #     HCL does allow a one-line single-argument block (`workspaces { name = "x" }`,
+      #     see tests/test_hcp_apply_scope.py), but `import` and `moved` each require two
+      #     arguments, so neither can take that form. Anchoring the opener at end of line
+      #     is therefore complete, not a simplification.
       #
       # ponytail: a scanner, not an HCL parser, and the line is now a rule rather than a
       # list. A finding of the form "marker X inside context Y" is answered by `scan()` or

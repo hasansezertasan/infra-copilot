@@ -31,6 +31,11 @@
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
   `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
+- Status reports phase 5 as `?` rather than routing to `prune` when object-storage blocks
+  live outside `terraform/cloudflare`: the discriminator is that leaf's check, and no
+  equivalent exists for the others.
+- The HCP completion counts see imports, not moves — a pending `moved {}` plans as zero
+  added, changed and destroyed — so the counts half is evidence only for `import` blocks.
 - The HCL scan is string-aware in one pass, which replaces every lexical special case it
   had accumulated — the end-of-line anchor, the comment strip, the expression-position
   allow-list, the bounded header-comment state, and the rule against tracking `/* */`.

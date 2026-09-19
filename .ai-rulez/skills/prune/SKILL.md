@@ -59,8 +59,10 @@ So:
    [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). Green means no one-shot blocks are
    committed and there is nothing to do.
 3. **Follow the runbook** [`../infra-copilot/references/docs/prune.md`](../infra-copilot/references/docs/prune.md): discover
-   candidates, check each address against `terraform state list`, delete only the block,
-   plan, open the PR.
+   candidates, prove each block spent by the evidence that backend allows — `terraform
+   state list` membership in front of the plan pair on HCP, the two workflow plans alone
+   in object-storage mode, where the bucket credential lives in Actions — delete only the
+   block, plan, open the PR.
 4. If the before-plan still carries the block's own import or move, the apply has not
    landed. Stop and say so — that is `infra-copilot:import` finishing its work, not a
    prune.

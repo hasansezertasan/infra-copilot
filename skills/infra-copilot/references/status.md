@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:575696e99c3fcbb3d772c9217f09e0019d23718e7b05d3b9bfe8a60e07e84224
-Source-Hash: blake3:7bfda8f8cc78a8ac10d894a3051f644385db1b1467474089cb948caff867a5da
+Content-Hash: blake3:1ba5b06a6d75693dc95ad746a238950494cb7610892d3f9a5717b3b77864344d
+Source-Hash: blake3:9d300fb864825ac356a104642ff6f005b3638b9d764e92591e15e53b0c590fdd
 Schema-Version: v1
 -->
 
@@ -169,6 +169,15 @@ preflight — is in
    | exit 1 | no-op | the apply has not landed — finish the import |
    | exit 2 | — | `?`, route nowhere |
 
+   **That check is Cloudflare's.** It reads `plan-cloudflare` and `apply-cloudflare`, so it
+   discriminates only that leaf. `plan-github-gha` checks job success and nothing more, and
+   an additional-provider leaf has no equivalent at all — so in object-storage mode a red
+   `prune-spent-imports` whose blocks live in `terraform/github` or a provider leaf is
+   **ambiguous, and stays that way**: report phase 5 as `?` for that leaf, name the blocks,
+   and route nowhere. Do not fall through to `prune` — the same red means *pending* before
+   the apply, and pruning a pending import is the one outcome this phase exists to prevent.
+   The human can settle it by reading that leaf's plan log; status cannot.
+
    Do not re-derive that correlation here. An earlier version of this section did, and got
    it wrong twice in one paragraph: it asked only whether the *run* was green, which a
    GitHub-only run satisfies because `apply-cloudflare` is conditionally skipped; and it
@@ -194,6 +203,15 @@ preflight — is in
    plan, imports included — or its plan summary reports `imports: 0` **with `creates: 0`
    and `destroys: 0`**. Read the summary with the plan-summary helper in
    [`docs/hcp-api.md`](docs/hcp-api.md).
+
+   **Those counts see imports, not moves.** A pending `moved {}` plans as zero added, zero
+   changed, zero destroyed — the rename is a state operation, not a resource change — so a
+   revision carrying an unapplied move satisfies `imports: 0`, `creates: 0` and
+   `destroys: 0` exactly as a finished adoption does. The counts half is therefore evidence
+   only when the committed leftovers are `import` blocks. When `prune-spent-imports` names
+   a file holding `moved {}`, use the `applied` half or report `?`; never read a clean
+   speculative plan as proof a move has landed. The runbook's before-plan does catch it —
+   a pending move prints its rename — but that plan is the prune workflow's, not status's.
 
    The creates clause is not decoration: a prune done *before* its import applied produces
    exactly `imports: 0` with creates — Terraform no longer knows the live resources are
