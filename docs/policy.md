@@ -157,13 +157,14 @@ production.
   0 mints — see [the HCP token section](#the-hcp-token-what-the-agent-never-sees-secrets-does-and-does-not-cover)
   — so it has to be provisioned deliberately: [A credential that cannot apply](#a-credential-that-cannot-apply).
 
-**And what only narrows.** A read-only subagent (#19) is worth building — it isolates the
-scan's context and removes `Edit` and `Write` — but it does **not** enforce
-change-nothing, and this page would be contradicting itself to say otherwise. `status`
+**And what only narrows.** The read-only subagent (#19) now ships: `infra-auditor`
+isolates the scan's context and its grant omits `Edit` and `Write`. It does **not**
+enforce change-nothing, and this page would be contradicting itself to say otherwise. `status`
 runs shell checks from a manifest, including API reads and shipped scripts. It needs `Bash`,
 and bypass 3 above establishes that `Bash` writes files. Remove `Bash` and the scan cannot
 run at all. So the subagent reduces the surface for an accident; only a sandboxed
-command runner turns it into a boundary.
+command runner turns it into a boundary. Which hosts have it is recorded in
+[`hosts.md`](../skills/infra-copilot/references/hosts.md), not here.
 
 ## A credential that cannot apply
 

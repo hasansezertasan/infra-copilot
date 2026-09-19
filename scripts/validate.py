@@ -1756,6 +1756,9 @@ HOOK_COMMAND_TEMPLATE = (
 #: carry one, and escaping it would put the escape into a value compared
 #: byte-for-byte against the shipped manifest.
 MATCHER_PIPE = "{pipe}"
+#: Placeholders a row uses to say "nothing established here". They are legible
+#: prose in the table and meaningless as values, so a shipped row may hold none.
+SENTINEL_CELLS = {"not recorded", "—", "-", ""}
 #: The rest of the callback, which is identical on every host.
 HOOK_TIMEOUT = 10
 HOOK_DESCRIPTION = 'Announce that infra-copilot is installed when the working directory looks like a managed infra repo.'
@@ -1817,11 +1820,14 @@ def _output_branch(script: str) -> str | None:
     the same distinction the callback check already draws between a command that
     mentions the implementation and one that runs it.
     """
-    start = script.find('if [ -n "$')
-    if start < 0:
+    # Anchored to the start of a line and skipping comments: `find` took the
+    # first textual match, so a commented-out copy above the real branch was
+    # what got checked while the shell ignored it entirely.
+    found = re.search(r'(?m)^if \[ -n "\$', script)
+    if found is None:
         return None
-    end = script.find("; then", start)
-    return None if end < 0 else script[start:end]
+    end = script.find("; then", found.start())
+    return None if end < 0 else script[found.start() : end]
 
 
 def expected_hook_command(root_variable: str) -> str:
@@ -2292,7 +2298,16 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
 
     recorded_root = row["Root variable"].strip("` ")
     matcher = row["Matcher"].strip("`").replace(MATCHER_PIPE, "|")
-    if recorded_root in {"—", ""}:
+    if matcher in SENTINEL_CELLS:
+        # Rendered verbatim, so a manifest copying the sentinel compared equal
+        # while no session source matches that literal -- the row claiming an
+        # announcement that can never fire. The root variable was already
+        # required; the matcher was not.
+        return [
+            f"{HOSTS_DOCUMENT}: {row['Host']} is shipped but records {matcher!r} as its "
+            "matcher, which no session source matches"
+        ]
+    if recorded_root in SENTINEL_CELLS:
         return [f"{HOSTS_DOCUMENT}: {row['Host']} is shipped but records no root variable"]
     # The manifest and the record can agree on a variable the shared script does
     # not test, in which case the hook runs and emits the fallback output shape

@@ -1298,13 +1298,33 @@ class NinthRoundTests(unittest.TestCase):
             any("delegation rule is missing" in e for e in validate_host_dialects(root))
         )
 
-    def test_the_readme_cites_the_record_rather_than_copying_it(self) -> None:
-        """hosts.md is the single capability record; prose repeating it is a
-        second copy nothing keeps in step when a host graduates."""
-        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("skills/infra-copilot/references/hosts.md", readme)
-        for copied in ("hooks-codex.json", "experimental flag", "root `hooks.json`"):
-            self.assertNotIn(copied, readme)
+    #: Prose pages that may cite the capability record but must not restate it.
+    #: The same drift was reported three times -- README, then docs/roadmap.md and
+    #: docs/policy.md -- because fixing one file left the class open.
+    CITING_DOCUMENTS = ("README.md", "docs/roadmap.md", "docs/policy.md")
+
+    def test_prose_cites_the_record_rather_than_copying_it(self) -> None:
+        """hosts.md is the single capability record. A page repeating it is a
+        second copy that the parity checks have no purchase on, so it goes stale
+        exactly when a host graduates -- which is when someone reads it."""
+        for relative in self.CITING_DOCUMENTS:
+            with self.subTest(document=relative):
+                text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+                self.assertIn("references/hosts.md", text, "must cite the record")
+                for copied in (
+                    "hooks-codex.json",
+                    "experimental flag",
+                    "root `hooks.json`",
+                    "interactive trust review",
+                ):
+                    self.assertNotIn(copied, text)
+
+    def test_the_policy_page_describes_the_shipped_agent(self) -> None:
+        """It called the subagent "worth building" while this PR ships it, so a
+        reader following the link got contradictory availability guidance."""
+        policy = (REPO_ROOT / "docs/policy.md").read_text(encoding="utf-8")
+        self.assertNotIn("worth building", policy)
+        self.assertIn("now ships", policy)
 
 
 class TenthRoundTests(unittest.TestCase):
@@ -1612,6 +1632,61 @@ class PortabilityAndBoundaryTests(unittest.TestCase):
             for alias in node.names
         ]
         self.assertNotIn("tomllib", top_level)
+
+
+class ExecutableAnchorTests(unittest.TestCase):
+    def _root(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_root(directory.name)
+
+    def test_a_commented_conditional_is_not_the_branch(self) -> None:
+        """`find` took the first textual match, so a commented-out copy above the
+        real branch was what got checked while the shell ignored it."""
+        root = self._root()
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "`CLAUDE_PLUGIN_ROOT`", "`NEW_PLUGIN_ROOT`", 1
+            ),
+            encoding="utf-8",
+        )
+        manifest = root / HOOK_PATH
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8").replace(
+                "CLAUDE_PLUGIN_ROOT", "NEW_PLUGIN_ROOT"
+            ),
+            encoding="utf-8",
+        )
+        script = root / "hooks/session-start.sh"
+        script.write_text(
+            script.read_text(encoding="utf-8").replace(
+                'if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]',
+                '# if [ -n "${NEW_PLUGIN_ROOT:-}" ]; then\nif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]',
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("does not test" in e for e in validate_host_dialects(root)))
+
+    def test_a_shipped_row_needs_a_real_matcher(self) -> None:
+        """Rendered verbatim, so a manifest copying the sentinel compared equal
+        while no session source matches that literal."""
+        for sentinel in ("not recorded", "—"):
+            with self.subTest(matcher=sentinel):
+                root = self._root()
+                document = root / HOSTS_DOCUMENT
+                document.write_text(
+                    document.read_text(encoding="utf-8").replace(
+                        "| `*` | `ANTIGRAVITY_PLUGIN_ROOT` | no — never observed firing |",
+                        f"| {sentinel} | `ANTIGRAVITY_PLUGIN_ROOT` | **yes** |",
+                        1,
+                    ),
+                    encoding="utf-8",
+                )
+                (root / "hooks.json").write_text("{}", encoding="utf-8")
+                self.assertTrue(
+                    any("no session source matches" in e for e in validate_host_dialects(root))
+                )
 
 
 if __name__ == "__main__":

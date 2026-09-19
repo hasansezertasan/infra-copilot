@@ -45,13 +45,11 @@ oversight. Each item links to the issue that owns it.
   sandboxed command runner would enforce the promise.
   ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
 - **The SessionStart hook is still Claude-only.** It ships and is auto-discovered there
-  (#18). Antigravity's *discovery* path is now known — the root `hooks.json`, not
-  `hooks/hooks.json` — but discovery is not execution: a probe hook reduced to `touch`
-  never fired, in print mode or an interactive TUI session. Codex gates plugin hooks
-  behind an experimental flag *and* an interactive trust review, and none fired from any
-  candidate path. OpenCode has no hook mechanism. All three are recorded unshipped in
-  `hosts.md` with the evidence, and a test fails if a manifest appears at one of those
-  paths.
+  (#18). Which hosts ship one, the discovery path each uses, and the evidence behind
+  every exclusion are recorded in
+  [`hosts.md`](../skills/infra-copilot/references/hosts.md) — repeating them here would
+  be a second copy that nothing keeps in step when a host graduates. A test fails if a
+  manifest appears at a path no row marks shipped.
   ([#42](https://github.com/hasansezertasan/infra-copilot/issues/42))
 - **The subagent ships to one host.** `infra-auditor` runs the scan in an isolated
   context on Claude. Claude and Antigravity both auto-discover root `agents/` and neither
