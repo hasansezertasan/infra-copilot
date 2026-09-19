@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 import sys
 import tomllib
@@ -1473,6 +1474,16 @@ def validate_manifest_shape(root: Path = ROOT) -> list[str]:
 #: The `infra-auditor` manifest, and how each host's row in hosts.md spells its
 #: `tools` field. Only the shape lives here -- the path, the dialect and the tool
 #: names come from the table, so it stays authoritative rather than descriptive.
+#: Columns each capability section must declare. A mistyped header built rows
+#: under an unexpected key and every later lookup raised KeyError, ending the run
+#: with a traceback instead of naming the malformed record.
+REQUIRED_HEADERS = {
+    "## Subagent manifests": {
+        "Host", "Discovery path", "`tools` dialect", "Tool names",
+        "Invocation tool", "Shipped",
+    },
+    "## Hook discovery": {"Host", "Manifest path", "Matcher", "Root variable", "Shipped"},
+}
 AGENT_STEM = "infra-auditor"
 AGENT_DIALECTS = {
     "comma string": (".md", lambda names: "tools: " + ", ".join(names)),
@@ -1551,6 +1562,10 @@ HOOK_IMPLEMENTATION = "hooks/session-start.sh"
 #: happens -- a no-op adapter that merely names the path, which `echo <path>`
 #: passed -- and not a command contriving to run an unrelated shell beside it.
 HOOK_SHELL = re.compile(r"\A(?:ba|z|da)?sh\s")
+#: What may guard a terminal statement. `[ ... ]` and `test ...` are conditions
+#: whose truth depends on the environment, so `|| exit` after one is a guard.
+#: Anything else -- `false || exit 0` -- simply exits.
+HOOK_GUARD = re.compile(r"\A(?:\[|test\b)")
 #: The variables a host exports for its plugin root. A command may only reach the
 #: implementation through one of them, so they expand to a sentinel that the
 #: operand pattern anchors on -- `sh /tmp/hooks/session-start.sh` runs a different
@@ -1615,6 +1630,7 @@ def _runs_implementation(command: str, rooted: bool = False) -> bool:
     # unconditionally after everything before it.
     parts = re.split(r"(\|\||&&|[;&|\n])", command)
     preceding = None
+    previous = ""
     for index in range(0, len(parts), 2):
         statement = parts[index].strip()
         operator = parts[index - 1].strip() if index else None
@@ -1622,9 +1638,16 @@ def _runs_implementation(command: str, rooted: bool = False) -> bool:
             preceding = operator
         if not statement:
             continue
+        last, previous = previous, statement
         sequenced = preceding in (None, ";", "")
-        if re.match(r"\A(?:exit|return|exec)\b", statement) and sequenced:
-            unreachable = True
+        if re.match(r"\A(?:exit|return|exec)\b", statement):
+            # Unconditional, or guarded by something that is not a test. The
+            # shipped form's `[ -f "$s" ] || exit 0` is a real guard; `false ||
+            # exit 0` always exits, and the walker treated both as skippable.
+            # Distinguishing them means asking whether the guard is a test, which
+            # is the only part of the condition that is decidable here.
+            if sequenced or not HOOK_GUARD.match(last):
+                unreachable = True
             continue
         assignment = re.match(r"\A([A-Za-z_]\w*)=(.*)\Z", statement)
         if assignment:
@@ -1652,6 +1675,27 @@ def _runs_implementation(command: str, rooted: bool = False) -> bool:
             continue
         return True
     return False
+
+
+def dialect_headers(root: Path = ROOT, heading: str = "") -> set[str]:
+    """The column headers of the hosts.md table under ``heading``."""
+    for line in _section_lines(root, heading):
+        return {cell.strip() for cell in re.split(r"(?<!\\)\|", line.strip("|"))}
+    return set()
+
+
+def _section_lines(root: Path, heading: str) -> list[str]:
+    """Table lines of the section under ``heading``, header first."""
+    text = read_document(root / HOSTS_DOCUMENT)
+    if text is None or text.count(heading) != 1:
+        return []
+    section = text[text.index(heading) + len(heading) :]
+    cut = section.find("\n## ")
+    return [
+        line.strip()
+        for line in (section if cut < 0 else section[:cut]).splitlines()
+        if line.strip().startswith("|") and not set(line.strip()) <= set("|-: ")
+    ]
 
 
 def dialect_rows(root: Path = ROOT, heading: str = "") -> list[dict[str, str]]:
@@ -1690,7 +1734,7 @@ def dialect_rows(root: Path = ROOT, heading: str = "") -> list[dict[str, str]]:
 
 def _canonical(relative: str) -> str:
     """A recorded path reduced to one spelling, so equivalents compare equal."""
-    return PurePosixPath(relative.rstrip("/")).as_posix()
+    return posixpath.normpath(relative.rstrip("/") or ".")
 
 
 def _escapes_root(root: Path, relative: str) -> str | None:
@@ -1737,6 +1781,13 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     agents = dialect_rows(root, "## Subagent manifests")
     hooks = dialect_rows(root, "## Hook discovery")
+    for heading, required in REQUIRED_HEADERS.items():
+        headers = dialect_headers(root, heading)
+        if headers and headers != required:
+            return [
+                f"{HOSTS_DOCUMENT}: {heading!r} declares columns {sorted(headers)}, "
+                f"not {sorted(required)}; every rule reads rows by header name"
+            ]
     for relative in PROTOCOL_DOCUMENTS:
         protocol = read_document(root / relative)
         if protocol is None or DELEGATION_HEADING not in protocol:
@@ -1746,7 +1797,9 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
         cut = section.find("\n### ")
         section = section if cut < 0 else section[:cut]
         for marker in DELEGATION_MARKERS:
-            if marker not in section:
+            # Affirmative, not present: "never declared or allowed" and "never run
+            # the scan inline anywhere" contain every noun and invert the rule.
+            if not _positive_mentions(section, re.escape(marker)):
                 errors.append(
                     f"{relative}: the delegation rule is missing {marker!r}; it must "
                     "gate on the recorded row AND on the tool being available, and "
@@ -1896,7 +1949,17 @@ def _check_agent(relative: str, text: str, row: dict[str, str], render, dialect:
             errors.append(
                 f"{relative}: declares name {document.get('name')!r}, not {AGENT_STEM!r}"
             )
-        return errors + _check_agent_body(relative, text)
+        # Only the field the host actually gives the agent. Searching the whole
+        # source let a comment carry the directives while
+        # `developer_instructions = "Do nothing."` was what Codex would load --
+        # the same defect the YAML branch had with its frontmatter description.
+        instructions = document.get("developer_instructions")
+        if not isinstance(instructions, str):
+            return errors + [
+                f"{relative}: declares no `developer_instructions` string; that field "
+                "is the agent's body, and the directives have to live in it"
+            ]
+        return errors + _check_agent_body(relative, instructions)
     front = SKILL_FRONTMATTER.match(text)
     if front is None:
         return [f"{relative}: no YAML frontmatter to read `tools` and `name` from"]
@@ -1988,7 +2051,13 @@ def _quoted_scalar_defect(value: str) -> str | None:
             following = inner[index + 1] if index + 1 < len(inner) else ""
             if following not in YAML_ESCAPES:
                 return f"description carries the invalid escape '\\{following}'"
-            index += 2
+            width = {"x": 2, "u": 4, "U": 8}.get(following, 0)
+            payload = inner[index + 2 : index + 2 + width]
+            if len(payload) != width or any(c not in "0123456789abcdefABCDEF" for c in payload):
+                # \x takes exactly two hex digits, \u four, \U eight. A short or
+                # non-hex payload makes the document unparseable.
+                return f"description carries a malformed '\\{following}' escape"
+            index += 2 + width
             continue
         index += 1
     return None
@@ -2166,6 +2235,12 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
                 f"{relative}: a SessionStart command does not hand "
                 f"{HOOK_IMPLEMENTATION}, rooted at the host's recorded variable, to a "
                 "shell; a bare relative path resolves against the consuming repository"
+            )
+        rendered = [json.dumps(callback, sort_keys=True) for callback in callbacks]
+        if len(rendered) != len(set(rendered)):
+            errors.append(
+                f"{relative}: a SessionStart entry declares the same callback twice; "
+                "both are registered, so the announcement fires twice"
             )
         if any(callback.get("type") != "command" for callback in callbacks):
             errors.append(

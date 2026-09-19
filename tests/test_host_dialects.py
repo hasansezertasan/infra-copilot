@@ -21,6 +21,7 @@ from pathlib import Path
 
 from scripts.validate import (
     AGENT_STEM,
+    _canonical,
     PROTOCOL_DOCUMENTS,
     _runs_implementation,
     HOSTS_DOCUMENT,
@@ -563,6 +564,11 @@ class HookCommandTests(unittest.TestCase):
             ),
             ("direct", "sh hooks/session-start.sh"),
             ("bash quoted", 'bash "hooks/session-start.sh"'),
+            (
+                "exit guarded by a real test",
+                'r="${CLAUDE_PLUGIN_ROOT:-}"; s="${r%/}/hooks/session-start.sh"; '
+                '[ -f "$s" ] || exit 0; sh "$s"',
+            ),
         ):
             with self.subTest(form=label):
                 self.assertTrue(_runs_implementation(command), command)
@@ -584,6 +590,8 @@ class HookCommandTests(unittest.TestCase):
             ("alternate-value expansion", 'sh "${PLUGIN_ROOT:+/tmp}/hooks/session-start.sh"'),
             ("exec replaces the shell",
              'exec /bin/true; sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"'),
+            ("exit guarded by a non-test",
+             'false || exit 0; sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"'),
         ):
             with self.subTest(form=label):
                 self.assertFalse(_runs_implementation(command), command)
@@ -951,6 +959,99 @@ class RootedAndBodyTests(unittest.TestCase):
         )
         self.assertTrue(
             any("invalid escape" in e for e in validate_host_dialects(root))
+        )
+
+
+class SixthRoundTests(unittest.TestCase):
+    """Duplicates, malformed headers, and directives read from the wrong place."""
+
+    CODEX_ROW = (
+        "| Codex CLI | `.codex/agents/` | none — session tools are inherited | — "
+        "| not recorded | no — not exercised |"
+    )
+    CODEX_SHIPPED = (
+        "| Codex CLI | `.codex/agents/` | none — session tools are inherited | — "
+        "| `codex_task` | **yes** |"
+    )
+
+    def _root(self, old: str = "", new: str = "") -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        if old:
+            document = root / HOSTS_DOCUMENT
+            text = document.read_text(encoding="utf-8")
+            self.assertIn(old, text)
+            document.write_text(text.replace(old, new, 1), encoding="utf-8")
+        return root
+
+    def test_toml_directives_come_from_the_instruction_field(self) -> None:
+        """A comment carried them while `developer_instructions = "Do nothing."`
+        was what the host would load."""
+        root = self._root(self.CODEX_ROW, self.CODEX_SHIPPED)
+        shipped = root / ".codex/agents"
+        shipped.mkdir(parents=True)
+        (shipped / f"{AGENT_STEM}.toml").write_text(
+            "# Invoke the infra-copilot skill, then follow status.md.\n"
+            'name = "infra-auditor"\ndeveloper_instructions = "Do nothing."\n',
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("no instruction to invoke" in e for e in validate_host_dialects(root))
+        )
+
+    def test_parent_segments_collapse(self) -> None:
+        self.assertEqual(_canonical("agents/../agents/"), _canonical("agents/"))
+
+    def test_a_duplicate_callback_is_rejected(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        path = root / HOOK_PATH
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        entry = payload["hooks"]["SessionStart"][0]
+        entry["hooks"].append(json.loads(json.dumps(entry["hooks"][0])))
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertTrue(
+            any("same callback twice" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_malformed_numeric_escape_is_rejected(self) -> None:
+        """YAML fixes the payload width: \\x takes two hex digits, not any two
+        characters."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                'description: "Read-only', 'description: "Bad \\xZZ Read-only', 1
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("malformed" in e for e in validate_host_dialects(root)))
+
+    def test_a_negated_delegation_gate_is_rejected(self) -> None:
+        """"never declared or allowed" contains every noun and inverts the rule."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        for relative in PROTOCOL_DOCUMENTS:
+            document = root / relative
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    "is currently declared", "is never declared"
+                ),
+                encoding="utf-8",
+            )
+        self.assertTrue(
+            any("delegation rule is missing" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_mistyped_header_is_reported_not_raised(self) -> None:
+        root = self._root("| Shipped |", "| Shippd |")
+        self.assertTrue(
+            any("declares columns" in e for e in validate_host_dialects(root))
         )
 
 
