@@ -14,6 +14,7 @@ then never listed it in `agy agent` -- which is why the parity gate exists.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import tempfile
 import unittest
@@ -592,6 +593,11 @@ class HookCommandTests(unittest.TestCase):
              'exec /bin/true; sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"'),
             ("exit guarded by a non-test",
              'false || exit 0; sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"'),
+            (
+                "&& exit after a test",
+                's="${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"; '
+                '[ -f "$s" ] && exit 0; sh "$s"',
+            ),
         ):
             with self.subTest(form=label):
                 self.assertFalse(_runs_implementation(command), command)
@@ -1052,6 +1058,33 @@ class SixthRoundTests(unittest.TestCase):
         root = self._root("| Shipped |", "| Shippd |")
         self.assertTrue(
             any("declares columns" in e for e in validate_host_dialects(root))
+        )
+
+
+class HeaderCardinalityTests(unittest.TestCase):
+    def test_a_repeated_column_is_rejected(self) -> None:
+        """A set comparison passed a second `Shipped` column, and dict(zip(...))
+        then kept the later cell -- so the value a reader sees under the named
+        column and the one every rule read were different cells.
+        """
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = build_root(directory.name)
+        document = root / HOSTS_DOCUMENT
+        lines = []
+        for line in document.read_text(encoding="utf-8").splitlines(keepends=True):
+            stripped = line.strip()
+            if stripped.startswith("| Host | Discovery path"):
+                lines.append(line.rstrip("\n").rstrip("|") + "| Shipped |\n")
+            elif stripped.startswith("|---|---|---|---|---|---|"):
+                lines.append("|---|---|---|---|---|---|---|\n")
+            elif re.match(r"\| (Claude Code|Antigravity|Codex CLI|OpenCode) \| `", stripped):
+                lines.append(line.rstrip("\n").rstrip("|") + "| **yes** |\n")
+            else:
+                lines.append(line)
+        document.write_text("".join(lines), encoding="utf-8")
+        self.assertTrue(
+            any("repeats the column" in e for e in validate_host_dialects(root))
         )
 
 

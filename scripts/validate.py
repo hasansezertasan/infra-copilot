@@ -1562,9 +1562,11 @@ HOOK_IMPLEMENTATION = "hooks/session-start.sh"
 #: happens -- a no-op adapter that merely names the path, which `echo <path>`
 #: passed -- and not a command contriving to run an unrelated shell beside it.
 HOOK_SHELL = re.compile(r"\A(?:ba|z|da)?sh\s")
-#: What may guard a terminal statement. `[ ... ]` and `test ...` are conditions
-#: whose truth depends on the environment, so `|| exit` after one is a guard.
-#: Anything else -- `false || exit 0` -- simply exits.
+#: What may guard a terminal statement, and only after `||`. `[ ... ]` and
+#: `test ...` are conditions whose truth depends on the environment, so
+#: `[ -f "$s" ] || exit 0` runs the exit precisely when the script is missing.
+#: `&& exit` is the inverse -- it exits when the script *is* there -- and
+#: `false || exit 0` simply exits, so neither is a guard.
 HOOK_GUARD = re.compile(r"\A(?:\[|test\b)")
 #: The variables a host exports for its plugin root. A command may only reach the
 #: implementation through one of them, so they expand to a sentinel that the
@@ -1646,7 +1648,7 @@ def _runs_implementation(command: str, rooted: bool = False) -> bool:
             # exit 0` always exits, and the walker treated both as skippable.
             # Distinguishing them means asking whether the guard is a test, which
             # is the only part of the condition that is decidable here.
-            if sequenced or not HOOK_GUARD.match(last):
+            if preceding != "||" or not HOOK_GUARD.match(last):
                 unreachable = True
             continue
         assignment = re.match(r"\A([A-Za-z_]\w*)=(.*)\Z", statement)
@@ -1677,11 +1679,16 @@ def _runs_implementation(command: str, rooted: bool = False) -> bool:
     return False
 
 
-def dialect_headers(root: Path = ROOT, heading: str = "") -> set[str]:
-    """The column headers of the hosts.md table under ``heading``."""
+def dialect_headers(root: Path = ROOT, heading: str = "") -> list[str]:
+    """The column headers of the hosts.md table under ``heading``, in order.
+
+    A list, not a set: a repeated name passed a set comparison and then had
+    ``dict(zip(...))`` silently keep the later column, so the value a reader sees
+    under `Shipped` and the one every rule read were different cells.
+    """
     for line in _section_lines(root, heading):
-        return {cell.strip() for cell in re.split(r"(?<!\\)\|", line.strip("|"))}
-    return set()
+        return [cell.strip() for cell in re.split(r"(?<!\\)\|", line.strip("|"))]
+    return []
 
 
 def _section_lines(root: Path, heading: str) -> list[str]:
@@ -1783,7 +1790,15 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     hooks = dialect_rows(root, "## Hook discovery")
     for heading, required in REQUIRED_HEADERS.items():
         headers = dialect_headers(root, heading)
-        if headers and headers != required:
+        if not headers:
+            continue
+        if len(headers) != len(set(headers)):
+            repeated = sorted({h for h in headers if headers.count(h) > 1})
+            return [
+                f"{HOSTS_DOCUMENT}: {heading!r} repeats the column(s) {repeated}; a row's "
+                "value would be taken from the later cell, not the one a reader sees"
+            ]
+        if set(headers) != required:
             return [
                 f"{HOSTS_DOCUMENT}: {heading!r} declares columns {sorted(headers)}, "
                 f"not {sorted(required)}; every rule reads rows by header name"
