@@ -1393,6 +1393,12 @@ steps:
       # like an assignment to a heredoc (`"x = <<EOF#"`); tracking that needs within-line
       # quote state, which is the lexer this check is not, and the direction is harmless.
       #
+      # The delimiter grammar is `[A-Za-z_][A-Za-z0-9_-]*` -- hyphens included, which
+      # `checks/leaf-cloud.sh` already accepts and `tests/test_new_provider_flow.py` uses
+      # as a decoy. Measured against terraform 1.16.1: `<<END-JSON` is valid, `<<END.JSON`
+      # and `<<1EOT` are rejected. Omitting the hyphen made a `<<END-JSON` body scan as
+      # HCL, so JavaScript in it reported as a live block.
+      #
       # An indented terminator ends BOTH forms, so the trim is correct for `<<EOT` as well
       # as `<<-EOT`. Measured, because the docs read the other way: with terraform 1.15.9
       # and 1.16.1, a plain `<<EOT` body containing an indented `EOT` followed by more
@@ -1447,7 +1453,7 @@ steps:
           if (line ~ /^[ \t]*(import|moved)[ \t]*\{[ \t]*$/) { f=1; exit }
           if (line ~ /^[ \t]*(import|moved)[ \t]*\/\*/) { hdr=1; next }
           hdr=0
-          if (match(line, /[=(,:[][ \t]*<<[-~]?[A-Za-z_][A-Za-z0-9_]*[ \t]*$/)) {
+          if (match(line, /[=(,:[][ \t]*<<[-~]?[A-Za-z_][A-Za-z0-9_-]*[ \t]*$/)) {
             m=substr(line, RSTART, RLENGTH)
             sub(/^[=(,:[][ \t]*<<[-~]?/, "", m); sub(/[ \t]*$/, "", m); h=m } }
         END { exit !f }'

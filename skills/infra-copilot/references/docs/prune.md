@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:138637d622d415308f462c39a401b98b07b98b034d870f94e59398811d10667f
-Source-Hash: blake3:8566dcaf7326033922ad6b7f228aaa8a1d59ac0a776d30da9bd2f303d7833035
+Content-Hash: blake3:eed0ff669729441e4573e70f929902e2868abf0baee06377e72689d5f85b7901
+Source-Hash: blake3:1c623a6b4e8ec5329f0a004c93e23de7a30a7048d6e01b869f5819abb12c9c4b
 Schema-Version: v1
 -->
 
@@ -54,6 +54,10 @@ order is fixed:
 | `import {}` in a leaf | `terraform state list` contains the `to =` address | before the apply |
 | `moved {}` in a leaf | state holds the **new** address (or its instances/descendants) **and** not the old one | while either is untrue |
 | either, under `terraform/modules/` | — | **always**: see below |
+
+The `state list` column is how the first two are *filtered* in HCP mode. In object-storage
+mode that command cannot authenticate, so the plan pair carries them alone — see
+[State membership filters first](#state-membership-filters-first--where-it-can-run-at-all).
 
 Everything else stays. `resource`, `data`, `module`, `provider`, `variable`, `locals`,
 `output` are configuration: deleting a `resource` block proposes a **destroy**, and on
@@ -129,7 +133,27 @@ the address rules below cannot settle, because Terraform parses its own addresse
 aggregate module targets, `count`/`for_each` in either direction, chains, expressions,
 JSON leaves. When the two disagree, the plan is right.
 
-### State membership filters first
+### State membership filters first — where it can run at all
+
+**In object-storage mode, skip this section.** The bucket credential lives in GitHub
+Actions (WIF/OIDC), not on the machine running the runbook, so `terraform init` cannot
+configure the backend and `terraform state list` cannot read it — the same reason local
+plans do not authenticate. Avoiding *provider* credentials never avoided *backend* ones.
+
+That costs nothing, because this section was never the evidence: it is a pre-filter in
+front of the plan pair, and the plan pair is what decides. So in object-storage mode the
+plan pair **is** the whole procedure, read from the workflow rather than the terminal:
+
+1. Run `terraform-plan.yml` for the current revision and read it — the *before* plan. It
+   must be clean: no `will be imported`, no pending move, nothing else outstanding.
+2. Remove the candidate blocks on a branch, push, run the workflow again, read the *after*
+   plan. `No changes.` means they were inert; anything else means restore them.
+
+Both plans authenticate because the workflow holds the credential. The address table below
+is skipped, not failed — treat every block as undecided and let the two plans settle it,
+which is what the table's own escape clause says to do anyway.
+
+In HCP mode the filter runs locally as written:
 
 ```sh
 terraform init -input=false              # a fresh checkout has no backend configured

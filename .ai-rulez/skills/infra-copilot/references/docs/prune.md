@@ -48,6 +48,10 @@ order is fixed:
 | `moved {}` in a leaf | state holds the **new** address (or its instances/descendants) **and** not the old one | while either is untrue |
 | either, under `terraform/modules/` | — | **always**: see below |
 
+The `state list` column is how the first two are *filtered* in HCP mode. In object-storage
+mode that command cannot authenticate, so the plan pair carries them alone — see
+[State membership filters first](#state-membership-filters-first--where-it-can-run-at-all).
+
 Everything else stays. `resource`, `data`, `module`, `provider`, `variable`, `locals`,
 `output` are configuration: deleting a `resource` block proposes a **destroy**, and on
 something like `google_project_service` that destroy is an API disable on a live project.
@@ -122,7 +126,27 @@ the address rules below cannot settle, because Terraform parses its own addresse
 aggregate module targets, `count`/`for_each` in either direction, chains, expressions,
 JSON leaves. When the two disagree, the plan is right.
 
-### State membership filters first
+### State membership filters first — where it can run at all
+
+**In object-storage mode, skip this section.** The bucket credential lives in GitHub
+Actions (WIF/OIDC), not on the machine running the runbook, so `terraform init` cannot
+configure the backend and `terraform state list` cannot read it — the same reason local
+plans do not authenticate. Avoiding *provider* credentials never avoided *backend* ones.
+
+That costs nothing, because this section was never the evidence: it is a pre-filter in
+front of the plan pair, and the plan pair is what decides. So in object-storage mode the
+plan pair **is** the whole procedure, read from the workflow rather than the terminal:
+
+1. Run `terraform-plan.yml` for the current revision and read it — the *before* plan. It
+   must be clean: no `will be imported`, no pending move, nothing else outstanding.
+2. Remove the candidate blocks on a branch, push, run the workflow again, read the *after*
+   plan. `No changes.` means they were inert; anything else means restore them.
+
+Both plans authenticate because the workflow holds the credential. The address table below
+is skipped, not failed — treat every block as undecided and let the two plans settle it,
+which is what the table's own escape clause says to do anyway.
+
+In HCP mode the filter runs locally as written:
 
 ```sh
 terraform init -input=false              # a fresh checkout has no backend configured

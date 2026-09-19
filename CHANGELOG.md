@@ -31,6 +31,14 @@
 - A skill's install closure is now derived from the links in its `SKILL.md`, so a single
   skill can be installed with what it needs: `--skill status --skill infra-copilot`.
   `make closure SKILL=<name>` prints it and `make smoke-closure` installs it.
+- Heredoc delimiters may contain hyphens (`<<END-JSON`), matching `checks/leaf-cloud.sh`
+  and Terraform itself; without it, such a body scanned as HCL and its JavaScript reported
+  as a live block.
+- The object-storage prune path no longer requires local backend access: state membership
+  is a pre-filter, not the evidence, so where the bucket credential lives only in GitHub
+  Actions the plan pair is read from the workflow and carries the decision alone.
+- The object-storage pending-vs-applied discriminator correlates the apply run with the
+  import commit rather than with `HEAD`, which any earlier apply would have satisfied.
 - A heredoc opener is recognized only in an expression position (after `=`, `(`, `,`, `:`
   or `[`, the five measured against terraform `fmt`), so stripping a `#` from a value like
   `command = "cat <<EOF#"` can no longer manufacture one and hide the blocks below it.

@@ -422,6 +422,25 @@ class PruneStepTests(unittest.TestCase):
                     result.returncode, 0, result.stdout + result.stderr
                 )
 
+    def test_a_hyphenated_heredoc_delimiter_still_opens(self) -> None:
+        """`<<END-JSON` is valid HCL, and `checks/leaf-cloud.sh` already accepts it.
+
+        Measured against terraform 1.16.1: `<<END-JSON` parses, `<<END.JSON`
+        and `<<1EOT` do not — so the grammar is `[A-Za-z_][A-Za-z0-9_-]*`.
+        Without the hyphen the body scanned as HCL and its JavaScript reported.
+        """
+        result = self._run(
+            {
+                "terraform/cloudflare/w.tf": (
+                    'resource "cloudflare_worker_script" "w" {\n'
+                    "  content = <<END-JSON\n"
+                    'import {\n  handler,\n} from "./m.js"\n'
+                    "END-JSON\n}\n"
+                ),
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_uncommitted_files_are_not_evidence(self) -> None:
         """The blocks are pruned by a PR, so only committed ones count."""
         result = self._run(
@@ -582,10 +601,11 @@ class RunbookHelperTests(unittest.TestCase):
     def test_a_plan_pair_outranks_the_address_table(self) -> None:
         """The table is a filter; Terraform parses its own addresses, awk does not."""
         text = RUNBOOK.read_text(encoding="utf-8")
-        self.assertIn("The plan pair decides", text)
+        self.assertIn("### The plan pair decides", text)
+        # Headings, not first mention: prose elsewhere cross-references both.
         self.assertLess(
-            text.index("The plan pair decides"),
-            text.index("State membership filters first"),
+            text.index("### The plan pair decides"),
+            text.index("### State membership filters first"),
             "the authority must be stated before the heuristic",
         )
         self.assertIn("the plan pair is the decision and the table is noise", text)
