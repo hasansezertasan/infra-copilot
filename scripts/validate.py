@@ -1625,6 +1625,9 @@ def _expand(word: str, variables: dict[str, str]) -> str:
 HOOK_TEST = re.compile(r"\A(?:\[|test\b)")
 #: Anything that executes while a word is evaluated.
 HOOK_SUBSTITUTION = re.compile(r"\$\(|`")
+#: A redirection sends the hook's JSON somewhere other than the host, which is
+#: the announcement silently disappearing while the command still "runs".
+HOOK_REDIRECTION = re.compile(r"(?<!\S)[0-9]*[<>]")
 HOOK_TERMINAL = re.compile(r"\A(?:exit|return|exec)\b")
 #: A positive existence test, which is the only guard shape the shipped manifests
 #: use and the only one whose relationship to the operand is decidable here.
@@ -1649,6 +1652,8 @@ def _runs_implementation(command: str, rooted: bool = False) -> bool:
     direction for a gate; command substitution, functions and eval are not
     modelled and fail.
     """
+    if HOOK_REDIRECTION.search(command):
+        return False
     if HOOK_SUBSTITUTION.search(command):
         # `x="$(touch /tmp/x)"` runs while the assignment is evaluated, so an
         # assignment is only harmless when it substitutes nothing executable.
@@ -1850,7 +1855,9 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
         for marker in DELEGATION_MARKERS:
             # Affirmative, not present: "never declared or allowed" and "never run
             # the scan inline anywhere" contain every noun and invert the rule.
-            if not _positive_mentions(section, re.escape(marker)):
+            # The gate is one phrase: requiring `declared` alone let "declared
+            # but denied" satisfy it, which inverts the rule it gates.
+            if not _positive_mentions(section, marker if "\\s" in marker else re.escape(marker)):
                 errors.append(
                     f"{relative}: the delegation rule is missing {marker!r}; it must "
                     "gate on the recorded row AND on the tool being available, and "
@@ -2020,7 +2027,7 @@ def _check_agent(relative: str, text: str, row: dict[str, str], render, dialect:
         # malformed field removes `infra-auditor` entirely while the protocol keeps
         # delegating to it -- and reading only `name` and `tools` could not see it.
         return [f"{relative}: frontmatter is not well formed ({problem})"]
-    declared_names = re.findall(r"(?m)^name:\s*(\S+)", body)
+    declared_names = [value.strip() for value in re.findall(r"(?m)^name:\s*(.*)$", body)]
     if len(declared_names) != 1:
         # Duplicate YAML keys are ambiguous -- rejected by strict parsers, resolved
         # to the last value by others -- so a first-match read could see the right
@@ -2030,6 +2037,9 @@ def _check_agent(relative: str, text: str, row: dict[str, str], render, dialect:
             "exactly one is required for the registered name to be unambiguous"
         )
     elif declared_names[0].strip("\"'") != AGENT_STEM:
+        # The full scalar: YAML reads `name: infra-auditor garbage` as one value,
+        # while a first-token capture saw the right name and the host registered
+        # a different one.
         errors.append(f"{relative}: must declare name {AGENT_STEM!r}; the protocol delegates to it")
     if render is not None:
         names = re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", row["Tool names"])
@@ -2090,7 +2100,8 @@ AGENT_DIALECT_VALUES = {"bool map": {"mode": "subagent"}}
 #: merged main; this is its replacement for the section this PR owns.)
 DELEGATION_HEADING = "### Running the scan in an isolated context"
 DELEGATION_MARKERS = (
-    "infra-auditor", "records a subagent", "declared", "Invocation tool", "inline",
+    "infra-auditor", "records a subagent", r"declared\s+and\s+allowed",
+    "Invocation tool", "inline",
 )
 
 

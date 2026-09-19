@@ -48,15 +48,11 @@ deliberately static: one file-existence test, no provider calls, no `git`, and i
 the skills rather than reporting any state, because state is re-derived by running each
 step check. Silence it with `INFRA_COPILOT_HOOK_DISABLE=1`.
 
-No other host ships one, and each is excluded for a recorded reason rather than an
-untried guess. Antigravity's discovery path is known — it reads the *root* `hooks.json`,
-not `hooks/hooks.json` — but no probe hook ever fired there, in print mode or an
-interactive session. Codex gates plugin hooks behind an experimental flag *and* an
-interactive trust review, and none fired from any candidate path. OpenCode has no hook
-mechanism at all; it installs by copying skills into the consuming repository. The
-per-host records and the evidence behind each are in
-[`hosts.md`](skills/infra-copilot/references/hosts.md) — see
-[#42](https://github.com/hasansezertasan/infra-copilot/issues/42).
+No other host ships one. Which hosts do, the discovery path each uses, and the evidence
+behind every exclusion are recorded in
+[`hosts.md`](skills/infra-copilot/references/hosts.md), which is the single capability
+record — repeating any of it here would be a second copy that nothing keeps in step when
+a host graduates. See [#42](https://github.com/hasansezertasan/infra-copilot/issues/42).
 
 ## Configure
 

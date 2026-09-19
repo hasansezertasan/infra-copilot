@@ -625,6 +625,11 @@ class HookCommandTests(unittest.TestCase):
                 'x=`id`; sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"',
             ),
             (
+                "redirection discards the announcement",
+                'r="${CLAUDE_PLUGIN_ROOT:-}"; s="${r%/}/hooks/session-start.sh"; '
+                'sh "$s" >/dev/null',
+            ),
+            (
                 "unterminated quote",
                 'sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh',
             ),
@@ -1261,6 +1266,50 @@ class EighthRoundTests(unittest.TestCase):
                 encoding="utf-8",
             )
         self.assertTrue(any("occurs 2 times" in e for e in validate_host_dialects(root)))
+
+
+class NinthRoundTests(unittest.TestCase):
+    def _root(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_root(directory.name)
+
+    def test_the_whole_name_scalar_is_compared(self) -> None:
+        """YAML reads `name: infra-auditor garbage` as one value, while a
+        first-token capture saw the right name."""
+        root = self._root()
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "name: infra-auditor", "name: infra-auditor garbage", 1
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("must declare name" in e for e in validate_host_dialects(root))
+        )
+
+    def test_the_availability_gate_must_be_affirmative(self) -> None:
+        """Requiring `declared` alone let "declared but denied" satisfy the gate
+        it exists to enforce."""
+        root = self._root()
+        for relative in PROTOCOL_DOCUMENTS:
+            document = root / relative
+            document.write_text(
+                document.read_text(encoding="utf-8").replace("and allowed", "but denied"),
+                encoding="utf-8",
+            )
+        self.assertTrue(
+            any("delegation rule is missing" in e for e in validate_host_dialects(root))
+        )
+
+    def test_the_readme_cites_the_record_rather_than_copying_it(self) -> None:
+        """hosts.md is the single capability record; prose repeating it is a
+        second copy nothing keeps in step when a host graduates."""
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("skills/infra-copilot/references/hosts.md", readme)
+        for copied in ("hooks-codex.json", "experimental flag", "root `hooks.json`"):
+            self.assertNotIn(copied, readme)
 
 
 if __name__ == "__main__":
