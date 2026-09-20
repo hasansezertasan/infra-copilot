@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 import tempfile
 import os
 import unittest
@@ -27,6 +28,8 @@ from scripts.validate import (
     _output_branch,
     _canonical,
     _owner_key,
+    _clause_before,
+    AGENT_NEGATOR,
     _without_fences,
     _without_heredocs,
     AGENT_FORBIDDEN_PATH,
@@ -2098,6 +2101,116 @@ class ThirteenthRoundTests(unittest.TestCase):
         """At least as long, not exactly as long -- or the block would swallow
         the rest of the manifest."""
         self.assertIn("tail", _without_fences("```text\nexample\n````\ntail\n"))
+
+
+class FourteenthRoundTests(unittest.TestCase):
+    """Four gates that proved a weaker property than the one they claimed, and a
+    README sentence that claimed a capability the record scopes to one host."""
+
+    def _root(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_root(directory.name)
+
+    def test_an_unreadable_disjunct_is_rejected_not_dropped(self) -> None:
+        """Skipping an alternative it could not model left the valid roots in the
+        set. `sh -n` refuses this file outright, so the announcement could never
+        run, while the gate stayed green."""
+        root = self._root()
+        script = root / HOOK_IMPLEMENTATION
+        script.write_text(
+            script.read_text(encoding="utf-8").replace(
+                '|| [ -n "${PLUGIN_ROOT:-}" ]; then',
+                '|| [ -n "${PLUGIN_ROOT:-}" ] \\\n    || ( ; then',
+            ),
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            subprocess.run(
+                ["sh", "-n", str(script)], capture_output=True
+            ).returncode != 0,
+            True,
+            "the fixture must be a script the shell actually refuses",
+        )
+        self.assertTrue(
+            any("not a plain" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_nested_group_is_still_rejected(self) -> None:
+        """The original reason this branch existed: a grouped alternative cannot
+        satisfy the condition alone."""
+        self.assertIsNone(_disjuncts('if { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && false; }'))
+
+    def test_the_emission_must_sit_in_the_then_arm(self) -> None:
+        """Order plus a `; then` in between proves only that the conditional
+        opens first. Moving the sole emission into the `else` inverts it: the
+        recorded root then produces no announcement at all."""
+        root = self._root()
+        script = root / HOOK_IMPLEMENTATION
+        text = script.read_text(encoding="utf-8")
+        isolated = next(l for l in text.splitlines() if "hookSpecificOutput" in l and "printf" in l)
+        fallback = next(l for l in text.splitlines() if "additional_context" in l and "printf" in l)
+        script.write_text(
+            text.replace(isolated, "    :").replace(fallback, isolated), encoding="utf-8"
+        )
+        self.assertTrue(any("exactly one" in e for e in validate_host_dialects(root)))
+
+    def test_delegation_markers_inside_a_fence_do_not_count(self) -> None:
+        """The previous round excluded fenced examples from the agent manifest
+        and left this call site reading raw Markdown."""
+        root = self._root()
+        heading = "### Running the scan in an isolated context"
+        for relative in PROTOCOL_DOCUMENTS:
+            document = root / relative
+            text = document.read_text(encoding="utf-8")
+            start = text.index(heading) + len(heading)
+            following = re.search(r"(?m)^#{1,3} ", text[start:])
+            section = text[start : start + following.start()]
+            document.write_text(
+                text[:start]
+                + "\n\nAlways run the scan inline. Never delegate.\n\n```text\n"
+                + section.strip()
+                + "\n```\n\n"
+                + text[start + following.start() :],
+                encoding="utf-8",
+            )
+        self.assertTrue(
+            any("delegation rule is missing" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_colon_does_not_discard_the_negator(self) -> None:
+        """A colon introduces what precedes it. "Do not do this: Invoke ..." is
+        one instruction, and the gate read only the half after the colon."""
+        root = self._root()
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "Invoke the `infra-copilot` skill",
+                "Do not do this: Invoke the `infra-copilot` skill",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("no instruction to invoke" in e for e in validate_host_dialects(root))
+        )
+
+    def test_an_unnegated_colon_still_ends_the_clause(self) -> None:
+        """The other direction, which protocol.md depends on: an ordinary colon
+        introducing a directive must still bound it, or prose like "... reads the
+        question tool: never carry one in a skill body" would poison the next."""
+        ordinary = _clause_before("Read the record: Invoke it", len("Read the record: "))
+        negated = _clause_before("Do not do this: Invoke it", len("Do not do this: "))
+        self.assertIsNone(AGENT_NEGATOR.search(ordinary), ordinary)
+        self.assertIsNotNone(AGENT_NEGATOR.search(negated), negated)
+
+    def test_the_readme_scopes_the_auditor_claim_to_the_record(self) -> None:
+        """hosts.md marks the subagent shipped for one host; an unqualified
+        README told readers on the other three to expect context isolation."""
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertNotIn("subagent now runs the", readme)
+        self.assertIn("marks the subagent row shipped", readme)
+        self.assertIn("references/hosts.md", readme)
 
 
 if __name__ == "__main__":

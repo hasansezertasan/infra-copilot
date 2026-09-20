@@ -1813,9 +1813,15 @@ def _disjuncts(condition: str) -> set[str] | None:
     that, as `{ [ -n "${VAR:-}" ] && false; }` shows -- valid shell, contains the
     test, and can never make the branch true.
 
-    ponytail: a split on `||` with brace/paren groups excluded, not a shell
+    ponytail: a split on `||` with brace/paren groups rejected, not a shell
     parser. It admits the flat disjunction the script actually uses and refuses
     anything nested, which is the safe direction.
+
+    Rejected, not skipped. Dropping an alternative it could not model left the
+    valid roots in the returned set and the condition green, so appending an
+    unmatched `|| (` passed this gate while `sh -n` refused the file outright --
+    the announcement could never run at all. An alternative this cannot read is a
+    condition it cannot vouch for.
     """
     body = condition.split("if", 1)[-1]
     if ";" in body:
@@ -1830,7 +1836,7 @@ def _disjuncts(condition: str) -> set[str] | None:
         # Parameter expansions carry their own braces, so they are removed before
         # looking for the grouping that would make this alternative conditional.
         if any(ch in re.sub(r"\$\{[^}]*\}", "", part) for ch in "{}()&"):
-            continue
+            return None
         alternatives.add(part)
     return alternatives
 
@@ -1884,6 +1890,9 @@ HOOK_EMISSION = re.compile(r"(?m)^[ \t]*[^#\n]*\bprintf\b.*hookSpecificOutput")
 HOOK_OUTPUT_MARKER = "hookSpecificOutput"
 #: A line-anchored root test opening a conditional.
 HOOK_BRANCH = re.compile(r'(?m)^if \[ -n "\$')
+#: Where the `then` arm ends. Line-anchored, so a nested conditional inside the
+#: arm -- which would be indented -- does not close it early.
+HOOK_ARM_END = re.compile(r"(?m)^(?:else|fi)\b")
 
 
 def _output_branch(script: str) -> str | None:
@@ -1908,6 +1917,11 @@ def _output_branch(script: str) -> str | None:
     reached that answer once, in _runs_implementation(), after four patches that
     each matched one more spelling of "a shell and a path both appear somewhere".
 
+    The emission must also sit inside the `then` arm. Proving only that the
+    conditional opens first and has a `; then` somewhere in between left the sole
+    emission free to move into the `else`, which inverts the branch: the recorded
+    root set would then produce no announcement at all.
+
     The cost is that moving this logic into a called function, or adding a second
     host shape, makes the gate refuse rather than adapt. That is the intended
     direction -- it fails loudly on a change to the file it gates, where a wrong
@@ -1924,6 +1938,11 @@ def _output_branch(script: str) -> str | None:
         return None
     end = script.find("; then", opens)
     if end < 0 or end > emits:
+        return None
+    # The arm, not merely the order: `then` opens it and the first line-anchored
+    # `else`/`fi` closes it, so an emission past that point is in the other arm.
+    closes = HOOK_ARM_END.search(script, end)
+    if closes is None or emits > closes.start():
         return None
     return script[opens:end]
 
@@ -2081,6 +2100,15 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
             ]
     for relative in PROTOCOL_DOCUMENTS:
         protocol = read_document(root / relative)
+        if protocol is not None:
+            # Fenced blocks are examples here for the same reason they are in an
+            # agent manifest: the previous round excluded them from the manifest's
+            # directives and left this call site reading raw Markdown, so the same
+            # "invalid example" block satisfied every delegation marker while the
+            # operative prose said to always run inline. Stripped before the
+            # heading is located too -- a heading inside a fence is not a heading,
+            # and the count below should agree with what a reader sees.
+            protocol = _without_fences(protocol)
         if protocol is None or protocol.count(DELEGATION_HEADING) != 1:
             # Exactly one: the agent reads the whole document, so a second copy
             # could contradict the first while only the first was validated.
@@ -2406,8 +2434,16 @@ def _clause_before(text: str, end: int) -> str:
     fixed width: padding between the negator and the imperative is free to write
     and was twice enough to invert a gate that measured characters.
     """
-    boundaries = AGENT_CLAUSE_BOUNDARY.finditer(text, 0, end)
-    return text[max((found.end() for found in boundaries), default=0) : end]
+    start = 0
+    for found in AGENT_CLAUSE_BOUNDARY.finditer(text, 0, end):
+        if found.group(0) == ":" and AGENT_NEGATOR.search(text[start : found.start()]):
+            # A colon introduces what precedes it rather than ending it, so
+            # "Do not do this: Invoke the infra-copilot skill" is one instruction
+            # and the negator still governs. A period or a paragraph break
+            # terminates; this does not.
+            continue
+        start = found.end()
+    return text[start:end]
 
 
 def _positive_mentions(text: str, pattern: str) -> bool:
