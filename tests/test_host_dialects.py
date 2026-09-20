@@ -29,6 +29,7 @@ from scripts.validate import (
     _clause_before,
     AGENT_NEGATOR,
     _without_code,
+    _quoted_phrases,
     AGENT_FORBIDDEN_PATH,
     PROTOCOL_DOCUMENTS,
     expected_hook_command,
@@ -2371,6 +2372,82 @@ class SixteenthRoundTests(unittest.TestCase):
             with self.subTest(document=relative):
                 text = (REPO_ROOT / relative).read_text(encoding="utf-8")
                 self.assertIn("skills/infra-copilot/references/hosts.md", text)
+
+
+class SeventeenthRoundTests(unittest.TestCase):
+    """The inline spelling of the fenced example, the hole in the split between
+    the two hook gates, and a record whose headline overstated its own rule."""
+
+    def _root(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_root(directory.name)
+
+    def test_a_directive_quoted_whole_does_not_count(self) -> None:
+        """Fenced and indented examples were excluded; the same example written
+        inline as one code span was not."""
+        root = self._root()
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+                "`status.md`, `protocol.md`, and `steps.yaml`.",
+                "Do nothing and stop. Invalid example: "
+                "`Invoke the infra-copilot skill and follow status.md`.",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("no instruction to invoke" in e for e in validate_host_dialects(root))
+        )
+
+    def test_a_code_formatted_name_still_counts(self) -> None:
+        """The other direction, and it is the one that makes a blanket exclusion
+        wrong: the shipped directive code-formats `infra-copilot`, and
+        protocol.md code-formats `infra-auditor` wherever it states the rule."""
+        self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+        self.assertEqual(_quoted_phrases("names `infra-auditor` and `status.md`"), [])
+        self.assertTrue(_quoted_phrases("quotes `a whole phrase here`"))
+
+    def test_the_record_scopes_the_one_host_rule_to_the_directory(self) -> None:
+        """An unqualified headline told maintainers that graduating Codex or
+        OpenCode was impossible, while validate.py counts owners per resolved
+        directory precisely so those rows can graduate."""
+        record = (REPO_ROOT / HOSTS_DOCUMENT).read_text(encoding="utf-8")
+        self.assertNotIn("**Only one host can be served.**", record)
+        self.assertIn("Only one host per discovery directory", record)
+
+    def test_independent_directories_may_both_ship(self) -> None:
+        """What the rescoped sentence claims, asserted against the gate rather
+        than against the prose."""
+        root = self._root()
+        document = root / HOSTS_DOCUMENT
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, "
+                "`bash` | not recorded | no — not exercised |",
+                "| OpenCode | `.opencode/agents/` | bool map | `read`, `grep`, `glob`, "
+                "`bash` | `task` | **yes** |",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        manifest = root / ".opencode/agents/infra-auditor.md"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        shipped = (root / AGENT_PATH).read_text(encoding="utf-8")
+        manifest.write_text(
+            shipped.replace(
+                "tools: Read, Bash, Glob, Grep, Skill",
+                "tools:\n  read: true\n  grep: true\n  glob: true\n  bash: true\n  skill: true",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate_host_dialects(root)
+        self.assertFalse(
+            any("cannot hold incompatible" in e for e in errors),
+            f"independent directories must not collide: {errors}",
+        )
 
 
 if __name__ == "__main__":

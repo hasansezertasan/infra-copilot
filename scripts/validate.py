@@ -2363,6 +2363,23 @@ def _without_code(text: str) -> str:
     return "\n".join(kept)
 
 
+#: An inline code span, bounded so it cannot run past a paragraph break. A span
+#: whose content carries whitespace is a *quotation* -- and a quoted sentence is
+#: an example, the inline spelling of the fenced block _without_code() removes.
+#: A span with no whitespace is a *name*, which is simply how these documents
+#: write `infra-auditor` or `status.md`, and must keep counting.
+MARKDOWN_SPAN = re.compile(r"`+(?:[^`\n]|\n(?!\s*\n))*`+")
+
+
+def _quoted_phrases(text: str) -> list[tuple[int, int]]:
+    """Offsets of every inline code span that quotes a phrase rather than a name."""
+    return [
+        (found.start(), found.end())
+        for found in MARKDOWN_SPAN.finditer(text)
+        if re.search(r"\s", found.group(0).strip("`"))
+    ]
+
+
 def _clause_before(text: str, end: int) -> str:
     """``text`` back to the clause boundary preceding ``end``.
 
@@ -2388,9 +2405,23 @@ def _positive_mentions(text: str, pattern: str) -> bool:
     One un-negated occurrence is enough: a document may discuss the negative case
     ("never carry one in a skill body") as long as it also states the positive
     directive somewhere.
+
+    An occurrence quoted whole inside one inline code span does not count. That is
+    the inline spelling of the fenced example _without_code() already removes, and
+    it arrived as an operative body reading "Do nothing", with the entire
+    directive quoted after the words "Invalid example:" -- an adapter that routes
+    nowhere, accepted.
+
+    Spans that name something are exempt, because that is how every one of these
+    documents writes a skill or a tool. The shipped directive is itself
+    "Invoke the [infra-copilot] skill" with the name code-formatted, and
+    protocol.md code-formats [infra-auditor] wherever it states the rule; a
+    blanket exclusion of code spans rejected both.
     """
+    quoted = _quoted_phrases(text)
     return any(
         AGENT_NEGATOR.search(_clause_before(text, match.start())) is None
+        and not any(start <= match.start() and match.end() <= end for start, end in quoted)
         for match in re.finditer(pattern, text)
     )
 

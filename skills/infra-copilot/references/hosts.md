@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1d7cb897e6593082d7349e7cb77b47869b7092e86a2dd14a166278e212008011
-Source-Hash: blake3:8017b83fe850b3ff05bffb61ffb745d73aaee1138d0212d9480ae6197a811c12
+Content-Hash: blake3:c60c410947ce1755750a683ece83ac68054f29994b55905b015eb0576dcb9e49
+Source-Hash: blake3:423785a3b0532c16aa3218d5d7708c1db0d4e2ec0b8451ba5f051d3a7e13ab30
 Schema-Version: v1
 -->
 
@@ -54,13 +54,19 @@ a shipped row says the agent exists, never that this session can reach it. `not 
 means nobody has established the name on that host, which is one more reason those rows
 are not shipped: there would be nothing to check the availability gate against.
 
-**Only one host can be served.** Claude and Antigravity both auto-discover the *same*
-root `agents/` directory and neither honours an override — an `agents` key in the
+**Only one host per discovery directory.** Claude and Antigravity both auto-discover the
+*same* root `agents/` directory and neither honours an override — an `agents` key in the
 hand-authored root `plugin.json` was ignored by `agy plugin install`, and `ai-rulez`
 silently drops one from the generated `.claude-plugin/plugin.json`. The directory
 therefore carries Claude's dialect, and Antigravity loads nothing from it. That absence is
 silent and harmless; shipping the YAML list instead would hand Claude an agent whose whole
 tool grant is names it does not have.
+
+The restriction is the *directory*, not the plugin. `.codex/agents/` and
+`.opencode/agents/` are nobody else's, so those rows can graduate alongside Claude's
+without displacing it — `validate.py` counts owners per resolved directory for exactly
+that reason, and a global count would have made them ungraduatable. What blocks them is
+that neither has been exercised, which is what their `Shipped` cell says.
 
 How each was established, since a wrong dialect raises no error:
 

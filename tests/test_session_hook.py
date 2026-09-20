@@ -20,6 +20,35 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 HOOK = REPO_ROOT / "hooks/session-start.sh"
 MANIFEST = REPO_ROOT / "hooks/hooks.json"
 
+#: Root variables that are not any host's row: the root `plugin.json` accepts a
+#: bare PLUGIN_ROOT, and `agy` exports AGY_PLUGIN_ROOT alongside its own. They
+#: are listed because nothing in hosts.md records them, and the script must still
+#: emit the isolated shape for them.
+UNRECORDED_ROOTS = ("AGY_PLUGIN_ROOT", "PLUGIN_ROOT")
+
+
+def recorded_roots() -> set[str]:
+    """Every root variable hosts.md records, read from the record at run time.
+
+    Derived, not enumerated. The literal list this replaced named the five
+    variables the script happened to test, so a row could record a root the
+    script ignores and be exercised by neither gate: the parity check matched the
+    branch shape wherever it sat, and this test asked about a variable no longer
+    in the record. Renaming a row's root now changes what gets run.
+    """
+    from scripts.validate import SENTINEL_CELLS, dialect_rows
+
+    return {
+        root
+        for row in dialect_rows(REPO_ROOT, "## Hook discovery")
+        if (root := row["Root variable"].strip("` ")) not in SENTINEL_CELLS
+    }
+
+
+def every_root() -> tuple[str, ...]:
+    """Recorded roots first, then the two nothing records."""
+    return tuple(sorted(recorded_roots())) + UNRECORDED_ROOTS
+
 
 @unittest.skipUnless(os.name == "posix", "the hook is a POSIX shell script")
 class SessionHookTests(unittest.TestCase):
@@ -40,9 +69,7 @@ class SessionHookTests(unittest.TestCase):
             # included: the fixture inherits os.environ, so a maintainer with one
             # exported turned the unrecognised-host case into a recognised one and
             # failed a test that has nothing to do with their environment.
-            for unset in ("CLAUDE_PLUGIN_ROOT", "CODEX_PLUGIN_ROOT",
-                          "ANTIGRAVITY_PLUGIN_ROOT", "AGY_PLUGIN_ROOT",
-                          "PLUGIN_ROOT"):
+            for unset in every_root():
                 if not (host_env or {}).get(unset):
                     env.pop(unset, None)
             if disabled:
@@ -72,9 +99,16 @@ class SessionHookTests(unittest.TestCase):
                 self.assertIn("hookSpecificOutput", payload)
 
     def test_host_output_shapes(self) -> None:
-        for variable in ("CLAUDE_PLUGIN_ROOT", "CODEX_PLUGIN_ROOT",
-                         "ANTIGRAVITY_PLUGIN_ROOT", "AGY_PLUGIN_ROOT",
-                         "PLUGIN_ROOT"):
+        """Every root hosts.md records, run rather than read.
+
+        This is the half of the contract the parity gate deliberately does not
+        cover: validate.py holds the script's branch to the record's spelling,
+        and this holds the *running* script to it. Derived from the record, so a
+        row that renames its root changes what is executed here -- with the old
+        frozen list, the exact branch could sit in a function nobody calls while
+        the live one ignored the recorded variable, and both gates stayed green.
+        """
+        for variable in every_root():
             with self.subTest(host=variable):
                 payload = json.loads(
                     self.run_hook(marker="config", host_env={variable: "/x"})
