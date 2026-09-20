@@ -30,8 +30,8 @@ catalog Codex knows about; the second installs the refreshed version. Then resta
 
 ## Invoke
 
-**Natural language only.** Ask Codex to use infra-copilot for setup, import, add, or
-status — for example "use infra-copilot to adopt our existing Cloudflare DNS records".
+**Natural language only.** Ask Codex to use infra-copilot for setup, import, prune, add,
+or status — for example "use infra-copilot to adopt our existing Cloudflare DNS records".
 
 `/infra-setup` and the other slash commands **do not exist on Codex.** They are Claude
 Code and Antigravity adapters. A missing-command error here is the host working as

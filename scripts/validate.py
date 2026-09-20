@@ -2282,8 +2282,11 @@ DELEGATION_MARKERS = (
     "infra-auditor", r"marked\s+shipped", r"declared\s+and\s+allowed",
     "Invocation tool", "inline",
     # The scope boundary is load-bearing: an action skill's resume scan needs the
-    # current-checkout checks the status runbook substitutes away.
-    r"`status`\s+and\s+only\s+`status`", r"`setup`,\s+`import`,\s+and\s+`add`",
+    # current-checkout checks the status runbook substitutes away. Every action skill
+    # has to be named -- `prune` shipped in #73 and was left out of all three copies of
+    # this list, which is exactly the drift an enumeration invites.
+    r"`status`\s+and\s+only\s+`status`",
+    r"`setup`,\s+`import`,\s+`prune`,?\s+and\s+`add`",
 )
 
 

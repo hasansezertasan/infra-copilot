@@ -2319,5 +2319,59 @@ class FifteenthRoundTests(unittest.TestCase):
         self.assertEqual(_without_code(body), body.rstrip("\n"))
 
 
+class SixteenthRoundTests(unittest.TestCase):
+    """Two enumerations that went stale when a fourth action skill shipped, and a
+    contributor link pointed at generated output."""
+
+    #: Every action skill: the ones that route work, as opposed to `status`, which
+    #: reports on it. Derived from the source tree rather than typed out, so a
+    #: fifth one cannot ship without this test noticing.
+    def _action_skills(self) -> set[str]:
+        skills = {
+            path.parent.name
+            for path in (REPO_ROOT / ".ai-rulez/skills").glob("*/SKILL.md")
+        }
+        return skills - {"infra-copilot", "status"}
+
+    def test_every_action_skill_is_named_in_the_delegation_boundary(self) -> None:
+        """`prune` shipped in #73 and was left out of all three copies of the
+        list. The boundary is what keeps an action run from being handed the
+        status report in place of its own scan, so an incomplete list reads as a
+        smaller boundary than the one intended."""
+        for relative in PROTOCOL_DOCUMENTS:
+            text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+            heading = "### Running the scan in an isolated context"
+            section = text[text.index(heading) :]
+            following = re.search(r"(?m)^#{1,3} ", section[len(heading) :])
+            section = section if following is None else section[: len(heading) + following.start()]
+            for skill in sorted(self._action_skills()):
+                with self.subTest(document=relative, skill=skill):
+                    self.assertIn(f"`{skill}`", section)
+
+    def test_every_action_skill_is_named_in_the_agent_manifest(self) -> None:
+        """The manifest states `status` only and then enumerates. The enumeration
+        is what a reader checks, so it has to agree with the rule above it."""
+        manifest = (REPO_ROOT / AGENT_PATH).read_text(encoding="utf-8")
+        for skill in sorted(self._action_skills()):
+            with self.subTest(skill=skill):
+                self.assertIn(f"`{skill}`", manifest)
+
+    def test_contributing_links_the_editable_record(self) -> None:
+        """Its own table says `.ai-rulez/` is the source and everything under
+        `skills/` is generated, so a contributor following this link to change a
+        capability would have the edit overwritten by the next `make generate`."""
+        guide = (REPO_ROOT / ".github/CONTRIBUTING.md").read_text(encoding="utf-8")
+        self.assertIn(".ai-rulez/skills/infra-copilot/references/hosts.md", guide)
+        self.assertNotIn("](../skills/infra-copilot/references/hosts.md)", guide)
+
+    def test_the_generated_record_is_still_what_readers_are_sent_to(self) -> None:
+        """The other direction: reader-facing pages cite the shipped payload copy,
+        which is the one an installed plugin carries."""
+        for relative in ("README.md", "docs/roadmap.md"):
+            with self.subTest(document=relative):
+                text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+                self.assertIn("skills/infra-copilot/references/hosts.md", text)
+
+
 if __name__ == "__main__":
     unittest.main()

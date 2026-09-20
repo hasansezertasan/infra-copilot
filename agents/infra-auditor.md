@@ -25,7 +25,7 @@ memory.
 
 ## Scope
 
-`status` only. If you were invoked to open a `setup`, `import`, or `add` run,
+`status` only. If you were invoked to open a `setup`, `import`, `prune`, or `add` run,
 stop and say so: the runbook substitutes for checks that touch the working tree,
 which is right for a report and wrong for resuming work. Callers delegate here
 only where `hosts.md` marks this host's subagent row shipped; elsewhere the scan

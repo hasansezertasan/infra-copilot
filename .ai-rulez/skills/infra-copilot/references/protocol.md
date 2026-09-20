@@ -248,14 +248,21 @@ Delegating on such a host would call an agent that is not there, in place of the
 skill promised. Running inline is not a downgrade: the agent is an isolation boundary,
 never a second set of rules, so the inline result is the same result.
 
-`setup`, `import`, and `add` must run their resume scan themselves, even though it looks
-like the same walk. It is not: the auditor follows [`status.md`](status.md), which
+`setup`, `import`, `prune`, and `add` must run their resume scan themselves, even though
+it looks like the same walk. It is not: the auditor follows [`status.md`](status.md), which
 deliberately *substitutes* for the checks that would touch the working tree — in HCP mode
 it reads the last remote run instead of running `terraform plan`, and in object-storage
 mode it reports a dirty leaf as `?`. Those substitutions are correct for a report and
 wrong for resumption, because an action skill's `plan-cloudflare` and `plan-github` checks
 are defined against the *current checkout*. Delegating would let an older committed run
 read as green, or stop at `?`, and the interrupted work would never be picked up.
+
+`prune` is in that list for a different reason, and the difference is worth stating rather
+than letting the sentence above cover it by proximity. Its resume scan is the single
+`prune-spent-imports` step — a pure git read that `status` runs directly rather than
+substituting, so nothing is lost to a substitution. What it would lose is the scan itself:
+the auditor returns [`status.md`](status.md)'s report, which answers "what is the state of
+this repository" and not "is there a spent block here to remove".
 
 Its grant carries no write or edit tool, which narrows the surface the read-only contract
 has to defend — though it does carry shell access, so the contract is still a rule and not
