@@ -101,32 +101,35 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   at the top of the child body. A ticket is unblocked when every blocker is closed.
 
 - **Frontier query**: retrieve the map's `subIssues` first (or parse its task list where
-  sub-issues are unavailable), preserving map order. Inspect only those open child numbers
-  with `gh issue view <child> --repo hasansezertasan/infra-copilot \
-  --json number,state,body,assignees,blockedBy`; drop a closed child; a child with an
-  assignee; any `blockedBy` item whose state is `OPEN`; or an open issue referenced by its
-  fallback `Blocked by:` body line. First remaining child in map order wins. Do not use an
-  unscoped `gh issue list`: it can include unrelated issues and defaults to 30 results.
-- **Claim**. The session's first write, followed immediately by a reread of `assignees`:
+  sub-issues are unavailable), preserving map order. Both `subIssues` and `blockedBy` are
+  connection objects: use their `nodes`, compare the node count with `totalCount`, and paginate
+  with GraphQL or fail closed if the complete connection cannot be retrieved. Inspect only those
+  open child numbers with `gh issue view <child> --repo hasansezertasan/infra-copilot \
+  --json number,state,body,assignees,blockedBy`; drop a closed child; any `blockedBy` item whose
+  state is `OPEN`; or an open issue referenced by its fallback `Blocked by:` body line. An
+  unassigned child is eligible. A child assigned solely to the current GitHub user is resumable
+  after the same gates are reread; a child assigned to anyone else is not eligible. First
+  remaining child in map order wins. Do not use an unscoped `gh issue list`: it can include
+  unrelated issues and defaults to 30 results.
+- **Claim**. First read `assignees` and proceed only when it is empty. Then make the session's
+  first write and immediately reread `assignees`:
 
   ```sh
   gh issue edit <n> --repo hasansezertasan/infra-copilot --add-assignee @me
   ```
 
-  Every claimant, including one that initially sees only itself, waits through a short claim
-  convergence interval and rereads `assignees` before beginning work. If more than one assignee
-  is present, the lexicographically lowest GitHub login wins; every other claimant must not begin
-  work and must remove only their own assignment. The winner repeats the convergence check until
-  they are the sole assignee.
+  If any other assignee appears after the write, remove only the session's assignment and stop;
+  do not infer that the other assignee follows this protocol. This protocol deliberately does not
+  support concurrent claims without an atomic reservation or explicit participation marker.
 
-- **Resolve**. Comment, then append and verify a context pointer (gist + link) in the map's
-  Decisions-so-far before closing the child. Read the latest map body immediately before each
-  edit, merge the pointer with its current contents, reread after writing, and retry the
-  read/merge/write sequence if the new pointer or a concurrently added pointer is absent. Only
-  close the child after the verified map update succeeds:
+- **Resolve**. Comment on the child, then add its context pointer (gist + link) as an append-only
+  comment on the map before closing the child. The map's Decisions-so-far is read together with
+  these `Context pointer:` comments. This avoids concurrent full-body edits that can overwrite a
+  pointer. Verify the new map comment exists before closing:
 
   ```sh
   gh issue comment <n> --repo hasansezertasan/infra-copilot --body "<answer>"
-  # Read/merge/write/reread-verify the map's Decisions-so-far pointer here.
+  gh issue comment <map> --repo hasansezertasan/infra-copilot \
+    --body "Context pointer: <gist + link>"
   gh issue close <n> --repo hasansezertasan/infra-copilot
   ```
