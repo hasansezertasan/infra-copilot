@@ -1795,6 +1795,8 @@ MATCHER_PIPE = "{pipe}"
 #: Placeholders a row uses to say "nothing established here". They are legible
 #: prose in the table and meaningless as values, so a shipped row may hold none.
 SENTINEL_CELLS = {"not recorded", "—", "-", ""}
+#: Hook rows additionally use ``none`` when a host has no hook manifest.
+HOOK_PATH_SENTINELS = SENTINEL_CELLS | {"none"}
 #: One `[ -n "${NAME:-}" ]` test, capturing the variable it reads.
 HOOK_ROOT_TEST = re.compile(r'\[ -n "\$\{([A-Za-z_][A-Za-z0-9_]*):-\}" \]')
 #: The host-output branch of session-start.sh: every byte fixed except the list
@@ -2107,7 +2109,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                 f"{HOSTS_DOCUMENT}: {row['Host']} declares an unknown tools dialect"
             )
             continue
-        suffix, render = AGENT_DIALECTS[dialect]
+        suffix, _template = AGENT_DIALECTS[dialect]
         relative = f"{directory.rstrip('/')}/{AGENT_STEM}{suffix}"
         # The directory was checked; the manifest inside it was not. A symlink at
         # `agents/infra-auditor.md` pointing out of the tree validated clean --
@@ -2142,7 +2144,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                 "can enforce and record a restricted grant"
             )
         invocation = row["Invocation tool"].strip("` ")
-        if invocation not in {"not recorded", "—", ""} and row["Host"] == STATUS_COMMAND_HOST:
+        if invocation not in SENTINEL_CELLS and row["Host"] == STATUS_COMMAND_HOST:
             # The command that delegates has to be granted the tool this row
             # names. Renaming the capability here while `allowed-tools` still
             # lists the old one leaves /infra-status silently falling back.
@@ -2155,7 +2157,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                     f"invocation tool, but {STATUS_COMMAND} grants {granted}; the "
                     "delegation the protocol describes would not be permitted"
                 )
-        if invocation in {"not recorded", "—", ""}:
+        if invocation in SENTINEL_CELLS:
             # The delegation rule gates on this tool being declared and allowed, so a
             # shipped row without one leaves that gate nothing to evaluate.
             errors.append(
@@ -2173,11 +2175,11 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
                     f"{directory.rstrip('/')}/{stray.name}: no subagent row records this "
                     f"manifest, and {row['Host']} discovers every file in {directory!r}"
                 )
-        errors.extend(_check_agent(relative, text, row, render, dialect))
+        errors.extend(_check_agent(relative, text, row, dialect))
 
     for row in hooks:
         relative = row["Manifest path"].strip("`").split("`")[0].split(" ")[0].strip()
-        if relative not in {"none", "—", ""} and (
+        if relative not in HOOK_PATH_SENTINELS and (
             problem := _escapes_root(root, relative)
         ):
             errors.append(
@@ -2186,7 +2188,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
             )
             continue
         if not _shipped(row["Shipped"]):
-            if relative not in {"none", "—", ""} and (root / relative).exists():
+            if relative not in HOOK_PATH_SENTINELS and (root / relative).exists():
                 errors.append(
                     f"{relative}: {row['Host']}'s row is not marked shipped, so this "
                     "manifest asserts a discovery path nothing has demonstrated"
@@ -2196,7 +2198,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
     return errors
 
 
-def _check_agent(relative: str, text: str, row: dict[str, str], render, dialect: str) -> list[str]:
+def _check_agent(relative: str, text: str, row: dict[str, str], dialect: str) -> list[str]:
     """Hold a shipped agent manifest to what its row implies.
 
     The frontmatter is rendered from the record and compared as a block; the body
@@ -2368,7 +2370,9 @@ def _without_code(text: str) -> str:
 #: an example, the inline spelling of the fenced block _without_code() removes.
 #: A span with no whitespace is a *name*, which is simply how these documents
 #: write `infra-auditor` or `status.md`, and must keep counting.
-MARKDOWN_SPAN = re.compile(r"`+(?:[^`\n]|\n(?!\s*\n))*`+")
+MARKDOWN_SPAN = re.compile(
+    r"(?P<ticks>`+)(?:(?!(?P=ticks)(?!`))(?:[^\n]|\n(?!\s*\n)))*(?P=ticks)(?!`)"
+)
 
 
 def _quoted_phrases(text: str) -> list[tuple[int, int]]:

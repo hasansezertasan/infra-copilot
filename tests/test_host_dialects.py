@@ -886,6 +886,13 @@ class RecordedValueTests(unittest.TestCase):
             any("no invocation tool" in e for e in validate_host_dialects(root))
         )
 
+    def test_a_dash_is_not_an_invocation_tool(self) -> None:
+        """All table sentinel spellings mean the availability gate has no tool."""
+        root = self._root("| `Task` | **yes** |", "| - | **yes** |")
+        self.assertTrue(
+            any("no invocation tool" in e for e in validate_host_dialects(root))
+        )
+
     def test_an_opencode_manifest_must_stay_a_subagent(self) -> None:
         """`mode: primary` registers a primary agent, not the subagent the
         protocol invokes."""
@@ -1838,19 +1845,6 @@ class EleventhRoundTests(unittest.TestCase):
             any("does not test" in e for e in validate_host_dialects(root))
         )
 
-    def _root(self) -> Path:
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        return build_root(directory.name)
-
-    def _agent(self, old: str, new: str) -> Path:
-        root = self._root()
-        document = root / AGENT_PATH
-        document.write_text(
-            document.read_text(encoding="utf-8").replace(old, new, 1), encoding="utf-8"
-        )
-        return root
-
     def test_a_path_qualified_runbook_reference_is_rejected(self) -> None:
         """The old pattern required a bare leading word, so the leading slash of
         an absolute path was a reason not to match -- the one spelling that can
@@ -2409,6 +2403,25 @@ class SeventeenthRoundTests(unittest.TestCase):
         self.assertEqual(validate_host_dialects(REPO_ROOT), [])
         self.assertEqual(_quoted_phrases("names `infra-auditor` and `status.md`"), [])
         self.assertTrue(_quoted_phrases("quotes `a whole phrase here`"))
+
+    def test_a_nested_shorter_backtick_run_stays_quoted(self) -> None:
+        """A code span closes only on its own delimiter length, not a shorter run."""
+        phrase = "``Invoke the `infra-copilot` skill and follow `status.md``"
+        self.assertEqual(_quoted_phrases(phrase), [(0, len(phrase))])
+        root = self._root()
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+                "`status.md`, `protocol.md`, and `steps.yaml`.",
+                "Do nothing and stop. Invalid example: " + phrase + ".",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("no instruction to invoke" in e for e in validate_host_dialects(root))
+        )
 
     def test_the_record_scopes_the_one_host_rule_to_the_directory(self) -> None:
         """An unqualified headline told maintainers that graduating Codex or
