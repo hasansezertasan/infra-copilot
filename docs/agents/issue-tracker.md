@@ -17,7 +17,8 @@ tracker by accident.
 - **List issues**, with appropriate `--label` and `--state` filters:
 
   ```sh
-  gh issue list --repo hasansezertasan/infra-copilot --state open --json number,title,body,labels,comments \
+  gh issue list --repo hasansezertasan/infra-copilot --state open --limit 1000 \
+    --json number,title,body,labels,comments \
     --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'
   ```
 
@@ -42,12 +43,14 @@ equivalents:
 - **List external PRs for triage**:
 
   ```sh
-  gh pr list --repo hasansezertasan/infra-copilot --state open \
-    --json number,title,body,labels,author,authorAssociation,comments
+  gh pr list --repo hasansezertasan/infra-copilot --state open --limit 1000 \
+    --json number,title,body,labels,author,comments
   ```
 
-  Then keep only `authorAssociation` of `CONTRIBUTOR`, `FIRST_TIMER`,
-  `FIRST_TIME_CONTRIBUTOR`, or `NONE` (drop `OWNER`/`MEMBER`/`COLLABORATOR`).
+  For each candidate, retrieve its association with
+  `gh api repos/hasansezertasan/infra-copilot/pulls/<number> --jq .author_association`.
+  Keep only `CONTRIBUTOR`, `FIRST_TIMER`, `FIRST_TIME_CONTRIBUTOR`, or `NONE` (drop
+  `OWNER`/`MEMBER`/`COLLABORATOR`). `gh pr list` does not expose `authorAssociation`.
 
 - **Comment / label / close**: `gh pr comment --repo hasansezertasan/infra-copilot`,
   `gh pr edit --repo hasansezertasan/infra-copilot --add-label`/`--remove-label`,
@@ -63,7 +66,8 @@ Create a GitHub issue.
 
 ## When a skill says "fetch the relevant ticket"
 
-Run `gh issue view <number> --repo hasansezertasan/infra-copilot --json labels,comments`.
+Run `gh issue view <number> --repo hasansezertasan/infra-copilot \
+--json title,body,labels,comments`.
 
 ## Wayfinding operations
 
@@ -92,15 +96,20 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 
 - **Frontier query**: retrieve the map's `subIssues` first (or parse its task list where
   sub-issues are unavailable), preserving map order. Inspect only those open child numbers
-  with `gh issue view <child> --repo hasansezertasan/infra-copilot --json number,assignees,blockedBy`;
-  drop a child with an assignee or any `blockedBy` item whose state is `OPEN`. First remaining
-  child in map order wins. Do not use an unscoped `gh issue list`: it can include unrelated
-  issues and defaults to 30 results.
-- **Claim**. The session's first write:
+  with `gh issue view <child> --repo hasansezertasan/infra-copilot \
+  --json number,body,assignees,blockedBy`; drop a child with an assignee, any `blockedBy`
+  item whose state is `OPEN`, or an open issue referenced by its fallback `Blocked by:` body
+  line. First remaining child in map order wins. Do not use an unscoped `gh issue list`: it
+  can include unrelated issues and defaults to 30 results.
+- **Claim**. The session's first write, followed immediately by a reread of `assignees`:
 
   ```sh
   gh issue edit <n> --repo hasansezertasan/infra-copilot --add-assignee @me
   ```
+
+  If more than one assignee is present, this is a concurrent claim. The lexicographically
+  lowest GitHub login wins; every other claimant must not begin work and must remove only
+  their own assignment. The winner rereads until they are the sole assignee before work begins.
 
 - **Resolve**. Comment, close, then append a context pointer (gist + link) to the map's
   Decisions-so-far:
