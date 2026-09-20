@@ -12,7 +12,7 @@ tracker by accident.
   gh issue create --repo hasansezertasan/infra-copilot --title "..." --body "..."
   ```
 
-- **Read an issue**: `gh issue view <number> --repo hasansezertasan/infra-copilot --json labels,comments`,
+- **Read an issue**: `gh issue view <number> --repo hasansezertasan/infra-copilot --json title,body,labels,comments`,
   adding `--jq` when filtering comments.
 - **List issues**, with appropriate `--label` and `--state` filters:
 
@@ -74,7 +74,13 @@ Run `gh issue view <number> --repo hasansezertasan/infra-copilot \
 Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.
 
 - **Map**: a single issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far /
-  Fog body. `gh issue create --repo hasansezertasan/infra-copilot --label wayfinder:map`.
+  Fog body. Create it non-interactively with an explicit title and body:
+
+  ```sh
+  gh issue create --repo hasansezertasan/infra-copilot --label wayfinder:map \
+    --title "<map title>" --body "<Notes / Decisions-so-far / Fog>"
+  ```
+
 - **Child ticket**: an issue linked to the map as a GitHub sub-issue (`gh api` on the
   sub-issues endpoint). Where sub-issues aren't enabled, add the child to a task list in
   the map body and put `Part of #<map>` at the top of the child body. Labels:
@@ -107,14 +113,20 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   gh issue edit <n> --repo hasansezertasan/infra-copilot --add-assignee @me
   ```
 
-  If more than one assignee is present, this is a concurrent claim. The lexicographically
-  lowest GitHub login wins; every other claimant must not begin work and must remove only
-  their own assignment. The winner rereads until they are the sole assignee before work begins.
+  Every claimant, including one that initially sees only itself, waits through a short claim
+  convergence interval and rereads `assignees` before beginning work. If more than one assignee
+  is present, the lexicographically lowest GitHub login wins; every other claimant must not begin
+  work and must remove only their own assignment. The winner repeats the convergence check until
+  they are the sole assignee.
 
-- **Resolve**. Comment, close, then append a context pointer (gist + link) to the map's
-  Decisions-so-far:
+- **Resolve**. Comment, then append and verify a context pointer (gist + link) in the map's
+  Decisions-so-far before closing the child. Read the latest map body immediately before each
+  edit, merge the pointer with its current contents, reread after writing, and retry the
+  read/merge/write sequence if the new pointer or a concurrently added pointer is absent. Only
+  close the child after the verified map update succeeds:
 
   ```sh
   gh issue comment <n> --repo hasansezertasan/infra-copilot --body "<answer>"
+  # Read/merge/write/reread-verify the map's Decisions-so-far pointer here.
   gh issue close <n> --repo hasansezertasan/infra-copilot
   ```
