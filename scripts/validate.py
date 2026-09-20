@@ -1895,29 +1895,37 @@ def _output_branch(script: str) -> str | None:
     the same distinction the callback check already draws between a command that
     mentions the implementation and one that runs it.
 
-    Three decoys have now been tried against "the first thing that looks like the
-    branch": a commented-out copy, a copy in a discarded heredoc, and a copy
-    inside a function nobody calls. Each was answered by excluding one more kind
-    of non-executable text, and each time another kind remained. So this stops
-    describing what the branch looks like and uses what it does: the conditional
-    wanted is the one whose `then` reaches the printf that emits the host shape.
+    Four decoys have now been tried against "the thing that looks like the
+    branch": a commented-out copy, a copy in a discarded heredoc, a copy inside a
+    function nobody calls, and that function carrying its own emission so that
+    anchoring on the emission found the decoy too. Each answer that picked one
+    candidate out of several left a way to supply the one it would pick --
+    whether that was the first, or would have been the last.
 
-    And exactly one candidate may exist. Choosing between several is how every
-    one of those decoys won; refusing to choose is the safe direction for a gate,
-    the same answer _runs_implementation() reached about parsing shell.
+    So nothing is selected. The script must contain exactly one root conditional
+    and exactly one emission, and the conditional must open before the emission.
+    Ambiguity is the refusal, not the input to a choice: this file already
+    reached that answer once, in _runs_implementation(), after four patches that
+    each matched one more spelling of "a shell and a path both appear somewhere".
+
+    The cost is that moving this logic into a called function, or adding a second
+    host shape, makes the gate refuse rather than adapt. That is the intended
+    direction -- it fails loudly on a change to the file it gates, where a wrong
+    answer is silent and only visible to whoever notices the announcement is
+    missing.
     """
     script = _without_heredocs(script)
-    emission = HOOK_EMISSION.search(script)
-    if emission is None:
+    emissions = list(HOOK_EMISSION.finditer(script))
+    candidates = list(HOOK_BRANCH.finditer(script))
+    if len(emissions) != 1 or len(candidates) != 1:
         return None
-    emits = emission.start()
-    candidates = [found for found in HOOK_BRANCH.finditer(script) if found.start() < emits]
-    if len(candidates) != 1:
+    emits, opens = emissions[0].start(), candidates[0].start()
+    if opens > emits:
         return None
-    end = script.find("; then", candidates[0].start())
+    end = script.find("; then", opens)
     if end < 0 or end > emits:
         return None
-    return script[candidates[0].start() : end]
+    return script[opens:end]
 
 
 def expected_hook_command(root_variable: str) -> str:
@@ -2347,8 +2355,10 @@ DELEGATION_MARKERS = (
 )
 
 
-#: An opening or closing code fence, at the start of a line.
-MARKDOWN_FENCE = re.compile(r"\A[ \t]{0,3}(`{3,}|~{3,})")
+#: A code fence at the start of a line: the delimiter run, then whatever follows
+#: it. Both parts matter -- an opening fence may carry an info string, a closing
+#: fence may not, and the closing run must be at least as long as the opening.
+MARKDOWN_FENCE = re.compile(r"\A[ \t]{0,3}(`{3,}|~{3,})[ \t]*(.*?)[ \t]*\Z")
 
 
 def _without_fences(text: str) -> str:
@@ -2365,13 +2375,26 @@ def _without_fences(text: str) -> str:
         found = MARKDOWN_FENCE.match(line)
         if fence is None:
             if found:
-                fence = found.group(1)[0] * 3
+                # The whole delimiter, not a normalised three. Keeping only the
+                # character let a ``` line close a ```` block that Markdown keeps
+                # open, so directives sitting inside the example counted as
+                # operative -- the defect this function exists to prevent, one
+                # backtick further out.
+                fence = found.group(1)
                 kept.append("")
                 continue
             kept.append(line)
             continue
         kept.append("")
-        if found and found.group(1).startswith(fence):
+        if (
+            found
+            and found.group(1)[0] == fence[0]
+            and len(found.group(1)) >= len(fence)
+            # A closing fence carries nothing after the delimiter. Accepting an
+            # info string here would close the block on the *opening* fence of a
+            # nested example.
+            and not found.group(2)
+        ):
             fence = None
     return "\n".join(kept)
 
@@ -2512,9 +2535,11 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
     branch = _output_branch(read_document(root / HOOK_IMPLEMENTATION) or "")
     if branch is None:
         return [
-            f"{HOOK_IMPLEMENTATION}: has no single conditional guarding its "
-            f"{HOOK_OUTPUT_MARKER!r} printf; exactly one line-anchored root test must "
-            "precede it, or there is no branch this gate can be said to have checked"
+            f"{HOOK_IMPLEMENTATION}: must contain exactly one line-anchored root "
+            f"conditional and exactly one {HOOK_OUTPUT_MARKER!r} printf, in that "
+            "order. More than one of either means this gate would be choosing which "
+            "to check, and every decoy against it so far has won by supplying the "
+            "one it would choose"
         ]
     alternatives = _disjuncts(branch)
     if alternatives is None:

@@ -1954,7 +1954,7 @@ class TwelfthRoundTests(unittest.TestCase):
         )
         script.write_text(text, encoding="utf-8")
         self.assertTrue(
-            any("no single conditional" in e for e in validate_host_dialects(root))
+            any("exactly one" in e for e in validate_host_dialects(root))
         )
 
     def test_the_branch_must_guard_the_emitting_printf(self) -> None:
@@ -1967,7 +1967,7 @@ class TwelfthRoundTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertTrue(
-            any("no single conditional" in e for e in validate_host_dialects(root))
+            any("exactly one" in e for e in validate_host_dialects(root))
         )
 
     def test_a_symlinked_agent_manifest_is_rejected(self) -> None:
@@ -1998,6 +1998,106 @@ class TwelfthRoundTests(unittest.TestCase):
         self.assertTrue(
             any("escapes the plugin root" in e for e in validate_host_dialects(root))
         )
+
+
+class ThirteenthRoundTests(unittest.TestCase):
+    """Two follow-ups on the previous round's own fixes.
+
+    Both are the same shape: a rule that *selects* one item out of several can be
+    beaten by supplying the item it selects. The answers here refuse ambiguity
+    instead, and preserve the delimiter Markdown actually uses.
+    """
+
+    DECOY = (
+        "unused_shape() {\n"
+        'if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then\n'
+        """printf '{"hookSpecificOutput":{"hookEventName":"SessionStart"}}\\n'\n"""
+        "fi\n}\n"
+    )
+
+    def _root(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_root(directory.name)
+
+    def _hook_without_the_recorded_root(self, root: Path) -> str:
+        """The live branch with Claude's root disjunct removed."""
+        return (root / HOOK_IMPLEMENTATION).read_text(encoding="utf-8").replace(
+            'if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] \\\n    || ', "if "
+        )
+
+    def test_a_decoy_emission_cannot_supply_the_anchor(self) -> None:
+        """Anchoring on the emission was beaten by a function carrying one. The
+        decoy is tried on both sides, since "first" and "last" fail alike."""
+        for placement in ("before", "after"):
+            with self.subTest(placement=placement):
+                root = self._root()
+                text = self._hook_without_the_recorded_root(root)
+                text = (
+                    text.replace("set -eu\n", "set -eu\n" + self.DECOY, 1)
+                    if placement == "before"
+                    else text + "\n" + self.DECOY
+                )
+                (root / HOOK_IMPLEMENTATION).write_text(text, encoding="utf-8")
+                self.assertTrue(
+                    any("exactly one" in e for e in validate_host_dialects(root))
+                )
+
+    def test_a_second_emission_alone_is_refused(self) -> None:
+        """Ambiguity is the refusal, not the input to a choice -- so a second
+        emission is enough, without a second conditional."""
+        root = self._root()
+        script = root / HOOK_IMPLEMENTATION
+        script.write_text(
+            script.read_text(encoding="utf-8")
+            + """\nprintf '{"hookSpecificOutput":{}}\\n'\n""",
+            encoding="utf-8",
+        )
+        self.assertTrue(any("exactly one" in e for e in validate_host_dialects(root)))
+
+    def test_a_longer_fence_is_not_closed_by_a_shorter_line(self) -> None:
+        """Markdown keeps a ```` block open until a fence of at least four, so
+        normalising the opening delimiter to three let directives inside an
+        example count as operative."""
+        root = self._root()
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+                "`status.md`, `protocol.md`, and `steps.yaml`.",
+                "Do nothing and stop. INVALID example follows:\n\n"
+                "````text\n```\n"
+                "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+                "`status.md`, `protocol.md`, and `steps.yaml`.\n````",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("no instruction to invoke" in e for e in validate_host_dialects(root))
+        )
+
+    def test_fence_closing_rules(self) -> None:
+        """The delimiter is kept whole: same character, at least as long, and
+        nothing after it. Each case would otherwise end the block early and let
+        the example's text read as operative."""
+        directive = "Invoke the `infra-copilot` skill"
+        for label, block in (
+            ("four backticks, three-backtick line", "````text\n```\n%s\n````"),
+            ("four tildes, three-tilde line", "~~~~text\n~~~\n%s\n~~~~"),
+            ("closing line carrying an info string", "```text\n```js\n%s\n```"),
+            ("tilde block containing backticks", "~~~text\n```\n%s\n~~~"),
+            ("unterminated fence", "```text\n%s\n"),
+        ):
+            with self.subTest(case=label):
+                self.assertNotIn(
+                    directive, _without_fences("intro\n\n" + (block % directive) + "\ntail\n")
+                )
+
+    def test_a_longer_closing_fence_still_closes(self) -> None:
+        """At least as long, not exactly as long -- or the block would swallow
+        the rest of the manifest."""
+        self.assertIn("tail", _without_fences("```text\nexample\n````\ntail\n"))
 
 
 if __name__ == "__main__":
