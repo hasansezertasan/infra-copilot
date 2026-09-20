@@ -24,18 +24,17 @@ from pathlib import Path
 
 from scripts.validate import (
     AGENT_STEM,
-    _disjuncts,
-    _output_branch,
     _canonical,
     _owner_key,
     _clause_before,
     AGENT_NEGATOR,
-    _without_fences,
-    _without_heredocs,
+    _without_code,
     AGENT_FORBIDDEN_PATH,
     PROTOCOL_DOCUMENTS,
     expected_hook_command,
     HOOK_IMPLEMENTATION,
+    HOOK_OUTPUT_BLOCK,
+    HOOK_ROOT_TEST,
     HOSTS_DOCUMENT,
     dialect_rows,
     validate_host_dialects,
@@ -1574,10 +1573,11 @@ class RootConditionTests(unittest.TestCase):
             'if [ -n "${CODEX_PLUGIN_ROOT:-}" ] || { [ -n "${NEW_PLUGIN_ROOT:-}" ] && false; }',
         )
         errors = validate_host_dialects(root)
-        # Either diagnosis is correct: the braces make it not a plain disjunction,
-        # and the test inside them cannot satisfy the condition alone.
+        # The braces are simply not the pinned shape, so the branch is not found
+        # at all -- which is the same refusal, arrived at without taking the
+        # condition apart to reason about what it evaluates to.
         self.assertTrue(
-            any("on its own" in e or "plain `||` disjunction" in e for e in errors),
+            any("carries the host-output branch" in e or "does not test" in e for e in errors),
             errors,
         )
 
@@ -1594,16 +1594,16 @@ class RootConditionTests(unittest.TestCase):
         root = self._renamed("NEW_PLUGIN_ROOT", 'if [ -n "${NEW_PLUGIN_ROOT:-}" ]')
         self.assertEqual(validate_host_dialects(root), [])
 
-    def test_the_shipped_condition_parses_into_its_disjuncts(self) -> None:
-        """Guards the splitter itself: parameter expansions carry braces, and an
-        earlier version read those as grouping and discarded every alternative."""
-        script = (REPO_ROOT / "hooks/session-start.sh").read_text(encoding="utf-8")
-        alternatives = _disjuncts(_output_branch(script))
-        self.assertIn('[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]', alternatives)
-        self.assertEqual(len(alternatives), 5, alternatives)
+    def test_the_shipped_condition_is_the_pinned_shape(self) -> None:
+        """The shipped script must match the branch shape whole, and the roots it
+        tests are what a row is checked against."""
+        script = (REPO_ROOT / HOOK_IMPLEMENTATION).read_text(encoding="utf-8")
+        found = HOOK_OUTPUT_BLOCK.findall(script)
+        self.assertEqual(len(found), 1, "exactly one host-output branch")
+        tested = set(HOOK_ROOT_TEST.findall(found[0]))
+        self.assertIn("CLAUDE_PLUGIN_ROOT", tested)
+        self.assertIn("PLUGIN_ROOT", tested)
 
-
-class PortabilityAndBoundaryTests(unittest.TestCase):
     def _root(self) -> Path:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -1622,7 +1622,7 @@ class PortabilityAndBoundaryTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertTrue(
-            any("plain `||` disjunction" in e for e in validate_host_dialects(root))
+            any("carries the host-output branch" in e for e in validate_host_dialects(root))
         )
 
     def test_a_subsection_ends_at_any_heading(self) -> None:
@@ -1837,32 +1837,6 @@ class EleventhRoundTests(unittest.TestCase):
             any("does not test" in e for e in validate_host_dialects(root))
         )
 
-    def test_heredoc_stripping_keeps_the_rest_of_the_script(self) -> None:
-        """Bodies are blanked, not deleted: what remains must still be the
-        script it came from, or the branch after one would move."""
-        stripped = _without_heredocs(
-            "before\ncat <<'EOF'\nif [ -n \"$X\" ]; then\nEOF\nafter\n"
-        )
-        self.assertEqual(stripped.splitlines()[0], "before")
-        self.assertEqual(stripped.splitlines()[-1], "after")
-        self.assertNotIn("if [", stripped)
-
-    def test_the_shipped_script_has_no_heredocs_to_strip(self) -> None:
-        """The stripper must be a no-op on the real file, or it is rewriting the
-        thing it was meant to read."""
-        script = (REPO_ROOT / HOOK_IMPLEMENTATION).read_text(encoding="utf-8")
-        self.assertEqual(_without_heredocs(script), script.rstrip("\n"))
-
-
-class TwelfthRoundTests(unittest.TestCase):
-    """Four gates that described what the right text *looks like*, and one path
-    check applied to the directory rather than the file inside it.
-
-    The pattern across this round is the same as the last: a rule that matches a
-    shape can be satisfied by text of that shape which the host never executes --
-    a fenced example, an uncalled function, a soft-wrapped line.
-    """
-
     def _root(self) -> Path:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -1932,7 +1906,7 @@ class TwelfthRoundTests(unittest.TestCase):
 
     def test_fence_stripping_keeps_the_rest_of_the_body(self) -> None:
         """Blanked, not deleted, so what remains sits where it sat."""
-        stripped = _without_fences("before\n```sh\nInvoke the skill\n```\nafter\n")
+        stripped = _without_code("before\n```sh\nInvoke the skill\n```\nafter\n")
         self.assertEqual(stripped.splitlines()[0], "before")
         self.assertEqual(stripped.splitlines()[-1], "after")
         self.assertNotIn("Invoke", stripped)
@@ -1940,7 +1914,7 @@ class TwelfthRoundTests(unittest.TestCase):
     def test_the_shipped_manifest_has_no_fences_to_strip(self) -> None:
         """The stripper must be a no-op on the real manifest."""
         body = (REPO_ROOT / AGENT_PATH).read_text(encoding="utf-8")
-        self.assertEqual(_without_fences(body), body.rstrip("\n"))
+        self.assertEqual(_without_code(body), body.rstrip("\n"))
 
     def test_an_uncalled_function_is_not_the_output_branch(self) -> None:
         """A conditional in a function nobody calls is the third decoy tried
@@ -1957,7 +1931,7 @@ class TwelfthRoundTests(unittest.TestCase):
         )
         script.write_text(text, encoding="utf-8")
         self.assertTrue(
-            any("exactly one" in e for e in validate_host_dialects(root))
+            any("does not test" in e for e in validate_host_dialects(root))
         )
 
     def test_the_branch_must_guard_the_emitting_printf(self) -> None:
@@ -1970,7 +1944,7 @@ class TwelfthRoundTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertTrue(
-            any("exactly one" in e for e in validate_host_dialects(root))
+            any("carries the host-output branch" in e for e in validate_host_dialects(root))
         )
 
     def test_a_symlinked_agent_manifest_is_rejected(self) -> None:
@@ -2043,12 +2017,17 @@ class ThirteenthRoundTests(unittest.TestCase):
                 )
                 (root / HOOK_IMPLEMENTATION).write_text(text, encoding="utf-8")
                 self.assertTrue(
-                    any("exactly one" in e for e in validate_host_dialects(root))
+                    any("does not test" in e for e in validate_host_dialects(root))
                 )
 
-    def test_a_second_emission_alone_is_refused(self) -> None:
-        """Ambiguity is the refusal, not the input to a choice -- so a second
-        emission is enough, without a second conditional."""
+    def test_a_stray_emission_is_caught_by_running_the_script(self) -> None:
+        """The shape gate accepts this: the branch itself is untouched. The test
+        that *runs* the hook is what refuses it, because two JSON objects on
+        stdout parse as neither.
+
+        Recorded as a test rather than a comment so the division of labour is
+        checkable -- static parity here, behaviour in tests/test_session_hook.py.
+        """
         root = self._root()
         script = root / HOOK_IMPLEMENTATION
         script.write_text(
@@ -2056,7 +2035,20 @@ class ThirteenthRoundTests(unittest.TestCase):
             + """\nprintf '{"hookSpecificOutput":{}}\\n'\n""",
             encoding="utf-8",
         )
-        self.assertTrue(any("exactly one" in e for e in validate_host_dialects(root)))
+        self.assertEqual(validate_host_dialects(root), [])
+        work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, work, True)
+        (work / ".infra-copilot").mkdir()
+        (work / ".infra-copilot/config.md").write_text("x", encoding="utf-8")
+        emitted = subprocess.run(
+            ["sh", str(script)],
+            cwd=work,
+            env={"PATH": "/usr/bin:/bin", "CLAUDE_PLUGIN_ROOT": "/x"},
+            capture_output=True,
+            text=True,
+        ).stdout
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(emitted)
 
     def test_a_longer_fence_is_not_closed_by_a_shorter_line(self) -> None:
         """Markdown keeps a ```` block open until a fence of at least four, so
@@ -2094,13 +2086,13 @@ class ThirteenthRoundTests(unittest.TestCase):
         ):
             with self.subTest(case=label):
                 self.assertNotIn(
-                    directive, _without_fences("intro\n\n" + (block % directive) + "\ntail\n")
+                    directive, _without_code("intro\n\n" + (block % directive) + "\ntail\n")
                 )
 
     def test_a_longer_closing_fence_still_closes(self) -> None:
         """At least as long, not exactly as long -- or the block would swallow
         the rest of the manifest."""
-        self.assertIn("tail", _without_fences("```text\nexample\n````\ntail\n"))
+        self.assertIn("tail", _without_code("```text\nexample\n````\ntail\n"))
 
 
 class FourteenthRoundTests(unittest.TestCase):
@@ -2133,13 +2125,25 @@ class FourteenthRoundTests(unittest.TestCase):
             "the fixture must be a script the shell actually refuses",
         )
         self.assertTrue(
-            any("not a plain" in e for e in validate_host_dialects(root))
+            any("carries the host-output branch" in e for e in validate_host_dialects(root))
         )
 
     def test_a_nested_group_is_still_rejected(self) -> None:
-        """The original reason this branch existed: a grouped alternative cannot
-        satisfy the condition alone."""
-        self.assertIsNone(_disjuncts('if { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && false; }'))
+        """A grouped alternative cannot satisfy the condition alone. It is no
+        longer taken apart -- it simply is not the pinned shape."""
+        root = self._root()
+        script = root / HOOK_IMPLEMENTATION
+        script.write_text(
+            script.read_text(encoding="utf-8").replace(
+                '[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]',
+                '{ [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && false; }',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("carries the host-output branch" in e for e in validate_host_dialects(root))
+        )
 
     def test_the_emission_must_sit_in_the_then_arm(self) -> None:
         """Order plus a `; then` in between proves only that the conditional
@@ -2153,7 +2157,7 @@ class FourteenthRoundTests(unittest.TestCase):
         script.write_text(
             text.replace(isolated, "    :").replace(fallback, isolated), encoding="utf-8"
         )
-        self.assertTrue(any("exactly one" in e for e in validate_host_dialects(root)))
+        self.assertTrue(any("carries the host-output branch" in e for e in validate_host_dialects(root)))
 
     def test_delegation_markers_inside_a_fence_do_not_count(self) -> None:
         """The previous round excluded fenced examples from the agent manifest
@@ -2211,6 +2215,108 @@ class FourteenthRoundTests(unittest.TestCase):
         self.assertNotIn("subagent now runs the", readme)
         self.assertIn("marks the subagent row shipped", readme)
         self.assertIn("references/hosts.md", readme)
+
+
+class FifteenthRoundTests(unittest.TestCase):
+    """The round that ended the hook arms race, and one more code-block spelling.
+
+    Six decoys had each defeated an attempt to locate the host-output branch and
+    reason about it. The branch is now matched whole -- every byte fixed except
+    the root variables, which stay a hole because hosts.md is the record and this
+    file is not.
+    """
+
+    ISOLATED = (
+        '    printf \'{"hookSpecificOutput":{"hookEventName":"SessionStart"'
+        ',"additionalContext":"%s"}}\\n\' "$CONTEXT"'
+    )
+
+    def _root(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_root(directory.name)
+
+    def _mutated(self, mutate) -> Path:
+        root = self._root()
+        script = root / HOOK_IMPLEMENTATION
+        script.write_text(mutate(script.read_text(encoding="utf-8")), encoding="utf-8")
+        return root
+
+    def test_every_decoy_to_date_fails_the_shape(self) -> None:
+        """One assertion for six rounds of them. Each was valid shell that made
+        the announcement disappear while some earlier gate stayed green."""
+        decoys = {
+            "elif arm between then and the emission": lambda t: t.replace(
+                self.ISOLATED, "    :\nelif false; then\n" + self.ISOLATED
+            ),
+            "printf not in command position": lambda t: t.replace(
+                self.ISOLATED, self.ISOLATED.replace("    printf", "    true printf")
+            ),
+            "emission moved to the else arm": lambda t: t.replace(
+                self.ISOLATED, "    :"
+            ).replace('    printf \'{"additional_context":"%s"}\\n\' "$CONTEXT"', self.ISOLATED),
+            "command list in the condition": lambda t: t.replace(
+                '|| [ -n "${PLUGIN_ROOT:-}" ]; then', '|| [ -n "${PLUGIN_ROOT:-}" ]; false; then'
+            ),
+            "unmatched group appended": lambda t: t.replace(
+                '|| [ -n "${PLUGIN_ROOT:-}" ]; then',
+                '|| [ -n "${PLUGIN_ROOT:-}" ] \\\n    || ( ; then',
+            ),
+            "a second copy of the whole branch": lambda t: t + "\n" + t[t.index("if [ -n") :],
+        }
+        for label, mutate in decoys.items():
+            with self.subTest(decoy=label):
+                self.assertTrue(
+                    any(
+                        "carries the host-output branch" in e
+                        for e in validate_host_dialects(self._mutated(mutate))
+                    )
+                )
+
+    def test_the_record_still_governs_which_roots_are_tested(self) -> None:
+        """The variable list is a hole, not a constant: renaming a root in the
+        table, the manifest and the script together must still pass, or this file
+        would have quietly become the authority instead of hosts.md."""
+        self.assertEqual(validate_host_dialects(REPO_ROOT), [])
+        root = self._mutated(
+            lambda t: t.replace('[ -n "${AGY_PLUGIN_ROOT:-}" ]', '[ -n "${NEW_HOST_ROOT:-}" ]')
+        )
+        self.assertEqual(validate_host_dialects(root), [])
+
+    def test_an_indented_code_block_is_not_operative(self) -> None:
+        """Four spaces render as code exactly as a fence does, so removing only
+        fences left the same invalid example working with the backticks off."""
+        root = self._root()
+        document = root / AGENT_PATH
+        document.write_text(
+            document.read_text(encoding="utf-8").replace(
+                "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+                "`status.md`, `protocol.md`, and `steps.yaml`.",
+                "Do nothing and stop. INVALID example below:\n\n"
+                "    Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+                "    `status.md`, `protocol.md`, and `steps.yaml`.\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("no instruction to invoke" in e for e in validate_host_dialects(root))
+        )
+
+    def test_an_indented_block_needs_a_blank_line_before_it(self) -> None:
+        """Otherwise a wrapped list item -- indented, but continuing the line
+        above rather than following a blank -- would be blanked as code."""
+        wrapped = "- a list item that wraps\n    onto an indented line\n"
+        self.assertIn("onto an indented line", _without_code(wrapped))
+        block = "paragraph\n\n    indented code\n\nafter\n"
+        self.assertNotIn("indented code", _without_code(block))
+        self.assertIn("after", _without_code(block))
+
+    def test_the_shipped_documents_have_no_code_to_strip(self) -> None:
+        """The stripper must be a no-op on the manifest, or it is rewriting the
+        thing it reads."""
+        body = (REPO_ROOT / AGENT_PATH).read_text(encoding="utf-8")
+        self.assertEqual(_without_code(body), body.rstrip("\n"))
 
 
 if __name__ == "__main__":

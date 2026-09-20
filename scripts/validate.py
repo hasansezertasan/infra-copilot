@@ -1795,6 +1795,40 @@ MATCHER_PIPE = "{pipe}"
 #: Placeholders a row uses to say "nothing established here". They are legible
 #: prose in the table and meaningless as values, so a shipped row may hold none.
 SENTINEL_CELLS = {"not recorded", "—", "-", ""}
+#: One `[ -n "${NAME:-}" ]` test, capturing the variable it reads.
+HOOK_ROOT_TEST = re.compile(r'\[ -n "\$\{([A-Za-z_][A-Za-z0-9_]*):-\}" \]')
+#: The host-output branch of session-start.sh: every byte fixed except the list
+#: of root variables it tests.
+#:
+#: Matched whole, for the reason HOOK_COMMAND_TEMPLATE gives about the callback
+#: command -- and reached the same way, after the same escalation. Six decoys
+#: defeated successive attempts to *locate* this branch and judge it: a
+#: commented-out copy, a copy in a discarded heredoc, a copy in a function nobody
+#: calls, that function carrying its own emission, the emission moved to the
+#: `else` arm, and an `elif` inserted so the emission sat in a third arm. Each
+#: answer modelled one more piece of shell; each left an adjacent spelling. None
+#: of them produce this text, so none of them needs a rule of its own.
+#:
+#: The variable list stays a hole rather than a constant, because hosts.md is the
+#: record and this file is not: a row must be able to rename its root, or a new
+#: host add one, by editing the script and the table together. What is pinned is
+#: the shape around them -- the tests are a flat `||` disjunction, the `then` arm
+#: is the host shape and nothing else, the `else` arm is the fallback.
+#:
+#: What the script *does* when run is not this gate's question and never was.
+#: tests/test_session_hook.py executes it under each root variable and asserts
+#: the emitted shape, which is what actually caught every one of those decoys.
+HOOK_OUTPUT_BLOCK = re.compile(
+    r'(?m)^if (?P<condition>\[ -n "\$\{[A-Za-z_][A-Za-z0-9_]*:-\}" \]'
+    r'(?: \\\n    \|\| \[ -n "\$\{[A-Za-z_][A-Za-z0-9_]*:-\}" \])*); then\n'
+    + re.escape(
+        '    printf \'{"hookSpecificOutput":{"hookEventName":"SessionStart"'
+        ',"additionalContext":"%s"}}\\n\' "$CONTEXT"\n'
+        "else\n"
+        '    printf \'{"additional_context":"%s"}\\n\' "$CONTEXT"\n'
+        "fi"
+    )
+)
 #: The rest of the callback, which is identical on every host.
 HOOK_TIMEOUT = 10
 HOOK_DESCRIPTION = 'Announce that infra-copilot is installed when the working directory looks like a managed infra repo.'
@@ -1803,42 +1837,6 @@ HOOK_DESCRIPTION = 'Announce that infra-copilot is installed when the working di
 #: A portable shell variable name. Anything else is not something `${X:-}` can
 #: expand, however consistently the record, the manifest and the script spell it.
 SHELL_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-
-
-def _disjuncts(condition: str) -> set[str] | None:
-    """The top-level `||` alternatives of a shell condition, normalised.
-
-    Split rather than searched. A recorded root has to be an alternative that can
-    satisfy the condition by itself; appearing *somewhere* in the text is not
-    that, as `{ [ -n "${VAR:-}" ] && false; }` shows -- valid shell, contains the
-    test, and can never make the branch true.
-
-    ponytail: a split on `||` with brace/paren groups rejected, not a shell
-    parser. It admits the flat disjunction the script actually uses and refuses
-    anything nested, which is the safe direction.
-
-    Rejected, not skipped. Dropping an alternative it could not model left the
-    valid roots in the returned set and the condition green, so appending an
-    unmatched `|| (` passed this gate while `sh -n` refused the file outright --
-    the announcement could never run at all. An alternative this cannot read is a
-    condition it cannot vouch for.
-    """
-    body = condition.split("if", 1)[-1]
-    if ";" in body:
-        # _output_branch already stops before the `; then`, so a remaining `;`
-        # means the condition is a command list. Its result is the last command's,
-        # not the disjunction's, which is how `... ; false` kept the recorded test
-        # as an exact member while always evaluating false.
-        return None
-    alternatives = set()
-    for part in body.split("||"):
-        part = part.strip().strip("\\").strip()
-        # Parameter expansions carry their own braces, so they are removed before
-        # looking for the grouping that would make this alternative conditional.
-        if any(ch in re.sub(r"\$\{[^}]*\}", "", part) for ch in "{}()&"):
-            return None
-        alternatives.add(part)
-    return alternatives
 
 
 def _next_heading(section: str) -> int:
@@ -1851,100 +1849,6 @@ def _next_heading(section: str) -> int:
     """
     found = re.search(r"(?m)^#{1,3} ", section)
     return -1 if found is None else found.start()
-
-
-#: The start of a heredoc, and the delimiter that ends it. `<<-` strips leading
-#: tabs from the terminator; quoting the delimiter suppresses expansion and
-#: changes nothing about where the body ends.
-HEREDOC_START = re.compile(r"<<-?\s*['\"]?([A-Za-z_]\w*)['\"]?")
-
-
-def _without_heredocs(script: str) -> str:
-    """``script`` with every heredoc body removed, line for line.
-
-    A heredoc body is data the shell hands to a command, not code it runs, so a
-    conditional written inside one is text that looks executable and is not. The
-    lines are replaced rather than deleted so that what remains still reads as
-    the script it came from.
-    """
-    kept, terminator = [], None
-    for line in script.splitlines():
-        if terminator is not None:
-            kept.append("")
-            if line.strip() == terminator:
-                terminator = None
-            continue
-        kept.append(line)
-        if found := HEREDOC_START.search(line):
-            terminator = found.group(1)
-    return "\n".join(kept)
-
-
-#: The `printf` that emits the host-specific shape. This is what the conditional
-#: is *for*, so it is what the conditional is found by.
-#:
-#: Matched as a statement, not as a word: the paragraph of comment directly above
-#: the real branch names the shape too, and anchoring on the first mention put
-#: the anchor above every candidate and failed the shipped file.
-HOOK_EMISSION = re.compile(r"(?m)^[ \t]*[^#\n]*\bprintf\b.*hookSpecificOutput")
-HOOK_OUTPUT_MARKER = "hookSpecificOutput"
-#: A line-anchored root test opening a conditional.
-HOOK_BRANCH = re.compile(r'(?m)^if \[ -n "\$')
-#: Where the `then` arm ends. Line-anchored, so a nested conditional inside the
-#: arm -- which would be indented -- does not close it early.
-HOOK_ARM_END = re.compile(r"(?m)^(?:else|fi)\b")
-
-
-def _output_branch(script: str) -> str | None:
-    """The conditional guarding session-start.sh's host-specific output.
-
-    Scoped rather than searched: a comment naming a variable satisfied a
-    whole-file test while the branch that decides the output shape never tested
-    it, so the hook ran and emitted the fallback shape. Naming is not testing --
-    the same distinction the callback check already draws between a command that
-    mentions the implementation and one that runs it.
-
-    Four decoys have now been tried against "the thing that looks like the
-    branch": a commented-out copy, a copy in a discarded heredoc, a copy inside a
-    function nobody calls, and that function carrying its own emission so that
-    anchoring on the emission found the decoy too. Each answer that picked one
-    candidate out of several left a way to supply the one it would pick --
-    whether that was the first, or would have been the last.
-
-    So nothing is selected. The script must contain exactly one root conditional
-    and exactly one emission, and the conditional must open before the emission.
-    Ambiguity is the refusal, not the input to a choice: this file already
-    reached that answer once, in _runs_implementation(), after four patches that
-    each matched one more spelling of "a shell and a path both appear somewhere".
-
-    The emission must also sit inside the `then` arm. Proving only that the
-    conditional opens first and has a `; then` somewhere in between left the sole
-    emission free to move into the `else`, which inverts the branch: the recorded
-    root set would then produce no announcement at all.
-
-    The cost is that moving this logic into a called function, or adding a second
-    host shape, makes the gate refuse rather than adapt. That is the intended
-    direction -- it fails loudly on a change to the file it gates, where a wrong
-    answer is silent and only visible to whoever notices the announcement is
-    missing.
-    """
-    script = _without_heredocs(script)
-    emissions = list(HOOK_EMISSION.finditer(script))
-    candidates = list(HOOK_BRANCH.finditer(script))
-    if len(emissions) != 1 or len(candidates) != 1:
-        return None
-    emits, opens = emissions[0].start(), candidates[0].start()
-    if opens > emits:
-        return None
-    end = script.find("; then", opens)
-    if end < 0 or end > emits:
-        return None
-    # The arm, not merely the order: `then` opens it and the first line-anchored
-    # `else`/`fi` closes it, so an emission past that point is in the other arm.
-    closes = HOOK_ARM_END.search(script, end)
-    if closes is None or emits > closes.start():
-        return None
-    return script[opens:end]
 
 
 def expected_hook_command(root_variable: str) -> str:
@@ -2108,7 +2012,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
             # operative prose said to always run inline. Stripped before the
             # heading is located too -- a heading inside a fence is not a heading,
             # and the count below should agree with what a reader sees.
-            protocol = _without_fences(protocol)
+            protocol = _without_code(protocol)
         if protocol is None or protocol.count(DELEGATION_HEADING) != 1:
             # Exactly one: the agent reads the whole document, so a second copy
             # could contradict the first while only the first was validated.
@@ -2389,18 +2293,47 @@ DELEGATION_MARKERS = (
 MARKDOWN_FENCE = re.compile(r"\A[ \t]{0,3}(`{3,}|~{3,})[ \t]*(.*?)[ \t]*\Z")
 
 
-def _without_fences(text: str) -> str:
-    """``text`` with every fenced code block removed, line for line.
+#: An indented code block's content: four spaces (or a tab) of indent. Markdown
+#: renders these as code exactly as a fence does, and the first version of
+#: _without_code() removed only fences, so the same "invalid example" worked
+#: again with the backticks taken off and the lines pushed right.
+MARKDOWN_INDENTED = re.compile(r"\A(?: {4}|\t)")
 
-    A fenced block is an *example*, not an instruction -- which is exactly why a
+
+def _without_code(text: str) -> str:
+    """``text`` with every Markdown code block removed, line for line.
+
+    A code block is an *example*, not an instruction -- which is exactly why a
     manifest whose operative body said "stop" and whose only directives sat in a
     block labelled "invalid example" satisfied both required directives while
-    routing nowhere. Blanked rather than deleted, like _without_heredocs(), so
-    what remains still sits where it sat.
+    routing nowhere. Both spellings count: a fence, and four spaces of indent.
+
+    Blanked rather than deleted, so what remains still sits where it sat.
+
+    An indented block only starts after a blank line, which is what keeps it from
+    swallowing a wrapped list item -- a continuation line is indented too, but it
+    follows the text it continues rather than a blank. Neither document this runs
+    over contains an indented block today; the rule is here because the fenced
+    one alone was a spelling, not a category.
     """
-    kept, fence = [], None
+    kept, fence, indented = [], None, False
     for line in text.splitlines():
         found = MARKDOWN_FENCE.match(line)
+        if fence is None and indented:
+            if not line.strip():
+                # A blank line neither ends the block nor is content: it is kept
+                # blank either way, and the next line decides.
+                kept.append("")
+                continue
+            if MARKDOWN_INDENTED.match(line):
+                kept.append("")
+                continue
+            indented = False
+        if fence is None and found is None and MARKDOWN_INDENTED.match(line) and line.strip():
+            if kept and not kept[-1].strip():
+                indented = True
+                kept.append("")
+                continue
         if fence is None:
             if found:
                 # The whole delimiter, not a normalised three. Keeping only the
@@ -2480,7 +2413,7 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
     # purpose: for something that must be present, a non-operative copy proves
     # nothing; for something that must be absent, a copy anywhere is still a copy
     # the agent can read, and refusing it costs this manifest nothing.
-    operative = _without_fences(body)
+    operative = _without_code(body)
     if not _positive_mentions(operative, AGENT_INVOCATION.pattern):
         # Names alone were satisfied by "Never invoke `infra-copilot` or
         # `status.md`" -- both markers present, every delegated run told not to
@@ -2568,28 +2501,21 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
             f"{HOSTS_DOCUMENT}: {row['Host']} records {recorded_root!r} as its root, "
             "which is not a shell variable name"
         ]
-    branch = _output_branch(read_document(root / HOOK_IMPLEMENTATION) or "")
-    if branch is None:
+    script = read_document(root / HOOK_IMPLEMENTATION) or ""
+    branches = list(HOOK_OUTPUT_BLOCK.finditer(script))
+    if len(branches) != 1:
         return [
-            f"{HOOK_IMPLEMENTATION}: must contain exactly one line-anchored root "
-            f"conditional and exactly one {HOOK_OUTPUT_MARKER!r} printf, in that "
-            "order. More than one of either means this gate would be choosing which "
-            "to check, and every decoy against it so far has won by supplying the "
-            "one it would choose"
+            f"{HOOK_IMPLEMENTATION}: carries the host-output branch {len(branches)} "
+            "times; exactly one is required, and every byte of it but the root "
+            "variables is fixed -- a flat `||` disjunction, then the host shape, "
+            "else the fallback shape"
         ]
-    alternatives = _disjuncts(branch)
-    if alternatives is None:
-        # A command list, not a disjunction: `... ; false` keeps the recorded
-        # test as an exact member while the last command decides the result.
+    tested = set(HOOK_ROOT_TEST.findall(branches[0].group("condition")))
+    if recorded_root not in tested:
         return [
-            f"{HOOK_IMPLEMENTATION}: its host-output conditional is not a plain "
-            "`||` disjunction, so testing the recorded root does not decide it"
-        ]
-    if f'[ -n "${{{recorded_root}:-}}" ]' not in alternatives:
-        return [
-            f"{HOOK_IMPLEMENTATION}: its host-output conditional does not test "
-            f"${{{recorded_root}:-}} on its own, which {HOSTS_DOCUMENT} records as "
-            f"{row['Host']}'s root; the hook would run and emit another host's shape"
+            f"{HOOK_IMPLEMENTATION}: does not test ${{{recorded_root}:-}}, which "
+            f"{HOSTS_DOCUMENT} records as {row['Host']}'s root; the hook would run "
+            "and emit another host's shape"
         ]
 
     # The whole manifest, rendered from the record. Every shape question the old
