@@ -210,6 +210,65 @@ for step in scope(steps.yaml):
 Never assume state from memory or a prior session — always re-check. See
 [`steps.yaml`](steps.yaml) for the runtime contract (which shell vars to export first).
 
+### Running the scan in an isolated context
+
+The scan is read-only, walks every phase, and produces a large amount of intermediate
+output — API JSON, per-step exit codes, tool versions — whose only consumer is the phase
+table and the verdict. **`status` and only `status`** may delegate it to the
+**`infra-auditor`** agent — and only when [`hosts.md`](hosts.md) records a subagent
+manifest for this host **and** the invocation tool that row records is currently declared
+and allowed.
+
+Both gates, for the same reason the question rule needs both: the record says the agent
+was shipped, never that this session can reach it. Hosts gate tools per session, so a
+`status` run where the recorded tool is denied would meet a shipped row and then fail on
+the call — replacing the scan it promised with an error. A denied tool is a fallback
+condition, not an error condition.
+
+Read the tool's name from the **Invocation tool** column, the same way the decision rule
+reads the question tool: never carry one in a skill body. A row whose invocation tool is
+`not recorded` cannot clear the availability gate at all, which is one more reason such a
+row is not shipped.
+
+What the agent returns is [`status.md`](status.md)'s report **in full**: the preflight
+line, the phase table, and the verdict. Delegation moves where the scan runs, never what
+it reports. The preflight line is the part most easily lost that way, and losing it hides
+a missing or drifted tool pin — the finding that most often explains a plan a reviewer
+cannot reproduce. What isolation removes is the intermediate output — API JSON, per-step
+exit codes — which had no other consumer anyway.
+
+Supporting subagents is not the same as having this one. Read the running host's
+subagent row in [`hosts.md`](hosts.md): delegate only where that row is marked shipped,
+and run the scan inline everywhere else. Do not carry a host name in your head for this —
+the row is the authority, and which hosts ship changes as their dialects get exercised.
+
+Where several hosts share one discovery directory, at most one of them can ship, because
+their `tools` dialects are incompatible and the others silently load nothing from it.
+Delegating on such a host would call an agent that is not there, in place of the scan the
+skill promised. Running inline is not a downgrade: the agent is an isolation boundary,
+never a second set of rules, so the inline result is the same result.
+
+`setup`, `import`, `prune`, and `add` must run their resume scan themselves, even though
+it looks like the same walk. It is not: the auditor follows [`status.md`](status.md), which
+deliberately *substitutes* for the checks that would touch the working tree — in HCP mode
+it reads the last remote run instead of running `terraform plan`, and in object-storage
+mode it reports a dirty leaf as `?`. Those substitutions are correct for a report and
+wrong for resumption, because an action skill's `plan-cloudflare` and `plan-github` checks
+are defined against the *current checkout*. Delegating would let an older committed run
+read as green, or stop at `?`, and the interrupted work would never be picked up.
+
+`prune` is in that list for a different reason, and the difference is worth stating rather
+than letting the sentence above cover it by proximity. Its resume scan is the single
+`prune-spent-imports` step — a pure git read that `status` runs directly rather than
+substituting, so nothing is lost to a substitution. What it would lose is the scan itself:
+the auditor returns [`status.md`](status.md)'s report, which answers "what is the state of
+this repository" and not "is there a spent block here to remove".
+
+Its grant carries no write or edit tool, which narrows the surface the read-only contract
+has to defend — though it does carry shell access, so the contract is still a rule and not
+a sandbox. Where no subagent surface exists, run the same scan
+inline — the agent is an isolation boundary, never a second set of rules.
+
 ### Conditional steps (`when`)
 
 A step may carry a `when` field — a shell condition that gates whether the step runs at all.

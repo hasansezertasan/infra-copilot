@@ -48,8 +48,11 @@ deliberately static: one file-existence test, no provider calls, no `git`, and i
 the skills rather than reporting any state, because state is re-derived by running each
 step check. Silence it with `INFRA_COPILOT_HOOK_DISABLE=1`.
 
-Codex, Antigravity and OpenCode wiring is not shipped yet — see
-[#42](https://github.com/hasansezertasan/infra-copilot/issues/42).
+No other host ships one. Which hosts do, the discovery path each uses, and the evidence
+behind every exclusion are recorded in
+[`hosts.md`](skills/infra-copilot/references/hosts.md), which is the single capability
+record — repeating any of it here would be a second copy that nothing keeps in step when
+a host graduates. See [#42](https://github.com/hasansezertasan/infra-copilot/issues/42).
 
 ## Configure
 
@@ -107,11 +110,13 @@ the cost of an accident — but not as a boundary.
 What does work: sandbox isolation, or — for apply specifically — **running the agent as a
 principal that lacks apply permission**. Note that is not the token `terraform login`
 mints: a user token carries its user's permissions, so this needs a separate identity that
-phase 0 does not create. A
-read-only subagent ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
-narrows the surface but cannot enforce change-nothing: the scan runs manifest-defined
-shell checks, so
-it needs `Bash`, and `Bash` writes files.
+phase 0 does not create. Where
+[`hosts.md`](skills/infra-copilot/references/hosts.md) marks the subagent row shipped, the
+`infra-auditor` subagent runs the scan in an isolated context and its grant carries no
+`Edit` or `Write`; everywhere else the scan runs inline with the session's own tools. Even
+where it ships, that does not enforce change-nothing: the scan runs manifest-defined shell
+checks, so it needs `Bash`, and `Bash` writes files. It is a context boundary and a
+narrowed surface, not a sandbox.
 
 The document also states which secrets never reach the agent and which one does.
 

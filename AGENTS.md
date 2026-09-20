@@ -34,7 +34,8 @@ file is safe to edit. The manifest is the authority; the header is only a conven
 | Antigravity manifest | `plugin.json` | hand-authored — edit directly |
 | Codex marketplace | `.agents/plugins/marketplace.json` | hand-authored — edit directly |
 | Repository validators | `scripts/validate.py`, `tests/` | `make check` |
-| The SessionStart hook | `hooks/session-start.sh`, `hooks/hooks.json` | hand-authored — `ai-rulez` has no hook support |
+| The SessionStart hook | `hooks/session-start.sh`, `hooks/hooks.json` (Claude only) | hand-authored — `ai-rulez` has no hook support |
+| The `infra-auditor` subagent | `agents/` (root, Claude dialect) | hand-authored — `ai-rulez` has no agent support |
 | Tool pins | `package.json` + `package-lock.json`; a *new* tool also needs `TOOL_PACKAGES`. Never write `<tool>@<version>` in a `Makefile` or workflow, comments included | `make check` |
 
 ## Rule 2: run `make check`

@@ -47,17 +47,26 @@ oversight. Each item links to the issue that owns it.
   a **separate lower-privilege HCP principal** — not a scope removed from the user token
   `terraform login` mints, which has none ([#52](https://github.com/hasansezertasan/infra-copilot/issues/52)).
   Per-plugin restriction on Codex and Antigravity is separately unverified.
-- **`status`'s read-only promise is unenforced, and a subagent will not fix that.** The
+- **`status`'s read-only promise is unenforced, and the subagent did not fix that.** The
   scan runs manifest-defined shell checks, so it needs `Bash`, and `Bash` writes files — removing
   `Edit`/`Write` narrows the surface without creating a boundary, and removing `Bash`
-  stops the scan working. Worth building for context isolation (#19); only a sandboxed
-  command runner would enforce the promise.
+  stops the scan working. `infra-auditor` shipped for the context isolation (#19); only a
+  sandboxed command runner would enforce the promise.
   ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
-- **The SessionStart hook is Claude-only.** It ships and is auto-discovered there (#18),
-  but Codex, Antigravity and OpenCode wiring is unverified and not shipped.
+- **The SessionStart hook is still Claude-only.** It ships and is auto-discovered there
+  (#18). Which hosts ship one, the discovery path each uses, and the evidence behind
+  every exclusion are recorded in
+  [`hosts.md`](../skills/infra-copilot/references/hosts.md) — repeating them here would
+  be a second copy that nothing keeps in step when a host graduates. A test fails if a
+  manifest appears at a path no row marks shipped.
   ([#42](https://github.com/hasansezertasan/infra-copilot/issues/42))
-- **No subagents.** The read-only, context-heavy `status` scan runs in the main context.
-  ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
+- **The subagent does not ship everywhere.** `infra-auditor` runs the scan in an
+  isolated context. Which hosts ship it, the discovery path each uses, the `tools`
+  dialect each needs, and the evidence behind every exclusion are recorded in
+  [`hosts.md`](../skills/infra-copilot/references/hosts.md) — repeating them here would
+  be a second copy that nothing keeps in step when a host graduates. Its read-only
+  promise is still unenforced for the reason above — it is context isolation, not a
+  sandbox. ([#19](https://github.com/hasansezertasan/infra-copilot/issues/19))
 - **Host capability records are hand-maintained and unverifiable.** `hosts.md` states each
   host's native question tool and its modes and choice counts, and the protocol's
   *Asking a decision* rule reads it. Nothing can prove a row is true: no host publishes a
@@ -69,6 +78,7 @@ oversight. Each item links to the issue that owns it.
   installs one skill and its closure there. The other three hosts install the whole
   plugin because their native mechanisms offer no per-skill selection; a repo-specific
   installer that added one is explicitly not planned.
+
   ([#20](https://github.com/hasansezertasan/infra-copilot/issues/20))
 
 ## Not planned
