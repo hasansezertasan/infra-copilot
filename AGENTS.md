@@ -76,3 +76,20 @@ assumed: every run re-derives it by executing each step's `check`.
 
 See [`CONTRIBUTING.md`](.github/CONTRIBUTING.md) for the full loop and
 [`docs/roadmap.md`](docs/roadmap.md) for what is deliberately unbuilt.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues in `hasansezertasan/infra-copilot`, driven with the `gh` CLI.
+See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
+
+### Triage labels
+
+The five canonical triage roles, each label string equal to its name. See
+[`docs/agents/triage-labels.md`](docs/agents/triage-labels.md).
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root, both created lazily.
+See [`docs/agents/domain.md`](docs/agents/domain.md).
