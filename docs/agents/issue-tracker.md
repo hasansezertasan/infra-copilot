@@ -52,9 +52,9 @@ equivalents:
   Keep only `CONTRIBUTOR`, `FIRST_TIMER`, `FIRST_TIME_CONTRIBUTOR`, or `NONE` (drop
   `OWNER`/`MEMBER`/`COLLABORATOR`). `gh pr list` does not expose `authorAssociation`.
 
-- **Comment / label / close**: `gh pr comment --repo hasansezertasan/infra-copilot`,
-  `gh pr edit --repo hasansezertasan/infra-copilot --add-label`/`--remove-label`,
-  `gh pr close --repo hasansezertasan/infra-copilot`.
+- **Comment / label / close**: `gh pr comment <number> --repo hasansezertasan/infra-copilot --body "..."`,
+  `gh pr edit <number> --repo hasansezertasan/infra-copilot --add-label "..."`/
+  `--remove-label "..."`, `gh pr close <number> --repo hasansezertasan/infra-copilot`.
 
 GitHub shares one number space across issues and PRs, so a bare `#42` may be either:
 resolve with `gh pr view 42 --repo hasansezertasan/infra-copilot` and fall back to
@@ -97,10 +97,10 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: retrieve the map's `subIssues` first (or parse its task list where
   sub-issues are unavailable), preserving map order. Inspect only those open child numbers
   with `gh issue view <child> --repo hasansezertasan/infra-copilot \
-  --json number,body,assignees,blockedBy`; drop a child with an assignee, any `blockedBy`
-  item whose state is `OPEN`, or an open issue referenced by its fallback `Blocked by:` body
-  line. First remaining child in map order wins. Do not use an unscoped `gh issue list`: it
-  can include unrelated issues and defaults to 30 results.
+  --json number,state,body,assignees,blockedBy`; drop a closed child; a child with an
+  assignee; any `blockedBy` item whose state is `OPEN`; or an open issue referenced by its
+  fallback `Blocked by:` body line. First remaining child in map order wins. Do not use an
+  unscoped `gh issue list`: it can include unrelated issues and defaults to 30 results.
 - **Claim**. The session's first write, followed immediately by a reread of `assignees`:
 
   ```sh
