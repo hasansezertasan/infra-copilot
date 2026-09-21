@@ -119,8 +119,10 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   when an explicit stale-claim check permits same-user resume; see Claim. First remaining child in
   map order wins. Do not use an unscoped `gh issue list`: it can include unrelated issues and
   defaults to 30 results.
-- **Claim**. First read `assignees` and proceed only when it is empty. Then make the session's
-  first write and post the initial session marker:
+- **Claim**. First read `assignees`. An empty assignment starts a fresh claim; a sole assignment
+  to the current GitHub user proceeds through the stale-claim check below and may be resumed
+  only if that check permits it. All other assignments are ineligible. For a fresh claim, make
+  the session's first write and post the initial session marker:
 
   ```sh
   gh issue edit <n> --repo hasansezertasan/infra-copilot --add-assignee @me
@@ -131,7 +133,8 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   Immediately reread the ticket's state, blockers, and `assignees`, and re-fetch the map's
   `subIssues` (or task list) to revalidate map membership. If it is no longer eligible
   (e.g. removed from the map, closed, or blocked), or if any other assignee appears after the write,
-  remove only the session's assignment and stop; do not infer that the other assignee follows this protocol.
+  remove only the session's assignment and stop; do not infer that the other assignee follows this
+  protocol.
 
   To arbitrate simultaneous claims from the same GitHub user, wait 5 seconds for convergence and
   reread comments. Arbitrate only claim markers posted during this acquisition window (i.e. ignore
@@ -164,13 +167,17 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   - **Exclusive takeover**: When resuming, post an append-only takeover comment:
     `Wayfinder takeover: <new-session-id> at <ISO-8601>`.
     Wait 5 seconds for convergence and reread all comments posted after the expired lease marker.
-    Arbitrate only takeover markers belonging to this current acquisition window. If renewed
+    Arbitrate only takeover markers belonging to this current acquisition window. Treat only the
+    deterministic winner of that arbitration as a valid takeover for subsequent fencing; losing
+    takeover markers remain historical evidence and must not fence the winner. If renewed
     activity from the original lease holder appears (a newer claim or heartbeat), or if a competing
     takeover comment exists with an earlier `createdAt` (broken by lexicographically lower
     `session-id`), this session has lost: stop without removing the shared assignment. Do not yield
     to newer competing takeover comments in the window; arbitrate competing takeovers solely by the
-    earlier-timestamp tie-break. Only the winning session proceeds. Without proof that the prior
-    lease is stale, leave the ticket for explicit human coordination.
+    earlier-timestamp tie-break. Only the winning session proceeds. The winner must then rerun the
+    full frontier gate: reread state, blockers, assignees, and map membership, and stop without
+    starting work if any eligibility condition has changed. Without proof that the prior lease is
+    stale, leave the ticket for explicit human coordination.
 
 - **Resolve**. Comment on the child, then add its context pointer (gist + link) as an append-only
   comment on the map before closing the child. The map's Decisions-so-far is read together with
