@@ -154,9 +154,18 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   - The repository lease interval is **60 minutes**.
   - Staleness checks MUST compare the GitHub comment `createdAt` timestamp (not the caller
     timestamp in the body) against the lease interval.
-  - Only comments authored by the assigned GitHub user (`author.login == assigned_user`) and posted
-    during the current uninterrupted assignment window (after the issue was most recently assigned)
-    count as valid claims, heartbeats, or takeovers.
+  - Before applying that scope, retrieve the complete assignment history and identify the latest
+    assignment event. Use the paginated timeline API, fail closed if it cannot be read completely,
+    and inspect only `assigned` events:
+
+     ```sh
+     gh api --paginate repos/hasansezertasan/infra-copilot/issues/<n>/timeline \
+       -H 'Accept: application/vnd.github+json' \
+       --jq '.[] | select(.event == "assigned") | {created_at,actor,assignee}'
+     ```
+
+     Only comments authored by the assigned GitHub user (`author.login == assigned_user`) and posted
+     after the latest assignment event count as valid claims, heartbeats, or takeovers.
   - A session may resume a sole assignment to its own GitHub user only if the assigned user's
     latest valid claim, heartbeat, or takeover comment in the current assignment window has a
     `createdAt` older than 60 minutes. If the current assignment window has no valid marker (e.g.
@@ -177,9 +186,12 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
     earlier-timestamp tie-break. Only the winning session proceeds. The winner must then rerun the
     full frontier gate: reread state, blockers, assignees, and map membership, and stop without
     starting work if any eligibility condition has changed. Without proof that the prior lease is
-    stale, leave the ticket for explicit human coordination.
+     stale, leave the ticket for explicit human coordination.
 
-- **Resolve**. Comment on the child, then add its context pointer (gist + link) as an append-only
+- **Resolve**. Before resolving, reread the full frontier gate and comments. If the latest valid
+  marker is expired, renew ownership by appending a heartbeat, wait 5 seconds, reread comments,
+  and rerun the full frontier gate; stop if another takeover wins or any gate changes. Only then
+  comment on the child, add its context pointer (gist + link) as an append-only
   comment on the map before closing the child. The map's Decisions-so-far is read together with
   these `Context pointer:` comments. This avoids concurrent full-body edits that can overwrite a
   pointer. Verify the new map comment exists before closing:
