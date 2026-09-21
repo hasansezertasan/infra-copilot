@@ -128,9 +128,10 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
     --body "Wayfinder claim: <session-id> at <ISO-8601>"
   ```
 
-  Immediately reread the ticket's state, blockers, and `assignees`. If it is no longer eligible
-  (e.g. closed or blocked), or if any other assignee appears after the write, remove only
-  the session's assignment and stop; do not infer that the other assignee follows this protocol.
+  Immediately reread the ticket's state, blockers, and `assignees`, and re-fetch the map's
+  `subIssues` (or task list) to revalidate map membership. If it is no longer eligible
+  (e.g. removed from the map, closed, or blocked), or if any other assignee appears after the write,
+  remove only the session's assignment and stop; do not infer that the other assignee follows this protocol.
 
   To arbitrate simultaneous claims from the same GitHub user, wait 5 seconds for convergence and
   reread comments. Arbitrate only claim markers posted during this acquisition window (i.e. ignore
@@ -150,23 +151,26 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   - The repository lease interval is **60 minutes**.
   - Staleness checks MUST compare the GitHub comment `createdAt` timestamp (not the caller
     timestamp in the body) against the lease interval.
-  - Only comments authored by the assigned GitHub user (`author.login == assigned_user`) count
-    as valid claims, heartbeats, or takeovers.
+  - Only comments authored by the assigned GitHub user (`author.login == assigned_user`) and posted
+    during the current uninterrupted assignment window (after the issue was most recently assigned)
+    count as valid claims, heartbeats, or takeovers.
   - A session may resume a sole assignment to its own GitHub user only if the assigned user's
-    latest claim, heartbeat, or takeover comment has a `createdAt` older than 60 minutes.
-    If the issue has no valid claim, heartbeat, or takeover comment (e.g. an earlier session
-    crashed before posting its claim marker), evaluate staleness against the issue's `updatedAt`
-    timestamp; if `updatedAt` is older than 60 minutes, the orphaned assignment is stale and
-    resumable. Assignments to any other user remain ineligible and require explicit human
-    coordination.
+    latest valid claim, heartbeat, or takeover comment in the current assignment window has a
+    `createdAt` older than 60 minutes. If the current assignment window has no valid marker (e.g.
+    an earlier session crashed before posting its claim marker), evaluate staleness against the
+    issue's `updatedAt` timestamp; if `updatedAt` is older than 60 minutes, the orphaned assignment
+    is stale and resumable. Assignments to any other user remain ineligible and require explicit
+    human coordination.
   - **Exclusive takeover**: When resuming, post an append-only takeover comment:
     `Wayfinder takeover: <new-session-id> at <ISO-8601>`.
     Wait 5 seconds for convergence and reread all comments posted after the expired lease marker.
-    Arbitrate only takeover markers belonging to this current acquisition window. If a newer
-    claim, heartbeat, or valid takeover appears, or if another takeover comment exists with an
-    earlier `createdAt` (broken by lexicographically lower `session-id`), this session has lost:
-    stop without removing the shared assignment. Only the winning session proceeds. Without
-    proof that the prior lease is stale, leave the ticket for explicit human coordination.
+    Arbitrate only takeover markers belonging to this current acquisition window. If renewed
+    activity from the original lease holder appears (a newer claim or heartbeat), or if a competing
+    takeover comment exists with an earlier `createdAt` (broken by lexicographically lower
+    `session-id`), this session has lost: stop without removing the shared assignment. Do not yield
+    to newer competing takeover comments in the window; arbitrate competing takeovers solely by the
+    earlier-timestamp tie-break. Only the winning session proceeds. Without proof that the prior
+    lease is stale, leave the ticket for explicit human coordination.
 
 - **Resolve**. Comment on the child, then add its context pointer (gist + link) as an append-only
   comment on the map before closing the child. The map's Decisions-so-far is read together with
