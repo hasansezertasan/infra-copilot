@@ -24,7 +24,8 @@ tracker by accident.
 
   Do not request `comments` in `gh issue list`: GitHub CLI truncates nested comments to the
   oldest 100 without pagination. For candidate issues requiring comment inspection, read
-  complete comment histories individually via `gh issue view <number> --json comments`.
+  complete comment histories individually via
+  `gh issue view <number> --repo hasansezertasan/infra-copilot --json comments`.
 
 - **Comment on an issue**: `gh issue comment <number> --repo hasansezertasan/infra-copilot --body "..."`
 - **Apply / remove labels**:
@@ -55,7 +56,8 @@ equivalents:
   `gh api repos/hasansezertasan/infra-copilot/pulls/<number> --jq .author_association`.
   Keep only `CONTRIBUTOR`, `FIRST_TIMER`, `FIRST_TIME_CONTRIBUTOR`, or `NONE` (drop
   `OWNER`/`MEMBER`/`COLLABORATOR`). `gh pr list` does not expose `authorAssociation`.
-  Inspect complete comment histories individually via `gh pr view <number> --comments`.
+  Inspect complete comment histories individually via
+  `gh pr view <number> --repo hasansezertasan/infra-copilot --comments`.
 
 - **Comment / label / close**: `gh pr comment <number> --repo hasansezertasan/infra-copilot --body "..."`,
   `gh pr edit <number> --repo hasansezertasan/infra-copilot --add-label "..."`/
@@ -118,20 +120,26 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   map order wins. Do not use an unscoped `gh issue list`: it can include unrelated issues and
   defaults to 30 results.
 - **Claim**. First read `assignees` and proceed only when it is empty. Then make the session's
-  first write and immediately reread `assignees`:
+  first write and post the initial session marker:
 
   ```sh
   gh issue edit <n> --repo hasansezertasan/infra-copilot --add-assignee @me
+  gh issue comment <n> --repo hasansezertasan/infra-copilot \
+    --body "Wayfinder claim: <session-id> at <ISO-8601>"
   ```
 
-  If any other assignee appears after the write, remove only the session's assignment and stop;
-  do not infer that the other assignee follows this protocol. This protocol deliberately does not
-  support concurrent claims without an atomic reservation or explicit participation marker.
+  Immediately reread `assignees`: if any other assignee appears after the write, remove only
+  the session's assignment and stop; do not infer that the other assignee follows this protocol.
 
-  Record an append-only `Wayfinder claim: <session-id> at <ISO-8601>` comment after claiming.
+  To arbitrate simultaneous claims from the same GitHub user, wait 5 seconds for convergence and
+  reread comments. If another claim comment exists with an earlier `createdAt` (broken by
+  lexicographically lower `session-id`), this session has lost: stop without removing the shared
+  assignment. Only the winning session proceeds.
+
   While working, refresh the claim by appending a new
-  `Wayfinder heartbeat: <session-id> at <ISO-8601>` comment. Implementations must append new
-  heartbeat comments and never edit prior claim or heartbeat comments.
+  `Wayfinder heartbeat: <session-id> at <ISO-8601>` comment. For work lasting longer than 60
+  minutes, implementations must post heartbeats at a cadence strictly shorter than the lease
+  interval (at least every 30 minutes). Never edit prior claim, heartbeat, or takeover comments.
 
   **Stale-claim check and same-user takeover**:
   - The repository lease interval is **60 minutes**.
@@ -140,15 +148,20 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   - Only comments authored by the assigned GitHub user (`author.login == assigned_user`) count
     as valid claims, heartbeats, or takeovers.
   - A session may resume a sole assignment to its own GitHub user only if the assigned user's
-    latest claim or heartbeat comment has a `createdAt` older than 60 minutes. Assignments
-    to any other user remain ineligible and require explicit human coordination.
+    latest claim, heartbeat, or takeover comment has a `createdAt` older than 60 minutes.
+    If the issue has no valid claim, heartbeat, or takeover comment (e.g. an earlier session
+    crashed before posting its claim marker), evaluate staleness against the issue's `updatedAt`
+    timestamp; if `updatedAt` is older than 60 minutes, the orphaned assignment is stale and
+    resumable. Assignments to any other user remain ineligible and require explicit human
+    coordination.
   - **Exclusive takeover**: When resuming, post an append-only takeover comment:
     `Wayfinder takeover: <new-session-id> at <ISO-8601>`.
-    Wait 5 seconds for convergence and reread all comments posted after the stale heartbeat.
-    If a newer claim or heartbeat appears, or if another takeover comment exists with an earlier
-    `createdAt` (broken by lexicographically lower `session-id`), this session has lost: remove
-    the assignment and stop. Only the winning session proceeds. Without proof that the prior
-    claim is stale, leave the ticket for explicit human coordination.
+    Wait 5 seconds for convergence and reread all comments posted after the expired lease marker.
+    Arbitrate only takeover markers belonging to this current acquisition window. If a newer
+    claim, heartbeat, or valid takeover appears, or if another takeover comment exists with an
+    earlier `createdAt` (broken by lexicographically lower `session-id`), this session has lost:
+    stop without removing the shared assignment. Only the winning session proceeds. Without
+    proof that the prior lease is stale, leave the ticket for explicit human coordination.
 
 - **Resolve**. Comment on the child, then add its context pointer (gist + link) as an append-only
   comment on the map before closing the child. The map's Decisions-so-far is read together with
