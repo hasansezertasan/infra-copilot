@@ -128,18 +128,23 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
     --body "Wayfinder claim: <session-id> at <ISO-8601>"
   ```
 
-  Immediately reread `assignees`: if any other assignee appears after the write, remove only
+  Immediately reread the ticket's state, blockers, and `assignees`. If it is no longer eligible
+  (e.g. closed or blocked), or if any other assignee appears after the write, remove only
   the session's assignment and stop; do not infer that the other assignee follows this protocol.
 
   To arbitrate simultaneous claims from the same GitHub user, wait 5 seconds for convergence and
-  reread comments. If another claim comment exists with an earlier `createdAt` (broken by
-  lexicographically lower `session-id`), this session has lost: stop without removing the shared
-  assignment. Only the winning session proceeds.
+  reread comments. Arbitrate only claim markers posted during this acquisition window (i.e. ignore
+  markers older than the moment the child became unassigned). If a competing claim comment in this
+  window has an earlier `createdAt` (broken by lexicographically lower `session-id`), this session
+  has lost: stop without removing the shared assignment. Only the winning session proceeds.
 
   While working, refresh the claim by appending a new
   `Wayfinder heartbeat: <session-id> at <ISO-8601>` comment. For work lasting longer than 60
   minutes, implementations must post heartbeats at a cadence strictly shorter than the lease
-  interval (at least every 30 minutes). Never edit prior claim, heartbeat, or takeover comments.
+  interval (at least every 30 minutes). Before posting a heartbeat or resolving the ticket, re-read
+  the comments to ensure no other session has taken over; if a valid takeover from another
+  `session-id` exists, this session is fenced out and must stop immediately. Never edit prior claim,
+  heartbeat, or takeover comments.
 
   **Stale-claim check and same-user takeover**:
   - The repository lease interval is **60 minutes**.
