@@ -18,9 +18,13 @@ tracker by accident.
 
   ```sh
   gh issue list --repo hasansezertasan/infra-copilot --state open --limit 1000 \
-    --json number,title,body,labels,comments \
-    --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'
+    --json number,title,body,labels \
+    --jq '[.[] | {number, title, body, labels: [.labels[].name]}]'
   ```
+
+  Do not request `comments` in `gh issue list`: GitHub CLI truncates nested comments to the
+  oldest 100 without pagination. For candidate issues requiring comment inspection, read
+  complete comment histories individually via `gh issue view <number> --json comments`.
 
 - **Comment on an issue**: `gh issue comment <number> --repo hasansezertasan/infra-copilot --body "..."`
 - **Apply / remove labels**:
@@ -44,13 +48,14 @@ equivalents:
 
   ```sh
   gh pr list --repo hasansezertasan/infra-copilot --state open --limit 1000 \
-    --json number,title,body,labels,author,comments
+    --json number,title,body,labels,author
   ```
 
   For each candidate, retrieve its association with
   `gh api repos/hasansezertasan/infra-copilot/pulls/<number> --jq .author_association`.
   Keep only `CONTRIBUTOR`, `FIRST_TIMER`, `FIRST_TIME_CONTRIBUTOR`, or `NONE` (drop
   `OWNER`/`MEMBER`/`COLLABORATOR`). `gh pr list` does not expose `authorAssociation`.
+  Inspect complete comment histories individually via `gh pr view <number> --comments`.
 
 - **Comment / label / close**: `gh pr comment <number> --repo hasansezertasan/infra-copilot --body "..."`,
   `gh pr edit <number> --repo hasansezertasan/infra-copilot --add-label "..."`/
@@ -107,9 +112,11 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   open child numbers with `gh issue view <child> --repo hasansezertasan/infra-copilot \
   --json number,state,body,assignees,blockedBy`; drop a closed child; any `blockedBy` item whose
   state is `OPEN`; or an open issue referenced by its fallback `Blocked by:` body line. An
-  unassigned child is eligible. A child assigned to anyone is not eligible unless an explicit
-  stale-claim check permits takeover; see Claim. First remaining child in map order wins. Do not
-  use an unscoped `gh issue list`: it can include unrelated issues and defaults to 30 results.
+  unassigned child is eligible. A child assigned to another user is not eligible and requires
+  explicit human coordination. A child assigned solely to the current GitHub user is eligible only
+  when an explicit stale-claim check permits same-user resume; see Claim. First remaining child in
+  map order wins. Do not use an unscoped `gh issue list`: it can include unrelated issues and
+  defaults to 30 results.
 - **Claim**. First read `assignees` and proceed only when it is empty. Then make the session's
   first write and immediately reread `assignees`:
 
@@ -121,12 +128,27 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   do not infer that the other assignee follows this protocol. This protocol deliberately does not
   support concurrent claims without an atomic reservation or explicit participation marker.
 
-  Record an append-only `Wayfinder claim: <session-id> at <ISO-8601>` comment after claiming and
-  refresh it while working. A session may resume a sole assignment to its own GitHub user only
-  after the last claim/heartbeat is older than the agreed lease interval. It must post a
-  `Wayfinder takeover: <new-session-id> at <ISO-8601>` comment and reread the claim history; if a
-  newer claim or heartbeat appears, it must stop. Without proof that the prior claim is stale,
-  leave the ticket for explicit human coordination.
+  Record an append-only `Wayfinder claim: <session-id> at <ISO-8601>` comment after claiming.
+  While working, refresh the claim by appending a new
+  `Wayfinder heartbeat: <session-id> at <ISO-8601>` comment. Implementations must append new
+  heartbeat comments and never edit prior claim or heartbeat comments.
+
+  **Stale-claim check and same-user takeover**:
+  - The repository lease interval is **60 minutes**.
+  - Staleness checks MUST compare the GitHub comment `createdAt` timestamp (not the caller
+    timestamp in the body) against the lease interval.
+  - Only comments authored by the assigned GitHub user (`author.login == assigned_user`) count
+    as valid claims, heartbeats, or takeovers.
+  - A session may resume a sole assignment to its own GitHub user only if the assigned user's
+    latest claim or heartbeat comment has a `createdAt` older than 60 minutes. Assignments
+    to any other user remain ineligible and require explicit human coordination.
+  - **Exclusive takeover**: When resuming, post an append-only takeover comment:
+    `Wayfinder takeover: <new-session-id> at <ISO-8601>`.
+    Wait 5 seconds for convergence and reread all comments posted after the stale heartbeat.
+    If a newer claim or heartbeat appears, or if another takeover comment exists with an earlier
+    `createdAt` (broken by lexicographically lower `session-id`), this session has lost: remove
+    the assignment and stop. Only the winning session proceeds. Without proof that the prior
+    claim is stale, leave the ticket for explicit human coordination.
 
 - **Resolve**. Comment on the child, then add its context pointer (gist + link) as an append-only
   comment on the map before closing the child. The map's Decisions-so-far is read together with
