@@ -107,10 +107,9 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   open child numbers with `gh issue view <child> --repo hasansezertasan/infra-copilot \
   --json number,state,body,assignees,blockedBy`; drop a closed child; any `blockedBy` item whose
   state is `OPEN`; or an open issue referenced by its fallback `Blocked by:` body line. An
-  unassigned child is eligible. A child assigned solely to the current GitHub user is resumable
-  after the same gates are reread; a child assigned to anyone else is not eligible. First
-  remaining child in map order wins. Do not use an unscoped `gh issue list`: it can include
-  unrelated issues and defaults to 30 results.
+  unassigned child is eligible. A child assigned to anyone is not eligible unless an explicit
+  stale-claim check permits takeover; see Claim. First remaining child in map order wins. Do not
+  use an unscoped `gh issue list`: it can include unrelated issues and defaults to 30 results.
 - **Claim**. First read `assignees` and proceed only when it is empty. Then make the session's
   first write and immediately reread `assignees`:
 
@@ -121,6 +120,13 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   If any other assignee appears after the write, remove only the session's assignment and stop;
   do not infer that the other assignee follows this protocol. This protocol deliberately does not
   support concurrent claims without an atomic reservation or explicit participation marker.
+
+  Record an append-only `Wayfinder claim: <session-id> at <ISO-8601>` comment after claiming and
+  refresh it while working. A session may resume a sole assignment to its own GitHub user only
+  after the last claim/heartbeat is older than the agreed lease interval. It must post a
+  `Wayfinder takeover: <new-session-id> at <ISO-8601>` comment and reread the claim history; if a
+  newer claim or heartbeat appears, it must stop. Without proof that the prior claim is stale,
+  leave the ticket for explicit human coordination.
 
 - **Resolve**. Comment on the child, then add its context pointer (gist + link) as an append-only
   comment on the map before closing the child. The map's Decisions-so-far is read together with
