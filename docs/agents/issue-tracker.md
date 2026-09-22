@@ -183,14 +183,18 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
     takeover comment exists with an earlier `createdAt` (broken by lexicographically lower
     `session-id`), this session has lost: stop without removing the shared assignment. Do not yield
     to newer competing takeover comments in the window; arbitrate competing takeovers solely by the
-    earlier-timestamp tie-break. Only the winning session proceeds. The winner must then rerun the
-    full frontier gate: reread state, blockers, assignees, and map membership, and stop without
-    starting work if any eligibility condition has changed. Without proof that the prior lease is
-     stale, leave the ticket for explicit human coordination.
+    earlier-timestamp tie-break. Only the winning session proceeds. The winner must then rerun an
+    owner-aware frontier gate: reread state, blockers, assignees, and map membership; accept the
+    current session's own winning takeover marker and sole assignment as ownership; and stop
+    without starting work if the ticket is closed or blocked, another assignee appears, or map
+    membership changes. Without proof that the prior lease is stale, leave the ticket for explicit
+    human coordination.
 
-- **Resolve**. Before resolving, reread the full frontier gate and comments. If the latest valid
+- **Resolve**. Before resolving, reread the owner-aware frontier gate and comments. The current
+  session's own valid marker and sole assignment satisfy the ownership check; if ownership is not
+  current, stop. If the latest valid
   marker is expired, renew ownership by appending a heartbeat, wait 5 seconds, reread comments,
-  and rerun the full frontier gate; stop if another takeover wins or any gate changes. Only then
+  and rerun the owner-aware frontier gate; stop if another takeover wins or any gate changes. Only then
   comment on the child, add its context pointer (gist + link) as an append-only
   comment on the map before closing the child. The map's Decisions-so-far is read together with
   these `Context pointer:` comments. This avoids concurrent full-body edits that can overwrite a
