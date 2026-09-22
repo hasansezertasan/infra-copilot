@@ -136,19 +136,21 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   remove only the session's assignment and stop; do not infer that the other assignee follows this
   protocol.
 
-  To arbitrate simultaneous claims from the same GitHub user, wait 5 seconds for convergence and
-  reread comments. Arbitrate only claim markers posted during this acquisition window (i.e. ignore
-  markers older than the moment the child became unassigned). If a competing claim comment in this
-  window has an earlier `createdAt` (broken by lexicographically lower `session-id`), this session
-  has lost: stop without removing the shared assignment. Only the winning session proceeds.
+   To arbitrate simultaneous claims from the same GitHub user, wait 5 seconds for convergence and
+   reread comments. Arbitrate only claim markers posted during this acquisition window (i.e. ignore
+   markers older than the moment the child became unassigned). If a competing claim comment in this
+   window has an earlier `createdAt` (broken by lexicographically lower `session-id`), this session
+   has lost: stop without removing the shared assignment. Only the winning session proceeds. The
+   winner must then rerun the owner-aware frontier gate before starting work.
 
-  While working, refresh the claim by appending a new
-  `Wayfinder heartbeat: <session-id> at <ISO-8601>` comment. For work lasting longer than 60
-  minutes, implementations must post heartbeats at a cadence strictly shorter than the lease
-  interval (at least every 30 minutes). Before posting a heartbeat or resolving the ticket, re-read
-  the comments to ensure no other session has taken over; if a valid takeover from another
-  `session-id` exists, this session is fenced out and must stop immediately. Never edit prior claim,
-  heartbeat, or takeover comments.
+   While working, refresh the claim by appending a new
+   `Wayfinder heartbeat: <session-id> at <ISO-8601>` comment. For work lasting longer than 60
+   minutes, implementations must post heartbeats at a cadence strictly shorter than the lease
+   interval (at least every 30 minutes). Before posting a heartbeat, rerun the owner-aware frontier
+   gate and re-read the comments; the current session's own valid marker and sole assignment must
+   still establish ownership. If another session's claim or takeover is now current, or any gate
+   changes, stop immediately. Before resolving, use the separate ownership renewal and convergence
+   procedure below. Never edit prior claim, heartbeat, or takeover comments.
 
   **Stale-claim check and same-user takeover**:
   - The repository lease interval is **60 minutes**.
