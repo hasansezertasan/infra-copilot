@@ -2,6 +2,15 @@
 
 ## 0.2.0 (unreleased)
 
+- `references/gcp.md` is now a runbook rather than a template: the Workload Identity
+  Federation setup is complete (trust scoped to one HCP organization and workspace, the
+  `TFC_GCP_*` variable inventory, no `credentials` argument for a single configuration),
+  and it documents the adoption hazards found on a real keyless adoption —
+  `disable_on_destroy`, authoritative IAM resources, the self-managing identity, the
+  project-wide effective ceiling, and Google-managed resources to exclude.
+  `references/migration.md` fixes the `google_storage_bucket` import ID, tabulates GCP
+  import IDs, and adds the `-generate-config-out` failure modes and a verification
+  checklist.
 - Skills split by function into five routers over a shared core:
   - `setup` (`/infra-setup`) — greenfield bootstrap, phases 0-4.
   - `import` (`/infra-import`) — adopt existing provider resources without recreating, phase 5.

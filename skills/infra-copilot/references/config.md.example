@@ -38,6 +38,15 @@ additional_providers: []
 #       - key: TFC_GCP_PROVIDER_AUTH
 #         category: env
 #         sensitive: false
+#       - key: TFC_GCP_PRINCIPAL_TYPE
+#         category: env
+#         sensitive: false
+#       - key: TFC_GCP_RUN_SERVICE_ACCOUNT_EMAIL
+#         category: env
+#         sensitive: false
+#       - key: TFC_GCP_WORKLOAD_PROVIDER_NAME
+#         category: env
+#         sensitive: false
 #
 # Object-storage mode example:
 # additional_providers:
