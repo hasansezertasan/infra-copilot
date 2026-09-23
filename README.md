@@ -174,8 +174,9 @@ narrowing down a failure.
 `make check-upstream` is separate because it reads the network. The shipped references
 cite external facts whose currency matters — a `cf-terraforming` coverage matrix, two
 provider majors, an action pinned by SHA in shipped CI — and it compares each against the
-current upstream release. It runs nightly rather than on pull requests, so a rate limit
-can never fail a PR. The audited facts and what each one affects live in
+current upstream release. It also checks every HCP API path the guidance calls against
+the OpenAPI spec HashiCorp ships in `go-tfe`. It runs nightly rather than on pull
+requests, so a rate limit can never fail a PR. The audited facts and what each one affects live in
 [`scripts/upstream.json`](scripts/upstream.json); `make check` verifies offline that the
 docs still cite them.
 

@@ -3,7 +3,8 @@
 The freshness half is deliberately untested here: it reads the network, and a
 test that depends on today's upstream release would fail on the day someone
 cuts one. Its behaviour is pinned by keeping it separate from coherence — an
-unreadable source cannot be reported as drift.
+unreadable source cannot be reported as drift. The API path comparison is
+tested against a hand-written spec instead, for the same reason.
 """
 
 from __future__ import annotations
@@ -14,11 +15,17 @@ import unittest
 from pathlib import Path
 
 from scripts.check_upstream import (
+    check_api_path_coherence,
+    check_api_paths,
     check_coherence,
     check_linkage,
+    cited_api_paths,
     cited_strings,
+    load_api_paths,
     load_entries,
     occurrences,
+    path_shape,
+    shape_matches,
 )
 
 
@@ -218,6 +225,111 @@ class CoherenceTests(unittest.TestCase):
             entries = load_entries(self._manifest(root, "1.2.3", ["guide.md"]))
 
             self.assertEqual(check_coherence(entries, root), [])
+
+
+class ApiPathTests(unittest.TestCase):
+    def test_real_manifest_api_paths_are_coherent(self) -> None:
+        self.assertEqual(check_api_path_coherence(load_api_paths()), [])
+
+    def test_shipped_guidance_cites_the_paths_the_steps_call(self) -> None:
+        """A scan that silently matched nothing would make the nightly vacuous."""
+        cited = cited_api_paths(list(load_api_paths()["scan"]))
+        for shape in ("/organizations/{}", "/workspaces/{}/vars", "/runs/{}/actions/apply"):
+            with self.subTest(shape=shape):
+                self.assertIn(shape, cited)
+
+    def test_every_parameter_spelling_normalises_to_the_same_shape(self) -> None:
+        """Shell, placeholder and OpenAPI templates must compare equal mechanically."""
+        for path in (
+            "/organizations/$ORG/workspaces/$WS",
+            "/organizations/${ORG}/workspaces/$1",
+            "/organizations/<org>/workspaces/<name>",
+            "/organizations/{organization_name}/workspaces/{workspace_name}",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(path_shape(path), "/organizations/{}/workspaces/{}")
+
+    def test_extraction_cuts_the_query_string_and_surrounding_syntax(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "guide.md").write_text(
+                'curl "$hcp_api/workspaces/$WS_ID/vars?page%5Bsize%5D=100" | jq\n'
+                "curl https://app.terraform.io/api/v2/runs/$RUN_ID/actions/apply \\\n"
+                "Call `api/v2/plans/<id>/json-output-redacted`.\n"
+                "hcp_api: https://app.terraform.io/api/v2\n"
+                '[ "$hcp_api" = "https://app.terraform.io/api/v2" ]\n',
+                encoding="utf-8",
+            )
+
+            cited = cited_api_paths(["guide.md"], root)
+
+            self.assertEqual(
+                sorted(cited),
+                ["/plans/{}/json-output-redacted", "/runs/{}/actions/apply", "/workspaces/{}/vars"],
+            )
+            self.assertEqual(cited["/runs/{}/actions/apply"], ["guide.md:2"])
+
+    def test_a_literal_fills_a_parameter_but_a_parameter_never_fills_a_literal(self) -> None:
+        self.assertTrue(
+            shape_matches("/organizations/{}/workspaces/cloudflare", "/organizations/{}/workspaces/{}")
+        )
+        self.assertFalse(shape_matches("/runs/{}/{}", "/runs/{}/actions"))
+        self.assertFalse(shape_matches("/runs/{}/actions/discard", "/runs/{}/actions/apply"))
+        self.assertFalse(shape_matches("/runs/{}", "/runs/{}/actions/apply"))
+
+    def test_a_path_missing_from_the_spec_is_reported_with_where_it_is_cited(self) -> None:
+        findings = check_api_paths(
+            {"/runs/{}/actions/discard": ["docs/hcp-api.md:97"], "/runs": ["x.md:1"]},
+            ["/runs", "/runs/{run_id}/actions/apply"],
+            [],
+            "spec",
+        )
+
+        self.assertEqual(len(findings), 1, findings)
+        self.assertIn("/runs/{}/actions/discard is not in spec", findings[0])
+        self.assertIn("docs/hcp-api.md:97", findings[0])
+        self.assertIn("not exhaustive", findings[0])
+
+    def test_an_unlisted_path_is_excused_until_the_spec_lists_it(self) -> None:
+        cited = {"/runs/{}/actions/discard": ["docs/hcp-api.md:97"]}
+
+        self.assertEqual(check_api_paths(cited, ["/runs"], ["/runs/{}/actions/discard"], "spec"), [])
+
+        findings = check_api_paths(
+            cited, ["/runs/{run_id}/actions/discard"], ["/runs/{}/actions/discard"], "spec"
+        )
+        self.assertEqual(len(findings), 1, findings)
+        self.assertIn("is now in spec", findings[0])
+
+    def test_an_unlisted_path_no_longer_cited_is_reported(self) -> None:
+        """Otherwise a stale exemption would excuse the path if it came back."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "guide.md").write_text("curl $hcp_api/runs\n", encoding="utf-8")
+            config = {
+                "scan": ["guide.md"],
+                "unlisted": [
+                    {"path": "/runs/{}/actions/discard", "evidence": "https://example.com/"},
+                    {"path": "/runs/$RUN_ID", "evidence": "docs"},
+                ],
+            }
+
+            errors = check_api_path_coherence(config, root)
+
+            self.assertEqual(len(errors), 4, errors)
+            self.assertIn("'/runs/{}/actions/discard' is no longer cited", errors[0])
+            self.assertIn("is not a shape; write '/runs/{}'", errors[1])
+            self.assertIn("needs an https:// `evidence` link", errors[2])
+
+    def test_a_scan_that_finds_nothing_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "guide.md").write_text("no paths here\n", encoding="utf-8")
+
+            errors = check_api_path_coherence({"scan": ["guide.md"]}, root)
+
+            self.assertEqual(len(errors), 1, errors)
+            self.assertIn("no HCP API path found", errors[0])
 
 
 if __name__ == "__main__":
