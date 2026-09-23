@@ -29,11 +29,21 @@
     "An entry with `audited_sha` also has that SHA checked against the commit its",
     "audited tag resolves to, so a version bump cannot leave a stale pinned commit.",
     "`sources` are all machine-readable and readable unauthenticated.",
-    "HCP API endpoint paths are not tracked here yet. An earlier version of this note",
-    "claimed HCP publishes no machine-readable API schema to diff them against; that is",
-    "wrong \u2014 hashicorp/go-tfe ships one at v2/openapi/spec.json, which is how #37 was",
-    "settled. Tracking paths against it is now possible and merely undone; see the issue",
-    "filed for it (#55) rather than treating this as impossible."
+    "",
+    "`api_paths` is the one entry that is not a version. The nightly reads the OpenAPI",
+    "spec hashicorp/go-tfe ships at v2/openapi/spec.json, as of go-tfe's latest release,",
+    "and reports every HCP API path the shipped guidance calls that the spec does not",
+    "list. Paths are compared by shape \u2014 `$ORG`, `<id>` and `{organization_name}` all",
+    "become `{}` \u2014 so there is no second copy of the path list to maintain: the scan",
+    "reads the guidance itself. Only `api/v2/...` and `$hcp_api/...` are scanned.",
+    "Skills and commands are scanned at their `.ai-rulez/` sources, not the generated",
+    "`skills/` and `commands/` trees, so a finding names the file a maintainer edits;",
+    "`make check` already proves the two agree.",
+    "",
+    "The spec is not exhaustive, so a missing path is drift for a human, never proof of",
+    "removal. `unlisted` records the documented endpoints the spec omits, each with the",
+    "docs page that shows it exists; the offline check fails once one is no longer",
+    "cited, and the nightly once the spec starts listing it."
   ],
   "entries": [
     {
@@ -114,5 +124,31 @@
       ],
       "why_it_matters": "Repository, branch-protection and label guidance is written against the v6 provider; a new major invalidates the resource shapes it describes."
     }
-  ]
+  ],
+  "api_paths": {
+    "name": "hcp-api-paths",
+    "source": {
+      "type": "github_release_file",
+      "repo": "hashicorp/go-tfe",
+      "path": "v2/openapi/spec.json"
+    },
+    "scan": [
+      ".ai-rulez/skills",
+      ".ai-rulez/commands",
+      "agents",
+      "hooks",
+      "docs",
+      "README.md"
+    ],
+    "unlisted": [
+      {
+        "path": "/runs/{}/actions/discard",
+        "evidence": "https://developer.hashicorp.com/terraform/cloud-docs/api-docs/run#discard-a-run"
+      },
+      {
+        "path": "/runs/{}/actions/cancel",
+        "evidence": "https://developer.hashicorp.com/terraform/cloud-docs/api-docs/run#cancel-a-run"
+      }
+    ]
+  }
 }
