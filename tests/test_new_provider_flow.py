@@ -371,6 +371,45 @@ class NewProviderFlowTests(unittest.TestCase):
                 cwd=root,
                 check=True,
             )
+            # Free text reduced to a keyword is not a decision.
+            free_text = {}
+            for choice, inventory in (
+                ("hardware token",
+                 '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'),
+                ("do not use Workload Identity Federation",
+                 '[{"key":"TFC_GCP_PROVIDER_AUTH","category":"env","sensitive":false}]'),
+            ):
+                decisions.write_text(
+                    "| Decision | Choice | Status |\n"
+                    "| Provider: gcp | adopt | locked |\n"
+                    f"| GCP authentication | {choice} | locked |\n",
+                    encoding="utf-8",
+                )
+                subprocess.run(
+                    ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                     "commit", "-qam", f"choice {choice}"],
+                    cwd=root,
+                    check=True,
+                )
+                free_text[choice] = subprocess.run(
+                    ["/bin/sh", "-c", literal_check(decision)],
+                    cwd=root,
+                    env={**env, "NEW_PROVIDER_CREDENTIALS": inventory},
+                    capture_output=True,
+                    text=True,
+                )
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | service-account key | locked |\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qam", "key decision final"],
+                cwd=root,
+                check=True,
+            )
             key_decision_key_inventory = subprocess.run(
                 ["/bin/sh", "-c", literal_check(decision)],
                 cwd=root,
@@ -381,6 +420,9 @@ class NewProviderFlowTests(unittest.TestCase):
                 text=True,
             )
         self.assertEqual(azure_wif.returncode, 0, azure_wif.stderr)
+        for choice, credentials in free_text.items():
+            with self.subTest(choice=choice):
+                self.assertNotEqual(credentials.returncode, 0, "free-text GCP auth choice")
         self.assertNotEqual(key_inventory.returncode, 0, "WIF decision, key inventory")
         self.assertNotEqual(key_decision_wif_inventory.returncode, 0, "key decision, WIF inventory")
         self.assertEqual(key_decision_key_inventory.returncode, 0, key_decision_key_inventory.stderr)

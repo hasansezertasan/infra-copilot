@@ -1631,8 +1631,9 @@ steps:
          choice names the credential mechanism (e.g. `Workload Identity Federation` or
          `service-account key`). Auth is a decision of its own so a long-lived key is
          never the unexamined default. In backend: hcp, for a GCP inventory (TFC_GCP_*
-         or GOOGLE_* keys), a choice naming `Workload Identity Federation` must match an
-         inventory declaring TFC_GCP_PROVIDER_AUTH, and vice versa.
+         or GOOGLE_* keys), the choice must be exactly `Workload Identity Federation`
+         (inventory declares TFC_GCP_PROVIDER_AUTH) or `service-account key` (inventory
+         declares GOOGLE_CREDENTIALS and not TFC_GCP_PROVIDER_AUTH).
       2. Add terraform/<provider> to terraform/README.md.
       3. For backend: hcp:
          Add an `additional_providers` entry to .infra-copilot/config.md with its
@@ -1726,11 +1727,21 @@ steps:
       # held to a GCP variable.
       if [ "$BACKEND" != "object-storage" ] && printf '%s' "$NEW_PROVIDER_CREDENTIALS" \
           | jq -e 'any(.[]; .key | test("^(TFC_GCP_|GOOGLE_)"))' >/dev/null; then
-        case "$auth_choice" in *"workload identity federation"*) choice_wif=true ;; *) choice_wif=false ;; esac
+        # Exactly one of the two documented mechanisms, never free text reduced to a
+        # keyword: "do not use workload identity federation" is not a WIF decision.
+        case "$auth_choice" in
+          "workload identity federation") choice_wif=true ;;
+          "service-account key"|"service account key") choice_wif=false ;;
+          *) exit 1 ;;
+        esac
         inventory_wif=false
         printf '%s' "$NEW_PROVIDER_CREDENTIALS" \
           | jq -e 'any(.[]; .key == "TFC_GCP_PROVIDER_AUTH")' >/dev/null && inventory_wif=true
         test "$choice_wif" = "$inventory_wif" || exit 1
+        if [ "$choice_wif" = false ]; then
+          printf '%s' "$NEW_PROVIDER_CREDENTIALS" \
+            | jq -e 'any(.[]; .key == "GOOGLE_CREDENTIALS")' >/dev/null || exit 1
+        fi
       fi
       grep -Eq "(^|[^A-Za-z0-9_-])terraform/$NEW_PROVIDER(/|[^A-Za-z0-9_-]|$)" \
         terraform/README.md || exit 1

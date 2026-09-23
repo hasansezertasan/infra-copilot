@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:d4d1e306dd00813048a44ab9cb4630e477140aa6e70199c1a71c12964a8de533
-Source-Hash: blake3:0d737c044b5042c2dd182042bc10a172a367f2585dbb5da21813662799ec8b4c
+Content-Hash: blake3:2ac692252722206055244ce40bf90a78546cd785eaa6e7f7a64c88a06bdce486
+Source-Hash: blake3:6bd0e075fb678fd12e1795be74672ad5df27b67a4c8db425a8cd2aea79138503
 Schema-Version: v1
 -->
 
@@ -24,9 +24,10 @@ The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml)
    not be arranged). Auth is a decision, not a default: a key is a long-lived secret
    with a rotation burden, and choosing it should be deliberate and visible.
    `new-provider-decision` stays red until both rows are locked, and until the choice
-   agrees with the credential inventory in step 3: a choice naming
-   `Workload Identity Federation` requires `TFC_GCP_PROVIDER_AUTH` in the inventory, and
-   that variable requires that choice.
+   agrees with the credential inventory in step 3. The choice must be exactly
+   `Workload Identity Federation` (the inventory declares `TFC_GCP_PROVIDER_AUTH`) or
+   exactly `service-account key` (it declares `GOOGLE_CREDENTIALS` and not
+   `TFC_GCP_PROVIDER_AUTH`); any other wording stays red.
 2. Note the new leaf in `terraform/README.md`.
 3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
    variable the chosen auth needs — for WIF, those listed under
