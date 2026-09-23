@@ -187,10 +187,19 @@ A version stored anywhere else in a JSON manifest — `metadata.version`, say �
 discovered, and if the same file also has a recognised field the unrecognised copy can
 drift silently behind a passing check.
 
-**A version string in any other kind of file is still invisible to it.** A README badge,
-a shell installer, a version-pinned command in an install doc: none of those are JSON
-manifests, so adding one means extending `scripts/validate.py` in the same commit.
-Otherwise the check silently narrows as the repo grows.
+**A copy anywhere else fails `make check` when it is written.**
+`validate_version_locations` scans every file git tracks for the current plugin version
+and reports any file outside `VERSIONED_FILES` — the manifests, `CHANGELOG.md`, and
+`.ai-rulez/config.toml` — that spells it, including a `v` prefix. Tracked only, so a
+local `.venv` or gitignored build output cannot fail a check CI passes. A README badge, a
+shell installer, or a version-pinned command in an install doc is flagged in the commit
+that adds it — once it is staged. Either drop it, or teach `validate_versions` to compare
+it and add it to `VERSIONED_FILES` in the same commit.
+
+The scan matches only the *current* version, so it catches a copy when it is added, not
+after a bump leaves it stale. That is why registering it matters. If an unrelated number
+happens to equal the plugin version, list the file in `UNRELATED_VERSION_FILES` with a
+reason. `package-lock.json` is already listed.
 
 ## Conventions
 
