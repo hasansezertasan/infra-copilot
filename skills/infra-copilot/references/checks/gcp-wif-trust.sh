@@ -221,9 +221,11 @@ escalation_permissions='["iam.serviceAccounts.getAccessToken","iam.serviceAccoun
   "iam.serviceAccounts.signBlob","iam.serviceAccounts.signJwt",
   "iam.serviceAccounts.implicitDelegation","iam.serviceAccounts.actAs",
   "iam.serviceAccountKeys.create","iam.serviceAccountKeys.upload",
+  "iam.serviceAccountKeys.enable",
   "iam.serviceAccounts.setIamPolicy",
   "resourcemanager.projects.setIamPolicy",
   "iam.workloadIdentityPools.update","iam.workloadIdentityPools.delete",
+  "iam.workloadIdentityPools.setIamPolicy",
   "iam.workloadIdentityPoolProviders.create","iam.workloadIdentityPoolProviders.update",
   "iam.workloadIdentityPoolProviders.undelete"]'
 
@@ -256,6 +258,17 @@ else
     verify_account "$apply_email" "$pool_member" "$pool_path"
     project_rule=$pool_member
 fi
+
+# The pool is a resource with its own IAM policy, invisible in the project policy. A
+# federated principal outside the rule holding any role on it could administer the pool
+# and loosen the condition verified above, so it is judged like a run account's policy.
+pool_policy=$(gcloud iam workload-identity-pools get-iam-policy "$pool_id" \
+    --project="$number" --location=global --format=json 2>"$err") \
+    || cannot_verify "gcloud could not read the IAM policy of pool $pool_id: $(head -1 "$err")"
+federated=$(printf '%s' "$pool_policy" | jq -r '
+    [.bindings[]? | .members[] | select(test("^principal(Set)?://"))] | unique | .[]')
+foreign=$(printf '%s\n' "$federated" | sed '/^$/d' | grep -Ev "$project_rule" || true)
+[ -z "$foreign" ] || fail "pool $pool_id grants a role on itself to federated principals outside the trust: $foreign"
 
 # Project-level grants are inherited by every service account in the project, so a
 # federated principal holding an impersonation role there reaches the run accounts

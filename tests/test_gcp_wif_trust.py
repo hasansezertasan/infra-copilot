@@ -53,6 +53,8 @@ ROLE_PERMISSIONS = {
                                       "cloudbuild.builds.create"],
     "roles/storage.admin": ["storage.buckets.create", "storage.objects.delete"],
     "projects/proj/roles/keyUploader": ["iam.serviceAccountKeys.upload"],
+    "projects/proj/roles/keyEnabler": ["iam.serviceAccountKeys.enable"],
+    "projects/proj/roles/poolPolicy": ["iam.workloadIdentityPools.setIamPolicy"],
 }
 
 DEFAULT_VARS = [
@@ -80,6 +82,7 @@ class GcpWifTrustTests(unittest.TestCase):
         project_bindings: list[dict] | None = None,
         varsets: int = 0,
         role_describe_error: bool = False,
+        pool_bindings: list[dict] | None = None,
         describe_error: str = "",
         policy_error: bool = False,
     ) -> subprocess.CompletedProcess[str]:
@@ -112,6 +115,7 @@ class GcpWifTrustTests(unittest.TestCase):
             (root / "providers.json").write_text(json.dumps(providers))
             (root / "policy.json").write_text(json.dumps(policy_for(members)))
             (root / "project.json").write_text(json.dumps({"bindings": project_bindings or []}))
+            (root / "pool.json").write_text(json.dumps({"bindings": pool_bindings or []}))
             role_cases = ""
             for index, (role, permissions) in enumerate(ROLE_PERMISSIONS.items()):
                 (root / f"role{index}.json").write_text(
@@ -151,6 +155,7 @@ class GcpWifTrustTests(unittest.TestCase):
                 'case "$*" in\n'
                 f"  *providers\\ describe*) {describe} ;;\n"
                 f"  *providers\\ list*) cat '{root}/providers.json' ;;\n"
+                f"  *workload-identity-pools\\ get-iam-policy*) cat '{root}/pool.json' ;;\n"
                 f"  *projects\\ get-iam-policy*) cat '{root}/project.json' ;;\n"
                 + role_cases
                 + ("" if policy_error else policy_cases)
@@ -301,6 +306,15 @@ class GcpWifTrustTests(unittest.TestCase):
         # A custom role that uploads a key the attacker holds the private half of.
         self.assert_exit(self.run_check(
             project_bindings=[{"role": "projects/proj/roles/keyUploader", "members": [foreign]}]), 1)
+        for role in ("projects/proj/roles/keyEnabler", "projects/proj/roles/poolPolicy"):
+            with self.subTest(role=role):
+                self.assert_exit(self.run_check(
+                    project_bindings=[{"role": role, "members": [foreign]}]), 1)
+        # Grants on the pool itself never appear in the project policy.
+        self.assert_exit(self.run_check(pool_bindings=[
+            {"role": "roles/iam.workloadIdentityPoolAdmin", "members": [foreign]}]), 1)
+        self.assert_exit(self.run_check(pool_bindings=[
+            {"role": "roles/iam.workloadIdentityPoolAdmin", "members": ["user:admin@example.com"]}]), 0)
         # A condition may scope the grant away from the run accounts; it is not evaluated,
         # so the verdict is "cannot verify", never a false red or a false green.
         self.assert_exit(self.run_check(project_bindings=[{

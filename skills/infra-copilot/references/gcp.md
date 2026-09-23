@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:32eaa9c367c0ac6d28a81174c1ab68e482380d86a663151533e3089e687234cf
-Source-Hash: blake3:09c61f5dbe9e5fc5cec13d71908b4d6239ede990746de888a691725a84afd15c
+Content-Hash: blake3:d4d1e306dd00813048a44ab9cb4630e477140aa6e70199c1a71c12964a8de533
+Source-Hash: blake3:0d737c044b5042c2dd182042bc10a172a367f2585dbb5da21813662799ec8b4c
 Schema-Version: v1
 -->
 
@@ -180,13 +180,15 @@ It locates the provider and service accounts from the workspace's own non-sensit
 - every member of `workloadIdentityUser` on the service accounts is this pool's, and no
   federated (`principal://`, `principalSet://`) member outside it holds *any* role on
   them — Token Creator mints tokens just as well;
+- no federated principal outside the pool holds any role on the pool itself (its own
+  IAM policy, which the project policy does not show);
 - no federated principal outside the pool holds, on the service accounts' projects or
   the pool's (where grants are inherited), a role whose permissions reach them. Roles are
   resolved with `gcloud iam roles describe` and judged by permission, not name — service
   agent roles such as `roles/cloudbuild.serviceAgent` also mint tokens. The permissions
-  are minting tokens or signatures as an account, creating or uploading its keys (a key
-  is a login), `actAs`, setting account or project IAM policy, and changing the pool or
-  its providers (which could loosen this very condition). Such a grant under an IAM
+  are minting tokens or signatures as an account, creating, uploading, or re-enabling
+  its keys (a key is a login), `actAs`, setting account, project, or pool IAM policy, and
+  changing the pool or its providers (which could loosen this very condition). Such a grant under an IAM
   condition exits 2: the check does not evaluate conditions, so confirm by hand that it
   excludes the run accounts and the pool;
 - when plan and apply use different accounts, the apply account (and those project

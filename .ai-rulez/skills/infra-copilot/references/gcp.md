@@ -173,13 +173,15 @@ It locates the provider and service accounts from the workspace's own non-sensit
 - every member of `workloadIdentityUser` on the service accounts is this pool's, and no
   federated (`principal://`, `principalSet://`) member outside it holds *any* role on
   them — Token Creator mints tokens just as well;
+- no federated principal outside the pool holds any role on the pool itself (its own
+  IAM policy, which the project policy does not show);
 - no federated principal outside the pool holds, on the service accounts' projects or
   the pool's (where grants are inherited), a role whose permissions reach them. Roles are
   resolved with `gcloud iam roles describe` and judged by permission, not name — service
   agent roles such as `roles/cloudbuild.serviceAgent` also mint tokens. The permissions
-  are minting tokens or signatures as an account, creating or uploading its keys (a key
-  is a login), `actAs`, setting account or project IAM policy, and changing the pool or
-  its providers (which could loosen this very condition). Such a grant under an IAM
+  are minting tokens or signatures as an account, creating, uploading, or re-enabling
+  its keys (a key is a login), `actAs`, setting account, project, or pool IAM policy, and
+  changing the pool or its providers (which could loosen this very condition). Such a grant under an IAM
   condition exits 2: the check does not evaluate conditions, so confirm by hand that it
   excludes the run accounts and the pool;
 - when plan and apply use different accounts, the apply account (and those project
