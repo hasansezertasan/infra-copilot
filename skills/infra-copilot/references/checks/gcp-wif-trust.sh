@@ -111,36 +111,54 @@ condition=$(printf '%s' "$provider" | jq -r '.attributeCondition // ""' | tr -s 
 [ -n "$condition" ] \
     || fail "provider has no attribute condition: ANY HCP organization's workspace can impersonate the service account"
 
-# A condition is judged by string evidence, not evaluated. That is only sound for a pure
-# conjunction, so anything that can widen or invert a term is refused outright; a
-# stricter condition written with those operators has to be restated as conjunctions.
-case "$condition" in
-    *'||'*|*'!'*|*' in '*)
-        fail "attribute condition uses ||, !, or 'in'; express it as && of equalities so it can be verified: $condition" ;;
-esac
-
+# The condition is judged against an allowlist, never searched for evidence. Searching
+# is unsound: `startsWith(...) == false` or a ternary ending `? true : true` contains
+# every trusted-looking substring while trusting everyone else. So the whole condition
+# must be a conjunction of `&&` terms, and every term must match one anchored form below
+# exactly — each is an equality or prefix test against a literal, so every one only ever
+# narrows the trust. Anything else, however strict it really is, is refused rather than
+# evaluated; restate it in these forms.
 org_re=$(printf '%s' "$ORG" | sed 's/[.[\*^$/]/\\&/g')
 ws_re=$(printf '%s' "$NEW_PROVIDER_WORKSPACE" | sed 's/[.[\*^$/]/\\&/g')
-sub_prefix="assertion\.sub\.startsWith\( *'organization:$org_re:project:[^:']+:workspace:$ws_re(:[^']*)?'"
-if ! printf '%s' "$condition" | grep -Eq "$sub_prefix"; then
-    printf '%s' "$condition" \
-        | grep -Eq "assertion\.terraform_organization_name *== *'$org_re'" \
-        || fail "attribute condition does not bind organization $ORG: $condition"
-    printf '%s' "$condition" \
-        | grep -Eq "assertion\.terraform_workspace_(name *== *'$ws_re'|id *== *'$ws_id')" \
-        || fail "attribute condition binds the organization but not workspace $NEW_PROVIDER_WORKSPACE ($ws_id): $condition"
-fi
+org_bound=false
+ws_bound=false
+terms=$(printf '%s' "$condition" | sed 's/&&/\
+/g')
+while IFS= read -r term; do
+    term=$(printf '%s' "$term" | sed 's/^ *//; s/ *$//')
+    if printf '%s' "$term" | grep -Eqx "assertion\.terraform_organization_name *== *'$org_re'"; then
+        org_bound=true
+    elif printf '%s' "$term" | grep -Eqx "assertion\.terraform_workspace_name *== *'$ws_re'" \
+        || printf '%s' "$term" | grep -Eqx "assertion\.terraform_workspace_id *== *'$ws_id'"; then
+        ws_bound=true
+    elif printf '%s' "$term" \
+        | grep -Eqx "assertion\.sub\.startsWith\( *'organization:$org_re:project:[^:']+:workspace:$ws_re(:[^']*)?' *\)"; then
+        org_bound=true
+        ws_bound=true
+    elif printf '%s' "$term" \
+        | grep -Eqx "assertion\.(terraform_run_phase|terraform_project_name|aud) *== *'[^']*'"; then
+        :
+    else
+        fail "attribute condition term is not one of the verifiable forms (see gcp.md): $term"
+    fi
+done <<EOF_TERMS
+$terms
+EOF_TERMS
+[ "$org_bound" = true ] || fail "attribute condition does not bind organization $ORG: $condition"
+[ "$ws_bound" = true ] \
+    || fail "attribute condition binds the organization but not workspace $NEW_PROVIDER_WORKSPACE ($ws_id): $condition"
 
 pool_path="projects/$number/locations/global/workloadIdentityPools/$pool_id"
 for email in $emails; do
     policy=$(gcloud iam service-accounts get-iam-policy "$email" --format=json 2>"$err") \
         || cannot_verify "gcloud could not read the IAM policy of $email: $(head -1 "$err")"
+    # Every member of the role, not only pool principals: a user:, group:, or
+    # serviceAccount: member holding workloadIdentityUser can impersonate the account too.
     members=$(printf '%s' "$policy" | jq -r '
-        [.bindings[]? | select(.role == "roles/iam.workloadIdentityUser") | .members[]]
-        | .[] | select(test("^principal(Set)?://"))')
+        [.bindings[]? | select(.role == "roles/iam.workloadIdentityUser") | .members[]] | .[]')
     [ -n "$members" ] || fail "no workload identity principal may impersonate $email"
     foreign=$(printf '%s\n' "$members" \
-        | grep -Fv "//iam.googleapis.com/$pool_path/" || true)
+        | grep -Ev "^principal(Set)?://iam\.googleapis\.com/$pool_path/" || true)
     [ -z "$foreign" ] \
         || fail "$email is impersonable from outside $pool_path, whose condition this check did not verify: $foreign"
 done

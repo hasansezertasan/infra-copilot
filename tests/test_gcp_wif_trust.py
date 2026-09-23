@@ -127,6 +127,7 @@ class GcpWifTrustTests(unittest.TestCase):
             "assertion.terraform_organization_name == 'acme' && "
             "assertion.terraform_workspace_id == 'ws-abc123'",
             'assertion.sub.startsWith("organization:acme:project:Default Project:workspace:gcp")',
+            SCOPED + " && assertion.terraform_run_phase == 'apply'",
         ):
             with self.subTest(condition=condition):
                 self.assert_exit(self.run_check(condition=condition), 0)
@@ -150,6 +151,10 @@ class GcpWifTrustTests(unittest.TestCase):
             SCOPED + " || true",
             "!(" + SCOPED + ")",
             'assertion.sub.startsWith("organization:acme:project:p:workspace:gcp-other")',
+            # Every trusted-looking substring present, trust inverted or discarded:
+            'assertion.sub.startsWith("organization:acme:project:p:workspace:gcp") == false',
+            SCOPED + " ? true : true",
+            "(" + SCOPED + ")",
         ):
             with self.subTest(condition=condition):
                 self.assert_exit(self.run_check(condition=condition), 1)
@@ -164,6 +169,11 @@ class GcpWifTrustTests(unittest.TestCase):
             self.run_check(members=[f"principalSet://iam.googleapis.com/{POOL}/*", other]), 1
         )
         self.assert_exit(self.run_check(members=["user:someone@example.com"]), 1)
+        for extra in ("user:someone@example.com", "group:ops@example.com",
+                      "serviceAccount:other@proj.iam.gserviceaccount.com"):
+            with self.subTest(extra=extra):
+                self.assert_exit(self.run_check(
+                    members=[f"principalSet://iam.googleapis.com/{POOL}/*", extra]), 1)
 
     def test_conflicting_or_hidden_variables_fail(self) -> None:
         self.assert_exit(

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:d900536420ede4299c351d90a8e4acfdcaf3f52a0c11a90311f2d887cbd13f5e
-Source-Hash: blake3:4e46d743abe52e4a37a6604b75961963bddb2d09a2c95e122f4447c3271d7c73
+Content-Hash: blake3:667eb26c6e576f43debfca369780dd5d908a4ff66bd053881ac4c6fddc1c267d
+Source-Hash: blake3:395719abcfeffe08635c4011099f68cbb8985b2e565723ce6f3e250533a48580
 Schema-Version: v1
 -->
 
@@ -164,11 +164,25 @@ The `new-provider-gcp-wif-trust` step runs
 `sh "$INFRA_COPILOT_REFERENCES/checks/gcp-wif-trust.sh"` on every resume and status scan.
 It locates the provider and service accounts from the workspace's own non-sensitive
 `TFC_GCP_*` variables, then fails unless the issuer is exact, the provider is active,
-the condition is a conjunction binding both the organization and the workspace (name or
-`ws-` ID), and only that pool's principals may impersonate the service accounts. It
-refuses `||`, `!`, and `in` in the condition rather than trying to evaluate them. It
-exits 2, not 1, when `gcloud` cannot read the pool, so a missing login is never mistaken
-for a broken trust. To look by hand:
+the condition binds both the organization and the workspace, and every member holding
+`workloadIdentityUser` on the service accounts is a principal of that pool. It exits 2,
+not 1, when `gcloud` cannot read the pool, so a missing login is never mistaken for a
+broken trust. The step runs only when the credential inventory declares
+`TFC_GCP_PROVIDER_AUTH`; a key-based adoption has no federation trust to check.
+
+The condition is matched against an allowlist, not searched: it must be `&&`-joined
+terms, each exactly one of these forms (a term in any other form fails, even if it is
+strict, because a substring search would also accept `startsWith(...) == false`):
+
+- `assertion.terraform_organization_name == '<hcp-org>'`
+- `assertion.terraform_workspace_name == '<workspace>'` or
+  `assertion.terraform_workspace_id == '<ws-id>'`
+- `assertion.sub.startsWith('organization:<hcp-org>:project:<project>:workspace:<workspace>')`
+  — binds both at once
+- `assertion.terraform_run_phase`, `assertion.terraform_project_name`, or
+  `assertion.aud` `== '<literal>'` — optional further narrowing
+
+No parentheses, `||`, `!`, or ternaries. To look by hand:
 
 ```sh
 mise exec -- gcloud iam workload-identity-pools providers describe "$PROVIDER" \

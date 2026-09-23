@@ -2077,7 +2077,12 @@ steps:
     phase: 6
     provider: gcp
     actor: HUMAN
-    when: '[ "$NEW_PROVIDER" = "gcp" ] && { [ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]; }'
+    # WIF only: a locked `service-account key` decision declares no TFC_GCP_PROVIDER_AUTH
+    # in its inventory, has no federation trust to verify, and must still finish Phase 6.
+    when: >-
+      [ "$NEW_PROVIDER" = "gcp" ] && { [ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]; } &&
+      printf '%s' "$NEW_PROVIDER_CREDENTIALS" |
+      jq -e 'any(.[]; .key == "TFC_GCP_PROVIDER_AUTH")' >/dev/null
     title: Scope the GCP workload identity trust to this organization and workspace
     why: >-
       Every HCP customer shares the issuer, so an unconditioned or name-only trust lets
@@ -2085,10 +2090,10 @@ steps:
     run: |
       Using your own gcloud login, fix what the check reported, following gcp.md's
       "create the WIF trust" section: the provider's issuer must be exactly
-      https://app.terraform.io, its attribute condition must be a conjunction binding
-      both the HCP organization and this workspace (name or ws- ID), and only principals
-      from that pool may hold roles/iam.workloadIdentityUser on the run service
-      accounts. The TFC_GCP_* coordinates must stay non-sensitive so they can be read.
+      https://app.terraform.io, its attribute condition must be `&&`-joined terms in
+      the forms gcp.md lists, binding both the HCP organization and this workspace
+      (name or ws- ID), and every member holding roles/iam.workloadIdentityUser on the
+      run service accounts must be a principal of that pool. The TFC_GCP_* coordinates must stay non-sensitive so they can be read.
       If the check could not verify (exit 2), log in with an account that can read the
       pool and service-account IAM policies (`gcloud auth login`). Reply `done`; the
       agent re-runs this check.

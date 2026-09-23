@@ -1062,6 +1062,23 @@ terraform {
         self.assertIn("NEW_PROVIDER_MISE_TOOLS", gcloud)
         self.assertNotIn("test -d terraform/gcp", gcloud)
 
+    def test_wif_trust_step_skips_key_based_adoption(self) -> None:
+        step = self.steps["new-provider-gcp-wif-trust"]
+        when = re.search(r"^    when: >-\n(?P<body>(?:      .*\n)+)", step, re.MULTILINE)
+        self.assertIsNotNone(when)
+        condition = " ".join(line.strip() for line in when.group("body").splitlines())
+        wif = '[{"key":"TFC_GCP_PROVIDER_AUTH","category":"env","sensitive":false}]'
+        key = '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'
+        for credentials, expected in ((wif, 0), (key, 1)):
+            with self.subTest(credentials=credentials):
+                result = subprocess.run(
+                    ["/bin/sh", "-c", condition],
+                    env={**os.environ, "NEW_PROVIDER": "gcp", "BACKEND": "hcp",
+                         "NEW_PROVIDER_CREDENTIALS": credentials},
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode != 0, bool(expected), result.stderr)
+
     def test_router_and_status_use_the_durable_inventory(self) -> None:
         for path in (CONFIG, STATUS_RUNBOOK):
             with self.subTest(path=path.name):
