@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 import sys
 from pathlib import Path, PurePosixPath
@@ -17,12 +18,18 @@ MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SKILL_FRONTMATTER = re.compile(
     r"\A---\s*\n(?P<body>.*?)\n---\s*\n", re.DOTALL
 )
+# Task is what lets a command reach the infra-auditor subagent, and ONLY
+# `/infra-status` may: the shared protocol requires the action skills to run their
+# resume scan inline, because the auditor's runbook substitutes for the checks that
+# touch the working tree. Granting it to them would hand three commands a capability
+# their own instructions forbid them to use -- the AskUserQuestion defect these
+# checks exist for, in reverse.
 COMMAND_TOOLS = {
     "infra-add.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
     "infra-import.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
     "infra-prune.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
     "infra-setup.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
-    "infra-status.md": "Read, Bash, Glob, Grep",
+    "infra-status.md": "Read, Bash, Glob, Grep, Task",
 }
 CONFIG_PATH = ".infra-copilot/config.md"
 LEGACY_CONFIG_PATH = ".claude/infra-copilot.local.md"
@@ -1589,7 +1596,1011 @@ def validate_manifest_shape(root: Path = ROOT) -> list[str]:
     return errors
 
 
+#: The `infra-auditor` manifest, and how each host's row in hosts.md spells its
+#: `tools` field. Only the shape lives here -- the path, the dialect and the tool
+#: names come from the table, so it stays authoritative rather than descriptive.
+#: Columns each capability section must declare. A mistyped header built rows
+#: under an unexpected key and every later lookup raised KeyError, ending the run
+#: with a traceback instead of naming the malformed record.
+REQUIRED_HEADERS = {
+    "## Subagent manifests": {
+        "Host", "Discovery path", "`tools` dialect", "Tool names",
+        "Invocation tool", "Shipped",
+    },
+    "## Hook discovery": {"Host", "Manifest path", "Matcher", "Root variable", "Shipped"},
+}
+#: The one command allowed to delegate, whose grant must carry the recorded
+#: invocation tool -- and the host that grant belongs to.
+#:
+#: `commands/*.md` with an `allowed-tools` line is Claude's adapter format;
+#: hosts.md records that Codex exposes no plugin slash commands at all and that
+#: OpenCode loads skills through its own tool. So there is no `allowed-tools`
+#: anywhere to check another host's invocation tool against, and the cross-check
+#: applies to the row whose adapter this actually is.
+STATUS_COMMAND = "infra-status.md"
+STATUS_COMMAND_HOST = "Claude Code"
+AGENT_STEM = "infra-auditor"
+#: How each dialect spells a whole frontmatter block, given the tool names its
+#: row records. `{description}` is the only free value.
+#:
+#: Rendered and compared rather than validated field by field. The previous
+#: version checked properties -- allowed keys, no duplicates, balanced quotes,
+#: valid escapes, escape payload widths, indentation, scalar shape -- and each
+#: rule left an adjacent malformation to probe, because YAML is larger than any
+#: list of rules about it. A rendered block answers all of them at once: an
+#: unknown key, a doubled quote, an invalid escape and an indented mapping all
+#: fail as "not equal" without a rule apiece, and no YAML parser is needed to say
+#: so.
+AGENT_FRONTMATTER = {
+    "comma string": (
+        ".md",
+        "name: {name}\ndescription: \"{description}\"\ntools: {tools}",
+        lambda names: ", ".join(names),
+    ),
+    "YAML list": (
+        ".md",
+        "name: {name}\ndescription: \"{description}\"\ntools:\n{tools}",
+        lambda names: "\n".join(f"  - {name}" for name in names),
+    ),
+    "bool map": (
+        ".md",
+        "name: {name}\ndescription: \"{description}\"\nmode: subagent\ntools:\n{tools}",
+        lambda names: "\n".join(f"  {name}: true" for name in names),
+    ),
+    # TOML, parsed with tomllib rather than rendered: its body is prose in a
+    # multi-line string, so there is no fixed block to compare against.
+    "none": (".toml", None, None),
+}
+#: A description may not carry a quote or a backslash. That is not a style rule:
+#: it removes every escape and quoting question from this document by
+#: construction, which is what the escape-validation rules were reaching for.
+AGENT_DESCRIPTION = re.compile(r'\A[^"\\\n]+\Z')
+AGENT_DIALECTS = {name: (suffix, body) for name, (suffix, body, _) in AGENT_FRONTMATTER.items()}
+
+
+#: Keyed by dialect, in each host's own spelling. One global Claude-cased pair
+#: meant the OpenCode row could never graduate: its native grant is lowercase, so
+#: `Skill`/`Bash` were unsatisfiable however the row was written.
+#:
+#: Antigravity records no skill-loading tool at all, which is a gap in that row
+#: rather than something this gate can invent -- it is one of the reasons that row
+#: is not shipped.
+AGENT_REQUIRED_TOOLS = {
+    "comma string": ("Skill", "Bash"),
+    "bool map": ("skill", "bash"),
+    # No skill-loading tool is recorded for this dialect, and the manifest's first
+    # instruction is to load the runbook by name. A row without one cannot ship:
+    # every delegated run would fail before reaching the scan. Recorded in
+    # hosts.md as one of the reasons that row is unshipped; enforced here so the
+    # record cannot be flipped without the missing capability being established.
+    "YAML list": None,
+    # Session tools are inherited, so the read-only grant the protocol promises
+    # cannot be expressed or checked. Unshippable for the same reason the
+    # YAML-list dialect is: the record would claim a narrowing that does not exist.
+    "none": None,
+}
+#: Tools that would make the read-only contract unstatable.
+#: Keyed by dialect, like AGENT_REQUIRED_TOOLS and for the same reason: one
+#: Claude-cased tuple let OpenCode's native lowercase `write` through, handing a
+#: read-only auditor a direct write capability behind a green gate.
+AGENT_FORBIDDEN_TOOLS = {
+    "comma string": ("Write", "Edit", "NotebookEdit"),
+    "bool map": ("write", "edit", "patch"),
+    "YAML list": ("write_to_file", "replace_file_content", "edit_file"),
+    "none": (),
+}
+#: The agent must delegate to the runbook, and must not carry a repo-relative path
+#: to it: its working directory is the *consuming* repository, so
+#: "skills/infra-copilot/references/..." resolves into the consumer and finds
+#: nothing -- it only looks right from a source checkout of this repository.
+AGENT_RUNBOOK = ("infra-copilot", "status.md")
+#: A positive directive, not a mention. The imperative and the skill name have to
+#: appear together and in that order. Backticks are optional: the TOML dialect
+#: carries its body in a plain string, where Markdown code spans do not belong.
+#:
+#: Case-sensitive on `Invoke` so the sentence has to be an instruction, and the
+#: negator guard is what makes it a *positive* one -- "Never Invoke the
+#: infra-copilot skill" matched the imperative and inverted it.
+AGENT_INVOCATION = re.compile(r"\bInvoke the `?infra-copilot`? skill\b")
+#: An instruction to use the runbook, not a sentence that mentions it. "The file
+#: status.md exists" named it and told the agent nothing.
+AGENT_RUNBOOK_DIRECTIVE = re.compile(
+    r"\b(?:follow|run|use|read|consult)\b[^.]{0,60}?status\.md"
+)
+#: A negator anywhere in the same clause disqualifies what follows it.
+#:
+#: The clause is the bound, and it is the *whole* clause. Earlier versions also
+#: capped the distance -- first adjacency, which "do not *follow* status.md"
+#: walked past, then 24 characters, which "Do not under any circumstances
+#: whatsoever Invoke the infra-copilot skill" walked past in turn. Any fixed
+#: lookback is a padding budget for whoever wants to invert the directive, so
+#: _clause_before() hands this the text back to the last clause boundary and the
+#: length of the padding stops mattering.
+AGENT_NEGATOR = re.compile(
+    r"\b(?:never|not|nor|avoid|don'?t|cannot|can'?t|refuse)\b",
+    re.IGNORECASE,
+)
+#: What ends a clause for AGENT_NEGATOR: sentence punctuation, a paragraph
+#: break, or the start of a list item or heading.
+#:
+#: A bare newline does not. These manifests are Markdown, where a single newline
+#: inside a paragraph is a *soft wrap* that renders as a space -- treating it as
+#: a boundary meant "Do not\nInvoke the infra-copilot skill" read as affirmative
+#: while the agent received one sentence telling it not to load the runbook. The
+#: breaks below are the ones a reader also sees.
+AGENT_CLAUSE_BOUNDARY = re.compile(
+    r"""
+      [.;:]                      # sentence punctuation
+    | \n[ \t]*\n                 # a paragraph break
+    | \n[ \t]*(?:[-*+]|\d+[.)]|\#{1,6})[ \t]   # a list item or heading
+    """,
+    re.VERBOSE,
+)
+#: Any *path-qualified* runbook reference, not one spelling. The rule is "load
+#: it by name", so the thing to reject is the separator: a leading segment and a
+#: slash, whatever precedes them.
+#:
+#: The earlier version required the path to begin with a bare word, which made
+#: the leading slash of `/tmp/status.md` a reason to *not* match -- an absolute
+#: path, the one spelling that cannot be a plugin-payload reference at all, was
+#: the one spelling allowed through. Backslash included so a Windows-style
+#: `..\status.md` is not a third spelling.
+AGENT_FORBIDDEN_PATH = re.compile(r"[^\s`'\"]*[/\\]status\.md")
+#: An adapter budget, in the spirit of MAX_DESCRIPTION_BUDGET: the runbook owns
+#: scope, guardrails and the report contract, and a manifest with room to restate
+#: them will.
+AGENT_MAX_LINES = 40
+#: And a character budget, because `agents/` is outside the Markdown line-length
+#: lint: thousands of words on one physical line kept the line count green while
+#: making the manifest exactly the second authority the budget exists to prevent.
+#:
+#: Measured over the *complete* manifest, frontmatter included. The directive
+#: checks below read the body only -- deliberately, since a description is
+#: discovery metadata rather than instructions -- and measuring size the same way
+#: left `description:` unbounded, so 12 KB of workflow prose rode into the host's
+#: routing surface behind a green gate. Nothing else bounds it: the aggregate
+#: MAX_DESCRIPTION_BUDGET covers `.ai-rulez/skills/*/SKILL.md` and never sees
+#: `agents/`.
+AGENT_MAX_CHARACTERS = 2600
+#: The one shell script every hook manifest must hand to a shell. Adapters carry
+#: the discovery path and the matcher; the behaviour is shared.
+HOOK_IMPLEMENTATION = "hooks/session-start.sh"
+#: The one command every host's SessionStart callback runs, as a template over
+#: the root variable that host's row records.
+#:
+#: Compared byte-for-byte rather than analysed. The previous version modelled
+#: POSIX shell -- assignments, guards, terminals, expansions, redirections -- to
+#: decide whether a command "ran the implementation", and every tightening left
+#: an adjacent spelling to probe: `echo sh <path>`, `sh -c true`, a reassigned
+#: variable, `exec`, `false || exit`, `&& exit`, `[ ! -f ]`, `[ -z ]`, `%/*`,
+#: `>/dev/null`, a trailing `touch`. Twenty-two spellings, each finding correct,
+#: none of them a manifest anyone would write.
+#:
+#: The input here is closed: four hand-authored adapters, one line each, derived
+#: from a record this file already owns. For a closed set, rendering the expected
+#: value and comparing is both shorter and complete -- every one of those
+#: spellings fails as "not equal" without a rule of its own. It is the same
+#: choice COMMAND_TOOLS already makes for `allowed-tools`.
+#:
+#: The cost is deliberate: changing the command means changing the record in the
+#: same commit, which is the coupling this table exists to enforce.
+HOOK_COMMAND_TEMPLATE = (
+    'r="${{{root}:-}}"; [ -n "$r" ] || exit 0; '
+    's="${{r%/}}/hooks/session-start.sh"; [ -f "$s" ] || exit 0; sh "$s"'
+)
+#: hosts.md writes a literal "|" in a matcher as {pipe}: a Markdown cell cannot
+#: carry one, and escaping it would put the escape into a value compared
+#: byte-for-byte against the shipped manifest.
+MATCHER_PIPE = "{pipe}"
+#: Placeholders a row uses to say "nothing established here". They are legible
+#: prose in the table and meaningless as values, so a shipped row may hold none.
+SENTINEL_CELLS = {"not recorded", "—", "-", ""}
+#: Hook rows additionally use ``none`` when a host has no hook manifest.
+HOOK_PATH_SENTINELS = SENTINEL_CELLS | {"none"}
+#: One `[ -n "${NAME:-}" ]` test, capturing the variable it reads.
+HOOK_ROOT_TEST = re.compile(r'\[ -n "\$\{([A-Za-z_][A-Za-z0-9_]*):-\}" \]')
+#: The host-output branch of session-start.sh: every byte fixed except the list
+#: of root variables it tests.
+#:
+#: Matched whole, for the reason HOOK_COMMAND_TEMPLATE gives about the callback
+#: command -- and reached the same way, after the same escalation. Six decoys
+#: defeated successive attempts to *locate* this branch and judge it: a
+#: commented-out copy, a copy in a discarded heredoc, a copy in a function nobody
+#: calls, that function carrying its own emission, the emission moved to the
+#: `else` arm, and an `elif` inserted so the emission sat in a third arm. Each
+#: answer modelled one more piece of shell; each left an adjacent spelling. None
+#: of them produce this text, so none of them needs a rule of its own.
+#:
+#: The variable list stays a hole rather than a constant, because hosts.md is the
+#: record and this file is not: a row must be able to rename its root, or a new
+#: host add one, by editing the script and the table together. What is pinned is
+#: the shape around them -- the tests are a flat `||` disjunction, the `then` arm
+#: is the host shape and nothing else, the `else` arm is the fallback.
+#:
+#: What the script *does* when run is not this gate's question and never was.
+#: tests/test_session_hook.py executes it under each root variable and asserts
+#: the emitted shape, which is what actually caught every one of those decoys.
+HOOK_OUTPUT_BLOCK = re.compile(
+    r'(?m)^if (?P<condition>\[ -n "\$\{[A-Za-z_][A-Za-z0-9_]*:-\}" \]'
+    r'(?: \\\n    \|\| \[ -n "\$\{[A-Za-z_][A-Za-z0-9_]*:-\}" \])*); then\n'
+    + re.escape(
+        '    printf \'{"hookSpecificOutput":{"hookEventName":"SessionStart"'
+        ',"additionalContext":"%s"}}\\n\' "$CONTEXT"\n'
+        "else\n"
+        '    printf \'{"additional_context":"%s"}\\n\' "$CONTEXT"\n'
+        "fi"
+    )
+)
+#: The rest of the callback, which is identical on every host.
+HOOK_TIMEOUT = 10
+HOOK_DESCRIPTION = 'Announce that infra-copilot is installed when the working directory looks like a managed infra repo.'
+
+
+#: A portable shell variable name. Anything else is not something `${X:-}` can
+#: expand, however consistently the record, the manifest and the script spell it.
+SHELL_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _next_heading(section: str) -> int:
+    """Offset of the next Markdown heading, or -1.
+
+    Any level: a subsection ends at the next `#`, `##` or `###`, not only at
+    another `###`. Stopping at same-level headings alone let a `##` be inserted
+    directly after the subsection, so its own body could be emptied while
+    marker-bearing prose from the unrelated section satisfied every check.
+    """
+    found = re.search(r"(?m)^#{1,3} ", section)
+    return -1 if found is None else found.start()
+
+
+def expected_hook_command(root_variable: str) -> str:
+    """The callback command a host's manifest must carry, verbatim."""
+    return HOOK_COMMAND_TEMPLATE.format(root=root_variable)
+
+
+def dialect_headers(root: Path = ROOT, heading: str = "") -> list[str]:
+    """The column headers of the hosts.md table under ``heading``, in order.
+
+    A list, not a set: a repeated name passed a set comparison and then had
+    ``dict(zip(...))`` silently keep the later column, so the value a reader sees
+    under `Shipped` and the one every rule read were different cells.
+    """
+    for line in _section_lines(root, heading):
+        return [cell.strip() for cell in re.split(r"(?<!\\)\|", line.strip("|"))]
+    return []
+
+
+def _section_lines(root: Path, heading: str) -> list[str]:
+    """Table lines of the section under ``heading``, header first."""
+    text = read_document(root / HOSTS_DOCUMENT)
+    if text is None or text.count(heading) != 1:
+        return []
+    section = text[text.index(heading) + len(heading) :]
+    cut = section.find("\n## ")
+    return [
+        line.strip()
+        for line in (section if cut < 0 else section[:cut]).splitlines()
+        if line.strip().startswith("|") and not set(line.strip()) <= set("|-: ")
+    ]
+
+
+def dialect_rows(root: Path = ROOT, heading: str = "") -> list[dict[str, str]]:
+    """Body rows of the hosts.md table under ``heading``, keyed by column header.
+
+    Keyed rather than positional, and exact-width: a row carrying an extra cell
+    made `row[-1]` a different column from the one a reader sees under `Shipped`,
+    so the gate and the document disagreed about the same host. A row whose width
+    does not match the header is returned with a `_defect` key instead of being
+    guessed at.
+    """
+    text = read_document(root / HOSTS_DOCUMENT)
+    if text is None or text.count(heading) != 1:
+        return []
+    section = text[text.index(heading) + len(heading) :]
+    cut = section.find("\n## ")
+    headers: list[str] = []
+    rows: list[dict[str, str]] = []
+    for line in (section if cut < 0 else section[:cut]).splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|") or set(stripped) <= set("|-: "):
+            continue
+        cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", stripped.strip("|"))]
+        if not headers:
+            headers = cells
+            continue
+        if len(cells) != len(headers):
+            rows.append({
+                "Host": cells[0] if cells else "",
+                "_defect": f"has {len(cells)} cells, not {len(headers)}",
+            })
+            continue
+        rows.append(dict(zip(headers, cells)))
+    return rows
+
+
+def _canonical(relative: str) -> str:
+    """A recorded path reduced to one spelling, so equivalents compare equal."""
+    return posixpath.normpath(relative.rstrip("/") or ".")
+
+
+def _owner_key(root: Path, relative: str) -> str:
+    """The physical directory a recorded discovery path names.
+
+    Lexical normalisation is not enough to decide who owns a directory. It makes
+    `agents/`, `./agents/` and `agents` one key, but a symlink is a fourth
+    spelling the filesystem resolves and `posixpath` cannot see: `alias/` next to
+    `agents/` keyed as two owners while every read through either reached the one
+    manifest, so two hosts held a directory the record says only one may.
+
+    _escapes_root() deliberately permits an in-tree symlink, so resolving here is
+    what keeps that permission from also granting a second owner. Falls back to
+    the lexical key when the path does not resolve -- an unshipped row may name a
+    directory that does not exist yet, and that is not this function's error to
+    report.
+    """
+    try:
+        resolved = (root / relative).resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return _canonical(relative)
+    return _canonical(resolved.as_posix())
+
+
+def _escapes_root(root: Path, relative: str) -> str | None:
+    """Why a recorded path leaves the plugin payload, or None when it stays inside.
+
+    Resolved, not just lexical: a lexically clean path can still be a symlink out
+    of the tree, and the payload root is what an installed plugin joins against.
+    """
+    if relative.startswith(("/", "~")) or PurePosixPath(relative).is_absolute():
+        return "is absolute"
+    try:
+        (root / relative).resolve().relative_to(root.resolve())
+    except ValueError:
+        return "escapes the plugin root"
+    return None
+
+
+def _shipped(cell: str) -> bool:
+    """Whether a Shipped cell is the table's exact affirmative.
+
+    Exact, not a prefix: `yes — withdrawn` read as shipped, so a typo or a
+    trailing comment could turn a refusal into a capability claim. Anything that
+    is not exactly "yes" is a refusal here, and `_malformed_shipped` reports the
+    values that are neither.
+    """
+    return cell.strip("* ").strip().lower() == "yes"
+
+
+def _malformed_shipped(cell: str) -> bool:
+    """A Shipped cell that states neither the affirmative nor a refusal."""
+    normalised = cell.strip("* ").strip().lower()
+    return normalised != "yes" and not normalised.startswith("no")
+
+
+def validate_host_dialects(root: Path = ROOT) -> list[str]:
+    """Hold the shipped agent and hook manifests to hosts.md.
+
+    hosts.md invites these sections and says validate.py gates what it can. What
+    it can gate is that a row marked shipped has its artifact in that host's
+    dialect, and that a row marked unshipped has no artifact at all -- wiring that
+    ships on a guess is indistinguishable from wiring that works, right up until
+    someone needs it.
+    """
+    errors: list[str] = []
+    agents = dialect_rows(root, "## Subagent manifests")
+    hooks = dialect_rows(root, "## Hook discovery")
+    for heading, required in REQUIRED_HEADERS.items():
+        headers = dialect_headers(root, heading)
+        if not headers:
+            continue
+        if len(headers) != len(set(headers)):
+            repeated = sorted({h for h in headers if headers.count(h) > 1})
+            return [
+                f"{HOSTS_DOCUMENT}: {heading!r} repeats the column(s) {repeated}; a row's "
+                "value would be taken from the later cell, not the one a reader sees"
+            ]
+        if set(headers) != required:
+            return [
+                f"{HOSTS_DOCUMENT}: {heading!r} declares columns {sorted(headers)}, "
+                f"not {sorted(required)}; every rule reads rows by header name"
+            ]
+    for relative in PROTOCOL_DOCUMENTS:
+        protocol = read_document(root / relative)
+        if protocol is not None:
+            # Fenced blocks are examples here for the same reason they are in an
+            # agent manifest: the previous round excluded them from the manifest's
+            # directives and left this call site reading raw Markdown, so the same
+            # "invalid example" block satisfied every delegation marker while the
+            # operative prose said to always run inline. Stripped before the
+            # heading is located too -- a heading inside a fence is not a heading,
+            # and the count below should agree with what a reader sees.
+            protocol = _without_code(protocol)
+        if protocol is None or protocol.count(DELEGATION_HEADING) != 1:
+            # Exactly one: the agent reads the whole document, so a second copy
+            # could contradict the first while only the first was validated.
+            errors.append(
+                f"{relative}: {DELEGATION_HEADING!r} occurs "
+                f"{0 if protocol is None else protocol.count(DELEGATION_HEADING)} times; "
+                "exactly one is required"
+            )
+            continue
+        section = protocol[protocol.index(DELEGATION_HEADING) + len(DELEGATION_HEADING) :]
+        cut = _next_heading(section)
+        section = section if cut < 0 else section[:cut]
+        for marker in DELEGATION_MARKERS:
+            # Affirmative, not present: "never declared or allowed" and "never run
+            # the scan inline anywhere" contain every noun and invert the rule.
+            # The gate is one phrase: requiring `declared` alone let "declared
+            # but denied" satisfy it, which inverts the rule it gates.
+            if not _positive_mentions(section, marker if "\\s" in marker else re.escape(marker)):
+                errors.append(
+                    f"{relative}: the delegation rule is missing {marker!r}; it must "
+                    "gate on the recorded row AND on the tool being available, and "
+                    "name the inline fallback"
+                )
+    document = read_document(root / HOSTS_DOCUMENT) or ""
+    for heading in ("## Subagent manifests", "## Hook discovery"):
+        if document.count(heading) != 1:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {heading!r} occurs {document.count(heading)} times; "
+                "exactly one is required, or a reader sees competing capability records "
+                "and only the first is checked"
+            )
+    if errors:
+        return errors
+    if not agents or not hooks:
+        return [f"{HOSTS_DOCUMENT}: no subagent or hook rows found; the record is unreadable"]
+    # Shape first: a row the reader and the gate would read differently cannot be
+    # judged, so it is reported rather than guessed at.
+    for label, rows in (("subagent", agents), ("hook", hooks)):
+        for row in rows:
+            if "_defect" in row:
+                errors.append(
+                    f"{HOSTS_DOCUMENT}: {label} row {row['Host']!r} {row['_defect']}"
+                )
+            elif _malformed_shipped(row["Shipped"]):
+                errors.append(
+                    f"{HOSTS_DOCUMENT}: {row['Host']}'s {label} Shipped cell is "
+                    f"{row['Shipped']!r}, which states neither 'yes' nor a refusal"
+                )
+    if errors:
+        return errors
+    # The protocol sends a run to *its own* host's row, so a section missing a host
+    # leaves that run with no delegation or hook decision at all. The question-tool
+    # table is the authoritative host set; both sections must match it exactly.
+    expected = set(host_records(root))
+    for label, rows in (("subagent", agents), ("hook", hooks)):
+        present = [row["Host"] for row in rows]
+        if len(present) != len(set(present)):
+            errors.append(f"{HOSTS_DOCUMENT}: the {label} section repeats a host row")
+        if set(present) != expected:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: the {label} section covers {sorted(set(present))}, "
+                f"not the recorded hosts {sorted(expected)}"
+            )
+    if errors:
+        return errors
+
+    owners = [row for row in agents if _shipped(row["Shipped"])]
+    owned: dict[str, list[str]] = {}
+    for row in owners:
+        owned.setdefault(
+            _owner_key(root, row["Discovery path"].strip("`")), []
+        ).append(row["Host"])
+    for directory, sharing in sorted(owned.items()):
+        if len(sharing) > 1:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {sharing} all mark {directory!r} shipped; one "
+                "directory cannot hold incompatible tools dialects, so only one may"
+            )
+    for row in agents:
+        directory = row["Discovery path"].strip("`")
+        if problem := _escapes_root(root, directory):
+            errors.append(
+                f"{HOSTS_DOCUMENT}: subagent path {directory!r} {problem}; an installed "
+                "plugin resolves it against its own payload and finds nothing"
+            )
+            continue
+        dialect = next(
+            (k for k in AGENT_DIALECTS if row["`tools` dialect"].startswith(k)), None
+        )
+        if dialect is None:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {row['Host']} declares an unknown tools dialect"
+            )
+            continue
+        suffix, _template = AGENT_DIALECTS[dialect]
+        relative = f"{directory.rstrip('/')}/{AGENT_STEM}{suffix}"
+        # The directory was checked; the manifest inside it was not. A symlink at
+        # `agents/infra-auditor.md` pointing out of the tree validated clean --
+        # read_document() followed it and judged content the package will not
+        # contain, since what gets committed and shipped is the link.
+        if problem := _escapes_root(root, relative):
+            errors.append(
+                f"{relative}: {problem}; the validated content is not what the "
+                "packaged plugin carries, which is the link"
+            )
+            continue
+        text = read_document(root / relative)
+        if not _shipped(row["Shipped"]):
+            if _owner_key(root, directory) in owned:
+                continue
+            for stray in sorted((root / directory).glob("*")):
+                if stray.is_file():
+                    errors.append(
+                        f"{directory.rstrip('/')}/{stray.name}: {row['Host']}'s row is "
+                        "not marked shipped, so this manifest asserts wiring nothing "
+                        "has demonstrated"
+                    )
+            continue
+        if AGENT_REQUIRED_TOOLS.get(dialect, ()) is None:
+            # Checked here rather than in _check_agent: the TOML branch returns
+            # before that point, so the dialect least able to express the grant
+            # was the one never asked about it.
+            errors.append(
+                f"{HOSTS_DOCUMENT}: the {dialect!r} dialect cannot express the grant the "
+                "protocol promises -- no recorded skill-loading tool, or tools inherited "
+                "from the session -- so this row cannot be marked shipped until the host "
+                "can enforce and record a restricted grant"
+            )
+        invocation = row["Invocation tool"].strip("` ")
+        if invocation not in SENTINEL_CELLS and row["Host"] == STATUS_COMMAND_HOST:
+            # The command that delegates has to be granted the tool this row
+            # names. Renaming the capability here while `allowed-tools` still
+            # lists the old one leaves /infra-status silently falling back.
+            granted = [
+                tool.strip() for tool in COMMAND_TOOLS[STATUS_COMMAND].split(",")
+            ]
+            if invocation not in granted:
+                errors.append(
+                    f"{HOSTS_DOCUMENT}: {row['Host']} records {invocation!r} as its "
+                    f"invocation tool, but {STATUS_COMMAND} grants {granted}; the "
+                    "delegation the protocol describes would not be permitted"
+                )
+        if invocation in SENTINEL_CELLS:
+            # The delegation rule gates on this tool being declared and allowed, so a
+            # shipped row without one leaves that gate nothing to evaluate.
+            errors.append(
+                f"{HOSTS_DOCUMENT}: {row['Host']}'s subagent row is shipped but records "
+                "no invocation tool; the availability gate would have nothing to check"
+            )
+        if text is None:
+            errors.append(
+                f"{relative}: {row['Host']} is marked shipped but no manifest is here"
+            )
+            continue
+        for stray in sorted((root / directory).glob("*")):
+            if stray.is_file() and stray.name != f"{AGENT_STEM}{suffix}":
+                errors.append(
+                    f"{directory.rstrip('/')}/{stray.name}: no subagent row records this "
+                    f"manifest, and {row['Host']} discovers every file in {directory!r}"
+                )
+        errors.extend(_check_agent(relative, text, row, dialect))
+
+    for row in hooks:
+        relative = row["Manifest path"].strip("`").split("`")[0].split(" ")[0].strip()
+        if relative not in HOOK_PATH_SENTINELS and (
+            problem := _escapes_root(root, relative)
+        ):
+            errors.append(
+                f"{HOSTS_DOCUMENT}: hook path {relative!r} {problem}; the validator "
+                "would read and accept an artifact no installed plugin can reach"
+            )
+            continue
+        if not _shipped(row["Shipped"]):
+            if relative not in HOOK_PATH_SENTINELS and (root / relative).exists():
+                errors.append(
+                    f"{relative}: {row['Host']}'s row is not marked shipped, so this "
+                    "manifest asserts a discovery path nothing has demonstrated"
+                )
+            continue
+        errors.extend(_check_hook(root, relative, row))
+    return errors
+
+
+def _check_agent(relative: str, text: str, row: dict[str, str], dialect: str) -> list[str]:
+    """Hold a shipped agent manifest to what its row implies.
+
+    The frontmatter is rendered from the record and compared as a block; the body
+    keeps its directive rules, because prose is not derivable.
+    """
+    errors: list[str] = []
+    if dialect == "none":
+        # TOML: the body lives in a multi-line string, so there is no fixed block
+        # to compare. tomllib is stdlib, so this one is genuinely parsed.
+        # Imported here, not at module load: tomllib is 3.11+, while the
+        # repository's baseline is whatever `python3` is -- the Makefile says
+        # 3.11 "only affects this maintainer target". A module-level import broke
+        # `make check` for a 3.10 contributor before any check could run. This
+        # branch is unreachable for a shipped row today, since the dialect that
+        # needs it cannot express the read-only grant.
+        try:
+            import tomllib
+        except ModuleNotFoundError:
+            return [
+                f"{relative}: parsing this dialect needs Python 3.11+ for tomllib; "
+                f"this interpreter is {sys.version_info.major}.{sys.version_info.minor}"
+            ]
+        try:
+            document = tomllib.loads(text)
+        except tomllib.TOMLDecodeError as error:
+            return [f"{relative}: is not valid TOML ({error})"]
+        if document.get("name") != AGENT_STEM:
+            errors.append(
+                f"{relative}: declares name {document.get('name')!r}, not {AGENT_STEM!r}"
+            )
+        instructions = document.get("developer_instructions")
+        if not isinstance(instructions, str):
+            return errors + [
+                f"{relative}: declares no `developer_instructions` string; that field "
+                "is the agent's body, and the directives have to live in it"
+            ]
+        return errors + _check_agent_body(relative, instructions)
+
+    front = SKILL_FRONTMATTER.match(text)
+    if front is None:
+        return [f"{relative}: has no frontmatter block"]
+    body = front.group("body")
+    description = re.search(r'(?m)^description:\s*"([^"]*)"\s*$', body)
+    if description is None or not AGENT_DESCRIPTION.fullmatch(description.group(1)):
+        return [
+            f"{relative}: needs a `description:` on one line, double-quoted, carrying "
+            "no quote or backslash of its own"
+        ]
+    names = re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", row["Tool names"])
+    _, template, render_tools = AGENT_FRONTMATTER[dialect]
+    expected = template.format(
+        name=AGENT_STEM, description=description.group(1), tools=render_tools(names)
+    )
+    if body.strip("\n") != expected:
+        # One comparison in place of the field-by-field rules: an unknown or
+        # duplicated key, a doubled quote, an invalid escape, an indented mapping,
+        # a wrong dialect or a renamed agent all differ from this block.
+        return [
+            f"{relative}: frontmatter does not match what {HOSTS_DOCUMENT} records for "
+            f"{row['Host']}. Expected:\n{expected}\nFound:\n{body.strip(chr(10))}"
+        ]
+    for required in AGENT_REQUIRED_TOOLS.get(dialect) or ():
+        if required not in names:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: the shipped subagent row omits {required!r}; the "
+                "manifest loads the runbook through the skill tool and runs shell "
+                "checks, so a delegated run would fail"
+            )
+    for forbidden in AGENT_FORBIDDEN_TOOLS.get(dialect, ()):
+        if forbidden in names:
+            errors.append(
+                f"{HOSTS_DOCUMENT}: the shipped subagent row grants {forbidden!r}; the "
+                "scan is read-only and the recorded grant is what says so"
+            )
+    return errors + _check_agent_body(relative, text)
+
+
+#: The delegation rule's shape. Both gates have to be stated, because a record
+#: says the agent was *shipped*, never that this session can reach it -- and the
+#: inline fallback is what makes a denied tool a fallback rather than an error.
+DELEGATION_HEADING = "### Running the scan in an isolated context"
+DELEGATION_MARKERS = (
+    "infra-auditor", r"marked\s+shipped", r"declared\s+and\s+allowed",
+    "Invocation tool", "inline",
+    # The scope boundary is load-bearing: an action skill's resume scan needs the
+    # current-checkout checks the status runbook substitutes away. Every action skill
+    # has to be named -- `prune` shipped in #73 and was left out of all three copies of
+    # this list, which is exactly the drift an enumeration invites.
+    r"`status`\s+and\s+only\s+`status`",
+    r"`setup`,\s+`import`,\s+`prune`,?\s+and\s+`add`",
+)
+
+
+#: A code fence at the start of a line: the delimiter run, then whatever follows
+#: it. Both parts matter -- an opening fence may carry an info string, a closing
+#: fence may not, and the closing run must be at least as long as the opening.
+MARKDOWN_FENCE = re.compile(r"\A[ \t]{0,3}(`{3,}|~{3,})[ \t]*(.*?)[ \t]*\Z")
+
+
+#: An indented code block's content: four spaces (or a tab) of indent. Markdown
+#: renders these as code exactly as a fence does, and the first version of
+#: _without_code() removed only fences, so the same "invalid example" worked
+#: again with the backticks taken off and the lines pushed right.
+MARKDOWN_INDENTED = re.compile(r"\A(?: {4}|\t)")
+
+
+def _without_code(text: str) -> str:
+    """``text`` with every Markdown code block removed, line for line.
+
+    A code block is an *example*, not an instruction -- which is exactly why a
+    manifest whose operative body said "stop" and whose only directives sat in a
+    block labelled "invalid example" satisfied both required directives while
+    routing nowhere. Both spellings count: a fence, and four spaces of indent.
+
+    Blanked rather than deleted, so what remains still sits where it sat.
+
+    An indented block only starts after a blank line, which is what keeps it from
+    swallowing a wrapped list item -- a continuation line is indented too, but it
+    follows the text it continues rather than a blank. Neither document this runs
+    over contains an indented block today; the rule is here because the fenced
+    one alone was a spelling, not a category.
+    """
+    kept, fence, indented = [], None, False
+    for line in text.splitlines():
+        found = MARKDOWN_FENCE.match(line)
+        if fence is None and indented:
+            if not line.strip():
+                # A blank line neither ends the block nor is content: it is kept
+                # blank either way, and the next line decides.
+                kept.append("")
+                continue
+            if MARKDOWN_INDENTED.match(line):
+                kept.append("")
+                continue
+            indented = False
+        if fence is None and found is None and MARKDOWN_INDENTED.match(line) and line.strip():
+            if kept and not kept[-1].strip():
+                indented = True
+                kept.append("")
+                continue
+        if fence is None:
+            if found:
+                # The whole delimiter, not a normalised three. Keeping only the
+                # character let a ``` line close a ```` block that Markdown keeps
+                # open, so directives sitting inside the example counted as
+                # operative -- the defect this function exists to prevent, one
+                # backtick further out.
+                fence = found.group(1)
+                kept.append("")
+                continue
+            kept.append(line)
+            continue
+        kept.append("")
+        if (
+            found
+            and found.group(1)[0] == fence[0]
+            and len(found.group(1)) >= len(fence)
+            # A closing fence carries nothing after the delimiter. Accepting an
+            # info string here would close the block on the *opening* fence of a
+            # nested example.
+            and not found.group(2)
+        ):
+            fence = None
+    return "\n".join(kept)
+
+
+#: An inline code span, bounded so it cannot run past a paragraph break. A span
+#: whose content carries whitespace is a *quotation* -- and a quoted sentence is
+#: an example, the inline spelling of the fenced block _without_code() removes.
+#: A span with no whitespace is a *name*, which is simply how these documents
+#: write `infra-auditor` or `status.md`, and must keep counting.
+MARKDOWN_SPAN = re.compile(
+    r"(?P<ticks>`+)(?:(?!(?P=ticks)(?!`))(?:[^\n]|\n(?!\s*\n)))*(?P=ticks)(?!`)"
+)
+
+
+def _quoted_phrases(text: str) -> list[tuple[int, int]]:
+    """Offsets of every inline code span that quotes a phrase rather than a name."""
+    return [
+        (found.start(), found.end())
+        for found in MARKDOWN_SPAN.finditer(text)
+        if re.search(r"\s", found.group(0).strip("`"))
+    ]
+
+
+def _clause_before(text: str, end: int) -> str:
+    """``text`` back to the clause boundary preceding ``end``.
+
+    The polarity of a directive is decided by its own clause, not by a window of
+    fixed width: padding between the negator and the imperative is free to write
+    and was twice enough to invert a gate that measured characters.
+    """
+    start = 0
+    for found in AGENT_CLAUSE_BOUNDARY.finditer(text, 0, end):
+        if found.group(0) == ":" and AGENT_NEGATOR.search(text[start : found.start()]):
+            # A colon introduces what precedes it rather than ending it, so
+            # "Do not do this: Invoke the infra-copilot skill" is one instruction
+            # and the negator still governs. A period or a paragraph break
+            # terminates; this does not.
+            continue
+        start = found.end()
+    return text[start:end]
+
+
+def _positive_mentions(text: str, pattern: str) -> bool:
+    """Whether ``pattern`` occurs at least once un-negated in its own clause.
+
+    One un-negated occurrence is enough: a document may discuss the negative case
+    ("never carry one in a skill body") as long as it also states the positive
+    directive somewhere.
+
+    An occurrence quoted whole inside one inline code span does not count. That is
+    the inline spelling of the fenced example _without_code() already removes, and
+    it arrived as an operative body reading "Do nothing", with the entire
+    directive quoted after the words "Invalid example:" -- an adapter that routes
+    nowhere, accepted.
+
+    Spans that name something are exempt, because that is how every one of these
+    documents writes a skill or a tool. The shipped directive is itself
+    "Invoke the [infra-copilot] skill" with the name code-formatted, and
+    protocol.md code-formats [infra-auditor] wherever it states the rule; a
+    blanket exclusion of code spans rejected both.
+    """
+    quoted = _quoted_phrases(text)
+    return any(
+        AGENT_NEGATOR.search(_clause_before(text, match.start())) is None
+        and not any(start <= match.start() and match.end() <= end for start, end in quoted)
+        for match in re.finditer(pattern, text)
+    )
+
+
+def _check_agent_body(relative: str, text: str) -> list[str]:
+    """Rules every dialect shares: delegate, no consumer-relative path, stay small.
+
+    The directives are looked for in the *body* only. Frontmatter is discovery
+    metadata -- a description tells a caller when to reach for the agent and is
+    not what the agent is given as instructions -- so a manifest whose directives
+    live there and whose body says "Do nothing." satisfied the contract while
+    instructing nothing.
+
+    The character budget is the exception and spans the whole file: metadata the
+    agent is not given is still metadata the *caller* is given, so an unbounded
+    `description:` is a second authority over routing.
+    """
+    errors: list[str] = []
+    front = SKILL_FRONTMATTER.match(text)
+    body = text[front.end() :] if front else text
+    # Required directives must be *operative*, so they are looked for outside
+    # fenced examples. The forbidden path keeps reading the whole body on
+    # purpose: for something that must be present, a non-operative copy proves
+    # nothing; for something that must be absent, a copy anywhere is still a copy
+    # the agent can read, and refusing it costs this manifest nothing.
+    operative = _without_code(body)
+    if not _positive_mentions(operative, AGENT_INVOCATION.pattern):
+        # Names alone were satisfied by "Never invoke `infra-copilot` or
+        # `status.md`" -- both markers present, every delegated run told not to
+        # load the canonical workflow.
+        errors.append(
+            f"{relative}: carries no instruction to invoke the {AGENT_RUNBOOK[0]!r} "
+            "skill; an agent that does not load the runbook either restates it or "
+            "does nothing"
+        )
+    if not _positive_mentions(operative, AGENT_RUNBOOK_DIRECTIVE.pattern):
+        # "then do not follow status.md" named the runbook and skipped it, which
+        # is the same defect as the negated skill imperative one clause earlier.
+        errors.append(
+            f"{relative}: carries no un-negated instruction to follow "
+            f"{AGENT_RUNBOOK[1]!r}; naming the runbook is not delegating to it"
+        )
+    if found := AGENT_FORBIDDEN_PATH.search(body):
+        errors.append(
+            f"{relative}: carries the path-qualified runbook reference "
+            f"{found.group(0)!r}; a relative one resolves into the consuming "
+            "repository rather than the plugin payload, and an absolute one or a URL "
+            "is not the payload at all. Load the skill by name instead"
+        )
+    if len(text) > AGENT_MAX_CHARACTERS:
+        errors.append(
+            f"{relative}: {len(text)} characters > {AGENT_MAX_CHARACTERS}; the line "
+            "budget alone is not a size budget when one line may be any length"
+        )
+    # Lines stay on the body: the rationale is restating the runbook, which is a
+    # body concern, and frontmatter is four lines whose length the character
+    # budget above already prices.
+    if len(body.splitlines()) > AGENT_MAX_LINES:
+        errors.append(
+            f"{relative}: {len(body.splitlines())} lines > {AGENT_MAX_LINES}; a host "
+            "manifest is an adapter, and one long enough to restate the runbook's scope, "
+            "guardrails or report contract becomes a second authority"
+        )
+    return errors
+
+
+def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
+    """Hold a shipped hook manifest to the shape and command its row records.
+
+    The manifest is a fixed shape -- one event, one entry, one callback -- so it
+    is compared against a rendered expectation rather than inspected property by
+    property. The command in particular is byte-for-byte: see
+    HOOK_COMMAND_TEMPLATE for why analysing it was the wrong tool.
+    """
+    if not (root / relative).exists():
+        return [f"{relative}: {row['Host']} is marked shipped but no manifest is here"]
+    # Same reason as the agent manifest: a recorded path that stays inside the
+    # payload says nothing about the file found at it.
+    for artifact in (relative, HOOK_IMPLEMENTATION):
+        if problem := _escapes_root(root, artifact):
+            return [
+                f"{artifact}: {problem}; the validated content is not what the "
+                "packaged plugin carries, which is the link"
+            ]
+    try:
+        payload = load_json(relative, root)
+    except (OSError, json.JSONDecodeError) as error:
+        return [f"{relative}: is not readable JSON ({error})"]
+
+    recorded_root = row["Root variable"].strip("` ")
+    matcher = row["Matcher"].strip("`").replace(MATCHER_PIPE, "|")
+    if matcher in SENTINEL_CELLS:
+        # Rendered verbatim, so a manifest copying the sentinel compared equal
+        # while no session source matches that literal -- the row claiming an
+        # announcement that can never fire. The root variable was already
+        # required; the matcher was not.
+        return [
+            f"{HOSTS_DOCUMENT}: {row['Host']} is shipped but records {matcher!r} as its "
+            "matcher, which no session source matches"
+        ]
+    if recorded_root in SENTINEL_CELLS:
+        return [f"{HOSTS_DOCUMENT}: {row['Host']} is shipped but records no root variable"]
+    # The manifest and the record can agree on a variable the shared script does
+    # not test, in which case the hook runs and emits the fallback output shape
+    # instead of this host's -- the announcement disappearing on a green gate.
+    if not SHELL_IDENTIFIER.fullmatch(recorded_root):
+        # Rendered into two shell expansions, so a value that is not an identifier
+        # makes both fail with "Bad substitution" at run time while every
+        # comparison here still agrees.
+        return [
+            f"{HOSTS_DOCUMENT}: {row['Host']} records {recorded_root!r} as its root, "
+            "which is not a shell variable name"
+        ]
+    script = read_document(root / HOOK_IMPLEMENTATION) or ""
+    branches = list(HOOK_OUTPUT_BLOCK.finditer(script))
+    if len(branches) != 1:
+        return [
+            f"{HOOK_IMPLEMENTATION}: carries the host-output branch {len(branches)} "
+            "times; exactly one is required, and every byte of it but the root "
+            "variables is fixed -- a flat `||` disjunction, then the host shape, "
+            "else the fallback shape"
+        ]
+    tested = set(HOOK_ROOT_TEST.findall(branches[0].group("condition")))
+    if recorded_root not in tested:
+        return [
+            f"{HOOK_IMPLEMENTATION}: does not test ${{{recorded_root}:-}}, which "
+            f"{HOSTS_DOCUMENT} records as {row['Host']}'s root; the hook would run "
+            "and emit another host's shape"
+        ]
+
+    # The whole manifest, rendered from the record. Every shape question the old
+    # version asked one at a time -- sibling events, extra top-level keys,
+    # duplicate entries or callbacks, a non-string matcher or command, a foreign
+    # root variable, a redirection, an added statement -- is answered by this
+    # single comparison, because none of them produce this document.
+    expected = {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "matcher": matcher,
+                    "hooks": [
+                        {
+                            "name": "infra-copilot-session-start",
+                            "type": "command",
+                            "command": expected_hook_command(recorded_root),
+                            "timeout": HOOK_TIMEOUT,
+                            "description": HOOK_DESCRIPTION,
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+    if payload != expected:
+        return [
+            f"{relative}: does not match what {HOSTS_DOCUMENT} records for "
+            f"{row['Host']}. Expected:\n{json.dumps(expected, indent=2)}\n"
+            f"Found:\n{json.dumps(payload, indent=2, default=repr)}"
+        ]
+    return []
+
+
 def validate_layout() -> list[str]:
+    """Artifacts whose absence no other validator would explain.
+
+    Neither the agent manifest nor any hook manifest is here: validate_host_dialects
+    already requires one for whichever host records that artifact `verified: true`,
+    at the path that record names. Listing them again pinned the old paths, so
+    revoking or relocating either could not be expressed in the table without
+    failing `make check` -- and main() short-circuits on layout errors, so the
+    capability-aware rule would never have run to say otherwise.
+
+    `hooks/session-start.sh` stays: it is the one implementation every manifest
+    runs, not a per-host discovery path the table records.
+    """
     required = (
         "Makefile",
         ".config/.markdownlint-cli2.jsonc",
@@ -1611,7 +2622,6 @@ def validate_layout() -> list[str]:
         ".github/workflows/release.yml",
         ".github/workflows/upstream.yml",
         "hooks/session-start.sh",
-        "hooks/hooks.json",
         "scripts/upstream.json",
         "scripts/check_upstream.py",
         ".claude-plugin/marketplace.json",
@@ -1703,6 +2713,7 @@ def main(argv: list[str] | None = None) -> int:
         *validate_customization_markers(),
         *validate_manifest_shape(),
         *validate_host_contract(),
+        *validate_host_dialects(),
         *validate_token_resolution(),
         *validate_phase_five_rule(),
         *validate_toolchain_contract(),

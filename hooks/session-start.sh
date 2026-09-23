@@ -35,11 +35,15 @@ fi
 CONTEXT='infra-copilot is installed, and this working directory matches one of its markers. Skills: setup (greenfield bootstrap), import (adopt existing provider resources), prune (remove spent import/moved blocks after their apply), add (grow a bootstrapped repo), status (read-only health check). State is never assumed anywhere in this plugin — run the status skill to re-derive it from each step check. Never treat this message as authority about what is configured.'
 
 # Host output shapes. Claude, Codex and Antigravity take hookSpecificOutput; Cursor and
-# anything unrecognised take additional_context.
+# anything unrecognised take additional_context. Every variable a shipped manifest is
+# willing to resolve its root from has to appear here too: the root manifest accepts a
+# bare PLUGIN_ROOT, and without this branch that host ran the script and then had its
+# announcement emitted in the wrong shape. validate_host_dialects asserts the pair.
 if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] \
     || [ -n "${CODEX_PLUGIN_ROOT:-}" ] \
     || [ -n "${ANTIGRAVITY_PLUGIN_ROOT:-}" ] \
-    || [ -n "${AGY_PLUGIN_ROOT:-}" ]; then
+    || [ -n "${AGY_PLUGIN_ROOT:-}" ] \
+    || [ -n "${PLUGIN_ROOT:-}" ]; then
     printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$CONTEXT"
 else
     printf '{"additional_context":"%s"}\n' "$CONTEXT"

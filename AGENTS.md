@@ -34,7 +34,8 @@ file is safe to edit. The manifest is the authority; the header is only a conven
 | Antigravity manifest | `plugin.json` | hand-authored — edit directly |
 | Codex marketplace | `.agents/plugins/marketplace.json` | hand-authored — edit directly |
 | Repository validators | `scripts/validate.py`, `tests/` | `make check` |
-| The SessionStart hook | `hooks/session-start.sh`, `hooks/hooks.json` | hand-authored — `ai-rulez` has no hook support |
+| The SessionStart hook | `hooks/session-start.sh`, `hooks/hooks.json` (Claude only) | hand-authored — `ai-rulez` has no hook support |
+| The `infra-auditor` subagent | `agents/` (root, Claude dialect) | hand-authored — `ai-rulez` has no agent support |
 | Tool pins | `package.json` + `package-lock.json`; a *new* tool also needs `TOOL_PACKAGES`. Never write `<tool>@<version>` in a `Makefile` or workflow, comments included | `make check` |
 
 ## Rule 2: run `make check`
@@ -76,3 +77,20 @@ assumed: every run re-derives it by executing each step's `check`.
 
 See [`CONTRIBUTING.md`](.github/CONTRIBUTING.md) for the full loop and
 [`docs/roadmap.md`](docs/roadmap.md) for what is deliberately unbuilt.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues in `hasansezertasan/infra-copilot`, driven with the `gh` CLI.
+See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
+
+### Triage labels
+
+The five canonical triage roles, each label string equal to its name. See
+[`docs/agents/triage-labels.md`](docs/agents/triage-labels.md).
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root, both created lazily.
+See [`docs/agents/domain.md`](docs/agents/domain.md).

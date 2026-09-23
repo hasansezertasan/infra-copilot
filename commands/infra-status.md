@@ -1,12 +1,12 @@
 ---
 description: "Shortcut that loads the infra-copilot status skill — read-only health check that scans every manifest step and reports where infra stands and which skill fixes the first red step."
-allowed-tools: Read, Bash, Glob, Grep
+allowed-tools: Read, Bash, Glob, Grep, Task
 ---
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:0969f0317517d061f30c9fca9698ae0e34d7ebbba12ca2bf01b88df1a2b2c112
-Source-Hash: blake3:744b5d1691c4012b0deb26beefa54eaeb11fc23c8f6b6f442b3a923ed0e00c29
+Content-Hash: blake3:d82d262129f6876d22b29897255724a86746f85d276e7597315931461b5f80b3
+Source-Hash: blake3:423785a3b0532c16aa3218d5d7708c1db0d4e2ec0b8451ba5f051d3a7e13ab30
 Schema-Version: v1
 -->
 
