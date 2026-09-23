@@ -177,9 +177,11 @@ It locates the provider and service accounts from the workspace's own non-sensit
   the pool's (where grants are inherited), a role whose permissions reach them. Roles are
   resolved with `gcloud iam roles describe` and judged by permission, not name — service
   agent roles such as `roles/cloudbuild.serviceAgent` also mint tokens. The permissions
-  are minting tokens or signatures as an account, creating its keys (a key is a login),
-  `actAs`, setting account or project IAM policy, and changing the pool or its providers
-  (which could loosen this very condition);
+  are minting tokens or signatures as an account, creating or uploading its keys (a key
+  is a login), `actAs`, setting account or project IAM policy, and changing the pool or
+  its providers (which could loosen this very condition). Such a grant under an IAM
+  condition exits 2: the check does not evaluate conditions, so confirm by hand that it
+  excludes the run accounts and the pool;
 - when plan and apply use different accounts, the apply account (and those project
   grants) admit only `attribute.terraform_run_phase/apply`, and the provider maps that
   attribute from `assertion.terraform_run_phase` — a constant would label every run an

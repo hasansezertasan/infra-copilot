@@ -52,6 +52,7 @@ ROLE_PERMISSIONS = {
     "roles/cloudbuild.serviceAgent": ["iam.serviceAccounts.getAccessToken",
                                       "cloudbuild.builds.create"],
     "roles/storage.admin": ["storage.buckets.create", "storage.objects.delete"],
+    "projects/proj/roles/keyUploader": ["iam.serviceAccountKeys.upload"],
 }
 
 DEFAULT_VARS = [
@@ -297,6 +298,15 @@ class GcpWifTrustTests(unittest.TestCase):
         self.assert_exit(self.run_check(
             project_bindings=[{"role": "roles/storage.admin", "members": [foreign]}],
             role_describe_error=True), 2)
+        # A custom role that uploads a key the attacker holds the private half of.
+        self.assert_exit(self.run_check(
+            project_bindings=[{"role": "projects/proj/roles/keyUploader", "members": [foreign]}]), 1)
+        # A condition may scope the grant away from the run accounts; it is not evaluated,
+        # so the verdict is "cannot verify", never a false red or a false green.
+        self.assert_exit(self.run_check(project_bindings=[{
+            "role": "roles/iam.serviceAccountTokenCreator", "members": [foreign],
+            "condition": {"expression": "resource.name == 'projects/-/serviceAccounts/other'"},
+        }]), 2)
         # This pool's own principals are not resolved at all.
         self.assert_exit(self.run_check(
             project_bindings=[{"role": "roles/editor",

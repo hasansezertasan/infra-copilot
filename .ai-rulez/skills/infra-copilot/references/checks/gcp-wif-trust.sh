@@ -220,7 +220,8 @@ apply_only="^principalSet://iam\.googleapis\.com/$pool_path/attribute\.terraform
 escalation_permissions='["iam.serviceAccounts.getAccessToken","iam.serviceAccounts.getOpenIdToken",
   "iam.serviceAccounts.signBlob","iam.serviceAccounts.signJwt",
   "iam.serviceAccounts.implicitDelegation","iam.serviceAccounts.actAs",
-  "iam.serviceAccountKeys.create","iam.serviceAccounts.setIamPolicy",
+  "iam.serviceAccountKeys.create","iam.serviceAccountKeys.upload",
+  "iam.serviceAccounts.setIamPolicy",
   "resourcemanager.projects.setIamPolicy",
   "iam.workloadIdentityPools.update","iam.workloadIdentityPools.delete",
   "iam.workloadIdentityPoolProviders.create","iam.workloadIdentityPoolProviders.update",
@@ -276,20 +277,26 @@ for project in $(printf '%s\n' "$projects" | sort -u); do
         || cannot_verify "gcloud could not read the IAM policy of project $project: $(head -1 "$err")"
     # Each (role, member) pair where the member is federated and outside the rule. Pool
     # principals that pass the rule may hold anything; only strangers are resolved.
+    # A binding's IAM condition can scope it away from the run accounts (resource.name on
+    # another account, say). Evaluating CEL is out of reach here, so a dangerous grant
+    # under a condition is reported as unverifiable rather than as broken or safe.
     pairs=$(printf '%s' "$project_policy" | jq -r '
-        .bindings[]? | .role as $r | .members[]
-        | select(test("^principal(Set)?://")) | "\($r) \(.)"' | sed '/^$/d')
-    printf '%s\n' "$pairs" | while read -r role member; do
+        .bindings[]? | .role as $r | (if .condition then "conditional" else "unconditional" end) as $c
+        | .members[] | select(test("^principal(Set)?://")) | "\($r) \($c) \(.)"' | sed '/^$/d')
+    printf '%s\n' "$pairs" | while read -r role scope member; do
         [ -n "$role" ] || continue
         printf '%s\n' "$member" | grep -Eq "$project_rule" && continue
         permissions=$(gcloud iam roles describe "$role" --format=json 2>"$err") \
             || { echo "CANNOT VERIFY: gcloud could not describe $role held by $member on project $project: $(head -1 "$err")" >&2; exit 2; }
         hit=$(printf '%s' "$permissions" | jq -r --argjson bad "$escalation_permissions" '
             [.includedPermissions[]? | select(. as $p | $bad | index($p))] | join(", ")')
-        [ -z "$hit" ] || {
-            echo "project $project grants $role to federated principal $member, whose permissions ($hit) reach the run accounts or the pool" >&2
-            exit 1
-        }
+        [ -z "$hit" ] && continue
+        if [ "$scope" = conditional ]; then
+            echo "CANNOT VERIFY: project $project grants $role ($hit) to federated principal $member under an IAM condition this check cannot evaluate; confirm by hand that the condition excludes the run accounts and the pool" >&2
+            exit 2
+        fi
+        echo "project $project grants $role to federated principal $member, whose permissions ($hit) reach the run accounts or the pool" >&2
+        exit 1
     done
     rc=$?
     [ "$rc" -eq 0 ] || exit "$rc"
