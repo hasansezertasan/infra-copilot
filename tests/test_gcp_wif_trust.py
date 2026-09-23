@@ -406,6 +406,21 @@ class GcpWifTrustTests(unittest.TestCase):
             "terraform/modules/x/providers.tf": 'provider "google" {\n  credentials = file("k.json")\n}\n',
         }), 1)
 
+    def test_json_syntax_configuration_is_scanned_too(self) -> None:
+        dynamic = json.dumps({"provider": {"google": {
+            "credentials": "${try(var.tfc_gcp_dynamic_credentials.default.credentials, null)}"}}})
+        self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf.json": dynamic}), 0)
+        for body in (
+            {"provider": {"google": {"credentials": "${var.google_key}"}}},
+            {"provider": {"google-beta": [{"access_token": "${var.token}"}]}},
+            {"provider": {"google": {"impersonate_service_account": "admin@proj.iam.gserviceaccount.com"}}},
+        ):
+            with self.subTest(body=body):
+                self.assert_exit(self.run_check(
+                    tf_files={"terraform/gcp/providers.tf.json": json.dumps(body)}), 1)
+        self.assert_exit(self.run_check(
+            tf_files={"terraform/gcp/providers.tf.json": "{not json"}), 2)
+
     def test_tagged_configurations_cannot_be_verified(self) -> None:
         for key in ("TFC_GCP_PROVIDER_AUTH_ALIAS", "TFC_GCP_WORKLOAD_PROVIDER_NAME_ALIAS",
                     "TFC_DEFAULT_GCP_PROVIDER_AUTH"):

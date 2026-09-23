@@ -192,7 +192,7 @@ It locates the provider and service accounts from the workspace's own non-sensit
   attribute from `assertion.terraform_run_phase` — a constant would label every run an
   apply.
 
-It also fails when a `.tf` file in the leaf or in `terraform/modules` sets
+It also fails when a `.tf` or `.tf.json` file in the leaf or in `terraform/modules` sets
 `credentials`, `access_token`, or `impersonate_service_account` in any form other than
 `try(var.tfc_gcp_dynamic_credentials.<default|aliases["tag"]>.credentials, null)`, since
 the run would then use that identity instead. It exits 2, not 1, when `gcloud` cannot

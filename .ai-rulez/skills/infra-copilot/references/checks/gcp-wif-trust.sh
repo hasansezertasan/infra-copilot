@@ -90,8 +90,8 @@ overrides=$(printf '%s' "$vars" | jq -r '
 # `access_token`, or `impersonate_service_account` set from a terraform-category
 # variable would make the run use an identity no env check sees. Only the documented
 # dynamic-credentials form of `credentials` (gcp.md, tagged configurations) passes. The
-# scan is textual and fails closed: an argument by these names anywhere in the leaf or
-# the shared modules must be one of the allowed forms.
+# scan is textual for HCL, structural for JSON, and fails closed: an argument by these
+# names anywhere in the leaf or the shared modules must be one of the allowed forms.
 if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
     static=$(find "terraform/$NEW_PROVIDER" terraform/modules -name '*.tf' -type f 2>/dev/null \
         | while IFS= read -r file; do
@@ -99,6 +99,21 @@ if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
                 | grep -Ev '=[[:space:]]*try\(var\.tfc_gcp_dynamic_credentials\.(default|aliases\["[A-Za-z0-9_-]+"\])\.credentials,[[:space:]]*null\)[[:space:]]*(#.*)?$' \
                 | sed "s|^|$file:|"
         done)
+    # Phase 6 accepts JSON-syntax leaves too; the same keys at any depth are judged the
+    # same way, with the HCL expression in its "${...}" interpolation form.
+    json_files=$(find "terraform/$NEW_PROVIDER" terraform/modules -name '*.tf.json' -type f 2>/dev/null)
+    for file in $json_files; do
+        found=$(jq -r '
+            .. | objects | to_entries[]
+            | select(.key | IN("credentials", "access_token", "impersonate_service_account"))
+            | "\(.key) = \(.value | tostring)"' "$file" 2>/dev/null) \
+            || cannot_verify "could not parse $file as JSON to look for provider identity arguments"
+        bad=$(printf '%s\n' "$found" | sed '/^$/d' \
+            | grep -Ev '^credentials = \$\{try\(var\.tfc_gcp_dynamic_credentials\.(default|aliases\["[A-Za-z0-9_-]+"\])\.credentials, ?null\)\}$' \
+            | sed "s|^|$file: |" || true)
+        [ -z "$bad" ] || static="$static${static:+
+}$bad"
+    done
     [ -z "$static" ] \
         || fail "the committed configuration sets a Google identity argument other than the dynamic-credentials form, so runs may not use the verified trust: $static"
 fi
