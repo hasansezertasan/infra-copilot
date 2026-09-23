@@ -402,6 +402,24 @@ class NewProviderFlowTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+            # GCLOUD_/CLOUDSDK_ keys are GCP credentials too, so a WIF decision over one
+            # is a mismatch, not "some other provider".
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | Workload Identity Federation | locked |\n",
+                encoding="utf-8",
+            )
+            commit("wif decision over gcloud keyfile")
+            gcloud_keyfile_wif = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"GCLOUD_KEYFILE_JSON","category":"env","sensitive":true}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
             # Free text reduced to a keyword is not a decision.
             free_text = {}
             for choice, inventory in (
@@ -452,6 +470,7 @@ class NewProviderFlowTests(unittest.TestCase):
             )
         self.assertEqual(azure_wif.returncode, 0, azure_wif.stderr)
         self.assertNotEqual(two_auth_rows.returncode, 0, "two locked authentication rows")
+        self.assertNotEqual(gcloud_keyfile_wif.returncode, 0, "WIF decision, GCLOUD_ inventory")
         for choice, credentials in free_text.items():
             with self.subTest(choice=choice):
                 self.assertNotEqual(credentials.returncode, 0, "free-text GCP auth choice")

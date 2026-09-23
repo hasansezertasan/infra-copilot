@@ -199,7 +199,6 @@ class GcpWifTrustTests(unittest.TestCase):
             "assertion.terraform_organization_name == 'acme' && "
             "assertion.terraform_workspace_id == 'ws-abc123'",
             "assertion.sub.startsWith('organization:acme:project:Default Project:workspace:gcp:')",
-            "assertion.sub.startsWith('organization:acme:project:p:workspace:gcp:run_phase:apply')",
             SCOPED + " && assertion.terraform_project_name == 'Default Project'",
         ):
             with self.subTest(condition=condition):
@@ -226,6 +225,8 @@ class GcpWifTrustTests(unittest.TestCase):
             "assertion.sub.startsWith('organization:acme:project:p:workspace:gcp-other:')",
             # No delimiter: also a prefix of workspace "gcp-evil".
             "assertion.sub.startsWith('organization:acme:project:p:workspace:gcp')",
+            # A run-phase suffix on the subject prefix locks the other phase out too.
+            "assertion.sub.startsWith('organization:acme:project:p:workspace:gcp:run_phase:plan')",
             # One provider serves both phases; naming one locks the other out.
             SCOPED + " && assertion.terraform_run_phase == 'plan'",
             # Every trusted-looking substring present, trust inverted or discarded:

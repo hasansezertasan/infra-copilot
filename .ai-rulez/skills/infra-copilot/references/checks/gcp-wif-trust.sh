@@ -243,10 +243,11 @@ while IFS= read -r term; do
     elif printf '%s' "$term" | grep -Eqx "assertion\.terraform_workspace_name *== *'$ws_re'" \
         || printf '%s' "$term" | grep -Eqx "assertion\.terraform_workspace_id *== *'$ws_id'"; then
         ws_bound=true
-    # The prefix must end at a delimiter: `...:workspace:gcp` is also a prefix of
-    # `...:workspace:gcp-evil:run_phase:apply`, so the trailing `:` is required.
+    # The prefix must end exactly at the delimiter after the workspace: without the `:`,
+    # `...:workspace:gcp` is also a prefix of `...:workspace:gcp-evil`; with anything
+    # after it (`:run_phase:plan`), one phase's tokens are refused and applies fail.
     elif printf '%s' "$term" \
-        | grep -Eqx "assertion\.sub\.startsWith\( *'organization:$org_re:project:[^:']+:workspace:$ws_re:[^']*' *\)"; then
+        | grep -Eqx "assertion\.sub\.startsWith\( *'organization:$org_re:project:[^:']+:workspace:$ws_re:' *\)"; then
         org_bound=true
         ws_bound=true
     # No run-phase term: one provider serves both phases, so a condition naming one

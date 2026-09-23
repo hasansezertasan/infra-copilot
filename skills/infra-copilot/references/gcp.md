@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6b445a1f4c58ef32ddf9ffd6e8bc1b0bc628cdf0739c12217f16b84dfb2c7d35
-Source-Hash: blake3:86ba0ea44f5855d990797befc696bb45b82f5790eaf303cd774051727c02dc17
+Content-Hash: blake3:9e2e02338ebc9efb2335c50ccf8209db08148d5398bc7aacebd28e207e58025f
+Source-Hash: blake3:4580dd376af27c2ec0d57da4fe012ce03a71938ce60d7035147a8160f999eab8
 Schema-Version: v1
 -->
 
@@ -222,8 +222,10 @@ strict, because a substring search would also accept `startsWith(...) == false`:
 - `assertion.terraform_workspace_name == '<workspace>'` or
   `assertion.terraform_workspace_id == '<ws-id>'`
 - `assertion.sub.startsWith('organization:<hcp-org>:project:<project>:workspace:<workspace>:')`
-  — binds both at once. The trailing `:` is required: without it, workspace `gcp` is
-  also a prefix of workspace `gcp-evil`. HashiCorp's published example omits it.
+  — binds both at once. The literal must end exactly at the `:` after the workspace:
+  without it, workspace `gcp` is also a prefix of workspace `gcp-evil` (HashiCorp's
+  published example omits it); with more after it, such as `:run_phase:plan`, the other
+  phase's tokens are refused.
 - `assertion.terraform_project_name == '<project>'` — optional further narrowing
 
 No `terraform_run_phase` term: one provider serves both phases, so a condition naming

@@ -215,8 +215,10 @@ strict, because a substring search would also accept `startsWith(...) == false`:
 - `assertion.terraform_workspace_name == '<workspace>'` or
   `assertion.terraform_workspace_id == '<ws-id>'`
 - `assertion.sub.startsWith('organization:<hcp-org>:project:<project>:workspace:<workspace>:')`
-  — binds both at once. The trailing `:` is required: without it, workspace `gcp` is
-  also a prefix of workspace `gcp-evil`. HashiCorp's published example omits it.
+  — binds both at once. The literal must end exactly at the `:` after the workspace:
+  without it, workspace `gcp` is also a prefix of workspace `gcp-evil` (HashiCorp's
+  published example omits it); with more after it, such as `:run_phase:plan`, the other
+  phase's tokens are refused.
 - `assertion.terraform_project_name == '<project>'` — optional further narrowing
 
 No `terraform_run_phase` term: one provider serves both phases, so a condition naming
