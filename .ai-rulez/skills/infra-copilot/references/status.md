@@ -252,9 +252,10 @@ preflight — is in
 
 4. **Latest CI runs (object-storage mode only).** HCP mode sees what CI last said through
    the per-workspace run status above. Object-storage mode has no HCP run to read, so run
-   the read-only helper
-   [`checks/gha-latest-runs.sh`](checks/gha-latest-runs.sh) with `BACKEND` and `REPO`
-   exported; it anchors itself at the repository root, and prints `not applicable` unless
+   the read-only helper [`checks/gha-latest-runs.sh`](checks/gha-latest-runs.sh) with
+   `BACKEND`, `REPO` and `INFRA_COPILOT_REFERENCES` exported
+   ([`config.md`](config.md)), through `sh` as the manifest's checks are:
+   `sh "$INFRA_COPILOT_REFERENCES/checks/gha-latest-runs.sh"`. It anchors itself at the repository root, and prints `not applicable` unless
    the backend is `object-storage` (a missing backend is `hcp`). It prints two lines: the
    latest `terraform-plan.yml` run on the current branch (a PR's head branch, or a
    `workflow_dispatch`), and the latest `terraform-apply.yml` run on `main`. Each carries

@@ -338,7 +338,16 @@ class GhaLatestRunsWiringTests(unittest.TestCase):
         self.assertEqual(SCRIPT.read_bytes(), SOURCE.read_bytes())
 
     def test_status_runbook_links_the_helper(self) -> None:
-        self.assertIn("(checks/gha-latest-runs.sh)", STATUS_RUNBOOK.read_text(encoding="utf-8"))
+        runbook = STATUS_RUNBOOK.read_text(encoding="utf-8")
+        self.assertIn("(checks/gha-latest-runs.sh)", runbook)
+        # The link alone told the agent to execute a path; give it the invocation.
+        self.assertIn('`sh "$INFRA_COPILOT_REFERENCES/checks/gha-latest-runs.sh"`', runbook)
+
+    @unittest.skipUnless(os.name == "posix", "the executable bit is a POSIX mode")
+    def test_both_copies_are_executable(self) -> None:
+        """Committed 100644, a direct execution failed with Permission denied."""
+        for path in (SOURCE, SCRIPT):
+            self.assertTrue(os.access(path, os.X_OK), f"{path} is not executable")
 
 
 if __name__ == "__main__":

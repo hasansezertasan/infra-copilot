@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:c290ebf3395140db453a8aa47d80fedf18203da18d1d30d46c5c7b9c9b00bdad
-Source-Hash: blake3:1251b39fc28456bf1ead27649ec5f54b74b8434f27a45a524f1746eb9dc0e53a
+Content-Hash: blake3:50a8640a9f9cb658526e72854125a20336b4d2b3ce9eebb0f28f8a9ec0f14f6e
+Source-Hash: blake3:4ca37049bbd6df86974a0a97c068b9d1ff57dcd881ab6e0b72ff469dd17b6282
 Schema-Version: v1
 -->
 
@@ -259,9 +259,10 @@ preflight — is in
 
 4. **Latest CI runs (object-storage mode only).** HCP mode sees what CI last said through
    the per-workspace run status above. Object-storage mode has no HCP run to read, so run
-   the read-only helper
-   [`checks/gha-latest-runs.sh`](checks/gha-latest-runs.sh) with `BACKEND` and `REPO`
-   exported; it anchors itself at the repository root, and prints `not applicable` unless
+   the read-only helper [`checks/gha-latest-runs.sh`](checks/gha-latest-runs.sh) with
+   `BACKEND`, `REPO` and `INFRA_COPILOT_REFERENCES` exported
+   ([`config.md`](config.md)), through `sh` as the manifest's checks are:
+   `sh "$INFRA_COPILOT_REFERENCES/checks/gha-latest-runs.sh"`. It anchors itself at the repository root, and prints `not applicable` unless
    the backend is `object-storage` (a missing backend is `hcp`). It prints two lines: the
    latest `terraform-plan.yml` run on the current branch (a PR's head branch, or a
    `workflow_dispatch`), and the latest `terraform-apply.yml` run on `main`. Each carries
