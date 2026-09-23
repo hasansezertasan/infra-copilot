@@ -1550,12 +1550,14 @@ def repository_files(root: Path = ROOT) -> list[str]:
         )
     except (OSError, subprocess.CalledProcessError):
         skipped = IGNORED_DIRECTORIES | {"__pycache__"}
-        return [
+        # Sort the strings, not the Paths: WindowsPath compares case-insensitively,
+        # which put docs/ before README.md there and nowhere else.
+        return sorted(
             path.relative_to(root).as_posix()
-            for path in sorted(root.rglob("*"))
+            for path in root.rglob("*")
             if path.is_file()
             and not skipped.intersection(path.relative_to(root).parts)
-        ]
+        )
     return sorted(
         name for name in listed.stdout.decode("utf-8").split("\0") if name
     )
