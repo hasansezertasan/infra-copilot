@@ -19,7 +19,8 @@ The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml)
    `new-provider-decision` stays red until both rows are locked, and until the choice
    agrees with the credential inventory in step 3. The choice must be exactly
    `Workload Identity Federation` (the inventory declares `TFC_GCP_PROVIDER_AUTH`) or
-   exactly `service-account key` (it declares `GOOGLE_CREDENTIALS` and not
+   exactly `service-account key` (it declares `GOOGLE_CREDENTIALS`, as a sensitive env
+   variable, and not
    `TFC_GCP_PROVIDER_AUTH`); any other wording stays red, and so do two locked
    authentication rows — mark the old one `superseded`.
 2. Note the new leaf in `terraform/README.md`.

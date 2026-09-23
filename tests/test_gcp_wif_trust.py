@@ -429,7 +429,8 @@ class GcpWifTrustTests(unittest.TestCase):
                      '  credentials /* legacy */ = var.google_key\n',
                      '  credentials# note\n',
                      '  /* legacy */ credentials = var.google_key\n',
-                     '  and here */ credentials = var.google_key\n',
+                     # A multi-line comment that ends just before the argument.
+                     '  /* note\n  and here */ credentials = var.google_key\n',
                      # The allowed form inside a comment must not excuse the real value.
                      '  credentials = var.google_key # = try(var.tfc_gcp_dynamic_credentials'
                      '.default.credentials, null)\n',
@@ -438,6 +439,9 @@ class GcpWifTrustTests(unittest.TestCase):
             with self.subTest(line=line):
                 self.assert_exit(self.run_check(tf_files={
                     "terraform/gcp/providers.tf": 'provider "google" {\n' + line + '}\n'}), 1)
+        # Commented out across lines is not configuration.
+        self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf":
+            'provider "google" {\n  /*\n  credentials = var.old_key\n  */\n}\n'}), 0)
         # Shared modules configure providers too.
         self.assert_exit(self.run_check(tf_files={
             "terraform/gcp/main.tf": "",
@@ -458,6 +462,9 @@ class GcpWifTrustTests(unittest.TestCase):
                     tf_files={"terraform/gcp/providers.tf.json": json.dumps(body)}), 1)
         self.assert_exit(self.run_check(
             tf_files={"terraform/gcp/providers.tf.json": "{not json"}), 2)
+        # Keys outside a google provider block are not identity arguments.
+        self.assert_exit(self.run_check(tf_files={"terraform/gcp/variables.tf.json":
+            json.dumps({"variable": {"credentials": {"type": "string"}}})}), 0)
 
     def test_conditional_impersonation_binding_cannot_be_verified(self) -> None:
         self.assert_exit(self.run_check(extra_bindings=[{

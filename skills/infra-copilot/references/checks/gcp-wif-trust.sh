@@ -98,20 +98,41 @@ overrides=$(printf '%s' "$vars" | jq -r '
 if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
     static=$(find "terraform/$NEW_PROVIDER" terraform/modules -name '*.tf' -type f 2>/dev/null \
         | while IFS= read -r file; do
-            # Block comments are whitespace to HCL, so `/* x */ credentials = ...` and a
-            # line resuming after a multi-line comment's `*/` are stripped first; the
-            # stripping is per line, so grep -n still reports real line numbers.
-            sed -E 's#/\*([^*]|\*+[^*/])*\*+/# #g; s#^.*\*/# #' "$file" \
+            # Block comments are whitespace to HCL, so they are removed first, tracking
+            # state across lines: `/* x */ credentials = ...` is scanned, and a
+            # commented-out block spanning lines is not. Every input line yields one
+            # output line, so grep -n still reports real line numbers.
+            awk '{
+                rest = $0; out = ""
+                while (rest != "") {
+                    if (in_comment) {
+                        i = index(rest, "*/")
+                        if (i == 0) { rest = ""; break }
+                        rest = substr(rest, i + 2); in_comment = 0; out = out " "
+                    } else {
+                        i = index(rest, "/*")
+                        if (i == 0) { out = out rest; rest = ""; break }
+                        out = out substr(rest, 1, i - 1); rest = substr(rest, i + 2); in_comment = 1
+                    }
+                }
+                print out
+            }' "$file" \
                 | grep -En '^[[:space:]]*(credentials|access_token|impersonate_service_account)([^A-Za-z0-9_-]|$)' \
                 | grep -Ev '^[0-9]+:[[:space:]]*credentials[[:space:]]*=[[:space:]]*try\(var\.tfc_gcp_dynamic_credentials\.(default|aliases\["[A-Za-z0-9_-]+"\])\.credentials,[[:space:]]*null\)[[:space:]]*(#.*)?$' \
                 | sed "s|^|$file:|"
         done)
-    # Phase 6 accepts JSON-syntax leaves too; the same keys at any depth are judged the
-    # same way, with the HCL expression in its "${...}" interpolation form.
+    # Phase 6 accepts JSON-syntax leaves too; the same keys in a google or google-beta
+    # provider block are judged the same way, with the expression in "${...}" form.
     json_files=$(find "terraform/$NEW_PROVIDER" terraform/modules -name '*.tf.json' -type f 2>/dev/null)
     for file in $json_files; do
+        # Only provider configurations: a variable or output that happens to be named
+        # `credentials` is not an identity argument. Terraform JSON allows each level
+        # to be an object or an array of objects.
         found=$(jq -r '
-            .. | objects | to_entries[]
+            def items: if type == "array" then .[] else . end;
+            .provider? // empty | items | to_entries[]
+            | select(.key | IN("google", "google-beta")) | .value | items
+            | to_entries[]
             | select(.key | IN("credentials", "access_token", "impersonate_service_account"))
             | "\(.key) = \(.value | tostring)"' "$file" 2>/dev/null) \
             || cannot_verify "could not parse $file as JSON to look for provider identity arguments"

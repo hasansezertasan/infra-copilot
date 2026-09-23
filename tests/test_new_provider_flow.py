@@ -468,6 +468,15 @@ class NewProviderFlowTests(unittest.TestCase):
                 cwd=root,
                 check=True,
             )
+            visible_key = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":false}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
             key_decision_key_inventory = subprocess.run(
                 ["/bin/sh", "-c", literal_check(decision)],
                 cwd=root,
@@ -481,6 +490,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertNotEqual(two_auth_rows.returncode, 0, "two locked authentication rows")
         self.assertNotEqual(gcloud_keyfile_wif.returncode, 0, "WIF decision, GCLOUD_ inventory")
         self.assertNotEqual(lowercase_key_wif.returncode, 0, "WIF decision, google_credentials")
+        self.assertNotEqual(visible_key.returncode, 0, "key declared non-sensitive")
         for choice, credentials in free_text.items():
             with self.subTest(choice=choice):
                 self.assertNotEqual(credentials.returncode, 0, "free-text GCP auth choice")

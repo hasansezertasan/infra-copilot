@@ -1633,7 +1633,8 @@ steps:
          never the unexamined default. In backend: hcp, for a GCP inventory (TFC_GCP_*,
          GOOGLE_*, GCLOUD_*, or CLOUDSDK_* keys), the choice must be exactly `Workload Identity Federation`
          (inventory declares TFC_GCP_PROVIDER_AUTH) or `service-account key` (inventory
-         declares GOOGLE_CREDENTIALS and not TFC_GCP_PROVIDER_AUTH).
+         declares GOOGLE_CREDENTIALS as a sensitive env variable and not
+         TFC_GCP_PROVIDER_AUTH).
       2. Add terraform/<provider> to terraform/README.md.
       3. For backend: hcp:
          Add an `additional_providers` entry to .infra-copilot/config.md with its
@@ -1742,9 +1743,12 @@ steps:
         printf '%s' "$NEW_PROVIDER_CREDENTIALS" \
           | jq -e 'any(.[]; .key == "TFC_GCP_PROVIDER_AUTH")' >/dev/null && inventory_wif=true
         test "$choice_wif" = "$inventory_wif" || exit 1
+        # The key must stay a sensitive env variable: declared non-sensitive, the vars
+        # API would hand its value to the plan-only agent.
         if [ "$choice_wif" = false ]; then
-          printf '%s' "$NEW_PROVIDER_CREDENTIALS" \
-            | jq -e 'any(.[]; .key == "GOOGLE_CREDENTIALS")' >/dev/null || exit 1
+          printf '%s' "$NEW_PROVIDER_CREDENTIALS" | jq -e 'any(.[];
+            .key == "GOOGLE_CREDENTIALS" and .category == "env" and .sensitive == true)' \
+            >/dev/null || exit 1
         fi
       fi
       grep -Eq "(^|[^A-Za-z0-9_-])terraform/$NEW_PROVIDER(/|[^A-Za-z0-9_-]|$)" \
