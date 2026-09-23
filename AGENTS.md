@@ -10,14 +10,15 @@ most likely way to get it wrong is to edit the wrong copy of a file.
 skill — and editing them is silently undone by the next `make generate`.
 
 Before editing any file under those paths, check `.ai-rulez-generated.json`. If the path
-is listed (41 are), edit its source under `.ai-rulez/` instead, then run `make generate`.
+is listed (42 are), edit its source under `.ai-rulez/` instead, then run `make generate`.
 
 Most generated files carry an `AI-RULEZ :: GENERATED FILE — DO NOT EDIT` header, but
-**14 of the 41 do not** — every non-Markdown output, because a Markdown comment is not
+**15 of the 42 do not** — every non-Markdown output, because a Markdown comment is not
 valid in them: the JSON manifests (`marketplace.json`, `plugin.json`),
 `config.md.example`, `decisions.md.example`, `steps.yaml`, shell checks
-(`gcp-wif-trust.sh`, `hcp-apply-scope.sh`, `hcp-bootstrap-workspaces.sh`, `hcp-current-plan.sh`,
-`leaf-cloud.sh`, `status-check-context.sh`), and the YAML workflow templates
+(`gcp-wif-trust.sh`, `gha-latest-runs.sh`, `hcp-apply-scope.sh`,
+`hcp-bootstrap-workspaces.sh`, `hcp-current-plan.sh`, `leaf-cloud.sh`,
+`status-check-context.sh`), and the YAML workflow templates
 (`terraform-apply.yml`, `terraform-plan.yml`). Absence of the header is not evidence a
 file is safe to edit. The manifest is the authority; the header is only a convenience.
 

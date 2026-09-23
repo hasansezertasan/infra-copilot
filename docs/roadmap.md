@@ -26,13 +26,16 @@ oversight. Each item links to the issue that owns it.
 
 ## Known gaps in the repository itself
 
-- **API endpoint paths have no staleness gate.** The references hardcode 23 provider API
-  paths. The `cf-terraforming` coverage claim, both provider majors and the SHA-pinned CI
-  action *are* now gated — see `scripts/upstream.json` and `make check-upstream` (#13) —
-  but endpoint paths are not, because HCP Terraform publishes no machine-readable API
-  schema to diff them against. Any such check would be a hand-maintained second copy of
-  the same strings, rotting in step with what it checks. Recorded as a deliberate limit
-  rather than a to-do.
+- **Only HCP endpoint paths have a staleness gate, and only by path.** `make check-upstream`
+  reads every HCP path the shipped guidance calls — the `api/v2/...` and `$hcp_api/...`
+  spellings — and reports any that `hashicorp/go-tfe`'s OpenAPI spec does not list (#55).
+  Three things stay unchecked: the HTTP method, prose paths without a prefix such as
+  `POST /runs/<id>/actions/apply` (the same form names GitHub's API elsewhere, so telling
+  them apart would take a hand-kept list), and the GitHub and Cloudflare API paths, whose
+  vendors publish specs this repository does not read yet. The spec is not exhaustive
+  either: a missing path is reported for a human to check against HCP's docs, and the
+  documented endpoints it omits are recorded in `scripts/upstream.json` with their docs
+  links.
 - **Illustrative versions are deliberately ungated.** The worked `mise.toml` in
   `docs/setup.md` names example `terraform`, `gh` and `jq` versions. Their requirement is
   being exact, not current, so they are not in the upstream manifest. Not an oversight.

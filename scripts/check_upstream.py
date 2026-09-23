@@ -10,7 +10,9 @@ Two independent checks, deliberately separated:
 
 default
     Freshness. Also fetches the current upstream release and reports any
-    audited version that has fallen behind. Needs network, so it runs nightly.
+    audited version that has fallen behind, and checks every HCP API path the
+    shipped guidance calls against HCP's OpenAPI spec. Needs network, so it
+    runs nightly.
 
 The shipped references hardcode a lot of external fact. Nothing checked any of
 it, and the failure mode is the worst kind for this repository: an agent follows
@@ -36,6 +38,11 @@ TIMEOUT_SECONDS = 20
 def load_entries(manifest: Path = MANIFEST) -> list[dict[str, object]]:
     with manifest.open(encoding="utf-8") as source:
         return list(json.load(source)["entries"])
+
+
+def load_api_paths(manifest: Path = MANIFEST) -> dict[str, object]:
+    with manifest.open(encoding="utf-8") as source:
+        return dict(json.load(source)["api_paths"])
 
 
 def cited_strings(entry: dict[str, object]) -> list[tuple[str, int]]:
@@ -129,6 +136,133 @@ def check_coherence(entries: list[dict[str, object]], references: Path = REFEREN
     return errors
 
 
+# Only the two spellings that name HCP by construction: the literal `api/v2` prefix and
+# the `$hcp_api` variable steps.yaml defines. Prose like `POST /runs/<id>` is not
+# scanned — the same form names GitHub's API elsewhere (`POST /app-manifests/...`), so
+# picking it up would need a hand-kept list of which prose means which API.
+# A path ends at anything that cannot be part of a segment in shell or Markdown; the
+# query string is cut because the spec's `paths` never carry one.
+API_PATH = re.compile(r"(?:api/v2|\$\{?hcp_api\}?)(/[^\s\"'`)|\\?#;,]*)")
+
+
+def path_shape(path: str) -> str:
+    """Reduce a path to its shape: literal segments kept, parameters as ``{}``.
+
+    One function for both sides, so there is no mapping to maintain. A segment is a
+    parameter if it interpolates anything — shell (``$ORG``, ``${ORG}``, ``$1``),
+    placeholder prose (``<id>``), or an OpenAPI template (``{organization_name}``).
+    """
+    segments = [segment for segment in path.strip().rstrip(".:").split("/") if segment]
+    return "/" + "/".join(
+        "{}" if any(marker in segment for marker in "$<{") else segment
+        for segment in segments
+    )
+
+
+def shape_matches(cited: str, spec: str) -> bool:
+    """A cited shape is served by a spec shape of the same length.
+
+    A cited literal may fill a spec parameter — ``workspaces/cloudflare`` is a
+    ``{workspace_name}`` — but a cited parameter never matches a spec literal,
+    because nothing guarantees the variable holds that one word.
+    """
+    cited_segments, spec_segments = cited.split("/"), spec.split("/")
+    return len(cited_segments) == len(spec_segments) and all(
+        ours == theirs or theirs == "{}"
+        for ours, theirs in zip(cited_segments, spec_segments)
+    )
+
+
+def cited_api_paths(scan: list[str], root: Path = ROOT) -> dict[str, list[str]]:
+    """Every HCP API path shape the shipped guidance calls, with where it is cited."""
+    cited: dict[str, list[str]] = {}
+    for relative in scan:
+        base = root / relative
+        files = sorted(base.rglob("*")) if base.is_dir() else [base]
+        for document in files:
+            if not document.is_file():
+                continue
+            try:
+                text = document.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                for match in API_PATH.finditer(line):
+                    shape = path_shape(match.group(1))
+                    if shape == "/":
+                        continue  # the bare base URL, e.g. `hcp_api: .../api/v2`
+                    location = f"{document.relative_to(root).as_posix()}:{line_number}"
+                    cited.setdefault(shape, []).append(location)
+    return cited
+
+
+def check_api_path_coherence(
+    config: dict[str, object], root: Path = ROOT
+) -> list[str]:
+    """Offline: the scan still finds paths, and every ``unlisted`` path is still cited.
+
+    An empty scan most likely means the pattern stopped matching how the guidance
+    writes paths, which would turn the nightly into a check of nothing. A stale
+    ``unlisted`` entry would silently excuse the path if it were ever reintroduced.
+    """
+    errors: list[str] = []
+    cited = cited_api_paths(list(config["scan"]), root)  # type: ignore[arg-type]
+    if not cited:
+        errors.append(
+            f"api_paths: no HCP API path found under {config['scan']}; the pattern in "
+            "scripts/check_upstream.py no longer matches how the guidance writes them"
+        )
+    for item in config.get("unlisted", []):  # type: ignore[union-attr]
+        shape = str(item["path"])  # type: ignore[index]
+        if shape != path_shape(shape):
+            errors.append(
+                f"api_paths: unlisted path {shape!r} is not a shape; write {path_shape(shape)!r}"
+            )
+        if not str(item.get("evidence", "")).startswith("https://"):  # type: ignore[union-attr]
+            errors.append(
+                f"api_paths: unlisted path {shape!r} needs an https:// `evidence` link"
+            )
+        if shape not in cited:
+            errors.append(
+                f"api_paths: unlisted path {shape!r} is no longer cited; remove it from "
+                "scripts/upstream.json"
+            )
+    return errors
+
+
+def check_api_paths(
+    cited: dict[str, list[str]], spec_paths: list[str], unlisted: list[str], spec_label: str
+) -> list[str]:
+    """Drift between the paths the guidance calls and the paths the spec lists.
+
+    Reported for a human, never as proof of removal: the spec omits endpoints HCP's
+    API docs describe — when this was written, the run ``discard`` and ``cancel``
+    actions, and it lists some the docs do not.
+    """
+    spec_shapes = {path_shape(path) for path in spec_paths}
+
+    def served(shape: str) -> bool:
+        return any(shape_matches(shape, candidate) for candidate in spec_shapes)
+
+    findings: list[str] = []
+    for shape, locations in sorted(cited.items()):
+        if shape in unlisted or served(shape):
+            continue
+        findings.append(
+            f"api_paths: {shape} is not in {spec_label} (cited at {', '.join(locations)}). "
+            "The spec is not exhaustive, so confirm against HCP's API docs: if the endpoint "
+            "is gone, fix the guidance; if it is documented, add it to api_paths.unlisted "
+            "with the docs link as evidence"
+        )
+    for shape in unlisted:
+        if served(shape):
+            findings.append(
+                f"api_paths: unlisted path {shape} is now in {spec_label}; remove it from "
+                "api_paths.unlisted so the spec covers it"
+            )
+    return findings
+
+
 class Unreachable(RuntimeError):
     """The upstream version could not be read. Not the same as being stale."""
 
@@ -172,6 +306,32 @@ def latest_version(source: dict[str, object]) -> str:
     if match is None:
         raise ValueError(f"no version found in tag {tag!r}")
     return match.group(0)
+
+
+def fetch_release_file(source: dict[str, object]) -> tuple[str, dict[str, object]]:
+    """A file as of the repository's latest release: (tag, parsed JSON).
+
+    The release, not the default branch: go-tfe regenerates its spec on main every
+    week or so, and a release is the version its maintainers stand behind. Reading
+    the latest one rather than an audited pin is deliberate — the question is whether
+    HCP serves a path today, and a pin would only add a bump with no decision attached.
+    """
+    repo = str(source["repo"])
+    tag = str(fetch_json(f"https://api.github.com/repos/{repo}/releases/latest")["tag_name"])
+    return tag, fetch_json(f"https://raw.githubusercontent.com/{repo}/{tag}/{source['path']}")
+
+
+def check_api_paths_upstream(config: dict[str, object]) -> tuple[list[str], list[str]]:
+    source = dict(config["source"])  # type: ignore[arg-type]
+    try:
+        tag, spec = fetch_release_file(source)
+        spec_paths = list(dict(spec["paths"]))  # type: ignore[arg-type]
+    except (Unreachable, KeyError, TypeError, ValueError) as error:
+        return [], [f"api_paths: could not read {source.get('repo')}/{source.get('path')}: {error}"]
+    cited = cited_api_paths(list(config["scan"]))  # type: ignore[arg-type]
+    unlisted = [str(item["path"]) for item in config.get("unlisted", [])]  # type: ignore[union-attr,index]
+    label = f"{source['repo']} {tag} {source['path']}"
+    return check_api_paths(cited, spec_paths, unlisted, label), []
 
 
 def resolve_tag_sha(repo: str, tag: str) -> str:
@@ -247,20 +407,27 @@ def main() -> int:
     arguments = parser.parse_args()
 
     entries = load_entries()
-    errors = check_linkage(entries) + check_coherence(entries)
+    api_paths = load_api_paths()
+    errors = (
+        check_linkage(entries) + check_coherence(entries) + check_api_path_coherence(api_paths)
+    )
     for error in errors:
         print(f"ERROR: {error}", file=sys.stderr)
 
     if arguments.offline:
         if errors:
             return 1
-        print(f"audited versions are still cited by their documents ({len(entries)} entries)")
+        print(
+            f"audited versions are still cited by their documents ({len(entries)} entries); "
+            "HCP API paths found and every unlisted one still cited"
+        )
         return 0
 
     findings, unreachable = check_freshness(entries)
     sha_findings, sha_unreachable = check_pinned_shas(entries)
-    findings += sha_findings
-    unreachable += sha_unreachable
+    path_findings, path_unreachable = check_api_paths_upstream(api_paths)
+    findings += sha_findings + path_findings
+    unreachable += sha_unreachable + path_unreachable
     for finding in findings:
         print(f"DRIFT: {finding}", file=sys.stderr)
     for problem in unreachable:
@@ -270,7 +437,10 @@ def main() -> int:
     if unreachable:
         # Distinct from 1: nothing was shown to be stale.
         return 2
-    print(f"audited versions match upstream ({len(entries)} entries)")
+    print(
+        f"audited versions match upstream ({len(entries)} entries); "
+        "cited HCP API paths are in the spec"
+    )
     return 0
 
 

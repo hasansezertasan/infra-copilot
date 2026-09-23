@@ -39,6 +39,12 @@
   `protocol.md` that reads it: use the host's native question tool only when that tool is
   declared, allowed, and recorded as supporting the request — otherwise render the same
   request as text. This gives the `AskUserQuestion` grant in `commands/` a consumer.
+- `make check-upstream` now checks every HCP API path the shipped guidance calls against
+  the OpenAPI spec `hashicorp/go-tfe` ships, as of its latest release. Paths are compared
+  by shape, so `$ORG`, `<id>` and `{organization_name}` need no mapping. A missing path is
+  reported for review rather than as a removal, because the spec omits documented
+  endpoints — the run `discard` and `cancel` actions, recorded in `scripts/upstream.json`
+  with their docs links.
 - Added a per-host install guide under `docs/` for each of the four hosts, covering what
   "update" actually updates, whether a restart is required, how each host is invoked, and
   how to verify the install. `README.md` remains the index and links them; the guides cite

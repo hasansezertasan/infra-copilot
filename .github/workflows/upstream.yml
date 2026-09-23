@@ -1,8 +1,9 @@
 name: upstream
 
 # The shipped references cite external versions — a cf-terraforming coverage matrix, a
-# worked mise.toml, a provider major. Nothing else notices when those fall behind, and a
-# stale instruction is indistinguishable from operator error to someone mid-bootstrap.
+# worked mise.toml, a provider major — and call HCP API paths. Nothing else notices when
+# those fall behind or disappear, and a stale instruction is indistinguishable from
+# operator error to someone mid-bootstrap.
 #
 # Not part of `check`: this needs network, and a rate limit must never fail a PR.
 on:
