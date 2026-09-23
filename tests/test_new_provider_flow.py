@@ -248,6 +248,26 @@ class NewProviderFlowTests(unittest.TestCase):
                 "| Use AWS, not GCP | aws | locked |\n",
                 encoding="utf-8",
             )
+            # Every case runs against a committed fixture. Uncommitted, the check fails
+            # at its git cleanliness gate whatever the rows say, and the case proves
+            # nothing about the row logic.
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "add", ".infra-copilot/config.md", ".infra-copilot/decisions.md",
+                 "terraform/README.md"],
+                cwd=root,
+                check=True,
+            )
+
+            def commit(message: str) -> None:
+                subprocess.run(
+                    ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                     "commit", "-qam", message],
+                    cwd=root,
+                    check=True,
+                )
+
+            commit("unrelated decision")
             negative = subprocess.run(
                 ["/bin/sh", "-c", literal_check(decision)],
                 cwd=root,
@@ -260,10 +280,15 @@ class NewProviderFlowTests(unittest.TestCase):
                 "| Provider: gcp | adopt | locked |\n",
                 encoding="utf-8",
             )
+            commit("provider row only")
+            # A non-GCP inventory, so the GCP choice validation cannot be what turns
+            # this red: only the missing authentication row can.
             no_auth = subprocess.run(
                 ["/bin/sh", "-c", literal_check(decision)],
                 cwd=root,
-                env=env,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"EXAMPLE_TOKEN","category":"env","sensitive":true}]'
+                )},
                 capture_output=True,
                 text=True,
             )
@@ -276,6 +301,7 @@ class NewProviderFlowTests(unittest.TestCase):
             (root / "terraform/README.md").write_text(
                 "terraform/gcp-old\n", encoding="utf-8"
             )
+            commit("prefix-only readme")
             prefix_only = subprocess.run(
                 ["/bin/sh", "-c", literal_check(decision)],
                 cwd=root,
@@ -286,20 +312,7 @@ class NewProviderFlowTests(unittest.TestCase):
             (root / "terraform/README.md").write_text(
                 "terraform/gcp\n", encoding="utf-8"
             )
-            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-            subprocess.run(
-                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
-                 "add", ".infra-copilot/config.md", ".infra-copilot/decisions.md",
-                 "terraform/README.md"],
-                cwd=root,
-                check=True,
-            )
-            subprocess.run(
-                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
-                 "commit", "-qm", "test fixture"],
-                cwd=root,
-                check=True,
-            )
+            commit("test fixture")
             positive = subprocess.run(
                 ["/bin/sh", "-c", literal_check(decision)],
                 cwd=root,

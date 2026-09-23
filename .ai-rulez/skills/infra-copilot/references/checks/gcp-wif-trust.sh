@@ -194,8 +194,11 @@ while IFS= read -r term; do
         | grep -Eqx "assertion\.sub\.startsWith\( *'organization:$org_re:project:[^:']+:workspace:$ws_re:[^']*' *\)"; then
         org_bound=true
         ws_bound=true
+    # No run-phase term: one provider serves both phases, so a condition naming one
+    # phase rejects every token of the other (applies silently fail after a green plan).
+    # Phase isolation lives on the IAM members instead.
     elif printf '%s' "$term" \
-        | grep -Eqx "assertion\.(terraform_run_phase|terraform_project_name) *== *'[^']*'"; then
+        | grep -Eqx "assertion\.terraform_project_name *== *'[^']*'"; then
         :
     else
         fail "attribute condition term is not one of the verifiable forms (see gcp.md): $term"
@@ -216,7 +219,9 @@ apply_only="^principalSet://iam\.googleapis\.com/$pool_path/attribute\.terraform
 # any of those, or loosening the provider condition this check verified. Judging roles
 # by name cannot be complete — service-agent roles such as roles/cloudbuild.serviceAgent
 # also carry getAccessToken, and custom roles can carry anything — so the project pass
-# resolves each role a foreign federated principal holds to its permissions.
+# resolves each role a foreign federated principal holds to its permissions. Editing a
+# custom role (iam.roles.update) counts too: a harmless role already bound can be given
+# getAccessToken after this check has passed.
 escalation_permissions='["iam.serviceAccounts.getAccessToken","iam.serviceAccounts.getOpenIdToken",
   "iam.serviceAccounts.signBlob","iam.serviceAccounts.signJwt",
   "iam.serviceAccounts.implicitDelegation","iam.serviceAccounts.actAs",
@@ -224,6 +229,7 @@ escalation_permissions='["iam.serviceAccounts.getAccessToken","iam.serviceAccoun
   "iam.serviceAccountKeys.enable",
   "iam.serviceAccounts.setIamPolicy",
   "resourcemanager.projects.setIamPolicy",
+  "iam.roles.update","iam.roles.undelete",
   "iam.workloadIdentityPools.update","iam.workloadIdentityPools.delete",
   "iam.workloadIdentityPools.setIamPolicy",
   "iam.workloadIdentityPoolProviders.create","iam.workloadIdentityPoolProviders.update",

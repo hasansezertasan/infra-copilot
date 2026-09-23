@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2ac692252722206055244ce40bf90a78546cd785eaa6e7f7a64c88a06bdce486
-Source-Hash: blake3:6bd0e075fb678fd12e1795be74672ad5df27b67a4c8db425a8cd2aea79138503
+Content-Hash: blake3:7afb520fe48c8fd9d41edb7a014d0e0abb360b13467a26efb4fe321bf23664c4
+Source-Hash: blake3:6c3a84ad182af32ae5deea6ccb98b51ad8e4924b6c47840a9dd23121209c16fa
 Schema-Version: v1
 -->
 
@@ -188,8 +188,9 @@ It locates the provider and service accounts from the workspace's own non-sensit
   resolved with `gcloud iam roles describe` and judged by permission, not name — service
   agent roles such as `roles/cloudbuild.serviceAgent` also mint tokens. The permissions
   are minting tokens or signatures as an account, creating, uploading, or re-enabling
-  its keys (a key is a login), `actAs`, setting account, project, or pool IAM policy, and
-  changing the pool or its providers (which could loosen this very condition). Such a grant under an IAM
+  its keys (a key is a login), `actAs`, setting account, project, or pool IAM policy,
+  editing a custom role (a bound, harmless role can gain those later), and changing the
+  pool or its providers (which could loosen this very condition). Such a grant under an IAM
   condition exits 2: the check does not evaluate conditions, so confirm by hand that it
   excludes the run accounts and the pool;
 - when plan and apply use different accounts, the apply account (and those project
@@ -216,8 +217,11 @@ strict, because a substring search would also accept `startsWith(...) == false`:
 - `assertion.sub.startsWith('organization:<hcp-org>:project:<project>:workspace:<workspace>:')`
   — binds both at once. The trailing `:` is required: without it, workspace `gcp` is
   also a prefix of workspace `gcp-evil`. HashiCorp's published example omits it.
-- `assertion.terraform_run_phase == '<phase>'` or
-  `assertion.terraform_project_name == '<project>'` — optional further narrowing
+- `assertion.terraform_project_name == '<project>'` — optional further narrowing
+
+No `terraform_run_phase` term: one provider serves both phases, so a condition naming
+one rejects every token of the other, and applies fail after a green plan. Put phase
+isolation on the IAM members, as in the plan/apply split above.
 
 Only `assertion.*` claims are accepted, not mapped `attribute.*` names, and only
 single-quoted literals. The audience needs no term: GCP already rejects a token whose
