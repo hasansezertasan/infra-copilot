@@ -21,8 +21,8 @@
 #   0  every latest run passed, is still in flight, or does not exist yet
 #   1  a latest run FAILED — failure, timed_out, or startup_failure. Wins over 2: a
 #      failure that was read is a finding even if the other line could not be.
-#   2  COULD NOT VERIFY — missing REPO, or a line's read failed (gh not authenticated,
-#      an API error). The `?` line names the cause; any other line is still a real
+#   2  COULD NOT VERIFY — missing REPO, no readable git worktree, or a line's read
+#      failed (gh not authenticated, an API error). The `?` line names the cause; any other line is still a real
 #      result. A 2 is never evidence of a failed run.
 set -u
 
@@ -40,8 +40,11 @@ fi
 
 # The workflow-file probe below is relative, so anchor it at the repository root rather
 # than wherever the caller happens to be; from a subdirectory both workflows would
-# otherwise read as not installed.
-top=$(git --no-optional-locks rev-parse --show-toplevel 2>/dev/null) && cd "$top"
+# otherwise read as not installed. Either failure is CANNOT VERIFY, never a fall-through:
+# probing the caller's directory instead reports verified absence for an unreadable repo.
+top=$(git --no-optional-locks rev-parse --show-toplevel 2>/dev/null) && [ -n "$top" ] \
+  || cannot_verify "not inside a readable git worktree; run from the repository"
+cd "$top" || cannot_verify "could not enter the repository root $top"
 
 err=$(mktemp) || cannot_verify "mktemp failed"
 trap 'rm -f "$err"' EXIT

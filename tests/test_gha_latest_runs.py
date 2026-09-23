@@ -60,6 +60,7 @@ class GhaLatestRunsTests(unittest.TestCase):
         repo: str = "acme/infra",
         head: str = "3f9c2a1d0e",
         subdir: str = "",
+        toplevel: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -116,12 +117,19 @@ case "$sub" in
 esac
 """
             (bin_dir / "gh").write_text(stub, encoding="utf-8")
+            # None = the work tree; "" = not a git worktree; any other = that path.
+            if toplevel is None:
+                toplevel_case = f'echo "{work}"'
+            elif toplevel == "":
+                toplevel_case = "echo 'fatal: not a git repository' >&2; exit 128"
+            else:
+                toplevel_case = f'echo "{toplevel}"'
             # The helper always passes --no-optional-locks first; the rest picks the read.
             git_stub = f"""#!/bin/sh
 [ "$1" = --no-optional-locks ] || {{ echo "STUB: git without --no-optional-locks" >&2; exit 99; }}
 shift
 case "$*" in
-    "rev-parse --show-toplevel") echo "{work}" ;;
+    "rev-parse --show-toplevel") {toplevel_case} ;;
     "rev-parse HEAD") echo "{head}" ;;
     "branch --show-current") echo "{branch}" ;;
     *) echo "STUB: unexpected git $*" >&2; exit 99 ;;
@@ -318,6 +326,20 @@ esac
         result = self.run_helper(repo="")
         self.assertEqual(result.returncode, 2)
         self.assertIn("REPO is not set", result.stderr)
+
+    def test_outside_a_worktree_cannot_verify(self) -> None:
+        """Falling through probed the caller's directory and exited 0 as not installed."""
+        result = self.run_helper(toplevel="")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("CANNOT VERIFY: not inside a readable git worktree", result.stderr)
+        self.assertNotIn("not installed", result.stdout)
+        self.assertEqual(self.gh_calls, "")
+
+    def test_unenterable_root_cannot_verify(self) -> None:
+        result = self.run_helper(toplevel="/nonexistent/infra-copilot-root")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("CANNOT VERIFY: could not enter the repository root", result.stderr)
+        self.assertEqual(self.gh_calls, "")
 
     def test_unset_backend_is_hcp(self) -> None:
         """references/config.md: a missing backend is hcp, not object-storage."""
