@@ -1630,9 +1630,9 @@ steps:
          locked row whose decision is exactly `<provider> authentication` and whose
          choice names the credential mechanism (e.g. `Workload Identity Federation` or
          `service-account key`). Auth is a decision of its own so a long-lived key is
-         never the unexamined default. In backend: hcp, a choice naming
-         `Workload Identity Federation` must match an inventory declaring
-         TFC_GCP_PROVIDER_AUTH, and vice versa.
+         never the unexamined default. In backend: hcp, for a GCP inventory (TFC_GCP_*
+         or GOOGLE_* keys), a choice naming `Workload Identity Federation` must match an
+         inventory declaring TFC_GCP_PROVIDER_AUTH, and vice versa.
       2. Add terraform/<provider> to terraform/README.md.
       3. For backend: hcp:
          Add an `additional_providers` entry to .infra-copilot/config.md with its
@@ -1721,7 +1721,11 @@ steps:
       # The recorded mechanism must be the one the inventory actually installs, in both
       # directions: a locked keyless decision over a key inventory would otherwise skip
       # the WIF trust check and go green on the key it rejected.
-      if [ "$BACKEND" != "object-storage" ]; then
+      # Scoped to GCP inventories (TFC_GCP_* or GOOGLE_* keys): other providers use the
+      # same words for their own federation (Azure's ARM_USE_OIDC, say) and must not be
+      # held to a GCP variable.
+      if [ "$BACKEND" != "object-storage" ] && printf '%s' "$NEW_PROVIDER_CREDENTIALS" \
+          | jq -e 'any(.[]; .key | test("^(TFC_GCP_|GOOGLE_)"))' >/dev/null; then
         case "$auth_choice" in *"workload identity federation"*) choice_wif=true ;; *) choice_wif=false ;; esac
         inventory_wif=false
         printf '%s' "$NEW_PROVIDER_CREDENTIALS" \

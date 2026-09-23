@@ -337,6 +337,40 @@ class NewProviderFlowTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+            # Another provider's federation shares the words but not the GCP variable.
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | Workload Identity Federation | locked |\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qam", "wif decision"],
+                cwd=root,
+                check=True,
+            )
+            azure_wif = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"ARM_USE_OIDC","category":"env","sensitive":false}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | service-account key | locked |\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qam", "key decision again"],
+                cwd=root,
+                check=True,
+            )
             key_decision_key_inventory = subprocess.run(
                 ["/bin/sh", "-c", literal_check(decision)],
                 cwd=root,
@@ -346,6 +380,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+        self.assertEqual(azure_wif.returncode, 0, azure_wif.stderr)
         self.assertNotEqual(key_inventory.returncode, 0, "WIF decision, key inventory")
         self.assertNotEqual(key_decision_wif_inventory.returncode, 0, "key decision, WIF inventory")
         self.assertEqual(key_decision_key_inventory.returncode, 0, key_decision_key_inventory.stderr)

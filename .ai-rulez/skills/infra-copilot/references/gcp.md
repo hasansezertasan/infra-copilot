@@ -173,11 +173,13 @@ It locates the provider and service accounts from the workspace's own non-sensit
 - every member of `workloadIdentityUser` on the service accounts is this pool's, and no
   federated (`principal://`, `principalSet://`) member outside it holds *any* role on
   them — Token Creator mints tokens just as well;
-- no federated principal outside the pool holds, on the service accounts' projects
-  (where grants are inherited), a role that reaches them: `workloadIdentityUser`, Token
-  Creator, Service Account Key Admin (a key is a login), Service Account User, Service
-  Account Admin, Workload Identity Pool Admin (it could loosen this very condition),
-  Security Admin, Project IAM Admin, Editor, or Owner;
+- no federated principal outside the pool holds, on the service accounts' projects or
+  the pool's (where grants are inherited), a role whose permissions reach them. Roles are
+  resolved with `gcloud iam roles describe` and judged by permission, not name — service
+  agent roles such as `roles/cloudbuild.serviceAgent` also mint tokens. The permissions
+  are minting tokens or signatures as an account, creating its keys (a key is a login),
+  `actAs`, setting account or project IAM policy, and changing the pool or its providers
+  (which could loosen this very condition);
 - when plan and apply use different accounts, the apply account (and those project
   grants) admit only `attribute.terraform_run_phase/apply`, and the provider maps that
   attribute from `assertion.terraform_run_phase` — a constant would label every run an
@@ -185,8 +187,7 @@ It locates the provider and service accounts from the workspace's own non-sensit
 
 It exits 2, not 1, when `gcloud` cannot read what it needs, so a missing login is never
 mistaken for a broken trust. **Not covered:** grants inherited from folders or the
-organization, and custom roles carrying `iam.serviceAccounts.getAccessToken`; audit
-those by hand if your hierarchy uses them. The step runs unless the credential inventory
+organization; audit those by hand if your hierarchy uses them. The step runs unless the credential inventory
 is a list without `TFC_GCP_PROVIDER_AUTH` — a key-based adoption, or another provider —
 so an unreadable inventory runs the check rather than skipping it.
 

@@ -18,7 +18,7 @@
 # Exit codes:
 #   0  the trust is scoped to $ORG and $NEW_PROVIDER_WORKSPACE, it is the pool's only
 #      active provider, no federated principal outside that pool holds a role on the run
-#      service accounts or an impersonation or escalation role on their projects, and a
+#      service accounts or a role with impersonation or escalation permissions on their projects, and a
 #      separate apply
 #      account admits apply-phase identities only. Folder- and organization-level grants
 #      are not read.
@@ -211,18 +211,20 @@ pool_path="projects/$number/locations/global/workloadIdentityPools/$pool_id"
 pool_member="^principal(Set)?://iam\.googleapis\.com/$pool_path/"
 apply_only="^principalSet://iam\.googleapis\.com/$pool_path/attribute\.terraform_run_phase/apply\$"
 
-# Predefined roles that reach a run account without its own policy: minting tokens
-# (workloadIdentityUser, serviceAccountTokenCreator), creating a key and signing in with
-# it (serviceAccountKeyAdmin, editor), attaching the account to a resource (actAs via
-# serviceAccountUser), granting any of those (serviceAccountAdmin, projectIamAdmin,
-# securityAdmin, owner), or loosening the provider condition this check just verified
-# (workloadIdentityPoolAdmin). Custom roles can carry the same permissions; they are not
-# recognised here, which is one reason the project-level pass is a floor, not a proof.
-impersonation_roles='["roles/owner","roles/editor",
-  "roles/iam.workloadIdentityUser","roles/iam.serviceAccountTokenCreator",
-  "roles/iam.serviceAccountKeyAdmin","roles/iam.serviceAccountUser",
-  "roles/iam.serviceAccountAdmin","roles/iam.workloadIdentityPoolAdmin",
-  "roles/iam.securityAdmin","roles/resourcemanager.projectIamAdmin"]'
+# Permissions that reach a run account without its own policy: minting tokens or
+# signatures as it, creating a key for it, attaching it to a resource (actAs), granting
+# any of those, or loosening the provider condition this check verified. Judging roles
+# by name cannot be complete — service-agent roles such as roles/cloudbuild.serviceAgent
+# also carry getAccessToken, and custom roles can carry anything — so the project pass
+# resolves each role a foreign federated principal holds to its permissions.
+escalation_permissions='["iam.serviceAccounts.getAccessToken","iam.serviceAccounts.getOpenIdToken",
+  "iam.serviceAccounts.signBlob","iam.serviceAccounts.signJwt",
+  "iam.serviceAccounts.implicitDelegation","iam.serviceAccounts.actAs",
+  "iam.serviceAccountKeys.create","iam.serviceAccounts.setIamPolicy",
+  "resourcemanager.projects.setIamPolicy",
+  "iam.workloadIdentityPools.update","iam.workloadIdentityPools.delete",
+  "iam.workloadIdentityPoolProviders.create","iam.workloadIdentityPoolProviders.update",
+  "iam.workloadIdentityPoolProviders.undelete"]'
 
 # $1 = email, $2 = ERE every federated member must match, $3 = what that means
 verify_account() {
@@ -272,12 +274,25 @@ done
 for project in $(printf '%s\n' "$projects" | sort -u); do
     project_policy=$(gcloud projects get-iam-policy "$project" --format=json 2>"$err") \
         || cannot_verify "gcloud could not read the IAM policy of project $project: $(head -1 "$err")"
-    federated=$(printf '%s' "$project_policy" | jq -r --argjson roles "$impersonation_roles" '
-        [.bindings[]? | select(.role as $r | $roles | index($r)) | .members[]
-         | select(test("^principal(Set)?://"))] | unique | .[]')
-    foreign=$(printf '%s\n' "$federated" | sed '/^$/d' | grep -Ev "$project_rule" || true)
-    [ -z "$foreign" ] \
-        || fail "project $project grants an impersonation or escalation role to federated principals that could reach the run accounts or the pool: $foreign"
+    # Each (role, member) pair where the member is federated and outside the rule. Pool
+    # principals that pass the rule may hold anything; only strangers are resolved.
+    pairs=$(printf '%s' "$project_policy" | jq -r '
+        .bindings[]? | .role as $r | .members[]
+        | select(test("^principal(Set)?://")) | "\($r) \(.)"' | sed '/^$/d')
+    printf '%s\n' "$pairs" | while read -r role member; do
+        [ -n "$role" ] || continue
+        printf '%s\n' "$member" | grep -Eq "$project_rule" && continue
+        permissions=$(gcloud iam roles describe "$role" --format=json 2>"$err") \
+            || { echo "CANNOT VERIFY: gcloud could not describe $role held by $member on project $project: $(head -1 "$err")" >&2; exit 2; }
+        hit=$(printf '%s' "$permissions" | jq -r --argjson bad "$escalation_permissions" '
+            [.includedPermissions[]? | select(. as $p | $bad | index($p))] | join(", ")')
+        [ -z "$hit" ] || {
+            echo "project $project grants $role to federated principal $member, whose permissions ($hit) reach the run accounts or the pool" >&2
+            exit 1
+        }
+    done
+    rc=$?
+    [ "$rc" -eq 0 ] || exit "$rc"
 done
 
 exit 0

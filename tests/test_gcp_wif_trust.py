@@ -38,6 +38,22 @@ def env_var(key: str, value: str, sensitive: bool = False) -> dict:
     }
 
 
+# What `gcloud iam roles describe` returns per role, trimmed to what matters. The check
+# judges these permissions, not role names.
+ROLE_PERMISSIONS = {
+    "roles/iam.serviceAccountTokenCreator": ["iam.serviceAccounts.getAccessToken",
+                                             "iam.serviceAccounts.signBlob"],
+    "roles/iam.serviceAccountKeyAdmin": ["iam.serviceAccountKeys.create"],
+    "roles/iam.serviceAccountAdmin": ["iam.serviceAccounts.setIamPolicy"],
+    "roles/iam.serviceAccountUser": ["iam.serviceAccounts.actAs"],
+    "roles/iam.workloadIdentityPoolAdmin": ["iam.workloadIdentityPoolProviders.update"],
+    "roles/resourcemanager.projectIamAdmin": ["resourcemanager.projects.setIamPolicy"],
+    "roles/editor": ["iam.serviceAccountKeys.create", "storage.buckets.create"],
+    "roles/cloudbuild.serviceAgent": ["iam.serviceAccounts.getAccessToken",
+                                      "cloudbuild.builds.create"],
+    "roles/storage.admin": ["storage.buckets.create", "storage.objects.delete"],
+}
+
 DEFAULT_VARS = [
     env_var("TFC_GCP_PROVIDER_AUTH", "true"),
     env_var("TFC_GCP_PRINCIPAL_TYPE", "service_account"),
@@ -62,6 +78,7 @@ class GcpWifTrustTests(unittest.TestCase):
         extra_bindings: list[dict] | None = None,
         project_bindings: list[dict] | None = None,
         varsets: int = 0,
+        role_describe_error: bool = False,
         describe_error: str = "",
         policy_error: bool = False,
     ) -> subprocess.CompletedProcess[str]:
@@ -94,6 +111,15 @@ class GcpWifTrustTests(unittest.TestCase):
             (root / "providers.json").write_text(json.dumps(providers))
             (root / "policy.json").write_text(json.dumps(policy_for(members)))
             (root / "project.json").write_text(json.dumps({"bindings": project_bindings or []}))
+            role_cases = ""
+            for index, (role, permissions) in enumerate(ROLE_PERMISSIONS.items()):
+                (root / f"role{index}.json").write_text(
+                    json.dumps({"name": role, "includedPermissions": permissions})
+                )
+                # Trailing space-star: the role is followed by --format=json.
+                role_cases += f"  *roles\\ describe\\ {role}\\ *) cat '{root}/role{index}.json' ;;\n"
+            if role_describe_error:
+                role_cases = "  *roles\\ describe*) echo 'PERMISSION_DENIED' >&2; exit 1 ;;\n"
             (root / "varsets.json").write_text(
                 json.dumps({"data": [{"id": f"varset-{i}"} for i in range(varsets)]})
             )
@@ -125,6 +151,7 @@ class GcpWifTrustTests(unittest.TestCase):
                 f"  *providers\\ describe*) {describe} ;;\n"
                 f"  *providers\\ list*) cat '{root}/providers.json' ;;\n"
                 f"  *projects\\ get-iam-policy*) cat '{root}/project.json' ;;\n"
+                + role_cases
                 + ("" if policy_error else policy_cases)
                 + f"  *get-iam-policy*) {policy_cmd} ;;\n"
                 "  *) exit 1 ;;\nesac\n"
@@ -264,6 +291,17 @@ class GcpWifTrustTests(unittest.TestCase):
             with self.subTest(role=role):
                 self.assert_exit(self.run_check(
                     project_bindings=[{"role": role, "members": [foreign]}]), 1)
+        # Judged by permission, not by name: a service-agent role mints tokens too.
+        self.assert_exit(self.run_check(
+            project_bindings=[{"role": "roles/cloudbuild.serviceAgent", "members": [foreign]}]), 1)
+        self.assert_exit(self.run_check(
+            project_bindings=[{"role": "roles/storage.admin", "members": [foreign]}],
+            role_describe_error=True), 2)
+        # This pool's own principals are not resolved at all.
+        self.assert_exit(self.run_check(
+            project_bindings=[{"role": "roles/editor",
+                               "members": [f"principalSet://iam.googleapis.com/{POOL}/*"]}],
+            role_describe_error=True), 0)
         # Humans holding Token Creator are not what this check is about.
         self.assert_exit(self.run_check(
             project_bindings=[{"role": token_creator, "members": ["user:admin@example.com"]}]), 0)
