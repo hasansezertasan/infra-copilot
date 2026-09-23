@@ -250,6 +250,37 @@ preflight — is in
    resources demonstrably exist at the provider but aren't in state, or when spent blocks
    are still committed.
 
+4. **Latest CI runs (object-storage mode only).** HCP mode sees what CI last said through
+   the per-workspace run status above. Object-storage mode has no HCP run to read, so run
+   the read-only helper
+   [`checks/gha-latest-runs.sh`](checks/gha-latest-runs.sh) with `BACKEND` and `REPO`
+   exported; it anchors itself at the repository root, and prints `not applicable` unless
+   the backend is `object-storage` (a missing backend is `hcp`). It prints two lines: the
+   latest `terraform-plan.yml` run on the current branch (a PR's head branch, or a
+   `workflow_dispatch`), and the latest `terraform-apply.yml` run on `main`. Each carries
+   the run's outcome — `✓` passed, `✗` failed, `⏳` in progress, `?` ended without a
+   verdict (cancelled, action required) — followed by every `plan-*` / `apply-*` job,
+   because a run reads green when a GitHub-only change skipped `apply-cloudflare`, and by
+   any other job that failed or was cancelled, so a `validate` failure is named rather
+   than hidden behind green leaf jobs. A workflow with no runs yet — including one
+   committed but not yet known to GitHub — prints `– no runs yet`, and a workflow file that
+   is absent prints `– not installed`; neither is a failure.
+
+   The plan line names the run's commit. When that is not the checkout's `HEAD` it says
+   `not HEAD <sha>`: the result is for an earlier revision, usually because the latest
+   commits are not pushed yet. Report it as that revision's result, never as the
+   checkout's.
+
+   This is **not a manifest step** and does not move the first-red verdict. It judges no
+   revision — the phase-4 `plan-*-gha` checks own that, with their dirty-tree and
+   ancestry rules — so a green phase 4 next to a `✗` apply on `main` is a real,
+   independent finding: report the apply failure ahead of the verdict, and route it
+   nowhere, since no skill re-runs a failed apply. **Read each line on its own.** A read
+   that fails prints `? could not verify: <cause>` on *that* line only — name the cause,
+   usually `gh auth login` — and the other line is still a real result. Exit 1 (a failed
+   run was read) wins over exit 2 (a line could not be read), so a `?` beside a `✗` never
+   hides the failure, and a 2 is never a failed run.
+
 ## Validation
 
 A complete report accounts for **every** step in the manifest — none silently omitted —
@@ -277,6 +308,14 @@ Verdict: bootstrap incomplete — first red is `workspaces-create` (phase 1).
 Legend: `✓` passed · `✗` failed · `–` not evaluated / not reached · `?` plan-gated
 (read from HCP API, not run locally) · `·` human-gated / ephemeral (null check, not executed).
 
+In object-storage mode, add the helper's two lines between the phase table and the
+verdict:
+
+```text
+CI runs  plan  terraform-plan.yml @ feature/dns  ✓ passed  run 812 (pull_request, 3f9c2a1)  plan-cloudflare ✓ passed  plan-github – skipped
+         apply terraform-apply.yml @ main        ⏳ in progress (in_progress)  run 809 (push, a41e0d7)  apply-cloudflare ⏳ in progress (queued)
+```
+
 ## Verdict → which skill
 
 Map the first red step to the skill that owns it, so the user knows what to run next:
@@ -289,6 +328,7 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 | `hcp-apply-scope` exit 1 (phase 4) | **Nothing — this is credential work, not `setup`.** For `UNPROTECTED`, the agent's credential can apply: provision the plan-only identity in that step's `run`. For `OVER-RESTRICTED`, grant the team the workspace `Plan` permission. For `SPLIT-BRAIN`, re-export `HCP_TOKEN` from the source `terraform` uses. Running `setup` fixes none of these. |
 | `status-check-context` exit 1 (phase 4) | **Nothing — fix it directly**, not via `setup`. For `BLOCKED`, replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keep every other required context, and follow the break-glass sequence ([`docs/ci.md`](docs/ci.md#hcp-status-check-context)). For `UNDERPROTECTED`, re-apply `branch_protection.tf` so an HCP context is required again. |
 | Other steps in phases 0–4 | **infra-copilot:setup** |
+| `gha-latest-runs.sh` (not a step) | **Nothing — informational.** Exit 1 names a failed latest plan or apply run; report it ahead of the verdict and point at the run URL. Exit 2 means a line reads `?`; report that line's cause and keep the other line. Neither is a first-red step. |
 | Phase 5 (migrate-*) | **infra-copilot:import** — only relevant if adopting pre-existing resources |
 | `prune-spent-imports` exit 2 (`CANNOT VERIFY`) | **Nothing to fix in the repo.** The check could not read git — not a repository, or unreadable metadata. Report `?` and name the cause; an unreadable check is not evidence that blocks remain, so do not route to `prune`. |
 | `prune-spent-imports` (phase 5) | **infra-copilot:prune** — if the import already applied. If it has not, the blocks are pending, not spent: finish `infra-copilot:import` first. Route on the leaf holding the blocks, not on Cloudflare's `migrate-import`. |
