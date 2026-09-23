@@ -1715,9 +1715,11 @@ steps:
           auth_expected=tolower(provider) " authentication" }
         clean($2) == expected && clean($3) == "adopt" && clean($4) == "locked" { found=1 }
         clean($2) == auth_expected && clean($3) != "" && clean($4) == "locked" {
-          auth=1; choice=clean($3)
+          auth++; choice=clean($3)
         }
-        END { if (found && auth) print choice; exit !(found && auth) }
+        # Exactly one locked authentication row: two would be simultaneously
+        # authoritative, and "last one wins" would make row order the decision.
+        END { if (found && auth == 1) print choice; exit !(found && auth == 1) }
       ' .infra-copilot/decisions.md) || exit 1
       # The recorded mechanism must be the one the inventory actually installs, in both
       # directions: a locked keyless decision over a key inventory would otherwise skip

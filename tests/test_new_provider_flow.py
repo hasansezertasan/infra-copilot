@@ -384,6 +384,24 @@ class NewProviderFlowTests(unittest.TestCase):
                 cwd=root,
                 check=True,
             )
+            # Two locked authentication rows: row order must not be the decision.
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | Workload Identity Federation | locked |\n"
+                "| GCP authentication | service-account key | locked |\n",
+                encoding="utf-8",
+            )
+            commit("two auth rows")
+            two_auth_rows = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
             # Free text reduced to a keyword is not a decision.
             free_text = {}
             for choice, inventory in (
@@ -433,6 +451,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 text=True,
             )
         self.assertEqual(azure_wif.returncode, 0, azure_wif.stderr)
+        self.assertNotEqual(two_auth_rows.returncode, 0, "two locked authentication rows")
         for choice, credentials in free_text.items():
             with self.subTest(choice=choice):
                 self.assertNotEqual(credentials.returncode, 0, "free-text GCP auth choice")

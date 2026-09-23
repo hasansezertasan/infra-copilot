@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7afb520fe48c8fd9d41edb7a014d0e0abb360b13467a26efb4fe321bf23664c4
-Source-Hash: blake3:6c3a84ad182af32ae5deea6ccb98b51ad8e4924b6c47840a9dd23121209c16fa
+Content-Hash: blake3:c6c118ddc03adaa359d0f7817ddce192ac0b8e326b94b48315b93ae62e0cb8b6
+Source-Hash: blake3:f314e66d142464829af591f42a5de7a47f7289fc6e3e1dad339395d836ec27a0
 Schema-Version: v1
 -->
 
@@ -27,7 +27,8 @@ The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml)
    agrees with the credential inventory in step 3. The choice must be exactly
    `Workload Identity Federation` (the inventory declares `TFC_GCP_PROVIDER_AUTH`) or
    exactly `service-account key` (it declares `GOOGLE_CREDENTIALS` and not
-   `TFC_GCP_PROVIDER_AUTH`); any other wording stays red.
+   `TFC_GCP_PROVIDER_AUTH`); any other wording stays red, and so do two locked
+   authentication rows — mark the old one `superseded`.
 2. Note the new leaf in `terraform/README.md`.
 3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
    variable the chosen auth needs — for WIF, those listed under
@@ -258,7 +259,9 @@ A key-based adoption declares only `GOOGLE_CREDENTIALS` (`category: env`,
 `sensitive: true`, the key JSON pasted by the human) and none of the `TFC_GCP_*`
 variables, so `new-provider-gcp-wif-trust` is skipped.
 
-> **With WIF, never set `GOOGLE_CREDENTIALS` or `GOOGLE_APPLICATION_CREDENTIALS`** in the workspace
+> **With WIF, never set `GOOGLE_CREDENTIALS`, `GOOGLE_APPLICATION_CREDENTIALS`, or any
+> other Google credential or identity variable** (`GOOGLE_OAUTH_ACCESS_TOKEN`,
+> `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT`, `GCLOUD_KEYFILE_JSON`, `CLOUDSDK_AUTH_*`, …) in the workspace
 > (or an attached variable set). HashiCorp's docs are explicit that both conflict with
 > dynamic credentials. It is the first thing people reach for when auth fails, and it
 > makes the failure worse, not better. The `new-provider-credentials` inventory check

@@ -72,10 +72,19 @@ var() {
         | if . == null then "" elif .sensitive then "<sensitive>" else (.value // "") end'
 }
 
-for key in GOOGLE_CREDENTIALS GOOGLE_APPLICATION_CREDENTIALS; do
-    [ -z "$(var "$key")" ] \
-        || fail "$key is set on $NEW_PROVIDER_WORKSPACE; it conflicts with dynamic credentials — delete it"
-done
+# The Google provider and SDK read credentials, tokens, and impersonation targets from a
+# family of variables (GOOGLE_CREDENTIALS, GOOGLE_OAUTH_ACCESS_TOKEN,
+# GOOGLE_CLOUD_KEYFILE_JSON, GCLOUD_KEYFILE_JSON, GOOGLE_IMPERSONATE_SERVICE_ACCOUNT,
+# CLOUDSDK_AUTH_*, ...). Any of them would make the run use an identity other than the
+# one verified below, so the family is refused wholesale rather than listed; only
+# location settings, which carry no identity, are allowed through.
+overrides=$(printf '%s' "$vars" | jq -r '
+    .data[].attributes | select(.category == "env") | .key
+    | select(test("^(GOOGLE_|GCLOUD_|CLOUDSDK_)"))
+    | select(IN("GOOGLE_PROJECT", "GOOGLE_REGION", "GOOGLE_ZONE",
+                "GOOGLE_CLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT") | not)')
+[ -z "$overrides" ] \
+    || fail "$NEW_PROVIDER_WORKSPACE sets Google credential or identity variables that override dynamic credentials — delete them: $(printf '%s' "$overrides" | tr '\n' ' ')"
 
 [ "$(var TFC_GCP_PROVIDER_AUTH)" = "true" ] \
     || fail "TFC_GCP_PROVIDER_AUTH is not 'true' on $NEW_PROVIDER_WORKSPACE"

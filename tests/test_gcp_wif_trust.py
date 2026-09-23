@@ -364,6 +364,17 @@ class GcpWifTrustTests(unittest.TestCase):
         ]
         self.assert_exit(self.run_check(variables=variables), 1)
 
+    def test_every_google_credential_override_fails(self) -> None:
+        for key in ("GOOGLE_OAUTH_ACCESS_TOKEN", "GOOGLE_CLOUD_KEYFILE_JSON",
+                    "GCLOUD_KEYFILE_JSON", "GOOGLE_IMPERSONATE_SERVICE_ACCOUNT",
+                    "CLOUDSDK_AUTH_ACCESS_TOKEN_FILE", "GOOGLE_APPLICATION_CREDENTIALS"):
+            with self.subTest(key=key):
+                self.assert_exit(self.run_check(
+                    variables=[*DEFAULT_VARS, env_var(key, "x")]), 1)
+        # Location settings carry no identity.
+        self.assert_exit(self.run_check(variables=[
+            *DEFAULT_VARS, env_var("GOOGLE_PROJECT", "proj"), env_var("GOOGLE_REGION", "eu")]), 0)
+
     def test_conflicting_or_hidden_variables_fail(self) -> None:
         self.assert_exit(
             self.run_check(variables=[*DEFAULT_VARS, env_var("GOOGLE_CREDENTIALS", "", True)]), 1
