@@ -92,7 +92,9 @@ overrides=$(printf '%s' "$vars" | jq -r '
 # dynamic-credentials form of `credentials` (gcp.md, tagged configurations) passes. The
 # scan is textual for HCL, structural for JSON, and fails closed: any line that starts
 # with one of these names (so `credentials /* note */ = ...` too) anywhere in the leaf or
-# the shared modules must be exactly one of the allowed forms. The exemption is anchored
+# the shared modules must be exactly one of the allowed forms, and so must any line
+# assigning one of them mid-line (compact `provider "google" { credentials = x }`), so
+# the allowed form has to sit on its own line. The exemption is anchored
 # to the whole assignment (after grep -n's "N:" prefix): unanchored, the allowed text
 # inside a trailing comment would excuse a static key before it.
 if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
@@ -117,7 +119,7 @@ if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
                 }
                 print out
             }' "$file" \
-                | grep -En '^[[:space:]]*(credentials|access_token|impersonate_service_account)([^A-Za-z0-9_-]|$)' \
+                | grep -En '(^[[:space:]]*(credentials|access_token|impersonate_service_account)([^A-Za-z0-9_-]|$))|([^A-Za-z0-9_.-](credentials|access_token|impersonate_service_account)[[:space:]]*=)' \
                 | grep -Ev '^[0-9]+:[[:space:]]*credentials[[:space:]]*=[[:space:]]*try\(var\.tfc_gcp_dynamic_credentials\.(default|aliases\["[A-Za-z0-9_-]+"\])\.credentials,[[:space:]]*null\)[[:space:]]*(#.*)?$' \
                 | sed "s|^|$file:|"
         done)
@@ -276,14 +278,26 @@ while IFS= read -r term; do
     # after it (`:run_phase:plan`), one phase's tokens are refused and applies fail.
     elif printf '%s' "$term" \
         | grep -Eqx "assertion\.sub\.startsWith\( *'organization:$org_re:project:[^:']+:workspace:$ws_re:' *\)"; then
+        # The prefix also names the workspace's HCP project, and a stale name (the
+        # workspace was moved) rejects every token while looking right. It is checked
+        # against the project the workspace is actually in.
+        term_project=$(printf '%s' "$term" | sed -n "s/.*:project:\([^:']*\):workspace:.*/\1/p")
+        hcp_project_id=$(printf '%s' "$workspace" | jq -r '.data.relationships.project.data.id // empty')
+        [ -n "$hcp_project_id" ] \
+            || cannot_verify "the workspace response names no HCP project to compare with the condition's '$term_project'"
+        hcp_project=$(curl -sf "$hcp_api/projects/$hcp_project_id" -H "Authorization: Bearer $HCP_TOKEN" \
+            | jq -r '.data.attributes.name // empty') \
+            || cannot_verify "could not read HCP project $hcp_project_id to compare with the condition"
+        [ -n "$hcp_project" ] || cannot_verify "HCP project $hcp_project_id has no readable name"
+        [ "$term_project" = "$hcp_project" ] \
+            || fail "attribute condition names HCP project '$term_project', but workspace $NEW_PROVIDER_WORKSPACE is in '$hcp_project'; every token would be rejected"
         org_bound=true
         ws_bound=true
     # No run-phase term: one provider serves both phases, so a condition naming one
     # phase rejects every token of the other (applies silently fail after a green plan).
-    # Phase isolation lives on the IAM members instead.
-    elif printf '%s' "$term" \
-        | grep -Eqx "assertion\.terraform_project_name *== *'[^']*'"; then
-        :
+    # Phase isolation lives on the IAM members instead. No bare project-name term either:
+    # the sub prefix above already carries (and verifies) the project, and a stale name
+    # rejects every token while its syntax still looks right.
     else
         fail "attribute condition term is not one of the verifiable forms (see gcp.md): $term"
     fi

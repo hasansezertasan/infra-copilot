@@ -110,7 +110,13 @@ class GcpWifTrustTests(unittest.TestCase):
             ]}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "workspace.json").write_text(json.dumps({"data": {"id": "ws-abc123"}}))
+            (root / "workspace.json").write_text(json.dumps({"data": {
+                "id": "ws-abc123",
+                "relationships": {"project": {"data": {"id": "prj-1", "type": "projects"}}},
+            }}))
+            (root / "project-hcp.json").write_text(
+                json.dumps({"data": {"id": "prj-1", "attributes": {"name": "Default Project"}}})
+            )
             (root / "vars.json").write_text(
                 json.dumps({"data": variables, "meta": {"pagination": {"next-page": None}}})
             )
@@ -147,6 +153,7 @@ class GcpWifTrustTests(unittest.TestCase):
                 f"  */varsets*) cat '{root}/varsets.json'; exit 0 ;;\n"
                 f"  */vars*) cat '{root}/vars.json'; exit 0 ;;\n"
                 f"  */workspaces/gcp) cat '{root}/workspace.json'; exit 0 ;;\n"
+                f"  */projects/prj-1) cat '{root}/project-hcp.json'; exit 0 ;;\n"
                 "esac; done\nexit 22\n"
             )
             describe = (
@@ -207,7 +214,6 @@ class GcpWifTrustTests(unittest.TestCase):
             "assertion.terraform_organization_name == 'acme' && "
             "assertion.terraform_workspace_id == 'ws-abc123'",
             "assertion.sub.startsWith('organization:acme:project:Default Project:workspace:gcp:')",
-            SCOPED + " && assertion.terraform_project_name == 'Default Project'",
         ):
             with self.subTest(condition=condition):
                 self.assert_exit(self.run_check(condition=condition), 0)
@@ -230,9 +236,13 @@ class GcpWifTrustTests(unittest.TestCase):
             "assertion.terraform_workspace_name == 'gcp'",
             SCOPED + " || true",
             "!(" + SCOPED + ")",
-            "assertion.sub.startsWith('organization:acme:project:p:workspace:gcp-other:')",
+            "assertion.sub.startsWith('organization:acme:project:Default Project:workspace:gcp-other:')",
             # No delimiter: also a prefix of workspace "gcp-evil".
             "assertion.sub.startsWith('organization:acme:project:p:workspace:gcp')",
+            # Unverifiable narrowing terms are refused outright.
+            SCOPED + " && assertion.terraform_project_name == 'Default Project'",
+            # A stale HCP project in the subject prefix rejects every token.
+            "assertion.sub.startsWith('organization:acme:project:Old Project:workspace:gcp:')",
             # A run-phase suffix on the subject prefix locks the other phase out too.
             "assertion.sub.startsWith('organization:acme:project:p:workspace:gcp:run_phase:plan')",
             # One provider serves both phases; naming one locks the other out.
@@ -425,6 +435,9 @@ class GcpWifTrustTests(unittest.TestCase):
         self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf": dynamic}), 0)
         self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf":
             'provider "google" {\n  project = local.project_id\n}\n'}), 0)
+        # Compact blocks put the argument mid-line.
+        self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf":
+            'provider "google" { credentials = var.google_key }\n'}), 1)
         for line in ('  credentials = var.google_key\n',
                      '  credentials /* legacy */ = var.google_key\n',
                      '  credentials# note\n',

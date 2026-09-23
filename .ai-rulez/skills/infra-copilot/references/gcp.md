@@ -197,8 +197,9 @@ It locates the provider and service accounts from the workspace's own non-sensit
 
 It also fails when a `.tf` or `.tf.json` file in the leaf or in `terraform/modules` sets
 `credentials`, `access_token`, or `impersonate_service_account` in any form other than
-`try(var.tfc_gcp_dynamic_credentials.<default|aliases["tag"]>.credentials, null)`, since
-the run would then use that identity instead. It exits 2, not 1, when `gcloud` cannot
+`try(var.tfc_gcp_dynamic_credentials.<default|aliases["tag"]>.credentials, null)` on a
+line of its own (a compact `provider "google" { credentials = … }` fails), since the run
+would then use that identity instead. It exits 2, not 1, when `gcloud` cannot
 read what it needs, so a missing login is never mistaken for a broken trust, and when
 the workspace declares tagged configurations (`TFC_GCP_*_<TAG>`, `TFC_DEFAULT_GCP_*`):
 it verifies the default configuration only, so each tag's pool, condition, and accounts
@@ -221,14 +222,16 @@ strict, because a substring search would also accept `startsWith(...) == false`:
 - `assertion.terraform_workspace_name == '<workspace>'` or
   `assertion.terraform_workspace_id == '<ws-id>'`
 - `assertion.sub.startsWith('organization:<hcp-org>:project:<project>:workspace:<workspace>:')`
-  — binds both at once. The literal must end exactly at the `:` after the workspace:
+  — binds both at once. `<project>` is checked against the HCP project the workspace is
+  actually in (a stale name after a move would reject every token). The literal must end exactly at the `:` after the workspace:
   without it, workspace `gcp` is also a prefix of workspace `gcp-evil` (HashiCorp's
   published example omits it); with more after it, such as `:run_phase:plan`, the other
   phase's tokens are refused.
-- `assertion.terraform_project_name == '<project>'` — optional further narrowing
 
-No `terraform_run_phase` term: one provider serves both phases, so a condition naming
-one rejects every token of the other, and applies fail after a green plan. Put phase
+No other terms are accepted — no `terraform_project_name` (a stale name rejects every
+token while looking right) and no `terraform_run_phase`: one provider serves both
+phases, so a condition naming one rejects every token of the other, and applies fail
+after a green plan. Put phase
 isolation on the IAM members, as in the plan/apply split above.
 
 Only `assertion.*` claims are accepted, not mapped `attribute.*` names, and only
