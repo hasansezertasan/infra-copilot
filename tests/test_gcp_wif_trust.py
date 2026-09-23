@@ -84,6 +84,7 @@ class GcpWifTrustTests(unittest.TestCase):
         varsets: int = 0,
         role_describe_error: bool = False,
         pool_bindings: list[dict] | None = None,
+        tf_files: dict[str, str] | None = None,
         describe_error: str = "",
         policy_error: bool = False,
     ) -> subprocess.CompletedProcess[str]:
@@ -165,13 +166,21 @@ class GcpWifTrustTests(unittest.TestCase):
             )
             for stub in ("curl", "gcloud"):
                 (root / stub).chmod(0o755)
+            repo = root / "repo"
+            repo.mkdir()
+            for relative, body in (tf_files or {}).items():
+                target = repo / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(body)
             return subprocess.run(
                 ["/bin/sh", str(SCRIPT)],
+                cwd=repo,
                 env={
                     **os.environ,
                     "PATH": f"{root}{os.pathsep}{os.environ['PATH']}",
                     "ORG": "acme",
                     "NEW_PROVIDER_WORKSPACE": "gcp",
+                    "NEW_PROVIDER": "gcp",
                     "hcp_api": "https://app.terraform.io/api/v2",
                     "HCP_TOKEN": "t",
                 },
@@ -374,6 +383,35 @@ class GcpWifTrustTests(unittest.TestCase):
         # Location settings carry no identity.
         self.assert_exit(self.run_check(variables=[
             *DEFAULT_VARS, env_var("GOOGLE_PROJECT", "proj"), env_var("GOOGLE_REGION", "eu")]), 0)
+
+    def test_static_identity_in_the_configuration_fails(self) -> None:
+        dynamic = (
+            'provider "google" {\n'
+            '  project     = local.project_id\n'
+            '  credentials = try(var.tfc_gcp_dynamic_credentials.default.credentials, null)\n'
+            '}\n'
+        )
+        self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf": dynamic}), 0)
+        self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf":
+            'provider "google" {\n  project = local.project_id\n}\n'}), 0)
+        for line in ('  credentials = var.google_key\n',
+                     '  access_token = var.token\n',
+                     '  impersonate_service_account = "admin@proj.iam.gserviceaccount.com"\n'):
+            with self.subTest(line=line):
+                self.assert_exit(self.run_check(tf_files={
+                    "terraform/gcp/providers.tf": 'provider "google" {\n' + line + '}\n'}), 1)
+        # Shared modules configure providers too.
+        self.assert_exit(self.run_check(tf_files={
+            "terraform/gcp/main.tf": "",
+            "terraform/modules/x/providers.tf": 'provider "google" {\n  credentials = file("k.json")\n}\n',
+        }), 1)
+
+    def test_tagged_configurations_cannot_be_verified(self) -> None:
+        for key in ("TFC_GCP_PROVIDER_AUTH_ALIAS", "TFC_GCP_WORKLOAD_PROVIDER_NAME_ALIAS",
+                    "TFC_DEFAULT_GCP_PROVIDER_AUTH"):
+            with self.subTest(key=key):
+                self.assert_exit(self.run_check(
+                    variables=[*DEFAULT_VARS, env_var(key, "x")]), 2)
 
     def test_conflicting_or_hidden_variables_fail(self) -> None:
         self.assert_exit(

@@ -192,8 +192,14 @@ It locates the provider and service accounts from the workspace's own non-sensit
   attribute from `assertion.terraform_run_phase` — a constant would label every run an
   apply.
 
-It exits 2, not 1, when `gcloud` cannot read what it needs, so a missing login is never
-mistaken for a broken trust. **Not covered:** grants inherited from folders or the
+It also fails when a `.tf` file in the leaf or in `terraform/modules` sets
+`credentials`, `access_token`, or `impersonate_service_account` in any form other than
+`try(var.tfc_gcp_dynamic_credentials.<default|aliases["tag"]>.credentials, null)`, since
+the run would then use that identity instead. It exits 2, not 1, when `gcloud` cannot
+read what it needs, so a missing login is never mistaken for a broken trust, and when
+the workspace declares tagged configurations (`TFC_GCP_*_<TAG>`, `TFC_DEFAULT_GCP_*`):
+it verifies the default configuration only, so each tag's pool, condition, and accounts
+are yours to audit. **Not covered:** grants inherited from folders or the
 organization; audit those by hand if your hierarchy uses them. The step runs unless the credential inventory
 is a list without `TFC_GCP_PROVIDER_AUTH` — a key-based adoption, or another provider —
 so an unreadable inventory runs the check rather than skipping it.

@@ -86,6 +86,37 @@ overrides=$(printf '%s' "$vars" | jq -r '
 [ -z "$overrides" ] \
     || fail "$NEW_PROVIDER_WORKSPACE sets Google credential or identity variables that override dynamic credentials — delete them: $(printf '%s' "$overrides" | tr '\n' ' ')"
 
+# Identity can also come from the committed provider configuration: `credentials`,
+# `access_token`, or `impersonate_service_account` set from a terraform-category
+# variable would make the run use an identity no env check sees. Only the documented
+# dynamic-credentials form of `credentials` (gcp.md, tagged configurations) passes. The
+# scan is textual and fails closed: an argument by these names anywhere in the leaf or
+# the shared modules must be one of the allowed forms.
+if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
+    static=$(find "terraform/$NEW_PROVIDER" terraform/modules -name '*.tf' -type f 2>/dev/null \
+        | while IFS= read -r file; do
+            grep -En '^[[:space:]]*(credentials|access_token|impersonate_service_account)[[:space:]]*=' "$file" \
+                | grep -Ev '=[[:space:]]*try\(var\.tfc_gcp_dynamic_credentials\.(default|aliases\["[A-Za-z0-9_-]+"\])\.credentials,[[:space:]]*null\)[[:space:]]*(#.*)?$' \
+                | sed "s|^|$file:|"
+        done)
+    [ -z "$static" ] \
+        || fail "the committed configuration sets a Google identity argument other than the dynamic-credentials form, so runs may not use the verified trust: $static"
+fi
+
+# Tagged configurations (TFC_GCP_*_<TAG>, TFC_DEFAULT_GCP_*) give provider aliases their
+# own pool, provider, and accounts. This check verifies the default configuration only,
+# so any tag makes its verdict incomplete — reported as unverifiable, never as green.
+tagged=$(printf '%s' "$vars" | jq -r '
+    .data[].attributes | select(.category == "env") | .key
+    | select(test("^TFC_(DEFAULT_)?GCP_"))
+    | select(IN("TFC_GCP_PROVIDER_AUTH", "TFC_GCP_PRINCIPAL_TYPE",
+                "TFC_GCP_RUN_SERVICE_ACCOUNT_EMAIL", "TFC_GCP_PLAN_SERVICE_ACCOUNT_EMAIL",
+                "TFC_GCP_APPLY_SERVICE_ACCOUNT_EMAIL", "TFC_GCP_WORKLOAD_PROVIDER_NAME",
+                "TFC_GCP_PROJECT_NUMBER", "TFC_GCP_WORKLOAD_POOL_ID",
+                "TFC_GCP_WORKLOAD_PROVIDER_ID", "TFC_GCP_WORKLOAD_IDENTITY_AUDIENCE") | not)')
+[ -z "$tagged" ] \
+    || cannot_verify "$NEW_PROVIDER_WORKSPACE declares tagged GCP configurations ($(printf '%s' "$tagged" | tr '\n' ' ')); this check verifies only the default one — verify each tag's pool, condition, and accounts by hand"
+
 [ "$(var TFC_GCP_PROVIDER_AUTH)" = "true" ] \
     || fail "TFC_GCP_PROVIDER_AUTH is not 'true' on $NEW_PROVIDER_WORKSPACE"
 
