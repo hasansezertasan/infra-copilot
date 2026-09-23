@@ -194,10 +194,9 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 
 - **Resolve**. Before resolving, reread the owner-aware frontier gate and comments. The current
   session's own valid marker and sole assignment satisfy the ownership check; if ownership is not
-  current, stop. If the latest valid
-  marker is expired, renew ownership by appending a heartbeat, wait 5 seconds, reread comments,
-  and rerun the owner-aware frontier gate; stop if another takeover wins or any gate changes. Only then
-  comment on the child, add its context pointer (gist + link) as an append-only
+  current, stop. Unconditionally renew ownership by appending a heartbeat, wait 5 seconds, reread
+  comments, and rerun the owner-aware frontier gate; stop if another takeover wins or any gate
+  changes. Only then comment on the child, add its context pointer (gist + link) as an append-only
   comment on the map before closing the child. The map's Decisions-so-far is read together with
   these `Context pointer:` comments. This avoids concurrent full-body edits that can overwrite a
   pointer. Verify the new map comment exists before closing:
