@@ -398,6 +398,9 @@ class GcpWifTrustTests(unittest.TestCase):
         for line in ('  credentials = var.google_key\n',
                      '  credentials /* legacy */ = var.google_key\n',
                      '  credentials# note\n',
+                     # The allowed form inside a comment must not excuse the real value.
+                     '  credentials = var.google_key # = try(var.tfc_gcp_dynamic_credentials'
+                     '.default.credentials, null)\n',
                      '  access_token = var.token\n',
                      '  impersonate_service_account = "admin@proj.iam.gserviceaccount.com"\n'):
             with self.subTest(line=line):

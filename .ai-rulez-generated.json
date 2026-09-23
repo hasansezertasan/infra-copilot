@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:cdbfbcab3abf27481c90a903f047b2cbe90075e931d6d05570fa51453bd8918f",
+  "source_hash": "blake3:04a6dcca5c372312003d47f502eb7c30ba562b1fde1e72fa0cc2fdfb5dc2d073",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -36,7 +36,7 @@
       "content_hash": "blake3:ebe0d48ed33faf07cde281151c4471287fe9fe608e0391d15226642362c9d063"
     },
     "skills/infra-copilot/references/checks/gcp-wif-trust.sh": {
-      "content_hash": "blake3:510676cc098ea13169d4618f8295e2cfd9c15c9af1ab2b0c26e89d701cdf286a"
+      "content_hash": "blake3:309a19bf6d9d4e76c4058910ff01d6313f2024c63ecf2cca5f01d76bf47a4a15"
     },
     "skills/infra-copilot/references/checks/gha-latest-runs.sh": {
       "content_hash": "blake3:c3e9980ba2c55fe19af3a8aca2567e801c1506c33ae3476c52fc972061508b22"

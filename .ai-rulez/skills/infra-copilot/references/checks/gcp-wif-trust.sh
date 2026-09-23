@@ -92,12 +92,14 @@ overrides=$(printf '%s' "$vars" | jq -r '
 # dynamic-credentials form of `credentials` (gcp.md, tagged configurations) passes. The
 # scan is textual for HCL, structural for JSON, and fails closed: any line that starts
 # with one of these names (so `credentials /* note */ = ...` too) anywhere in the leaf or
-# the shared modules must be exactly one of the allowed forms.
+# the shared modules must be exactly one of the allowed forms. The exemption is anchored
+# to the whole assignment (after grep -n's "N:" prefix): unanchored, the allowed text
+# inside a trailing comment would excuse a static key before it.
 if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
     static=$(find "terraform/$NEW_PROVIDER" terraform/modules -name '*.tf' -type f 2>/dev/null \
         | while IFS= read -r file; do
             grep -En '^[[:space:]]*(credentials|access_token|impersonate_service_account)([^A-Za-z0-9_-]|$)' "$file" \
-                | grep -Ev '=[[:space:]]*try\(var\.tfc_gcp_dynamic_credentials\.(default|aliases\["[A-Za-z0-9_-]+"\])\.credentials,[[:space:]]*null\)[[:space:]]*(#.*)?$' \
+                | grep -Ev '^[0-9]+:[[:space:]]*credentials[[:space:]]*=[[:space:]]*try\(var\.tfc_gcp_dynamic_credentials\.(default|aliases\["[A-Za-z0-9_-]+"\])\.credentials,[[:space:]]*null\)[[:space:]]*(#.*)?$' \
                 | sed "s|^|$file:|"
         done)
     # Phase 6 accepts JSON-syntax leaves too; the same keys at any depth are judged the
