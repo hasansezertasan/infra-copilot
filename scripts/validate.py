@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import posixpath
 import re
+import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
@@ -1523,6 +1524,83 @@ def validate_versions(root: Path = ROOT) -> list[str]:
     return errors
 
 
+#: Files validate_versions compares, plus the one it compares them against. Any
+#: other file spelling the plugin version is a copy nothing keeps in step (#22).
+VERSIONED_FILES = frozenset(
+    {".ai-rulez/config.toml", "CHANGELOG.md", *JSON_MANIFESTS}
+)
+#: Files whose version strings are not ours. npm's lockfile pins every transitive
+#: package, so one of them sharing the plugin's version is a coincidence, not a copy.
+UNRELATED_VERSION_FILES = frozenset({"package-lock.json"})
+
+
+def repository_files(root: Path = ROOT) -> list[str]:
+    """The files git tracks under `root`, as sorted POSIX paths.
+
+    Tracked rather than everything on disk, so `make check` sees what CI sees: a
+    local .venv or a gitignored `.agents/skills/` must not fail a check that
+    passes on a clean checkout. Falls back to walking the tree when `root` is
+    not a work tree, which is what the tests' temporary fixtures are.
+    """
+    try:
+        listed = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            capture_output=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        skipped = IGNORED_DIRECTORIES | {"__pycache__"}
+        return [
+            path.relative_to(root).as_posix()
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+            and not skipped.intersection(path.relative_to(root).parts)
+        ]
+    return sorted(
+        name for name in listed.stdout.decode("utf-8").split("\0") if name
+    )
+
+
+def validate_version_locations(root: Path = ROOT) -> list[str]:
+    """No file outside VERSIONED_FILES may spell the plugin version.
+
+    validate_versions reads known shapes in known files, so a README badge or a
+    version-pinned install command would drift behind a green check. Scanning
+    every file for the literal instead cannot tell a stale copy from an
+    unrelated number, but it does not need to: the copy is flagged the moment
+    it is written, while it still matches. It then has to be registered --
+    compared by validate_versions and listed here -- or removed.
+    """
+    try:
+        expected = toml_string(".ai-rulez/config.toml", "plugin", "version", root)
+    except (OSError, ValueError):
+        # validate_versions reports an unreadable canonical version.
+        return []
+    # Bounded so 1.2.3 matches v1.2.3 but not 11.2.3, 1.2.3.4, or
+    # 1.2.3-rc.1, which is a different version.
+    pattern = re.compile(
+        rf"(?<![0-9.]){re.escape(expected)}(?![0-9A-Za-z]|[.+-][0-9A-Za-z])"
+    )
+    errors: list[str] = []
+    for relative in repository_files(root):
+        path = root / relative
+        if not path.is_file() or relative in VERSIONED_FILES | UNRELATED_VERSION_FILES:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        errors += [
+            f"{relative}:{number}: carries the plugin version {expected!r}, which "
+            "nothing keeps in step; drop it, or teach validate_versions to compare "
+            "it and add it to VERSIONED_FILES (UNRELATED_VERSION_FILES if the "
+            "match is a coincidence)"
+            for number, line in enumerate(text.splitlines(), start=1)
+            if pattern.search(line)
+        ]
+    return errors
+
+
 #: Keys the manifest is allowed to declare at column zero. Anything else there is a
 #: block scalar that lost its indentation, which silently changes what the document
 #: means -- see validate_manifest_shape.
@@ -2722,6 +2800,7 @@ def main(argv: list[str] | None = None) -> int:
         *validate_links(),
         *validate_tool_pins(),
         *validate_versions(),
+        *validate_version_locations(),
     ]
     if errors:
         for error in errors:

@@ -32,6 +32,7 @@ from scripts.validate import (
     validate_shipped_check_paths,
     validate_skill_sections,
     validate_tool_pins,
+    validate_version_locations,
     validate_versions,
 )
 
@@ -1496,6 +1497,82 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             )
 
             self.assertEqual(validate_versions(repository), [])
+
+    def test_repository_spells_the_plugin_version_only_where_it_is_compared(
+        self,
+    ) -> None:
+        self.assertEqual(validate_version_locations(), [])
+
+    def test_version_outside_the_compared_files_is_reported(self) -> None:
+        """A non-JSON copy was invisible: validate_versions reads known shapes (#22)."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._version_fixture(repository)
+            (repository / "docs").mkdir()
+            (repository / "docs/install.md").write_text(
+                "# Install\n\nnpx skills add infra-copilot@9.9.9\n", encoding="utf-8"
+            )
+            (repository / "README.md").write_text(
+                '<img src="badge/v9.9.9">\n', encoding="utf-8"
+            )
+
+            self.assertEqual(
+                validate_version_locations(repository),
+                [
+                    f"{path}: carries the plugin version '9.9.9', which nothing "
+                    "keeps in step; drop it, or teach validate_versions to compare "
+                    "it and add it to VERSIONED_FILES (UNRELATED_VERSION_FILES if "
+                    "the match is a coincidence)"
+                    for path in ("README.md:1", "docs/install.md:3")
+                ],
+            )
+
+    def test_compared_files_and_neighbouring_versions_are_not_reported(self) -> None:
+        """Only the exact version counts, and only outside registered files."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._version_fixture(repository)
+            (repository / "NOTES.md").write_text(
+                "19.9.9 9.9.9.1 9.9.9-rc.1 9.9.9+build v8.9.9.9\n", encoding="utf-8"
+            )
+            (repository / "package-lock.json").write_text(
+                '{"packages": {"node_modules/x": {"version": "9.9.9"}}}',
+                encoding="utf-8",
+            )
+            (repository / "node_modules/x").mkdir(parents=True)
+            (repository / "node_modules/x/package.json").write_text(
+                '{"version": "9.9.9"}', encoding="utf-8"
+            )
+            (repository / "logo.png").write_bytes(b"\x89PNG\xff9.9.9")
+
+            self.assertEqual(validate_version_locations(repository), [])
+
+    def test_only_tracked_files_are_scanned_in_a_work_tree(self) -> None:
+        """A local .venv or gitignored build output must not fail `make check`.
+
+        CI checks a clean clone, so scanning the whole disk made a maintainer's
+        checkout fail on files that are not part of the repository.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._version_fixture(repository)
+            (repository / ".gitignore").write_text("/ignored/\n", encoding="utf-8")
+            (repository / "tracked.md").write_text("v9.9.9\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+            subprocess.run(["git", "add", "."], cwd=repository, check=True)
+            (repository / "ignored").mkdir()
+            (repository / "ignored/METADATA").write_text(
+                "Version: 9.9.9\n", encoding="utf-8"
+            )
+            (repository / "untracked.md").write_text("9.9.9\n", encoding="utf-8")
+
+            self.assertEqual(
+                [
+                    error.split(":", 1)[0]
+                    for error in validate_version_locations(repository)
+                ],
+                ["tracked.md"],
+            )
 
     def test_malformed_manifest_does_not_mask_the_parse_error(self) -> None:
         """Version discovery must not raise over a manifest that cannot parse.
