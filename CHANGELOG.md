@@ -11,6 +11,11 @@
   `references/migration.md` fixes the `google_storage_bucket` import ID, tabulates GCP
   import IDs, and adds the `-generate-config-out` failure modes and a verification
   checklist.
+- Added the `new-provider-gcp-wif-trust` Phase 6 step and `checks/gcp-wif-trust.sh`,
+  which verify from the workspace's own `TFC_GCP_*` variables that the WIF provider's
+  issuer and attribute condition bind the HCP organization and workspace and that only
+  that pool can impersonate the service accounts. `new-provider-decision` now also
+  requires a locked `<provider> authentication` row, for every provider.
 - Skills split by function into five routers over a shared core:
   - `setup` (`/infra-setup`) — greenfield bootstrap, phases 0-4.
   - `import` (`/infra-import`) — adopt existing provider resources without recreating, phase 5.

@@ -16,6 +16,7 @@ The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml)
    `Workload Identity Federation` (or `service-account key`, with the reason WIF could
    not be arranged). Auth is a decision, not a default: a key is a long-lived secret
    with a rotation burden, and choosing it should be deliberate and visible.
+   `new-provider-decision` stays red until both rows are locked.
 2. Note the new leaf in `terraform/README.md`.
 3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
    variable listed under [HCP workspace variables](#hcp-workspace-variables),
@@ -152,6 +153,16 @@ apply-grade credentials, even if the workspace variables were edited.
 
 ### AGENT — verify the trust (read-only)
 
+The `new-provider-gcp-wif-trust` step runs
+`sh "$INFRA_COPILOT_REFERENCES/checks/gcp-wif-trust.sh"` on every resume and status scan.
+It locates the provider and service accounts from the workspace's own non-sensitive
+`TFC_GCP_*` variables, then fails unless the issuer is exact, the provider is active,
+the condition is a conjunction binding both the organization and the workspace (name or
+`ws-` ID), and only that pool's principals may impersonate the service accounts. It
+refuses `||`, `!`, and `in` in the condition rather than trying to evaluate them. It
+exits 2, not 1, when `gcloud` cannot read the pool, so a missing login is never mistaken
+for a broken trust. To look by hand:
+
 ```sh
 mise exec -- gcloud iam workload-identity-pools providers describe "$PROVIDER" \
   --location=global --workload-identity-pool="$POOL" \
@@ -159,9 +170,7 @@ mise exec -- gcloud iam workload-identity-pools providers describe "$PROVIDER" \
 mise exec -- gcloud iam service-accounts get-iam-policy "$SA@$PROJECT_ID.iam.gserviceaccount.com"
 ```
 
-The condition must name both the organization and the workspace (or workspace ID); an
-empty condition is a failed check, not a style note. The issuer must be exactly
-`https://app.terraform.io`.
+An empty condition is a failed check, not a style note.
 
 ### HCP workspace variables
 

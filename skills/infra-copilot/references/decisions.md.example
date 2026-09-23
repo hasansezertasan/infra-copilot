@@ -15,9 +15,10 @@ missing or unbalanced.
 
 <!-- infra-copilot:customization end -->
 
-Adopting a provider adds its rows inside the table above. A provider's authentication is
-a decision of its own, recorded next to its `Provider: <name>` row so a long-lived key is
-never the unexamined default. For GCP (see `references/gcp.md`) that is a
+Adopting a provider adds two locked rows inside the table above: `Provider: <name>` with
+choice `adopt`, and `<name> authentication` naming the credential mechanism, so a
+long-lived key is never the unexamined default. The Phase 6 decision check requires
+both. For GCP (see `references/gcp.md`) that is a
 `Provider: gcp` / `adopt` / `locked` row plus a `GCP authentication` /
 `Workload Identity Federation` / `locked` row whose rationale names the HCP organization
 and workspace the trust is scoped to.

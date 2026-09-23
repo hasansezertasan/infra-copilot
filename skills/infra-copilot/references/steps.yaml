@@ -1626,7 +1626,11 @@ steps:
     why: A provider changes a locked design decision, and later runs need durable names for every check.
     run: |
       1. Add a row to .infra-copilot/decisions.md whose decision is exactly
-         `Provider: <provider>`, choice is `adopt`, and status is `locked`.
+         `Provider: <provider>`, choice is `adopt`, and status is `locked`, and a second
+         locked row whose decision is exactly `<provider> authentication` and whose
+         choice names the credential mechanism (e.g. `Workload Identity Federation` or
+         `service-account key`). Auth is a decision of its own so a long-lived key is
+         never the unexamined default.
       2. Add terraform/<provider> to terraform/README.md.
       3. For backend: hcp:
          Add an `additional_providers` entry to .infra-copilot/config.md with its
@@ -1704,9 +1708,11 @@ steps:
           gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
           return tolower(value)
         }
-        BEGIN { found=0; expected="provider: " tolower(provider) }
+        BEGIN { found=0; auth=0; expected="provider: " tolower(provider)
+          auth_expected=tolower(provider) " authentication" }
         clean($2) == expected && clean($3) == "adopt" && clean($4) == "locked" { found=1 }
-        END { exit !found }
+        clean($2) == auth_expected && clean($3) != "" && clean($4) == "locked" { auth=1 }
+        END { exit !(found && auth) }
       ' .infra-copilot/decisions.md || exit 1
       grep -Eq "(^|[^A-Za-z0-9_-])terraform/$NEW_PROVIDER(/|[^A-Za-z0-9_-]|$)" \
         terraform/README.md || exit 1
@@ -1716,7 +1722,7 @@ steps:
         .infra-copilot/decisions.md terraform/README.md || exit 1
       git diff --cached --quiet HEAD -- .infra-copilot/config.md \
         .infra-copilot/decisions.md terraform/README.md
-    produces: locked provider decision plus a non-secret verification inventory
+    produces: locked provider and authentication decisions plus a non-secret verification inventory
     docs: config.md
 
   - id: new-provider-leaf
@@ -2066,6 +2072,30 @@ steps:
     tri_state: true
     produces: exact declared workspace-variable metadata in HCP
     docs: docs/secrets.md
+
+  - id: new-provider-gcp-wif-trust
+    phase: 6
+    provider: gcp
+    actor: HUMAN
+    when: '[ "$NEW_PROVIDER" = "gcp" ] && { [ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]; }'
+    title: Scope the GCP workload identity trust to this organization and workspace
+    why: >-
+      Every HCP customer shares the issuer, so an unconditioned or name-only trust lets
+      another organization impersonate the service account while every plan stays green.
+    run: |
+      Using your own gcloud login, fix what the check reported, following gcp.md's
+      "create the WIF trust" section: the provider's issuer must be exactly
+      https://app.terraform.io, its attribute condition must be a conjunction binding
+      both the HCP organization and this workspace (name or ws- ID), and only principals
+      from that pool may hold roles/iam.workloadIdentityUser on the run service
+      accounts. The TFC_GCP_* coordinates must stay non-sensitive so they can be read.
+      If the check could not verify (exit 2), log in with an account that can read the
+      pool and service-account IAM policies (`gcloud auth login`). Reply `done`; the
+      agent re-runs this check.
+    tri_state: true
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/gcp-wif-trust.sh"
+    produces: a WIF trust only this organization's workspace can use
+    docs: gcp.md#human--create-the-wif-trust
 
   - id: new-provider-plan
     phase: 6

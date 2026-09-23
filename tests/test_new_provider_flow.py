@@ -69,6 +69,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 "new-provider-plan-access",
                 "new-provider-fork-safety",
                 "new-provider-credentials",
+                "new-provider-gcp-wif-trust",
                 "new-provider-plan",
                 # Object-storage mode steps
                 "new-provider-secrets-gha",
@@ -259,6 +260,19 @@ class NewProviderFlowTests(unittest.TestCase):
                 "| Provider: gcp | adopt | locked |\n",
                 encoding="utf-8",
             )
+            no_auth = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | Workload Identity Federation | locked |\n",
+                encoding="utf-8",
+            )
             (root / "terraform/README.md").write_text(
                 "terraform/gcp-old\n", encoding="utf-8"
             )
@@ -294,6 +308,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 text=True,
             )
         self.assertNotEqual(negative.returncode, 0)
+        self.assertNotEqual(no_auth.returncode, 0, "the authentication decision is required")
         self.assertNotEqual(prefix_only.returncode, 0)
         self.assertEqual(positive.returncode, 0, positive.stderr)
 
