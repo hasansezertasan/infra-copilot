@@ -86,13 +86,14 @@ class GhaLatestRunsTests(unittest.TestCase):
 [ {gh_exit} -eq 0 ] || exit {gh_exit}
 echo "$*" >> "{data}/calls"
 sub="$1 $2"; shift 2
-workflow=""; branch=""; filter=""; id=""
+workflow=""; branch=""; filter=""; id=""; all=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --workflow) workflow="$2"; shift ;;
         --branch) branch="$2"; shift ;;
         --jq) filter="$2"; shift ;;
         --repo|--json|--limit) shift ;;
+        --all) all=1 ;;
         -*) : ;;
         *) id="$1" ;;
     esac
@@ -101,6 +102,8 @@ done
 case "$sub" in
     "run list")
         [ "$workflow" = terraform-apply.yml ] && [ "$branch" != main ] && {{ echo "STUB: apply read off main" >&2; exit 99; }}
+        # Without --all, gh cannot resolve a disabled workflow and hides its runs.
+        [ "$all" = 1 ] || {{ echo "STUB: run list without --all" >&2; exit 99; }}
         if [ -f "{data}/$workflow.fail" ]; then
             sed -n 2p "{data}/$workflow.fail" >&2; exit "$(sed -n 1p "{data}/$workflow.fail")"
         fi

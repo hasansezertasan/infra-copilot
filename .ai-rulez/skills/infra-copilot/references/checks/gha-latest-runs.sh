@@ -82,7 +82,10 @@ report() {
         echo "$1  $2  ? detached HEAD: no branch to read runs for"
         return
     fi
-    run=$(gh run list --repo "$REPO" --workflow "$2" --branch "$3" --limit 1 \
+    # --all: without it `--workflow` does not resolve a disabled workflow, so a workflow
+    # disabled after a failed apply would hide that run — and fall into the "not
+    # registered" branch below as "no runs yet".
+    run=$(gh run list --repo "$REPO" --workflow "$2" --branch "$3" --all --limit 1 \
       --json databaseId,status,conclusion,headSha,event,url \
       --jq '.[0] // empty | "\(.databaseId)|\(.status)|\(.conclusion // "")|\(.headSha)|\(.event)|\(.url)"' \
       2>"$err")
