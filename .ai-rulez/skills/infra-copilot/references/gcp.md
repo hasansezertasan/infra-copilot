@@ -16,7 +16,10 @@ The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml)
    `Workload Identity Federation` (or `service-account key`, with the reason WIF could
    not be arranged). Auth is a decision, not a default: a key is a long-lived secret
    with a rotation burden, and choosing it should be deliberate and visible.
-   `new-provider-decision` stays red until both rows are locked.
+   `new-provider-decision` stays red until both rows are locked, and until the choice
+   agrees with the credential inventory in step 3: a choice naming
+   `Workload Identity Federation` requires `TFC_GCP_PROVIDER_AUTH` in the inventory, and
+   that variable requires that choice.
 2. Note the new leaf in `terraform/README.md`.
 3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
    variable the chosen auth needs — for WIF, those listed under
@@ -160,21 +163,36 @@ provider per pool: a second provider (for GitHub Actions, say) belongs in its ow
 The `new-provider-gcp-wif-trust` step runs
 `sh "$INFRA_COPILOT_REFERENCES/checks/gcp-wif-trust.sh"` on every resume and status scan.
 It locates the provider and service accounts from the workspace's own non-sensitive
-`TFC_GCP_*` variables, then fails unless the issuer is exact, the provider is active,
-the condition binds both the organization and the workspace, the provider is the pool's
-only active provider (the pool-wide `/*` member admits every provider's identities, so a
-sibling with a weaker condition would bypass this one), and every member holding
-`workloadIdentityUser` on the service accounts is a principal of that pool. When plan and
-apply use different accounts, the apply account must admit only
-`attribute.terraform_run_phase/apply`, and the provider must map that attribute from
-`assertion.terraform_run_phase` — a constant mapping would label every run an apply. It exits 2,
-not 1, when `gcloud` cannot read the pool, so a missing login is never mistaken for a
-broken trust. The step runs only when the credential inventory declares
-`TFC_GCP_PROVIDER_AUTH`; a key-based adoption has no federation trust to check.
+`TFC_GCP_*` variables, then fails unless all of these hold:
 
-The condition is matched against an allowlist, not searched: it must be `&&`-joined
-terms, each exactly one of these forms (a term in any other form fails, even if it is
-strict, because a substring search would also accept `startsWith(...) == false`):
+- no variable set is attached (its variables are invisible to the workspace vars API);
+- the issuer is exactly `https://app.terraform.io` and the provider is active;
+- the provider is the pool's only active provider — the pool-wide `/*` member admits
+  every provider's identities, so a sibling with a weaker condition would bypass this one;
+- the condition binds both the organization and the workspace (forms below);
+- every member of `workloadIdentityUser` on the service accounts is this pool's, and no
+  federated (`principal://`, `principalSet://`) member outside it holds *any* role on
+  them — Token Creator mints tokens just as well;
+- no federated principal outside the pool holds `workloadIdentityUser`, Token Creator, or
+  Owner on the service accounts' projects, where grants are inherited;
+- when plan and apply use different accounts, the apply account (and those project
+  grants) admit only `attribute.terraform_run_phase/apply`, and the provider maps that
+  attribute from `assertion.terraform_run_phase` — a constant would label every run an
+  apply.
+
+It exits 2, not 1, when `gcloud` cannot read what it needs, so a missing login is never
+mistaken for a broken trust. **Not covered:** grants inherited from folders or the
+organization, and custom roles carrying `iam.serviceAccounts.getAccessToken`; audit
+those by hand if your hierarchy uses them. The step runs unless the credential inventory
+is a list without `TFC_GCP_PROVIDER_AUTH` — a key-based adoption, or another provider —
+so an unreadable inventory runs the check rather than skipping it.
+
+The condition is matched against an allowlist, not searched. First, it may contain only
+`A-Z a-z 0-9 _ . : = & ' ( ) -` and spaces: that rules out double quotes (CEL allows
+`"` inside `'…'`, so mixed quotes can hide `|| true` inside an apparent literal),
+backslash escapes, `//` comments, `||`, `!`, and ternaries. Then it must be `&&`-joined
+terms, each exactly one of these forms — a term in any other form fails even if it is
+strict, because a substring search would also accept `startsWith(...) == false`:
 
 - `assertion.terraform_organization_name == '<hcp-org>'`
 - `assertion.terraform_workspace_name == '<workspace>'` or
@@ -182,10 +200,12 @@ strict, because a substring search would also accept `startsWith(...) == false`)
 - `assertion.sub.startsWith('organization:<hcp-org>:project:<project>:workspace:<workspace>:')`
   — binds both at once. The trailing `:` is required: without it, workspace `gcp` is
   also a prefix of workspace `gcp-evil`. HashiCorp's published example omits it.
-- `assertion.terraform_run_phase`, `assertion.terraform_project_name`, or
-  `assertion.aud` `== '<literal>'` — optional further narrowing
+- `assertion.terraform_run_phase == '<phase>'` or
+  `assertion.terraform_project_name == '<project>'` — optional further narrowing
 
-No parentheses, `||`, `!`, or ternaries. To look by hand:
+Only `assertion.*` claims are accepted, not mapped `attribute.*` names, and only
+single-quoted literals. The audience needs no term: GCP already rejects a token whose
+audience is not the provider's own. To look by hand:
 
 ```sh
 mise exec -- gcloud iam workload-identity-pools providers describe "$PROVIDER" \

@@ -307,6 +307,48 @@ class NewProviderFlowTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+            # A keyless decision over a key inventory would skip the WIF trust check and
+            # go green on the key it rejected; the reverse is just as contradictory.
+            key_inventory = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | service-account key | locked |\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qam", "key decision"],
+                cwd=root,
+                check=True,
+            )
+            key_decision_wif_inventory = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            key_decision_key_inventory = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
+        self.assertNotEqual(key_inventory.returncode, 0, "WIF decision, key inventory")
+        self.assertNotEqual(key_decision_wif_inventory.returncode, 0, "key decision, WIF inventory")
+        self.assertEqual(key_decision_key_inventory.returncode, 0, key_decision_key_inventory.stderr)
         self.assertNotEqual(negative.returncode, 0)
         self.assertNotEqual(no_auth.returncode, 0, "the authentication decision is required")
         self.assertNotEqual(prefix_only.returncode, 0)
@@ -1070,15 +1112,24 @@ terraform {
         condition = " ".join(line.strip() for line in when.group("body").splitlines())
         wif = '[{"key":"TFC_GCP_PROVIDER_AUTH","category":"env","sensitive":false}]'
         key = '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'
-        for credentials, expected in ((wif, 0), (key, 1)):
-            with self.subTest(credentials=credentials):
+        # (provider name, inventory, backend, runs?)
+        for name, credentials, backend, runs in (
+            ("gcp", wif, "hcp", True),
+            ("gcp-prod", wif, "hcp", True),      # keyed on the inventory, not the name
+            ("gcp", key, "hcp", False),          # key-based adoption
+            ("aws", '[{"key":"AWS_ROLE_ARN","category":"env","sensitive":false}]', "hcp", False),
+            ("gcp", "not json", "hcp", True),    # unreadable: run, never silently skip
+            ("gcp", "", "hcp", True),
+            ("gcp", wif, "object-storage", False),
+        ):
+            with self.subTest(name=name, credentials=credentials, backend=backend):
                 result = subprocess.run(
                     ["/bin/sh", "-c", condition],
-                    env={**os.environ, "NEW_PROVIDER": "gcp", "BACKEND": "hcp",
+                    env={**os.environ, "NEW_PROVIDER": name, "BACKEND": backend,
                          "NEW_PROVIDER_CREDENTIALS": credentials},
                     capture_output=True, text=True,
                 )
-                self.assertEqual(result.returncode != 0, bool(expected), result.stderr)
+                self.assertEqual(result.returncode == 0, runs, result.stderr)
 
     def test_router_and_status_use_the_durable_inventory(self) -> None:
         for path in (CONFIG, STATUS_RUNBOOK):

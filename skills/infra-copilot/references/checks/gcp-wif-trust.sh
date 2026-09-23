@@ -17,8 +17,10 @@
 #
 # Exit codes:
 #   0  the trust is scoped to $ORG and $NEW_PROVIDER_WORKSPACE, it is the pool's only
-#      active provider, only that pool may impersonate the run service accounts, and a
-#      separate apply account admits apply-phase identities only
+#      active provider, no federated principal outside that pool holds a role on the run
+#      service accounts or an impersonation role on their projects, and a separate apply
+#      account admits apply-phase identities only. Folder- and organization-level grants
+#      are not read.
 #   1  trust BROKEN or incomplete — a real verdict about the configuration
 #   2  COULD NOT VERIFY — missing inputs, an HCP read failed, or gcloud could not read
 #      the pool (not logged in, no permission). Never evidence about the trust.
@@ -40,6 +42,17 @@ workspace=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKS
 ws_id=$(printf '%s' "$workspace" \
     | jq -er '.data.id | select(type == "string" and test("^ws-[A-Za-z0-9]+$"))' 2>/dev/null) \
     || cannot_verify "workspace response carried no ws- ID"
+
+# Variables inherited from a variable set are invisible to the workspace vars API, so a
+# set could supply GOOGLE_CREDENTIALS or override the coordinates read below. Same rule
+# as new-provider-credentials: no attached sets, so the workspace list is the whole truth.
+varsets=$(curl -sf "$hcp_api/workspaces/$ws_id/varsets?page%5Bsize%5D=1&page%5Bnumber%5D=1" \
+    -H "Authorization: Bearer $HCP_TOKEN") \
+    || cannot_verify "could not read variable sets of $NEW_PROVIDER_WORKSPACE"
+varset_count=$(printf '%s' "$varsets" | jq -er '.data | select(type == "array") | length' 2>/dev/null) \
+    || cannot_verify "variable-set response was not a list"
+[ "$varset_count" -eq 0 ] \
+    || fail "$NEW_PROVIDER_WORKSPACE has variable sets attached; their variables cannot be verified here — detach them and set the variables on the workspace"
 
 vars=$(curl -sf "$hcp_api/workspaces/$ws_id/vars?page%5Bsize%5D=100" \
     -H "Authorization: Bearer $HCP_TOKEN") \
@@ -141,9 +154,18 @@ if [ "$split" = true ]; then
         || fail "plan and apply use different service accounts, but the provider does not map attribute.terraform_run_phase to assertion.terraform_run_phase"
 fi
 
-condition=$(printf '%s' "$provider" | jq -r '.attributeCondition // ""' | tr -s '[:space:]' ' ' | tr '"' "'")
+condition=$(printf '%s' "$provider" | jq -r '.attributeCondition // ""' | tr -s '[:space:]' ' ')
 [ -n "$condition" ] \
     || fail "provider has no attribute condition: ANY HCP organization's workspace can impersonate the service account"
+
+# Before any term is read, the condition's alphabet is fenced so that where a CEL string
+# literal starts and ends is unambiguous. Rewriting `"` to `'` was not: CEL allows `"`
+# inside '...' and `'` inside "...", so a rewrite can re-pair quotes and hide `|| true`
+# inside what then looks like a literal. Likewise `\` escapes, and `//` starts a comment
+# that runs to a newline this check has already collapsed. Only single-quoted literals
+# with no escapes remain, which every accepted form below needs and no bypass can use.
+printf '%s' "$condition" | grep -Eq "^[A-Za-z0-9_.:=&'() -]+\$" \
+    || fail "attribute condition uses characters outside [A-Za-z0-9_.:=&'() -] (double quotes, backslashes, slashes, ||, !, ?); restate it with single-quoted literals in the forms gcp.md lists: $condition"
 
 # The condition is judged against an allowlist, never searched for evidence. Searching
 # is unsound: `startsWith(...) == false` or a ternary ending `? true : true` contains
@@ -172,7 +194,7 @@ while IFS= read -r term; do
         org_bound=true
         ws_bound=true
     elif printf '%s' "$term" \
-        | grep -Eqx "assertion\.(terraform_run_phase|terraform_project_name|aud) *== *'[^']*'"; then
+        | grep -Eqx "assertion\.(terraform_run_phase|terraform_project_name) *== *'[^']*'"; then
         :
     else
         fail "attribute condition term is not one of the verifiable forms (see gcp.md): $term"
@@ -188,25 +210,58 @@ pool_path="projects/$number/locations/global/workloadIdentityPools/$pool_id"
 pool_member="^principal(Set)?://iam\.googleapis\.com/$pool_path/"
 apply_only="^principalSet://iam\.googleapis\.com/$pool_path/attribute\.terraform_run_phase/apply\$"
 
-# $1 = email, $2 = ERE every workloadIdentityUser member must match, $3 = what it means
+# Roles that grant iam.serviceAccounts.getAccessToken, i.e. impersonation. Custom roles
+# can carry it too; they are not recognised here, which is one reason the project-level
+# pass below is a floor, not a proof.
+impersonation_roles='["roles/iam.workloadIdentityUser","roles/iam.serviceAccountTokenCreator","roles/owner"]'
+
+# $1 = email, $2 = ERE every federated member must match, $3 = what that means
 verify_account() {
     policy=$(gcloud iam service-accounts get-iam-policy "$1" --format=json 2>"$err") \
         || cannot_verify "gcloud could not read the IAM policy of $1: $(head -1 "$err")"
-    # Every member of the role, not only pool principals: a user:, group:, or
-    # serviceAccount: member holding workloadIdentityUser can impersonate the account too.
-    members=$(printf '%s' "$policy" | jq -r '
+    # workloadIdentityUser is the documented grant, so every member of it — user:, group:
+    # and serviceAccount: included — must be this pool's.
+    wiu=$(printf '%s' "$policy" | jq -r '
         [.bindings[]? | select(.role == "roles/iam.workloadIdentityUser") | .members[]] | .[]')
-    [ -n "$members" ] || fail "no workload identity principal may impersonate $1"
-    foreign=$(printf '%s\n' "$members" | grep -Ev "$2" || true)
+    [ -n "$wiu" ] || fail "no workload identity principal may impersonate $1"
+    foreign=$(printf '%s\n' "$wiu" | grep -Ev "$2" || true)
     [ -z "$foreign" ] || fail "$1 is impersonable by members outside $3: $foreign"
+    # A federated principal in ANY binding on the account is judged the same way: Token
+    # Creator mints tokens just as well, and a role granted to a foreign pool or to the
+    # plan phase would bypass the condition or the phase fence.
+    federated=$(printf '%s' "$policy" | jq -r '
+        [.bindings[]? | .members[] | select(test("^principal(Set)?://"))] | unique | .[]')
+    foreign=$(printf '%s\n' "$federated" | sed '/^$/d' | grep -Ev "$2" || true)
+    [ -z "$foreign" ] || fail "$1 grants a role to federated principals outside $3: $foreign"
 }
 
 if [ "$split" = true ]; then
     verify_account "$plan_email" "$pool_member" "$pool_path"
     verify_account "$apply_email" "$apply_only" \
         "$pool_path/attribute.terraform_run_phase/apply (a plan could otherwise mint apply credentials)"
+    project_rule=$apply_only
 else
     verify_account "$apply_email" "$pool_member" "$pool_path"
+    project_rule=$pool_member
 fi
+
+# Project-level grants are inherited by every service account in the project, so a
+# federated principal holding an impersonation role there reaches the run accounts
+# without appearing on their own policies. Folder and organization grants are inherited
+# too and are NOT read here; gcp.md says so rather than letting exit 0 imply it.
+for email in $(printf '%s\n%s\n' "$plan_email" "$apply_email" | sort -u); do
+    case "$email" in
+        *@*.iam.gserviceaccount.com) project=${email#*@}; project=${project%.iam.gserviceaccount.com} ;;
+        *) fail "$email is not a user-managed service account (<name>@<project>.iam.gserviceaccount.com); create a dedicated one per gcp.md" ;;
+    esac
+    project_policy=$(gcloud projects get-iam-policy "$project" --format=json 2>"$err") \
+        || cannot_verify "gcloud could not read the IAM policy of project $project: $(head -1 "$err")"
+    federated=$(printf '%s' "$project_policy" | jq -r --argjson roles "$impersonation_roles" '
+        [.bindings[]? | select(.role as $r | $roles | index($r)) | .members[]
+         | select(test("^principal(Set)?://"))] | unique | .[]')
+    foreign=$(printf '%s\n' "$federated" | sed '/^$/d' | grep -Ev "$project_rule" || true)
+    [ -z "$foreign" ] \
+        || fail "project $project grants an impersonation role to federated principals that could reach $email: $foreign"
+done
 
 exit 0

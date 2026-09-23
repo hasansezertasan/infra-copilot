@@ -15,7 +15,8 @@
   which verify from the workspace's own `TFC_GCP_*` variables that the WIF provider's
   issuer and attribute condition bind the HCP organization and workspace and that only
   that pool can impersonate the service accounts. `new-provider-decision` now also
-  requires a locked `<provider> authentication` row, for every provider.
+  requires a locked `<provider> authentication` row, for every provider, and in HCP mode
+  a Workload Identity Federation choice must match the credential inventory.
 - Skills split by function into five routers over a shared core:
   - `setup` (`/infra-setup`) — greenfield bootstrap, phases 0-4.
   - `import` (`/infra-import`) — adopt existing provider resources without recreating, phase 5.

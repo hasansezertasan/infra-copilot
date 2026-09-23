@@ -59,6 +59,9 @@ class GcpWifTrustTests(unittest.TestCase):
         policies: dict[str, list[str]] | None = None,
         mapping: dict[str, str] | None = None,
         siblings: list[dict] | None = None,
+        extra_bindings: list[dict] | None = None,
+        project_bindings: list[dict] | None = None,
+        varsets: int = 0,
         describe_error: str = "",
         policy_error: bool = False,
     ) -> subprocess.CompletedProcess[str]:
@@ -77,7 +80,10 @@ class GcpWifTrustTests(unittest.TestCase):
         providers = [provider] + (siblings or [])
 
         def policy_for(entries: list[str]) -> dict:
-            return {"bindings": [{"role": "roles/iam.workloadIdentityUser", "members": entries}]}
+            return {"bindings": [
+                {"role": "roles/iam.workloadIdentityUser", "members": entries},
+                *(extra_bindings or []),
+            ]}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "workspace.json").write_text(json.dumps({"data": {"id": "ws-abc123"}}))
@@ -87,6 +93,10 @@ class GcpWifTrustTests(unittest.TestCase):
             (root / "provider.json").write_text(json.dumps(provider))
             (root / "providers.json").write_text(json.dumps(providers))
             (root / "policy.json").write_text(json.dumps(policy_for(members)))
+            (root / "project.json").write_text(json.dumps({"bindings": project_bindings or []}))
+            (root / "varsets.json").write_text(
+                json.dumps({"data": [{"id": f"varset-{i}"} for i in range(varsets)]})
+            )
             policy_cases = ""
             for index, (email, entries) in enumerate((policies or {}).items()):
                 (root / f"policy{index}.json").write_text(json.dumps(policy_for(entries)))
@@ -94,6 +104,7 @@ class GcpWifTrustTests(unittest.TestCase):
             (root / "curl").write_text(
                 "#!/bin/sh\n"
                 'for arg in "$@"; do case "$arg" in\n'
+                f"  */varsets*) cat '{root}/varsets.json'; exit 0 ;;\n"
                 f"  */vars*) cat '{root}/vars.json'; exit 0 ;;\n"
                 f"  */workspaces/gcp) cat '{root}/workspace.json'; exit 0 ;;\n"
                 "esac; done\nexit 22\n"
@@ -113,6 +124,7 @@ class GcpWifTrustTests(unittest.TestCase):
                 'case "$*" in\n'
                 f"  *providers\\ describe*) {describe} ;;\n"
                 f"  *providers\\ list*) cat '{root}/providers.json' ;;\n"
+                f"  *projects\\ get-iam-policy*) cat '{root}/project.json' ;;\n"
                 + ("" if policy_error else policy_cases)
                 + f"  *get-iam-policy*) {policy_cmd} ;;\n"
                 "  *) exit 1 ;;\nesac\n"
@@ -143,8 +155,8 @@ class GcpWifTrustTests(unittest.TestCase):
         for condition in (
             "assertion.terraform_organization_name == 'acme' && "
             "assertion.terraform_workspace_id == 'ws-abc123'",
-            'assertion.sub.startsWith("organization:acme:project:Default Project:workspace:gcp:")',
-            'assertion.sub.startsWith("organization:acme:project:p:workspace:gcp:run_phase:apply")',
+            "assertion.sub.startsWith('organization:acme:project:Default Project:workspace:gcp:')",
+            "assertion.sub.startsWith('organization:acme:project:p:workspace:gcp:run_phase:apply')",
             SCOPED + " && assertion.terraform_run_phase == 'apply'",
         ):
             with self.subTest(condition=condition):
@@ -168,11 +180,20 @@ class GcpWifTrustTests(unittest.TestCase):
             "assertion.terraform_workspace_name == 'gcp'",
             SCOPED + " || true",
             "!(" + SCOPED + ")",
-            'assertion.sub.startsWith("organization:acme:project:p:workspace:gcp-other:")',
+            "assertion.sub.startsWith('organization:acme:project:p:workspace:gcp-other:')",
             # No delimiter: also a prefix of workspace "gcp-evil".
-            'assertion.sub.startsWith("organization:acme:project:p:workspace:gcp")',
+            "assertion.sub.startsWith('organization:acme:project:p:workspace:gcp')",
             # Every trusted-looking substring present, trust inverted or discarded:
-            'assertion.sub.startsWith("organization:acme:project:p:workspace:gcp:") == false',
+            "assertion.sub.startsWith('organization:acme:project:p:workspace:gcp:') == false",
+            # Mixed quotes re-pair after a rewrite and hide `|| true` inside a "literal".
+            SCOPED + " && assertion.terraform_project_name == 'x\" && "
+            "assertion.terraform_project_name == ' || true || "
+            "assertion.terraform_project_name == \" && assertion.terraform_project_name == 'z\"",
+            # Any double quote at all, even in an otherwise valid form.
+            'assertion.sub.startsWith("organization:acme:project:p:workspace:gcp:")',
+            # A // comment runs to a newline the check has collapsed.
+            SCOPED + " && assertion.terraform_project_name == 'x' // '\n|| true",
+            SCOPED + " && assertion.terraform_project_name == 'a\\' || true'",
             SCOPED + " ? true : true",
             "(" + SCOPED + ")",
         ):
@@ -229,6 +250,47 @@ class GcpWifTrustTests(unittest.TestCase):
         self.assert_exit(self.run_check(siblings=[sibling]), 1)
         self.assert_exit(self.run_check(siblings=[{**sibling, "disabled": True}]), 0)
         self.assert_exit(self.run_check(siblings=[{**sibling, "state": "DELETED"}]), 0)
+
+    def test_token_creator_and_project_grants_are_judged_too(self) -> None:
+        foreign = "principalSet://iam.googleapis.com/projects/9/locations/global/workloadIdentityPools/x/*"
+        token_creator = "roles/iam.serviceAccountTokenCreator"
+        self.assert_exit(self.run_check(
+            extra_bindings=[{"role": token_creator, "members": [foreign]}]), 1)
+        self.assert_exit(self.run_check(
+            project_bindings=[{"role": token_creator, "members": [foreign]}]), 1)
+        # Humans holding Token Creator are not what this check is about.
+        self.assert_exit(self.run_check(
+            project_bindings=[{"role": token_creator, "members": ["user:admin@example.com"]}]), 0)
+        # A federated principal on an unrelated project role is direct resource access.
+        self.assert_exit(self.run_check(
+            project_bindings=[{"role": "roles/storage.admin", "members": [foreign]}]), 0)
+
+    def test_plan_phase_token_creator_breaks_the_apply_fence(self) -> None:
+        plan_sa = "plan@proj.iam.gserviceaccount.com"
+        apply_sa = "apply@proj.iam.gserviceaccount.com"
+        variables = [
+            *DEFAULT_VARS,
+            env_var("TFC_GCP_PLAN_SERVICE_ACCOUNT_EMAIL", plan_sa),
+            env_var("TFC_GCP_APPLY_SERVICE_ACCOUNT_EMAIL", apply_sa),
+        ]
+        phase = f"principalSet://iam.googleapis.com/{POOL}/attribute.terraform_run_phase"
+        fenced = {plan_sa: [f"{phase}/plan"], apply_sa: [f"{phase}/apply"]}
+        token_creator = "roles/iam.serviceAccountTokenCreator"
+        self.assert_exit(self.run_check(
+            variables=variables, policies=fenced,
+            extra_bindings=[{"role": token_creator, "members": [f"{phase}/plan"]}]), 1)
+        self.assert_exit(self.run_check(
+            variables=variables, policies=fenced,
+            project_bindings=[{"role": token_creator, "members": [f"{phase}/plan"]}]), 1)
+
+    def test_variable_sets_and_default_accounts_fail(self) -> None:
+        self.assert_exit(self.run_check(varsets=1), 1)
+        variables = [
+            *DEFAULT_VARS[:2],
+            env_var("TFC_GCP_RUN_SERVICE_ACCOUNT_EMAIL", "123-compute@developer.gserviceaccount.com"),
+            DEFAULT_VARS[3],
+        ]
+        self.assert_exit(self.run_check(variables=variables), 1)
 
     def test_conflicting_or_hidden_variables_fail(self) -> None:
         self.assert_exit(
