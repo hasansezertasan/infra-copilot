@@ -165,8 +165,10 @@ while IFS= read -r term; do
     elif printf '%s' "$term" | grep -Eqx "assertion\.terraform_workspace_name *== *'$ws_re'" \
         || printf '%s' "$term" | grep -Eqx "assertion\.terraform_workspace_id *== *'$ws_id'"; then
         ws_bound=true
+    # The prefix must end at a delimiter: `...:workspace:gcp` is also a prefix of
+    # `...:workspace:gcp-evil:run_phase:apply`, so the trailing `:` is required.
     elif printf '%s' "$term" \
-        | grep -Eqx "assertion\.sub\.startsWith\( *'organization:$org_re:project:[^:']+:workspace:$ws_re(:[^']*)?' *\)"; then
+        | grep -Eqx "assertion\.sub\.startsWith\( *'organization:$org_re:project:[^:']+:workspace:$ws_re:[^']*' *\)"; then
         org_bound=true
         ws_bound=true
     elif printf '%s' "$term" \

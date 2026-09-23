@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:337a0b8e268cfb6f9ada6d7fa04cdab2bd240eb42fc19a8b72fbd70e636d1eb7
-Source-Hash: blake3:a5f395d9914010e3793433e4e88901c1928518fd4ee3c1561cd4599b1bb55833
+Content-Hash: blake3:c8d55880f23064caa5703d284a97bb29ffb8da796e322b0e50653f9a8e3e3d6e
+Source-Hash: blake3:dbf5e6ca31477bb16666c5bc013ab59d0f71112ab8882d06315e3976a883c93e
 Schema-Version: v1
 -->
 
@@ -26,9 +26,12 @@ The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml)
    `new-provider-decision` stays red until both rows are locked.
 2. Note the new leaf in `terraform/README.md`.
 3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
-   variable listed under [HCP workspace variables](#hcp-workspace-variables),
+   variable the chosen auth needs — for WIF, those listed under
+   [HCP workspace variables](#hcp-workspace-variables); for a key, only
+   `GOOGLE_CREDENTIALS` (`category: env`, `sensitive: true`) — plus
    `mise_tools: [gcloud]`, and an initially false fork speculative-plan attestation with
-   empty workspace-ID and credential-verification fields.
+   empty workspace-ID and credential-verification fields. Never mix the two inventories:
+   the WIF trust check runs exactly when the inventory declares `TFC_GCP_PROVIDER_AUTH`.
 4. Then, and only then, follow the parameterized Phase 6 steps.
 
 ## Auth: Workload Identity Federation (keyless)
@@ -183,8 +186,9 @@ strict, because a substring search would also accept `startsWith(...) == false`)
 - `assertion.terraform_organization_name == '<hcp-org>'`
 - `assertion.terraform_workspace_name == '<workspace>'` or
   `assertion.terraform_workspace_id == '<ws-id>'`
-- `assertion.sub.startsWith('organization:<hcp-org>:project:<project>:workspace:<workspace>')`
-  — binds both at once
+- `assertion.sub.startsWith('organization:<hcp-org>:project:<project>:workspace:<workspace>:')`
+  — binds both at once. The trailing `:` is required: without it, workspace `gcp` is
+  also a prefix of workspace `gcp-evil`. HashiCorp's published example omits it.
 - `assertion.terraform_run_phase`, `assertion.terraform_project_name`, or
   `assertion.aud` `== '<literal>'` — optional further narrowing
 
@@ -201,8 +205,9 @@ An empty condition is a failed check, not a style note.
 
 ### HCP workspace variables
 
-Declare these in the provider entry's `credential_variables`, all `category: env`,
-`sensitive: false` — none of them is a secret, which is the point of WIF:
+For WIF, declare these in the provider entry's `credential_variables`, all
+`category: env`, `sensitive: false` — none of them is a secret, which is the point of
+WIF:
 
 | Key | Value |
 |---|---|
@@ -216,7 +221,11 @@ Declare these in the provider entry's `credential_variables`, all `category: env
 `TFC_GCP_PLAN_SERVICE_ACCOUNT_EMAIL` / `TFC_GCP_APPLY_SERVICE_ACCOUNT_EMAIL` if you split
 plan and apply identities.
 
-> **Never set `GOOGLE_CREDENTIALS` or `GOOGLE_APPLICATION_CREDENTIALS`** in the workspace
+A key-based adoption declares only `GOOGLE_CREDENTIALS` (`category: env`,
+`sensitive: true`, the key JSON pasted by the human) and none of the `TFC_GCP_*`
+variables, so `new-provider-gcp-wif-trust` is skipped.
+
+> **With WIF, never set `GOOGLE_CREDENTIALS` or `GOOGLE_APPLICATION_CREDENTIALS`** in the workspace
 > (or an attached variable set). HashiCorp's docs are explicit that both conflict with
 > dynamic credentials. It is the first thing people reach for when auth fails, and it
 > makes the failure worse, not better. The `new-provider-credentials` inventory check

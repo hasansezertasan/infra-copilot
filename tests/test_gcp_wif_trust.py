@@ -143,7 +143,8 @@ class GcpWifTrustTests(unittest.TestCase):
         for condition in (
             "assertion.terraform_organization_name == 'acme' && "
             "assertion.terraform_workspace_id == 'ws-abc123'",
-            'assertion.sub.startsWith("organization:acme:project:Default Project:workspace:gcp")',
+            'assertion.sub.startsWith("organization:acme:project:Default Project:workspace:gcp:")',
+            'assertion.sub.startsWith("organization:acme:project:p:workspace:gcp:run_phase:apply")',
             SCOPED + " && assertion.terraform_run_phase == 'apply'",
         ):
             with self.subTest(condition=condition):
@@ -167,9 +168,11 @@ class GcpWifTrustTests(unittest.TestCase):
             "assertion.terraform_workspace_name == 'gcp'",
             SCOPED + " || true",
             "!(" + SCOPED + ")",
-            'assertion.sub.startsWith("organization:acme:project:p:workspace:gcp-other")',
+            'assertion.sub.startsWith("organization:acme:project:p:workspace:gcp-other:")',
+            # No delimiter: also a prefix of workspace "gcp-evil".
+            'assertion.sub.startsWith("organization:acme:project:p:workspace:gcp")',
             # Every trusted-looking substring present, trust inverted or discarded:
-            'assertion.sub.startsWith("organization:acme:project:p:workspace:gcp") == false',
+            'assertion.sub.startsWith("organization:acme:project:p:workspace:gcp:") == false',
             SCOPED + " ? true : true",
             "(" + SCOPED + ")",
         ):
