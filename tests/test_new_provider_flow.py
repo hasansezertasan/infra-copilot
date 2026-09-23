@@ -420,6 +420,15 @@ class NewProviderFlowTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+            lowercase_key_wif = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"google_credentials","category":"terraform","sensitive":true}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
             # Free text reduced to a keyword is not a decision.
             free_text = {}
             for choice, inventory in (
@@ -471,6 +480,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertEqual(azure_wif.returncode, 0, azure_wif.stderr)
         self.assertNotEqual(two_auth_rows.returncode, 0, "two locked authentication rows")
         self.assertNotEqual(gcloud_keyfile_wif.returncode, 0, "WIF decision, GCLOUD_ inventory")
+        self.assertNotEqual(lowercase_key_wif.returncode, 0, "WIF decision, google_credentials")
         for choice, credentials in free_text.items():
             with self.subTest(choice=choice):
                 self.assertNotEqual(credentials.returncode, 0, "free-text GCP auth choice")
@@ -1240,7 +1250,8 @@ terraform {
         condition = " ".join(line.strip() for line in when.group("body").splitlines())
         wif = '[{"key":"TFC_GCP_PROVIDER_AUTH","category":"env","sensitive":false}]'
         key = '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'
-        # (provider name, inventory, backend, runs?)
+        # (provider name, inventory, backend, runs?) — no decisions.md in cwd here, so
+        # only the inventory can trigger the step in these cases.
         for name, credentials, backend, runs in (
             ("gcp", wif, "hcp", True),
             ("gcp-prod", wif, "hcp", True),      # keyed on the inventory, not the name
@@ -1258,6 +1269,28 @@ terraform {
                     capture_output=True, text=True,
                 )
                 self.assertEqual(result.returncode == 0, runs, result.stderr)
+        # A locked WIF decision runs the check even over a key-shaped inventory, so a
+        # terraform-category google_credentials cannot hide a static key behind it.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".infra-copilot").mkdir()
+            (root / ".infra-copilot/decisions.md").write_text(
+                "| Decision | Choice | Status |\n"
+                "| GCP authentication | Workload Identity Federation | locked |\n",
+                encoding="utf-8",
+            )
+            for name, runs in (("gcp", True), ("aws", False)):
+                with self.subTest(decision_for=name):
+                    result = subprocess.run(
+                        ["/bin/sh", "-c", condition],
+                        cwd=root,
+                        env={**os.environ, "NEW_PROVIDER": name, "BACKEND": "hcp",
+                             "NEW_PROVIDER_CREDENTIALS":
+                                 '[{"key":"google_credentials","category":"terraform",'
+                                 '"sensitive":true}]'},
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode == 0, runs, result.stderr)
 
     def test_router_and_status_use_the_durable_inventory(self) -> None:
         for path in (CONFIG, STATUS_RUNBOOK):

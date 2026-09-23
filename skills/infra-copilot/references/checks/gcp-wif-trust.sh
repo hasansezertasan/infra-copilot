@@ -90,12 +90,13 @@ overrides=$(printf '%s' "$vars" | jq -r '
 # `access_token`, or `impersonate_service_account` set from a terraform-category
 # variable would make the run use an identity no env check sees. Only the documented
 # dynamic-credentials form of `credentials` (gcp.md, tagged configurations) passes. The
-# scan is textual for HCL, structural for JSON, and fails closed: an argument by these
-# names anywhere in the leaf or the shared modules must be one of the allowed forms.
+# scan is textual for HCL, structural for JSON, and fails closed: any line that starts
+# with one of these names (so `credentials /* note */ = ...` too) anywhere in the leaf or
+# the shared modules must be exactly one of the allowed forms.
 if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
     static=$(find "terraform/$NEW_PROVIDER" terraform/modules -name '*.tf' -type f 2>/dev/null \
         | while IFS= read -r file; do
-            grep -En '^[[:space:]]*(credentials|access_token|impersonate_service_account)[[:space:]]*=' "$file" \
+            grep -En '^[[:space:]]*(credentials|access_token|impersonate_service_account)([^A-Za-z0-9_-]|$)' "$file" \
                 | grep -Ev '=[[:space:]]*try\(var\.tfc_gcp_dynamic_credentials\.(default|aliases\["[A-Za-z0-9_-]+"\])\.credentials,[[:space:]]*null\)[[:space:]]*(#.*)?$' \
                 | sed "s|^|$file:|"
         done)
@@ -297,6 +298,13 @@ verify_account() {
         || cannot_verify "gcloud could not read the IAM policy of $1: $(head -1 "$err")"
     # workloadIdentityUser is the documented grant, so every member of it — user:, group:
     # and serviceAccount: included — must be this pool's.
+    # A condition on that binding (expired, or false for these tokens) can keep the
+    # expected member from ever impersonating the account — and a split apply account
+    # is not exercised by the speculative plan. Unevaluated, so unverifiable.
+    printf '%s' "$policy" | jq -e '
+        any(.bindings[]?; .role == "roles/iam.workloadIdentityUser" and .condition != null)' \
+        >/dev/null \
+        && cannot_verify "$1's workloadIdentityUser binding carries an IAM condition this check cannot evaluate; confirm by hand that it admits the expected tokens, or remove it"
     wiu=$(printf '%s' "$policy" | jq -r '
         [.bindings[]? | select(.role == "roles/iam.workloadIdentityUser") | .members[]] | .[]')
     [ -n "$wiu" ] || fail "no workload identity principal may impersonate $1"

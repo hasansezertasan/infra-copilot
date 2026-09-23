@@ -396,6 +396,8 @@ class GcpWifTrustTests(unittest.TestCase):
         self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf":
             'provider "google" {\n  project = local.project_id\n}\n'}), 0)
         for line in ('  credentials = var.google_key\n',
+                     '  credentials /* legacy */ = var.google_key\n',
+                     '  credentials# note\n',
                      '  access_token = var.token\n',
                      '  impersonate_service_account = "admin@proj.iam.gserviceaccount.com"\n'):
             with self.subTest(line=line):
@@ -421,6 +423,13 @@ class GcpWifTrustTests(unittest.TestCase):
                     tf_files={"terraform/gcp/providers.tf.json": json.dumps(body)}), 1)
         self.assert_exit(self.run_check(
             tf_files={"terraform/gcp/providers.tf.json": "{not json"}), 2)
+
+    def test_conditional_impersonation_binding_cannot_be_verified(self) -> None:
+        self.assert_exit(self.run_check(extra_bindings=[{
+            "role": "roles/iam.workloadIdentityUser",
+            "members": [f"principalSet://iam.googleapis.com/{POOL}/*"],
+            "condition": {"expression": "request.time < timestamp('2020-01-01T00:00:00Z')"},
+        }]), 2)
 
     def test_tagged_configurations_cannot_be_verified(self) -> None:
         for key in ("TFC_GCP_PROVIDER_AUTH_ALIAS", "TFC_GCP_WORKLOAD_PROVIDER_NAME_ALIAS",

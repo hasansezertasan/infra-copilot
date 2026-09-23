@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9e2e02338ebc9efb2335c50ccf8209db08148d5398bc7aacebd28e207e58025f
-Source-Hash: blake3:4580dd376af27c2ec0d57da4fe012ce03a71938ce60d7035147a8160f999eab8
+Content-Hash: blake3:8355b20f93f2af7798df425c59bbd99cad95398927639b31d123f48971ed5e6d
+Source-Hash: blake3:cdbfbcab3abf27481c90a903f047b2cbe90075e931d6d05570fa51453bd8918f
 Schema-Version: v1
 -->
 
@@ -207,9 +207,12 @@ read what it needs, so a missing login is never mistaken for a broken trust, and
 the workspace declares tagged configurations (`TFC_GCP_*_<TAG>`, `TFC_DEFAULT_GCP_*`):
 it verifies the default configuration only, so each tag's pool, condition, and accounts
 are yours to audit. **Not covered:** grants inherited from folders or the
-organization; audit those by hand if your hierarchy uses them. The step runs unless the credential inventory
-is a list without `TFC_GCP_PROVIDER_AUTH` — a key-based adoption, or another provider —
-so an unreadable inventory runs the check rather than skipping it.
+organization; audit those by hand if your hierarchy uses them. The step runs when the credential inventory
+declares `TFC_GCP_PROVIDER_AUTH`, when it cannot be read, or when the locked
+authentication row says `Workload Identity Federation` — whatever the inventory holds, so
+a static key cannot hide behind a WIF decision. A conditional `workloadIdentityUser`
+binding on a service account also exits 2: an expired or false condition would lock
+out the expected tokens, and a split apply account is not exercised by the plan.
 
 The condition is matched against an allowlist, not searched. First, it may contain only
 `A-Z a-z 0-9 _ . : = & ' ( ) -` and spaces: that rules out double quotes (CEL allows
