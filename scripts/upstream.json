@@ -36,6 +36,9 @@
     "list. Paths are compared by shape \u2014 `$ORG`, `<id>` and `{organization_name}` all",
     "become `{}` \u2014 so there is no second copy of the path list to maintain: the scan",
     "reads the guidance itself. Only `api/v2/...` and `$hcp_api/...` are scanned.",
+    "Skills and commands are scanned at their `.ai-rulez/` sources, not the generated",
+    "`skills/` and `commands/` trees, so a finding names the file a maintainer edits;",
+    "`make check` already proves the two agree.",
     "",
     "The spec is not exhaustive, so a missing path is drift for a human, never proof of",
     "removal. `unlisted` records the documented endpoints the spec omits, each with the",
@@ -130,8 +133,8 @@
       "path": "v2/openapi/spec.json"
     },
     "scan": [
-      "skills",
-      "commands",
+      ".ai-rulez/skills",
+      ".ai-rulez/commands",
       "agents",
       "hooks",
       "docs",

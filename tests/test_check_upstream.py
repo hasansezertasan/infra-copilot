@@ -238,6 +238,15 @@ class ApiPathTests(unittest.TestCase):
             with self.subTest(shape=shape):
                 self.assertIn(shape, cited)
 
+    def test_findings_cite_the_editable_source_not_the_generated_copy(self) -> None:
+        """Generated trees are overwritten by `make generate` (AGENTS.md rule 1)."""
+        cited = cited_api_paths(list(load_api_paths()["scan"]))
+        locations = [location for places in cited.values() for location in places]
+        self.assertTrue(any(location.startswith(".ai-rulez/") for location in locations))
+        for location in locations:
+            with self.subTest(location=location):
+                self.assertFalse(location.startswith(("skills/", "commands/")))
+
     def test_every_parameter_spelling_normalises_to_the_same_shape(self) -> None:
         """Shell, placeholder and OpenAPI templates must compare equal mechanically."""
         for path in (
