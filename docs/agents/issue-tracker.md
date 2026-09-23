@@ -12,8 +12,14 @@ tracker by accident.
   gh issue create --repo hasansezertasan/infra-copilot --title "..." --body "..."
   ```
 
-- **Read an issue**: `gh issue view <number> --repo hasansezertasan/infra-copilot --json title,body,labels,comments`,
-  adding `--jq` when filtering comments.
+- **Read an issue**:
+
+  ```sh
+  gh issue view <number> --repo hasansezertasan/infra-copilot --json title,body,labels,comments
+  ```
+
+  Add `--jq` when filtering comments.
+
 - **List issues**, with appropriate `--label` and `--state` filters:
 
   ```sh
@@ -73,12 +79,16 @@ Create a GitHub issue.
 
 ## When a skill says "fetch the relevant ticket"
 
-Run `gh issue view <number> --repo hasansezertasan/infra-copilot \
---json title,body,labels,comments`.
+```sh
+gh issue view <number> --repo hasansezertasan/infra-copilot --json title,body,labels,comments
+```
 
 ## Wayfinding operations
 
-Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.
+Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets. The
+`wayfinder:map`, `wayfinder:research`, `wayfinder:prototype`, `wayfinder:grilling`, and
+`wayfinder:task` labels exist on the repo; `gh issue create --label` fails on a label that
+does not.
 
 - **Map**: a single issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far /
   Fog body. Create it non-interactively with an explicit title and body:
@@ -97,113 +107,55 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   representation. Add an edge with:
 
   ```sh
-  gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by \
+  gh api --method POST repos/hasansezertasan/infra-copilot/issues/<child>/dependencies/blocked_by \
     -F issue_id=<blocker-db-id>
   ```
 
-  where `<blocker-db-id>` is the blocker's numeric **database id**
-  (`gh api repos/<owner>/<repo>/issues/<n> --jq .id`, _not_ the `#number` or `node_id`).
-  GitHub reports `issue_dependencies_summary.blocked_by` (open blockers only, the live
-  gate). Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line
-  at the top of the child body. A ticket is unblocked when every blocker is closed.
+  `<blocker-db-id>` is the blocker's numeric **database id**, not its `#number` and not its
+  `node_id`. Read it with:
+
+  ```sh
+  gh api repos/hasansezertasan/infra-copilot/issues/<n> --jq .id
+  ```
+
+  Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line at the
+  top of the child body. A ticket is unblocked when every blocker is closed.
 
 - **Frontier query**: retrieve the map's `subIssues` first (or parse its task list where
-  sub-issues are unavailable), preserving map order. Both `subIssues` and `blockedBy` are
-  connection objects: use their `nodes`, compare the node count with `totalCount`, and paginate
-  with GraphQL or fail closed if the complete connection cannot be retrieved. Inspect only those
-  open child numbers with `gh issue view <child> --repo hasansezertasan/infra-copilot \
-  --json number,state,body,assignees,blockedBy`; drop a closed child; any `blockedBy` item whose
-  state is `OPEN`; or an open issue referenced by its fallback `Blocked by:` body line. An
-  unassigned child is eligible. A child assigned to another user is not eligible and requires
-  explicit human coordination. A child assigned solely to the current GitHub user is eligible only
-  when an explicit stale-claim check permits same-user resume; see Claim. First remaining child in
-  map order wins. Do not use an unscoped `gh issue list`: it can include unrelated issues and
+  sub-issues are unavailable), preserving map order, then inspect only those children:
+
+  ```sh
+  gh issue view <child> --repo hasansezertasan/infra-copilot --json number,state,assignees,blockedBy
+  ```
+
+  `subIssues` and `blockedBy` are connection objects: read their `nodes`, compare the node
+  count against `totalCount`, and paginate with GraphQL or fail closed if the connection
+  cannot be retrieved in full. Drop a child that is closed, that has a `blockedBy` node
+  whose `state` is `OPEN` (or an open issue named in a fallback `Blocked by:` line), or
+  that has any assignee: the assignee _is_ the claim. First remaining child in map order
+  wins. Do not use an unscoped `gh issue list`: it can include unrelated issues and
   defaults to 30 results.
-- **Claim**. First read `assignees`. An empty assignment starts a fresh claim; a sole assignment
-  to the current GitHub user proceeds through the stale-claim check below and may be resumed
-  only if that check permits it. All other assignments are ineligible. For a fresh claim, make
-  the session's first write and post the initial session marker:
+
+- **Claim**: assign the ticket before any other work, then reread it:
 
   ```sh
   gh issue edit <n> --repo hasansezertasan/infra-copilot --add-assignee @me
-  gh issue comment <n> --repo hasansezertasan/infra-copilot \
-    --body "Wayfinder claim: <session-id> at <ISO-8601>"
+  gh issue view <n> --repo hasansezertasan/infra-copilot --json state,assignees,blockedBy
   ```
 
-  Immediately reread the ticket's state, blockers, and `assignees`, and re-fetch the map's
-  `subIssues` (or task list) to revalidate map membership. If it is no longer eligible
-  (e.g. removed from the map, closed, or blocked), or if any other assignee appears after the write,
-  remove only the session's assignment and stop; do not infer that the other assignee follows this
-  protocol.
+  Assignment is not atomic, so the reread is the whole check. If a second assignee appears,
+  or the ticket is now closed or blocked, remove only your own assignment and stop. A
+  ticket already assigned to someone else is claimed, however old the claim looks: a human
+  unassigns an abandoned ticket to return it to the frontier, and agents never reclaim one.
 
-   To arbitrate simultaneous claims from the same GitHub user, wait 5 seconds for convergence and
-   reread comments. Arbitrate only claim markers posted during this acquisition window (i.e. ignore
-   markers older than the moment the child became unassigned). If a competing claim comment in this
-   window has an earlier `createdAt` (broken by lexicographically lower `session-id`), this session
-   has lost: stop without removing the shared assignment. Only the winning session proceeds. The
-   winner must then rerun the owner-aware frontier gate before starting work.
-
-   While working, refresh the claim by appending a new
-   `Wayfinder heartbeat: <session-id> at <ISO-8601>` comment. For work lasting longer than 60
-   minutes, implementations must post heartbeats at a cadence strictly shorter than the lease
-   interval (at least every 30 minutes). Before posting a heartbeat, rerun the owner-aware frontier
-   gate and re-read the comments; the current session's own valid marker and sole assignment must
-   still establish ownership. If another session's claim or takeover is now current, or any gate
-   changes, stop immediately. Before resolving, use the separate ownership renewal and convergence
-   procedure below. Never edit prior claim, heartbeat, or takeover comments.
-
-  **Stale-claim check and same-user takeover**:
-  - The repository lease interval is **60 minutes**.
-  - Staleness checks MUST compare the GitHub comment `createdAt` timestamp (not the caller
-    timestamp in the body) against the lease interval.
-  - Before applying that scope, retrieve the complete assignment history and identify the latest
-    assignment event. Use the paginated timeline API, fail closed if it cannot be read completely,
-    and inspect only `assigned` events:
-
-     ```sh
-     gh api --paginate repos/hasansezertasan/infra-copilot/issues/<n>/timeline \
-       -H 'Accept: application/vnd.github+json' \
-       --jq '.[] | select(.event == "assigned") | {created_at,actor,assignee}'
-     ```
-
-     Only comments authored by the assigned GitHub user (`author.login == assigned_user`) and posted
-     after the latest assignment event count as valid claims, heartbeats, or takeovers.
-  - A session may resume a sole assignment to its own GitHub user only if the assigned user's
-    latest valid claim, heartbeat, or takeover comment in the current assignment window has a
-    `createdAt` older than 60 minutes. If the current assignment window has no valid marker (e.g.
-    an earlier session crashed before posting its claim marker), evaluate staleness against the
-    issue's `updatedAt` timestamp; if `updatedAt` is older than 60 minutes, the orphaned assignment
-    is stale and resumable. Assignments to any other user remain ineligible and require explicit
-    human coordination.
-  - **Exclusive takeover**: When resuming, post an append-only takeover comment:
-    `Wayfinder takeover: <new-session-id> at <ISO-8601>`.
-    Wait 5 seconds for convergence and reread all comments posted after the expired lease marker.
-    Arbitrate only takeover markers belonging to this current acquisition window. Treat only the
-    deterministic winner of that arbitration as a valid takeover for subsequent fencing; losing
-    takeover markers remain historical evidence and must not fence the winner. If renewed
-    activity from the original lease holder appears (a newer claim or heartbeat), or if a competing
-    takeover comment exists with an earlier `createdAt` (broken by lexicographically lower
-    `session-id`), this session has lost: stop without removing the shared assignment. Do not yield
-    to newer competing takeover comments in the window; arbitrate competing takeovers solely by the
-    earlier-timestamp tie-break. Only the winning session proceeds. The winner must then rerun an
-    owner-aware frontier gate: reread state, blockers, assignees, and map membership; accept the
-    current session's own winning takeover marker and sole assignment as ownership; and stop
-    without starting work if the ticket is closed or blocked, another assignee appears, or map
-    membership changes. Without proof that the prior lease is stale, leave the ticket for explicit
-    human coordination.
-
-- **Resolve**. Before resolving, reread the owner-aware frontier gate and comments. The current
-  session's own valid marker and sole assignment satisfy the ownership check; if ownership is not
-  current, stop. Unconditionally renew ownership by appending a heartbeat, wait 5 seconds, reread
-  comments, and rerun the owner-aware frontier gate; stop if another takeover wins or any gate
-  changes. Only then comment on the child, add its context pointer (gist + link) as an append-only
-  comment on the map before closing the child. The map's Decisions-so-far is read together with
-  these `Context pointer:` comments. This avoids concurrent full-body edits that can overwrite a
-  pointer. Verify the new map comment exists before closing:
+- **Resolve**: comment the answer, close the ticket, then append its context pointer
+  (gist plus link) to the map's **Decisions so far**:
 
   ```sh
   gh issue comment <n> --repo hasansezertasan/infra-copilot --body "<answer>"
-  gh issue comment <map> --repo hasansezertasan/infra-copilot \
-    --body "Context pointer: <gist + link>"
   gh issue close <n> --repo hasansezertasan/infra-copilot
   ```
+
+  The pointer is a body edit rather than a comment, because `/wayfinder` loads the map body
+  alone as its low-resolution view. Reread the body immediately before writing it, and redo
+  the edit if it changed underneath you.
