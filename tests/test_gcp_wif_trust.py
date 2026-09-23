@@ -85,6 +85,7 @@ class GcpWifTrustTests(unittest.TestCase):
         role_describe_error: bool = False,
         pool_bindings: list[dict] | None = None,
         tf_files: dict[str, str] | None = None,
+        project_policies: dict[str, list[dict]] | None = None,
         describe_error: str = "",
         policy_error: bool = False,
     ) -> subprocess.CompletedProcess[str]:
@@ -117,6 +118,12 @@ class GcpWifTrustTests(unittest.TestCase):
             (root / "providers.json").write_text(json.dumps(providers))
             (root / "policy.json").write_text(json.dumps(policy_for(members)))
             (root / "project.json").write_text(json.dumps({"bindings": project_bindings or []}))
+            project_cases = ""
+            for index, (project, bindings) in enumerate((project_policies or {}).items()):
+                (root / f"project{index}.json").write_text(json.dumps({"bindings": bindings}))
+                project_cases += (
+                    f"  *projects\\ get-iam-policy\\ {project}\\ *) cat '{root}/project{index}.json' ;;\n"
+                )
             (root / "pool.json").write_text(json.dumps({"bindings": pool_bindings or []}))
             role_cases = ""
             for index, (role, permissions) in enumerate(ROLE_PERMISSIONS.items()):
@@ -158,7 +165,8 @@ class GcpWifTrustTests(unittest.TestCase):
                 f"  *providers\\ describe*) {describe} ;;\n"
                 f"  *providers\\ list*) cat '{root}/providers.json' ;;\n"
                 f"  *workload-identity-pools\\ get-iam-policy*) cat '{root}/pool.json' ;;\n"
-                f"  *projects\\ get-iam-policy*) cat '{root}/project.json' ;;\n"
+                + project_cases
+                + f"  *projects\\ get-iam-policy*) cat '{root}/project.json' ;;\n"
                 + role_cases
                 + ("" if policy_error else policy_cases)
                 + f"  *get-iam-policy*) {policy_cmd} ;;\n"
@@ -365,6 +373,28 @@ class GcpWifTrustTests(unittest.TestCase):
             variables=variables, policies=fenced,
             project_bindings=[{"role": token_creator, "members": [f"{phase}/plan"]}]), 1)
 
+    def test_split_projects_fence_only_what_reaches_the_apply_account(self) -> None:
+        plan_sa = "plan@planproj.iam.gserviceaccount.com"
+        apply_sa = "apply@applyproj.iam.gserviceaccount.com"
+        variables = [
+            *DEFAULT_VARS[:2],
+            env_var("TFC_GCP_PLAN_SERVICE_ACCOUNT_EMAIL", plan_sa),
+            env_var("TFC_GCP_APPLY_SERVICE_ACCOUNT_EMAIL", apply_sa),
+            DEFAULT_VARS[3],
+        ]
+        phase = f"principalSet://iam.googleapis.com/{POOL}/attribute.terraform_run_phase"
+        fenced = {plan_sa: [f"{phase}/plan"], apply_sa: [f"{phase}/apply"]}
+        token_creator = [{"role": "roles/iam.serviceAccountTokenCreator",
+                          "members": [f"{phase}/plan"]}]
+        # On the plan account's own project it cannot reach the apply account.
+        self.assert_exit(self.run_check(variables=variables, policies=fenced,
+                                        project_policies={"planproj": token_creator}), 0)
+        # On the apply account's project, or the pool's, it can.
+        self.assert_exit(self.run_check(variables=variables, policies=fenced,
+                                        project_policies={"applyproj": token_creator}), 1)
+        self.assert_exit(self.run_check(variables=variables, policies=fenced,
+                                        project_policies={"123": token_creator}), 1)
+
     def test_variable_sets_and_default_accounts_fail(self) -> None:
         self.assert_exit(self.run_check(varsets=1), 1)
         variables = [
@@ -398,6 +428,8 @@ class GcpWifTrustTests(unittest.TestCase):
         for line in ('  credentials = var.google_key\n',
                      '  credentials /* legacy */ = var.google_key\n',
                      '  credentials# note\n',
+                     '  /* legacy */ credentials = var.google_key\n',
+                     '  and here */ credentials = var.google_key\n',
                      # The allowed form inside a comment must not excuse the real value.
                      '  credentials = var.google_key # = try(var.tfc_gcp_dynamic_credentials'
                      '.default.credentials, null)\n',

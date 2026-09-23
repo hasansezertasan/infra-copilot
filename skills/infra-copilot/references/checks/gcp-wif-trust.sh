@@ -98,7 +98,11 @@ overrides=$(printf '%s' "$vars" | jq -r '
 if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
     static=$(find "terraform/$NEW_PROVIDER" terraform/modules -name '*.tf' -type f 2>/dev/null \
         | while IFS= read -r file; do
-            grep -En '^[[:space:]]*(credentials|access_token|impersonate_service_account)([^A-Za-z0-9_-]|$)' "$file" \
+            # Block comments are whitespace to HCL, so `/* x */ credentials = ...` and a
+            # line resuming after a multi-line comment's `*/` are stripped first; the
+            # stripping is per line, so grep -n still reports real line numbers.
+            sed -E 's#/\*([^*]|\*+[^*/])*\*+/# #g; s#^.*\*/# #' "$file" \
+                | grep -En '^[[:space:]]*(credentials|access_token|impersonate_service_account)([^A-Za-z0-9_-]|$)' \
                 | grep -Ev '^[0-9]+:[[:space:]]*credentials[[:space:]]*=[[:space:]]*try\(var\.tfc_gcp_dynamic_credentials\.(default|aliases\["[A-Za-z0-9_-]+"\])\.credentials,[[:space:]]*null\)[[:space:]]*(#.*)?$' \
                 | sed "s|^|$file:|"
         done)
@@ -325,11 +329,11 @@ if [ "$split" = true ]; then
     verify_account "$plan_email" "$pool_member" "$pool_path"
     verify_account "$apply_email" "$apply_only" \
         "$pool_path/attribute.terraform_run_phase/apply (a plan could otherwise mint apply credentials)"
-    project_rule=$apply_only
 else
     verify_account "$apply_email" "$pool_member" "$pool_path"
-    project_rule=$pool_member
 fi
+# The rule for anything that can reach the apply account or mutate the verified pool.
+if [ "$split" = true ]; then strict=$apply_only; else strict=$pool_member; fi
 
 # The pool is a resource with its own IAM policy, invisible in the project policy. A
 # federated principal outside the rule holding any role on it could administer the pool
@@ -339,7 +343,7 @@ pool_policy=$(gcloud iam workload-identity-pools get-iam-policy "$pool_id" \
     || cannot_verify "gcloud could not read the IAM policy of pool $pool_id: $(head -1 "$err")"
 federated=$(printf '%s' "$pool_policy" | jq -r '
     [.bindings[]? | .members[] | select(test("^principal(Set)?://"))] | unique | .[]')
-foreign=$(printf '%s\n' "$federated" | sed '/^$/d' | grep -Ev "$project_rule" || true)
+foreign=$(printf '%s\n' "$federated" | sed '/^$/d' | grep -Ev "$strict" || true)
 [ -z "$foreign" ] || fail "pool $pool_id grants a role on itself to federated principals outside the trust: $foreign"
 
 # Project-level grants are inherited by every service account in the project, so a
@@ -348,16 +352,25 @@ foreign=$(printf '%s\n' "$federated" | sed '/^$/d' | grep -Ev "$project_rule" ||
 # too and are NOT read here; gcp.md says so rather than letting exit 0 imply it.
 # The run accounts' projects, and the pool's own project (by number), which may differ:
 # a pool admin there could rewrite the condition this check verified.
-projects=$number
-for email in $(printf '%s\n%s\n' "$plan_email" "$apply_email" | sort -u); do
-    case "$email" in
-        *@*.iam.gserviceaccount.com) project=${email#*@}; project=${project%.iam.gserviceaccount.com} ;;
-        *) fail "$email is not a user-managed service account (<name>@<project>.iam.gserviceaccount.com); create a dedicated one per gcp.md" ;;
+# Each project is judged by the strictest thing it protects. With split accounts, the
+# apply-phase fence applies where a grant can reach the apply account or mutate the
+# verified pool; a project holding only the plan account needs just the pool rule, so a
+# plan-phase principal may hold roles there. The pool's project is named by number and
+# the accounts' by ID, so one project can appear twice; each pass is still correct for
+# what it protects, erring strict.
+project_of() {
+    case "$1" in
+        *@*.iam.gserviceaccount.com) p=${1#*@}; printf '%s\n' "${p%.iam.gserviceaccount.com}" ;;
+        *) fail "$1 is not a user-managed service account (<name>@<project>.iam.gserviceaccount.com); create a dedicated one per gcp.md" ;;
     esac
-    projects="$projects
-$project"
-done
-for project in $(printf '%s\n' "$projects" | sort -u); do
+}
+plan_project=$(project_of "$plan_email") || exit 1
+apply_project=$(project_of "$apply_email") || exit 1
+projects="$number $strict
+$apply_project $strict"
+[ "$plan_project" = "$apply_project" ] || projects="$projects
+$plan_project $pool_member"
+printf '%s\n' "$projects" | while read -r project project_rule; do
     project_policy=$(gcloud projects get-iam-policy "$project" --format=json 2>"$err") \
         || cannot_verify "gcloud could not read the IAM policy of project $project: $(head -1 "$err")"
     # Each (role, member) pair where the member is federated and outside the rule. Pool
@@ -386,5 +399,7 @@ for project in $(printf '%s\n' "$projects" | sort -u); do
     rc=$?
     [ "$rc" -eq 0 ] || exit "$rc"
 done
+rc=$?
+[ "$rc" -eq 0 ] || exit "$rc"
 
 exit 0

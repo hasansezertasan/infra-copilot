@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:8355b20f93f2af7798df425c59bbd99cad95398927639b31d123f48971ed5e6d
-Source-Hash: blake3:04a6dcca5c372312003d47f502eb7c30ba562b1fde1e72fa0cc2fdfb5dc2d073
+Content-Hash: blake3:a97d6cb901302396cb551878ad334f695d7f04b4145a8238f58d9a5e1d3d2f7b
+Source-Hash: blake3:fc4476b0f7e7992f281b80ba5f1446342b72b8f8cfec52d6c36782d8f43137b2
 Schema-Version: v1
 -->
 
@@ -194,8 +194,10 @@ It locates the provider and service accounts from the workspace's own non-sensit
   pool or its providers (which could loosen this very condition). Such a grant under an IAM
   condition exits 2: the check does not evaluate conditions, so confirm by hand that it
   excludes the run accounts and the pool;
-- when plan and apply use different accounts, the apply account (and those project
-  grants) admit only `attribute.terraform_run_phase/apply`, and the provider maps that
+- when plan and apply use different accounts, the apply account — and grants on the
+  apply account's project and the pool's project — admit only
+  `attribute.terraform_run_phase/apply` (a project holding only the plan account needs
+  just the pool rule), and the provider maps that
   attribute from `assertion.terraform_run_phase` — a constant would label every run an
   apply.
 
