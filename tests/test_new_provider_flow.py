@@ -1062,6 +1062,7 @@ terraform {
         self.assertIn("NEW_PROVIDER_MISE_TOOLS", gcloud)
         self.assertNotIn("test -d terraform/gcp", gcloud)
 
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
     def test_wif_trust_step_skips_key_based_adoption(self) -> None:
         step = self.steps["new-provider-gcp-wif-trust"]
         when = re.search(r"^    when: >-\n(?P<body>(?:      .*\n)+)", step, re.MULTILINE)

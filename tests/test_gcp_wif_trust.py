@@ -56,6 +56,9 @@ class GcpWifTrustTests(unittest.TestCase):
         issuer: str = "https://app.terraform.io",
         state: str = "ACTIVE",
         members: list[str] | None = None,
+        policies: dict[str, list[str]] | None = None,
+        mapping: dict[str, str] | None = None,
+        siblings: list[dict] | None = None,
         describe_error: str = "",
         policy_error: bool = False,
     ) -> subprocess.CompletedProcess[str]:
@@ -66,8 +69,15 @@ class GcpWifTrustTests(unittest.TestCase):
             "state": state,
             "oidc": {"issuerUri": issuer},
             "attributeCondition": condition,
+            "attributeMapping": {
+                "google.subject": "assertion.sub",
+                "attribute.terraform_run_phase": "assertion.terraform_run_phase",
+            } if mapping is None else mapping,
         }
-        policy = {"bindings": [{"role": "roles/iam.workloadIdentityUser", "members": members}]}
+        providers = [provider] + (siblings or [])
+
+        def policy_for(entries: list[str]) -> dict:
+            return {"bindings": [{"role": "roles/iam.workloadIdentityUser", "members": entries}]}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "workspace.json").write_text(json.dumps({"data": {"id": "ws-abc123"}}))
@@ -75,7 +85,12 @@ class GcpWifTrustTests(unittest.TestCase):
                 json.dumps({"data": variables, "meta": {"pagination": {"next-page": None}}})
             )
             (root / "provider.json").write_text(json.dumps(provider))
-            (root / "policy.json").write_text(json.dumps(policy))
+            (root / "providers.json").write_text(json.dumps(providers))
+            (root / "policy.json").write_text(json.dumps(policy_for(members)))
+            policy_cases = ""
+            for index, (email, entries) in enumerate((policies or {}).items()):
+                (root / f"policy{index}.json").write_text(json.dumps(policy_for(entries)))
+                policy_cases += f"  *get-iam-policy\\ {email}*) cat '{root}/policy{index}.json' ;;\n"
             (root / "curl").write_text(
                 "#!/bin/sh\n"
                 'for arg in "$@"; do case "$arg" in\n'
@@ -97,7 +112,9 @@ class GcpWifTrustTests(unittest.TestCase):
                 "#!/bin/sh\n"
                 'case "$*" in\n'
                 f"  *providers\\ describe*) {describe} ;;\n"
-                f"  *get-iam-policy*) {policy_cmd} ;;\n"
+                f"  *providers\\ list*) cat '{root}/providers.json' ;;\n"
+                + ("" if policy_error else policy_cases)
+                + f"  *get-iam-policy*) {policy_cmd} ;;\n"
                 "  *) exit 1 ;;\nesac\n"
             )
             for stub in ("curl", "gcloud"):
@@ -174,6 +191,41 @@ class GcpWifTrustTests(unittest.TestCase):
             with self.subTest(extra=extra):
                 self.assert_exit(self.run_check(
                     members=[f"principalSet://iam.googleapis.com/{POOL}/*", extra]), 1)
+
+    def test_split_accounts_fence_the_apply_account_by_run_phase(self) -> None:
+        plan_sa = "plan@proj.iam.gserviceaccount.com"
+        apply_sa = "apply@proj.iam.gserviceaccount.com"
+        variables = [
+            *DEFAULT_VARS,
+            env_var("TFC_GCP_PLAN_SERVICE_ACCOUNT_EMAIL", plan_sa),
+            env_var("TFC_GCP_APPLY_SERVICE_ACCOUNT_EMAIL", apply_sa),
+        ]
+        phase = f"principalSet://iam.googleapis.com/{POOL}/attribute.terraform_run_phase"
+        fenced = {plan_sa: [f"{phase}/plan"], apply_sa: [f"{phase}/apply"]}
+        self.assert_exit(self.run_check(variables=variables, policies=fenced), 0)
+        for apply_members in (
+            [f"principalSet://iam.googleapis.com/{POOL}/*"],   # pool-wide
+            [f"{phase}/plan"],                                  # wrong phase
+            [f"{phase}/apply", f"{phase}/plan"],
+        ):
+            with self.subTest(apply_members=apply_members):
+                self.assert_exit(self.run_check(
+                    variables=variables,
+                    policies={plan_sa: [f"{phase}/plan"], apply_sa: apply_members},
+                ), 1)
+        # A constant mapping would label every token "apply".
+        self.assert_exit(self.run_check(
+            variables=variables, policies=fenced,
+            mapping={"google.subject": "assertion.sub",
+                     "attribute.terraform_run_phase": "'apply'"},
+        ), 1)
+
+    def test_other_active_providers_in_the_pool_fail(self) -> None:
+        sibling = {"name": f"{POOL}/providers/github", "state": "ACTIVE",
+                   "attributeCondition": ""}
+        self.assert_exit(self.run_check(siblings=[sibling]), 1)
+        self.assert_exit(self.run_check(siblings=[{**sibling, "disabled": True}]), 0)
+        self.assert_exit(self.run_check(siblings=[{**sibling, "state": "DELETED"}]), 0)
 
     def test_conflicting_or_hidden_variables_fail(self) -> None:
         self.assert_exit(

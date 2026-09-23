@@ -16,8 +16,9 @@
 # second copy of its coordinates that could drift.
 #
 # Exit codes:
-#   0  the trust is scoped to $ORG and $NEW_PROVIDER_WORKSPACE, and only that pool may
-#      impersonate the run service accounts
+#   0  the trust is scoped to $ORG and $NEW_PROVIDER_WORKSPACE, it is the pool's only
+#      active provider, only that pool may impersonate the run service accounts, and a
+#      separate apply account admits apply-phase identities only
 #   1  trust BROKEN or incomplete — a real verdict about the configuration
 #   2  COULD NOT VERIFY — missing inputs, an HCP read failed, or gcloud could not read
 #      the pool (not logged in, no permission). Never evidence about the trust.
@@ -84,12 +85,21 @@ number=$(printf '%s' "$provider_name" | cut -d/ -f2)
 pool_id=$(printf '%s' "$provider_name" | cut -d/ -f6)
 provider_id=$(printf '%s' "$provider_name" | cut -d/ -f8)
 
-emails=$(for key in TFC_GCP_RUN_SERVICE_ACCOUNT_EMAIL TFC_GCP_PLAN_SERVICE_ACCOUNT_EMAIL \
-    TFC_GCP_APPLY_SERVICE_ACCOUNT_EMAIL; do var "$key"; done | sed '/^$/d' | sort -u)
-[ -n "$emails" ] || fail "no TFC_GCP_*_SERVICE_ACCOUNT_EMAIL is set on $NEW_PROVIDER_WORKSPACE"
-case "$emails" in *"<sensitive>"*)
+# Which account each phase actually uses, with HCP's own fallback: a phase-specific
+# email wins, otherwise the run email. Keeping the phase matters — when the two differ,
+# the apply account is the privileged one and a plan must not be able to reach it.
+run_email=$(var TFC_GCP_RUN_SERVICE_ACCOUNT_EMAIL)
+plan_email=$(var TFC_GCP_PLAN_SERVICE_ACCOUNT_EMAIL)
+apply_email=$(var TFC_GCP_APPLY_SERVICE_ACCOUNT_EMAIL)
+plan_email=${plan_email:-$run_email}
+apply_email=${apply_email:-$run_email}
+[ -n "$plan_email" ] && [ -n "$apply_email" ] \
+    || fail "no service-account email covers both phases; set TFC_GCP_RUN_SERVICE_ACCOUNT_EMAIL or both phase-specific emails on $NEW_PROVIDER_WORKSPACE"
+case "$plan_email$apply_email" in *"<sensitive>"*)
     fail "a service-account email variable is marked sensitive; unmark it so the trust can be verified" ;;
 esac
+split=false
+[ "$plan_email" = "$apply_email" ] || split=true
 
 err=$(mktemp) || cannot_verify "mktemp failed"
 trap 'rm -f "$err"' EXIT
@@ -106,6 +116,30 @@ issuer=$(printf '%s' "$provider" | jq -r '.oidc.issuerUri // ""')
     || fail "provider issuer is '$issuer', expected https://app.terraform.io"
 printf '%s' "$provider" | jq -e '.state == "ACTIVE" and (.disabled // false) == false' >/dev/null \
     || fail "provider $provider_name is not ACTIVE"
+
+# The pool-wide member (`/*`) admits identities from every provider in the pool, so
+# verifying one provider's condition proves nothing if a sibling has a weaker one. One
+# active provider per pool is the only arrangement this check can vouch for.
+siblings=$(gcloud iam workload-identity-pools providers list \
+    --project="$number" --location=global --workload-identity-pool="$pool_id" \
+    --format=json 2>"$err") \
+    || cannot_verify "gcloud could not list the providers of pool $pool_id: $(head -1 "$err")"
+others=$(printf '%s' "$siblings" | jq -r --arg self "$provider_name" '
+    .[]? | select(.state == "ACTIVE" and (.disabled // false) == false)
+    | .name | select(. != $self)') \
+    || cannot_verify "provider list for pool $pool_id was not JSON"
+[ -z "$others" ] \
+    || fail "pool $pool_id admits identities through other active providers whose conditions this check does not verify — give each its own pool, or disable them: $others"
+
+if [ "$split" = true ]; then
+    # With separate accounts, the apply account is fenced by the run-phase attribute. A
+    # mapping that is not the token's own claim (a constant, say) makes that fence
+    # meaningless, so it is verified rather than assumed.
+    printf '%s' "$provider" \
+        | jq -e '.attributeMapping["attribute.terraform_run_phase"] == "assertion.terraform_run_phase"' \
+          >/dev/null \
+        || fail "plan and apply use different service accounts, but the provider does not map attribute.terraform_run_phase to assertion.terraform_run_phase"
+fi
 
 condition=$(printf '%s' "$provider" | jq -r '.attributeCondition // ""' | tr -s '[:space:]' ' ' | tr '"' "'")
 [ -n "$condition" ] \
@@ -149,18 +183,28 @@ EOF_TERMS
     || fail "attribute condition binds the organization but not workspace $NEW_PROVIDER_WORKSPACE ($ws_id): $condition"
 
 pool_path="projects/$number/locations/global/workloadIdentityPools/$pool_id"
-for email in $emails; do
-    policy=$(gcloud iam service-accounts get-iam-policy "$email" --format=json 2>"$err") \
-        || cannot_verify "gcloud could not read the IAM policy of $email: $(head -1 "$err")"
+pool_member="^principal(Set)?://iam\.googleapis\.com/$pool_path/"
+apply_only="^principalSet://iam\.googleapis\.com/$pool_path/attribute\.terraform_run_phase/apply\$"
+
+# $1 = email, $2 = ERE every workloadIdentityUser member must match, $3 = what it means
+verify_account() {
+    policy=$(gcloud iam service-accounts get-iam-policy "$1" --format=json 2>"$err") \
+        || cannot_verify "gcloud could not read the IAM policy of $1: $(head -1 "$err")"
     # Every member of the role, not only pool principals: a user:, group:, or
     # serviceAccount: member holding workloadIdentityUser can impersonate the account too.
     members=$(printf '%s' "$policy" | jq -r '
         [.bindings[]? | select(.role == "roles/iam.workloadIdentityUser") | .members[]] | .[]')
-    [ -n "$members" ] || fail "no workload identity principal may impersonate $email"
-    foreign=$(printf '%s\n' "$members" \
-        | grep -Ev "^principal(Set)?://iam\.googleapis\.com/$pool_path/" || true)
-    [ -z "$foreign" ] \
-        || fail "$email is impersonable from outside $pool_path, whose condition this check did not verify: $foreign"
-done
+    [ -n "$members" ] || fail "no workload identity principal may impersonate $1"
+    foreign=$(printf '%s\n' "$members" | grep -Ev "$2" || true)
+    [ -z "$foreign" ] || fail "$1 is impersonable by members outside $3: $foreign"
+}
+
+if [ "$split" = true ]; then
+    verify_account "$plan_email" "$pool_member" "$pool_path"
+    verify_account "$apply_email" "$apply_only" \
+        "$pool_path/attribute.terraform_run_phase/apply (a plan could otherwise mint apply credentials)"
+else
+    verify_account "$apply_email" "$pool_member" "$pool_path"
+fi
 
 exit 0

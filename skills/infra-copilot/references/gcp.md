@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:667eb26c6e576f43debfca369780dd5d908a4ff66bd053881ac4c6fddc1c267d
-Source-Hash: blake3:395719abcfeffe08635c4011099f68cbb8985b2e565723ce6f3e250533a48580
+Content-Hash: blake3:337a0b8e268cfb6f9ada6d7fa04cdab2bd240eb42fc19a8b72fbd70e636d1eb7
+Source-Hash: blake3:a5f395d9914010e3793433e4e88901c1928518fd4ee3c1561cd4599b1bb55833
 Schema-Version: v1
 -->
 
@@ -156,7 +156,8 @@ privileged one for `TFC_GCP_APPLY_SERVICE_ACCOUNT_EMAIL`. Then narrow each
 ```
 
 A speculative plan — including one a pull request triggers — then cannot mint
-apply-grade credentials, even if the workspace variables were edited.
+apply-grade credentials, even if the workspace variables were edited. Keep one active
+provider per pool: a second provider (for GitHub Actions, say) belongs in its own pool.
 
 ### AGENT — verify the trust (read-only)
 
@@ -164,8 +165,13 @@ The `new-provider-gcp-wif-trust` step runs
 `sh "$INFRA_COPILOT_REFERENCES/checks/gcp-wif-trust.sh"` on every resume and status scan.
 It locates the provider and service accounts from the workspace's own non-sensitive
 `TFC_GCP_*` variables, then fails unless the issuer is exact, the provider is active,
-the condition binds both the organization and the workspace, and every member holding
-`workloadIdentityUser` on the service accounts is a principal of that pool. It exits 2,
+the condition binds both the organization and the workspace, the provider is the pool's
+only active provider (the pool-wide `/*` member admits every provider's identities, so a
+sibling with a weaker condition would bypass this one), and every member holding
+`workloadIdentityUser` on the service accounts is a principal of that pool. When plan and
+apply use different accounts, the apply account must admit only
+`attribute.terraform_run_phase/apply`, and the provider must map that attribute from
+`assertion.terraform_run_phase` — a constant mapping would label every run an apply. It exits 2,
 not 1, when `gcloud` cannot read the pool, so a missing login is never mistaken for a
 broken trust. The step runs only when the credential inventory declares
 `TFC_GCP_PROVIDER_AUTH`; a key-based adoption has no federation trust to check.
