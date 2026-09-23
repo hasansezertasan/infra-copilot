@@ -258,6 +258,12 @@ class GcpWifTrustTests(unittest.TestCase):
             extra_bindings=[{"role": token_creator, "members": [foreign]}]), 1)
         self.assert_exit(self.run_check(
             project_bindings=[{"role": token_creator, "members": [foreign]}]), 1)
+        for role in ("roles/iam.serviceAccountKeyAdmin", "roles/iam.serviceAccountAdmin",
+                     "roles/iam.serviceAccountUser", "roles/iam.workloadIdentityPoolAdmin",
+                     "roles/resourcemanager.projectIamAdmin", "roles/editor"):
+            with self.subTest(role=role):
+                self.assert_exit(self.run_check(
+                    project_bindings=[{"role": role, "members": [foreign]}]), 1)
         # Humans holding Token Creator are not what this check is about.
         self.assert_exit(self.run_check(
             project_bindings=[{"role": token_creator, "members": ["user:admin@example.com"]}]), 0)

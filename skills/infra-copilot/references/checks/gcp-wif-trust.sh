@@ -18,7 +18,8 @@
 # Exit codes:
 #   0  the trust is scoped to $ORG and $NEW_PROVIDER_WORKSPACE, it is the pool's only
 #      active provider, no federated principal outside that pool holds a role on the run
-#      service accounts or an impersonation role on their projects, and a separate apply
+#      service accounts or an impersonation or escalation role on their projects, and a
+#      separate apply
 #      account admits apply-phase identities only. Folder- and organization-level grants
 #      are not read.
 #   1  trust BROKEN or incomplete — a real verdict about the configuration
@@ -210,10 +211,18 @@ pool_path="projects/$number/locations/global/workloadIdentityPools/$pool_id"
 pool_member="^principal(Set)?://iam\.googleapis\.com/$pool_path/"
 apply_only="^principalSet://iam\.googleapis\.com/$pool_path/attribute\.terraform_run_phase/apply\$"
 
-# Roles that grant iam.serviceAccounts.getAccessToken, i.e. impersonation. Custom roles
-# can carry it too; they are not recognised here, which is one reason the project-level
-# pass below is a floor, not a proof.
-impersonation_roles='["roles/iam.workloadIdentityUser","roles/iam.serviceAccountTokenCreator","roles/owner"]'
+# Predefined roles that reach a run account without its own policy: minting tokens
+# (workloadIdentityUser, serviceAccountTokenCreator), creating a key and signing in with
+# it (serviceAccountKeyAdmin, editor), attaching the account to a resource (actAs via
+# serviceAccountUser), granting any of those (serviceAccountAdmin, projectIamAdmin,
+# securityAdmin, owner), or loosening the provider condition this check just verified
+# (workloadIdentityPoolAdmin). Custom roles can carry the same permissions; they are not
+# recognised here, which is one reason the project-level pass is a floor, not a proof.
+impersonation_roles='["roles/owner","roles/editor",
+  "roles/iam.workloadIdentityUser","roles/iam.serviceAccountTokenCreator",
+  "roles/iam.serviceAccountKeyAdmin","roles/iam.serviceAccountUser",
+  "roles/iam.serviceAccountAdmin","roles/iam.workloadIdentityPoolAdmin",
+  "roles/iam.securityAdmin","roles/resourcemanager.projectIamAdmin"]'
 
 # $1 = email, $2 = ERE every federated member must match, $3 = what that means
 verify_account() {
@@ -249,11 +258,18 @@ fi
 # federated principal holding an impersonation role there reaches the run accounts
 # without appearing on their own policies. Folder and organization grants are inherited
 # too and are NOT read here; gcp.md says so rather than letting exit 0 imply it.
+# The run accounts' projects, and the pool's own project (by number), which may differ:
+# a pool admin there could rewrite the condition this check verified.
+projects=$number
 for email in $(printf '%s\n%s\n' "$plan_email" "$apply_email" | sort -u); do
     case "$email" in
         *@*.iam.gserviceaccount.com) project=${email#*@}; project=${project%.iam.gserviceaccount.com} ;;
         *) fail "$email is not a user-managed service account (<name>@<project>.iam.gserviceaccount.com); create a dedicated one per gcp.md" ;;
     esac
+    projects="$projects
+$project"
+done
+for project in $(printf '%s\n' "$projects" | sort -u); do
     project_policy=$(gcloud projects get-iam-policy "$project" --format=json 2>"$err") \
         || cannot_verify "gcloud could not read the IAM policy of project $project: $(head -1 "$err")"
     federated=$(printf '%s' "$project_policy" | jq -r --argjson roles "$impersonation_roles" '
@@ -261,7 +277,7 @@ for email in $(printf '%s\n%s\n' "$plan_email" "$apply_email" | sort -u); do
          | select(test("^principal(Set)?://"))] | unique | .[]')
     foreign=$(printf '%s\n' "$federated" | sed '/^$/d' | grep -Ev "$project_rule" || true)
     [ -z "$foreign" ] \
-        || fail "project $project grants an impersonation role to federated principals that could reach $email: $foreign"
+        || fail "project $project grants an impersonation or escalation role to federated principals that could reach the run accounts or the pool: $foreign"
 done
 
 exit 0

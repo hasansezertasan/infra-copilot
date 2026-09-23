@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:607bc3bdbe13dba91d00f3914078be14fe3caed51410e047925497d185c5da4a
-Source-Hash: blake3:57bfce8e636b9fb929456710e44c56405ba8795d5b77fe8558b69e47c1a5549c
+Content-Hash: blake3:c68a00aae7096f499819e42f04f4edc045ec8a0323cb3b9fe222195fff813f72
+Source-Hash: blake3:0e068cd3a8814ec69d700c3da16f79c752df8af080e58e1da858e82157f086b7
 Schema-Version: v1
 -->
 
@@ -180,8 +180,11 @@ It locates the provider and service accounts from the workspace's own non-sensit
 - every member of `workloadIdentityUser` on the service accounts is this pool's, and no
   federated (`principal://`, `principalSet://`) member outside it holds *any* role on
   them — Token Creator mints tokens just as well;
-- no federated principal outside the pool holds `workloadIdentityUser`, Token Creator, or
-  Owner on the service accounts' projects, where grants are inherited;
+- no federated principal outside the pool holds, on the service accounts' projects
+  (where grants are inherited), a role that reaches them: `workloadIdentityUser`, Token
+  Creator, Service Account Key Admin (a key is a login), Service Account User, Service
+  Account Admin, Workload Identity Pool Admin (it could loosen this very condition),
+  Security Admin, Project IAM Admin, Editor, or Owner;
 - when plan and apply use different accounts, the apply account (and those project
   grants) admit only `attribute.terraform_run_phase/apply`, and the provider maps that
   attribute from `assertion.terraform_run_phase` — a constant would label every run an

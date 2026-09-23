@@ -173,8 +173,11 @@ It locates the provider and service accounts from the workspace's own non-sensit
 - every member of `workloadIdentityUser` on the service accounts is this pool's, and no
   federated (`principal://`, `principalSet://`) member outside it holds *any* role on
   them — Token Creator mints tokens just as well;
-- no federated principal outside the pool holds `workloadIdentityUser`, Token Creator, or
-  Owner on the service accounts' projects, where grants are inherited;
+- no federated principal outside the pool holds, on the service accounts' projects
+  (where grants are inherited), a role that reaches them: `workloadIdentityUser`, Token
+  Creator, Service Account Key Admin (a key is a login), Service Account User, Service
+  Account Admin, Workload Identity Pool Admin (it could loosen this very condition),
+  Security Admin, Project IAM Admin, Editor, or Owner;
 - when plan and apply use different accounts, the apply account (and those project
   grants) admit only `attribute.terraform_run_phase/apply`, and the provider maps that
   attribute from `assertion.terraform_run_phase` — a constant would label every run an
