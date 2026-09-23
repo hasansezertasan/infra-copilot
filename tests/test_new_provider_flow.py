@@ -366,7 +366,7 @@ class NewProviderFlowTests(unittest.TestCase):
             azure_wif = subprocess.run(
                 ["/bin/sh", "-c", literal_check(decision)],
                 cwd=root,
-                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                env={**env, "NEW_PROVIDER_MISE_TOOLS": "[]", "NEW_PROVIDER_CREDENTIALS": (
                     '[{"key":"ARM_USE_OIDC","category":"env","sensitive":false}]'
                 )},
                 capture_output=True,
@@ -477,6 +477,17 @@ class NewProviderFlowTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+            # A key under a custom name is still GCP key authentication: the entry pins
+            # gcloud and chose a service-account key, so the documented inventory applies.
+            custom_key_name = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_MISE_TOOLS": "[]", "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"GCP_KEY","category":"terraform","sensitive":false}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
             key_decision_key_inventory = subprocess.run(
                 ["/bin/sh", "-c", literal_check(decision)],
                 cwd=root,
@@ -491,6 +502,7 @@ class NewProviderFlowTests(unittest.TestCase):
         self.assertNotEqual(gcloud_keyfile_wif.returncode, 0, "WIF decision, GCLOUD_ inventory")
         self.assertNotEqual(lowercase_key_wif.returncode, 0, "WIF decision, google_credentials")
         self.assertNotEqual(visible_key.returncode, 0, "key declared non-sensitive")
+        self.assertNotEqual(custom_key_name.returncode, 0, "key under a custom variable name")
         for choice, credentials in free_text.items():
             with self.subTest(choice=choice):
                 self.assertNotEqual(credentials.returncode, 0, "free-text GCP auth choice")
@@ -1260,8 +1272,10 @@ terraform {
         condition = " ".join(line.strip() for line in when.group("body").splitlines())
         wif = '[{"key":"TFC_GCP_PROVIDER_AUTH","category":"env","sensitive":false}]'
         key = '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'
-        # (provider name, inventory, backend, runs?) — no decisions.md in cwd here, so
-        # only the inventory can trigger the step in these cases.
+        # (provider name, inventory, backend, runs?) — run in an empty directory, so no
+        # decisions.md can trigger (or hide) the step: only the inventory can.
+        empty = tempfile.TemporaryDirectory()
+        self.addCleanup(empty.cleanup)
         for name, credentials, backend, runs in (
             ("gcp", wif, "hcp", True),
             ("gcp-prod", wif, "hcp", True),      # keyed on the inventory, not the name
@@ -1274,6 +1288,7 @@ terraform {
             with self.subTest(name=name, credentials=credentials, backend=backend):
                 result = subprocess.run(
                     ["/bin/sh", "-c", condition],
+                    cwd=empty.name,
                     env={**os.environ, "NEW_PROVIDER": name, "BACKEND": backend,
                          "NEW_PROVIDER_CREDENTIALS": credentials},
                     capture_output=True, text=True,

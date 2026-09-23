@@ -100,22 +100,52 @@ overrides=$(printf '%s' "$vars" | jq -r '
 if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
     static=$(find "terraform/$NEW_PROVIDER" terraform/modules -name '*.tf' -type f 2>/dev/null \
         | while IFS= read -r file; do
-            # Block comments are whitespace to HCL, so they are removed first, tracking
-            # state across lines: `/* x */ credentials = ...` is scanned, and a
-            # commented-out block spanning lines is not. Every input line yields one
-            # output line, so grep -n still reports real line numbers.
-            awk '{
-                rest = $0; out = ""
-                while (rest != "") {
-                    if (in_comment) {
-                        i = index(rest, "*/")
-                        if (i == 0) { rest = ""; break }
-                        rest = substr(rest, i + 2); in_comment = 0; out = out " "
-                    } else {
-                        i = index(rest, "/*")
-                        if (i == 0) { out = out rest; rest = ""; break }
-                        out = out substr(rest, 1, i - 1); rest = substr(rest, i + 2); in_comment = 1
+            # Comments are whitespace to HCL, so they are removed first by a small lexer
+            # that knows where they cannot start: inside a quoted string (with escapes
+            # and nested ${...}/%{...} templates, whose own strings nest) or a heredoc,
+            # "/*" and "#" are data. A textual strip would treat "gs://b/*" as a comment
+            # opener and hide every later line. Line comments are dropped (the exemption
+            # below is anchored, so no comment text can excuse anything); string text is
+            # kept. Every input line yields one output line, so grep -n numbers are real.
+            awk '
+            function top() { return sp > 0 ? st[sp] : "N" }
+            {
+                line = $0; out = ""; n = length(line); i = 1
+                if (heredoc != "") {
+                    t = line; gsub(/^[[:space:]]+|[[:space:]]+$/, "", t)
+                    if (t == heredoc) heredoc = ""
+                    print ""; next
+                }
+                while (i <= n) {
+                    c = substr(line, i, 1); c2 = substr(line, i, 2)
+                    if (in_block) {
+                        if (c2 == "*/") { in_block = 0; out = out " "; i += 2 } else i++
+                        continue
                     }
+                    if (top() == "S") {
+                        if (c == "\\") { out = out c2; i += 2; continue }
+                        if (substr(line, i, 3) == "$${" || substr(line, i, 3) == "%%{") {
+                            out = out substr(line, i, 3); i += 3; continue
+                        }
+                        if (c2 == "${" || c2 == "%{") { st[++sp] = "I"; br[sp] = 0; out = out c2; i += 2; continue }
+                        if (c == "\"") sp--
+                        out = out c; i++; continue
+                    }
+                    if (c2 == "/*") { in_block = 1; i += 2; continue }
+                    if (c == "#" || c2 == "//") break
+                    if (c == "\"") { st[++sp] = "S"; out = out c; i++; continue }
+                    if (top() == "I") {
+                        if (c == "{") br[sp]++
+                        else if (c == "}") {
+                            if (br[sp] == 0) { sp--; out = out c; i++; continue }
+                            br[sp]--
+                        }
+                    }
+                    if (c2 == "<<" && match(substr(line, i), /^<<-?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*$/)) {
+                        tag = substr(line, i); sub(/^<<-?/, "", tag); gsub(/[[:space:]]+$/, "", tag)
+                        heredoc = tag; out = out substr(line, i); break
+                    }
+                    out = out c; i++
                 }
                 print out
             }' "$file" \
@@ -164,6 +194,11 @@ tagged=$(printf '%s' "$vars" | jq -r '
 
 [ "$(var TFC_GCP_PROVIDER_AUTH)" = "true" ] \
     || fail "TFC_GCP_PROVIDER_AUTH is not 'true' on $NEW_PROVIDER_WORKSPACE"
+# Everything below judges the service accounts HCP impersonates. In workload_pool mode
+# HCP authenticates as the pool principal directly and impersonates nothing, so those
+# accounts' policies would be decoys and the phase fence would constrain nothing.
+[ "$(var TFC_GCP_PRINCIPAL_TYPE)" = "service_account" ] \
+    || fail "TFC_GCP_PRINCIPAL_TYPE must be 'service_account' on $NEW_PROVIDER_WORKSPACE; this check verifies impersonated accounts, which workload_pool mode bypasses"
 
 provider_name=$(var TFC_GCP_WORKLOAD_PROVIDER_NAME)
 if [ -z "$provider_name" ]; then

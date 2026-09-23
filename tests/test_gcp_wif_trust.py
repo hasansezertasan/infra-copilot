@@ -455,6 +455,29 @@ class GcpWifTrustTests(unittest.TestCase):
         # Commented out across lines is not configuration.
         self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf":
             'provider "google" {\n  /*\n  credentials = var.old_key\n  */\n}\n'}), 0)
+        # A "/*" inside a string or heredoc is data, not a comment opener; a textual
+        # strip would swallow every later line, static key included.
+        static = '  credentials = var.google_key\n'
+        for before in (
+            'locals { note = "/*" }\n',
+            'locals { bucket = "gs://b/*" }\n',
+            'locals { x = "${format("/*%s", "y")}" }\n',
+            'locals {\n  doc = <<EOT\n  /* not a comment\n  EOT\n}\n',
+            'locals { esc = "a \\" /* still a string" }\n',
+        ):
+            with self.subTest(before=before):
+                self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf":
+                    before + 'provider "google" {\n' + static + '}\n'}), 1)
+        # Line comments are comments.
+        for commented in ('  # credentials = var.old_key\n', '  // credentials = var.old_key\n'):
+            with self.subTest(commented=commented):
+                self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf":
+                    'provider "google" {\n' + commented + '}\n'}), 0)
+        # The aliased allowed form keeps its string subscript through the lexer.
+        self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf":
+            'provider "google" {\n  alias = "x"\n'
+            '  credentials = try(var.tfc_gcp_dynamic_credentials.aliases["x"].credentials, null)\n'
+            '}\n'}), 0)
         # Shared modules configure providers too.
         self.assert_exit(self.run_check(tf_files={
             "terraform/gcp/main.tf": "",
@@ -492,6 +515,12 @@ class GcpWifTrustTests(unittest.TestCase):
             with self.subTest(key=key):
                 self.assert_exit(self.run_check(
                     variables=[*DEFAULT_VARS, env_var(key, "x")]), 2)
+
+    def test_only_service_account_impersonation_is_verifiable(self) -> None:
+        pool_mode = [DEFAULT_VARS[0], env_var("TFC_GCP_PRINCIPAL_TYPE", "workload_pool"),
+                     *DEFAULT_VARS[2:]]
+        self.assert_exit(self.run_check(variables=pool_mode), 1)
+        self.assert_exit(self.run_check(variables=[DEFAULT_VARS[0], *DEFAULT_VARS[2:]]), 1)
 
     def test_conflicting_or_hidden_variables_fail(self) -> None:
         self.assert_exit(

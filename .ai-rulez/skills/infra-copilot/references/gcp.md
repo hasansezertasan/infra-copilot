@@ -168,6 +168,9 @@ The `new-provider-gcp-wif-trust` step runs
 It locates the provider and service accounts from the workspace's own non-sensitive
 `TFC_GCP_*` variables, then fails unless all of these hold:
 
+- `TFC_GCP_PRINCIPAL_TYPE` is `service_account` — in `workload_pool` mode HCP
+  impersonates no account, so the accounts' policies would prove nothing;
+
 - no variable set is attached (its variables are invisible to the workspace vars API);
 - the issuer is exactly `https://app.terraform.io` and the provider is active;
 - the provider is the pool's only active provider — the pool-wide `/*` member admits

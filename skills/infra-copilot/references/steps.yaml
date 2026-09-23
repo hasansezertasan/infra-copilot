@@ -1630,8 +1630,9 @@ steps:
          locked row whose decision is exactly `<provider> authentication` and whose
          choice names the credential mechanism (e.g. `Workload Identity Federation` or
          `service-account key`). Auth is a decision of its own so a long-lived key is
-         never the unexamined default. In backend: hcp, for a GCP inventory (TFC_GCP_*,
-         GOOGLE_*, GCLOUD_*, or CLOUDSDK_* keys), the choice must be exactly `Workload Identity Federation`
+         never the unexamined default. In backend: hcp, for a GCP entry (one whose
+         inventory has TFC_GCP_*, GOOGLE_*, GCLOUD_*, or CLOUDSDK_* keys, whose mise tools
+         include gcloud, or whose choice is a service-account key), the choice must be exactly `Workload Identity Federation`
          (inventory declares TFC_GCP_PROVIDER_AUTH) or `service-account key` (inventory
          declares GOOGLE_CREDENTIALS as a sensitive env variable and not
          TFC_GCP_PROVIDER_AUTH).
@@ -1730,8 +1731,16 @@ steps:
       # for their own federation (Azure's ARM_USE_OIDC, say) and must not be held to a
       # GCP variable; a GCLOUD_KEYFILE_JSON inventory under a WIF decision must. Case
       # is ignored: a terraform-category google_credentials is the same family.
-      if [ "$BACKEND" != "object-storage" ] && printf '%s' "$NEW_PROVIDER_CREDENTIALS" \
-          | jq -e 'any(.[]; .key | test("^(TFC_GCP_|GOOGLE_|GCLOUD_|CLOUDSDK_)"; "i"))' >/dev/null; then
+      # An entry is also GCP when it pins gcloud or chooses a service-account key, so a
+      # key stored under a custom name (GCP_KEY) cannot skip these rules.
+      is_gcp=false
+      printf '%s' "$NEW_PROVIDER_CREDENTIALS" \
+        | jq -e 'any(.[]; .key | test("^(TFC_GCP_|GOOGLE_|GCLOUD_|CLOUDSDK_)"; "i"))' >/dev/null \
+        && is_gcp=true
+      printf '%s' "$NEW_PROVIDER_MISE_TOOLS" | jq -e 'index("gcloud") != null' >/dev/null \
+        && is_gcp=true
+      case "$auth_choice" in "service-account key"|"service account key") is_gcp=true ;; esac
+      if [ "$BACKEND" != "object-storage" ] && [ "$is_gcp" = true ]; then
         # Exactly one of the two documented mechanisms, never free text reduced to a
         # keyword: "do not use workload identity federation" is not a WIF decision.
         case "$auth_choice" in
