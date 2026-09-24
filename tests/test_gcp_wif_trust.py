@@ -463,6 +463,7 @@ class GcpWifTrustTests(unittest.TestCase):
             'locals { bucket = "gs://b/*" }\n',
             'locals { x = "${format("/*%s", "y")}" }\n',
             'locals {\n  doc = <<EOT\n  /* not a comment\n  EOT\n}\n',
+            'locals {\n  doc = <<-END-JSON\n  /* not a comment\n  END-JSON\n}\n',
             'locals { esc = "a \\" /* still a string" }\n',
         ):
             with self.subTest(before=before):

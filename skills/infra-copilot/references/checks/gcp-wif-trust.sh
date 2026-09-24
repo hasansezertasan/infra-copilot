@@ -141,7 +141,8 @@ if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
                             br[sp]--
                         }
                     }
-                    if (c2 == "<<" && match(substr(line, i), /^<<-?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*$/)) {
+                    # Delimiter grammar as measured for Terraform in steps.yaml (hyphens allowed).
+                    if (c2 == "<<" && match(substr(line, i), /^<<-?[A-Za-z_][A-Za-z0-9_-]*[[:space:]]*$/)) {
                         tag = substr(line, i); sub(/^<<-?/, "", tag); gsub(/[[:space:]]+$/, "", tag)
                         heredoc = tag; out = out substr(line, i); break
                     }
