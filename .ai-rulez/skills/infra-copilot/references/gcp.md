@@ -21,7 +21,8 @@ The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml)
    `Workload Identity Federation` (the inventory declares `TFC_GCP_PROVIDER_AUTH`) or
    exactly `service-account key` (it declares `GOOGLE_CREDENTIALS`, as a sensitive env
    variable, and not
-   `TFC_GCP_PROVIDER_AUTH`); any other wording stays red, and so do two locked
+   `TFC_GCP_PROVIDER_AUTH`, nor any other Google credential variable); any other
+   wording stays red, and so do two locked
    authentication rows — mark the old one `superseded`.
 2. Note the new leaf in `terraform/README.md`.
 3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
@@ -176,6 +177,8 @@ It locates the provider and service accounts from the workspace's own non-sensit
 - the provider is the pool's only active provider — the pool-wide `/*` member admits
   every provider's identities, so a sibling with a weaker condition would bypass this one;
 - the condition binds both the organization and the workspace (forms below);
+- each account's `workloadIdentityUser` members admit every phase that uses it — both
+  for a shared account, plan or apply for a split pair — or that phase cannot sign in;
 - every member of `workloadIdentityUser` on the service accounts is this pool's, and no
   federated (`principal://`, `principalSet://`) member outside it holds *any* role on
   them — Token Creator mints tokens just as well;
@@ -198,11 +201,13 @@ It locates the provider and service accounts from the workspace's own non-sensit
   attribute from `assertion.terraform_run_phase` — a constant would label every run an
   apply.
 
-It also fails when a `.tf` or `.tf.json` file in the leaf or in `terraform/modules` sets
-`credentials`, `access_token`, or `impersonate_service_account` in any form other than
-`try(var.tfc_gcp_dynamic_credentials.<default|aliases["tag"]>.credentials, null)` on a
-line of its own (a compact `provider "google" { credentials = … }` fails), since the run
-would then use that identity instead. It exits 2, not 1, when `gcloud` cannot
+It also fails when a `provider "google"` or `"google-beta"` block in a `.tf` or
+`.tf.json` file of the leaf or `terraform/modules` sets `credentials`, `access_token`, or
+`impersonate_service_account` in any form other than
+`try(var.tfc_gcp_dynamic_credentials.<default|aliases["tag"]>.credentials, null)`, since
+the run would then use that identity instead. Only provider blocks are read — a variable
+type or module input named `credentials` is not an identity argument — and strings,
+heredocs, and comments are lexed first, so a `/*` inside a string hides nothing. It exits 2, not 1, when `gcloud` cannot
 read what it needs, so a missing login is never mistaken for a broken trust, and when
 the workspace declares tagged configurations (`TFC_GCP_*_<TAG>`, `TFC_DEFAULT_GCP_*`):
 it verifies the default configuration only, so each tag's pool, condition, and accounts

@@ -93,8 +93,9 @@ overrides=$(printf '%s' "$vars" | jq -r '
 # scan is textual for HCL, structural for JSON, and fails closed: any line that starts
 # with one of these names (so `credentials /* note */ = ...` too) anywhere in the leaf or
 # the shared modules must be exactly one of the allowed forms, and so must any line
-# assigning one of them mid-line (compact `provider "google" { credentials = x }`), so
-# the allowed form has to sit on its own line. The exemption is anchored
+# assigning one of them mid-line. Only google provider blocks are read (see the lexer),
+# so a compact `provider "google" { credentials = x }` is judged on its inner text. The
+# exemption is anchored
 # to the whole assignment (after grep -n's "N:" prefix): unanchored, the allowed text
 # inside a trailing comment would excuse a static key before it.
 if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
@@ -109,8 +110,13 @@ if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
             # kept. Every input line yields one output line, so grep -n numbers are real.
             awk '
             function top() { return sp > 0 ? st[sp] : "N" }
+            # Only text inside a provider "google" / "google-beta" block is emitted:
+            # a variable type such as object({ credentials = string }) or a module input
+            # named credentials is not an identity argument. `head` holds the current
+            # line so far, to recognise a block header when its "{" arrives.
+            function emit(ch) { head = head ch; if (in_provider) out = out ch }
             {
-                line = $0; out = ""; n = length(line); i = 1
+                line = $0; out = ""; head = ""; n = length(line); i = 1
                 if (heredoc != "") {
                     t = line; gsub(/^[[:space:]]+|[[:space:]]+$/, "", t)
                     if (t == heredoc) heredoc = ""
@@ -119,34 +125,42 @@ if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
                 while (i <= n) {
                     c = substr(line, i, 1); c2 = substr(line, i, 2)
                     if (in_block) {
-                        if (c2 == "*/") { in_block = 0; out = out " "; i += 2 } else i++
+                        if (c2 == "*/") { in_block = 0; emit(" "); i += 2 } else i++
                         continue
                     }
                     if (top() == "S") {
-                        if (c == "\\") { out = out c2; i += 2; continue }
+                        if (c == "\\") { emit(c2); i += 2; continue }
                         if (substr(line, i, 3) == "$${" || substr(line, i, 3) == "%%{") {
-                            out = out substr(line, i, 3); i += 3; continue
+                            emit(substr(line, i, 3)); i += 3; continue
                         }
-                        if (c2 == "${" || c2 == "%{") { st[++sp] = "I"; br[sp] = 0; out = out c2; i += 2; continue }
+                        if (c2 == "${" || c2 == "%{") { st[++sp] = "I"; br[sp] = 0; emit(c2); i += 2; continue }
                         if (c == "\"") sp--
-                        out = out c; i++; continue
+                        emit(c); i++; continue
                     }
                     if (c2 == "/*") { in_block = 1; i += 2; continue }
                     if (c == "#" || c2 == "//") break
-                    if (c == "\"") { st[++sp] = "S"; out = out c; i++; continue }
+                    if (c == "\"") { st[++sp] = "S"; emit(c); i++; continue }
                     if (top() == "I") {
                         if (c == "{") br[sp]++
                         else if (c == "}") {
-                            if (br[sp] == 0) { sp--; out = out c; i++; continue }
+                            if (br[sp] == 0) { sp--; emit(c); i++; continue }
                             br[sp]--
                         }
+                    } else if (c == "{") {
+                        depth++
+                        if (depth == 1 && head ~ /^[[:space:]]*provider[[:space:]]+"?google(-beta)?"?[[:space:]]*$/) {
+                            in_provider = 1; head = head c; i++; continue
+                        }
+                    } else if (c == "}") {
+                        if (depth > 0) depth--
+                        if (depth == 0 && in_provider) { in_provider = 0; head = head c; i++; continue }
                     }
                     # Delimiter grammar as measured for Terraform in steps.yaml (hyphens allowed).
                     if (c2 == "<<" && match(substr(line, i), /^<<-?[A-Za-z_][A-Za-z0-9_-]*[[:space:]]*$/)) {
                         tag = substr(line, i); sub(/^<<-?/, "", tag); gsub(/[[:space:]]+$/, "", tag)
-                        heredoc = tag; out = out substr(line, i); break
+                        heredoc = tag; emit(substr(line, i)); break
                     }
-                    out = out c; i++
+                    emit(c); i++
                 }
                 print out
             }' "$file" \
@@ -369,7 +383,22 @@ escalation_permissions='["iam.serviceAccounts.getAccessToken","iam.serviceAccoun
   "iam.workloadIdentityPoolProviders.create","iam.workloadIdentityPoolProviders.update",
   "iam.workloadIdentityPoolProviders.undelete"]'
 
-# $1 = email, $2 = ERE every federated member must match, $3 = what that means
+# $1 = members, one per line; prints the run phases they admit (plan, apply), one per
+# line. The pool-wide member and attribute sets other than the run phase admit both; a
+# run-phase set or a subject ending in :run_phase:X admits only X.
+phases_admitted() {
+    printf '%s\n' "$1" | while IFS= read -r m; do
+        case "$m" in
+            *"/attribute.terraform_run_phase/"*) printf '%s\n' "${m##*/}" ;;
+            principal://*":run_phase:"*) printf '%s\n' "${m##*:run_phase:}" ;;
+            principalSet://*) printf 'plan\napply\n' ;;
+            principal://*) printf 'plan\napply\n' ;;
+        esac
+    done | sort -u
+}
+
+# $1 = email, $2 = ERE every federated member must match, $3 = what that means,
+# $4 = phases the account must admit ("plan apply", "plan", or "apply")
 verify_account() {
     policy=$(gcloud iam service-accounts get-iam-policy "$1" --format=json 2>"$err") \
         || cannot_verify "gcloud could not read the IAM policy of $1: $(head -1 "$err")"
@@ -387,6 +416,14 @@ verify_account() {
     [ -n "$wiu" ] || fail "no workload identity principal may impersonate $1"
     foreign=$(printf '%s\n' "$wiu" | grep -Ev "$2" || true)
     [ -z "$foreign" ] || fail "$1 is impersonable by members outside $3: $foreign"
+    # The binding must also let in every phase that uses this account, or that phase's
+    # runs cannot authenticate — a shared account fenced to plan passes the speculative
+    # plan and fails the first apply.
+    admitted=$(phases_admitted "$wiu")
+    for phase in $4; do
+        printf '%s\n' "$admitted" | grep -Fx "$phase" >/dev/null \
+            || fail "$1 serves the $phase phase, but its workloadIdentityUser members admit only: $(printf '%s' "$admitted" | tr '\n' ' ')"
+    done
     # A federated principal in ANY binding on the account is judged the same way: Token
     # Creator mints tokens just as well, and a role granted to a foreign pool or to the
     # plan phase would bypass the condition or the phase fence.
@@ -397,11 +434,11 @@ verify_account() {
 }
 
 if [ "$split" = true ]; then
-    verify_account "$plan_email" "$pool_member" "$pool_path"
+    verify_account "$plan_email" "$pool_member" "$pool_path" "plan"
     verify_account "$apply_email" "$apply_only" \
-        "$pool_path/attribute.terraform_run_phase/apply (a plan could otherwise mint apply credentials)"
+        "$pool_path/attribute.terraform_run_phase/apply (a plan could otherwise mint apply credentials)" "apply"
 else
-    verify_account "$apply_email" "$pool_member" "$pool_path"
+    verify_account "$apply_email" "$pool_member" "$pool_path" "plan apply"
 fi
 # The rule for anything that can reach the apply account or mutate the verified pool.
 if [ "$split" = true ]; then strict=$apply_only; else strict=$pool_member; fi

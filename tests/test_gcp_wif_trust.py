@@ -479,6 +479,22 @@ class GcpWifTrustTests(unittest.TestCase):
             'provider "google" {\n  alias = "x"\n'
             '  credentials = try(var.tfc_gcp_dynamic_credentials.aliases["x"].credentials, null)\n'
             '}\n'}), 0)
+        # Only google provider blocks carry identity arguments.
+        for elsewhere in (
+            'variable "tfc_gcp_dynamic_credentials" {\n'
+            '  type = object({ default = object({ credentials = string }) })\n}\n',
+            'module "x" {\n  source      = "./x"\n  credentials = var.k\n}\n',
+            'provider "aws" {\n  access_token = var.t\n}\n',
+        ):
+            with self.subTest(elsewhere=elsewhere):
+                self.assert_exit(self.run_check(
+                    tf_files={"terraform/gcp/main.tf": elsewhere}), 0)
+        self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf":
+            'provider "google" { credentials = try(var.tfc_gcp_dynamic_credentials.default.credentials, null) }\n'}), 0)
+        self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf":
+            'provider google {\n  credentials = var.k\n}\n'}), 1)
+        self.assert_exit(self.run_check(tf_files={"terraform/gcp/providers.tf":
+            'provider "google-beta" {\n  nested {\n  }\n  access_token = var.t\n}\n'}), 1)
         # Shared modules configure providers too.
         self.assert_exit(self.run_check(tf_files={
             "terraform/gcp/main.tf": "",
@@ -516,6 +532,23 @@ class GcpWifTrustTests(unittest.TestCase):
             with self.subTest(key=key):
                 self.assert_exit(self.run_check(
                     variables=[*DEFAULT_VARS, env_var(key, "x")]), 2)
+
+    def test_accounts_admit_every_phase_they_serve(self) -> None:
+        phase = f"principalSet://iam.googleapis.com/{POOL}/attribute.terraform_run_phase"
+        subject = f"principal://iam.googleapis.com/{POOL}/subject/organization:acme:project:p:workspace:gcp:run_phase:plan"
+        # A shared account fenced to one phase breaks the other.
+        for members in ([f"{phase}/plan"], [subject]):
+            with self.subTest(members=members):
+                self.assert_exit(self.run_check(members=members), 1)
+        self.assert_exit(self.run_check(members=[f"{phase}/plan", f"{phase}/apply"]), 0)
+        # A split plan account must admit plan.
+        plan_sa = "plan@proj.iam.gserviceaccount.com"
+        apply_sa = "apply@proj.iam.gserviceaccount.com"
+        variables = [*DEFAULT_VARS,
+                     env_var("TFC_GCP_PLAN_SERVICE_ACCOUNT_EMAIL", plan_sa),
+                     env_var("TFC_GCP_APPLY_SERVICE_ACCOUNT_EMAIL", apply_sa)]
+        self.assert_exit(self.run_check(variables=variables, policies={
+            plan_sa: [f"{phase}/apply"], apply_sa: [f"{phase}/apply"]}), 1)
 
     def test_only_service_account_impersonation_is_verifiable(self) -> None:
         pool_mode = [DEFAULT_VARS[0], env_var("TFC_GCP_PRINCIPAL_TYPE", "workload_pool"),

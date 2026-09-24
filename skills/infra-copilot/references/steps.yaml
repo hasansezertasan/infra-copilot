@@ -1754,9 +1754,18 @@ steps:
         test "$choice_wif" = "$inventory_wif" || exit 1
         # The key must stay a sensitive env variable: declared non-sensitive, the vars
         # API would hand its value to the plan-only agent.
+        # ...and it must be the only credential: an extra GOOGLE_OAUTH_ACCESS_TOKEN or
+        # GCLOUD_KEYFILE_JSON could authenticate instead (and, non-sensitive, be read by
+        # the agent). Only identity-free location settings may sit beside it.
         if [ "$choice_wif" = false ]; then
           printf '%s' "$NEW_PROVIDER_CREDENTIALS" | jq -e 'any(.[];
             .key == "GOOGLE_CREDENTIALS" and .category == "env" and .sensitive == true)' \
+            >/dev/null || exit 1
+          printf '%s' "$NEW_PROVIDER_CREDENTIALS" | jq -e 'all(.[];
+            (.key | test("^(TFC_GCP_|GOOGLE_|GCLOUD_|CLOUDSDK_)"; "i") | not)
+            or .key == "GOOGLE_CREDENTIALS"
+            or (.key | IN("GOOGLE_PROJECT", "GOOGLE_REGION", "GOOGLE_ZONE",
+                          "GOOGLE_CLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT")))' \
             >/dev/null || exit 1
         fi
       fi

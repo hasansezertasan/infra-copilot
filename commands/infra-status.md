@@ -6,7 +6,7 @@ allowed-tools: Read, Bash, Glob, Grep, Task
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:d82d262129f6876d22b29897255724a86746f85d276e7597315931461b5f80b3
-Source-Hash: blake3:33e6199c22c4ea88dcfd593261cc05fd3832352ae3ff5ab0510439c9a8bb03fa
+Source-Hash: blake3:87a9ccd8a01c988fcdaf154a464e916c1b6dd231ae6af5985c813f51a13349d6
 Schema-Version: v1
 -->
 
