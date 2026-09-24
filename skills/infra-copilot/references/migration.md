@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:0c9fc0d73593778cc5d9c8f0f30991d9c429a98f8d5170e22877c16cfa479732
-Source-Hash: blake3:8082f1b00d319c34cad7aa62eb0ccd5b93a7cebb1eec147d26fc85a9e28ee62c
+Content-Hash: blake3:e7b862877a27a8c490232341ef44c5d546d3af374ee869244a6cc323491d5693
+Source-Hash: blake3:0c8fe49f2b9176078253d4b7766935d2df696eb77be572991dc7115fc0470241
 Schema-Version: v1
 -->
 
@@ -80,11 +80,69 @@ generator; discover with `gcloud ... list`, then Terraform 1.5+ `import` blocks 
 either handwritten or via `terraform plan -generate-config-out=generated.tf`:
 
 ```sh
-gcloud projects list
-gcloud storage buckets list        # etc., per resource type
-# import { to = google_storage_bucket.assets  id = "projects/<p>/buckets/<name>" }
+mise exec -- gcloud services list --enabled --format='value(config.name)'
+mise exec -- gcloud storage buckets list --format='value(name)'   # etc., per resource type
+# import { to = google_storage_bucket.assets  id = "<project-id>/<bucket-name>" }
 cd terraform/gcp && terraform plan  # expect: imported, not created
 ```
+
+Before generating anything, apply the exclusions and scope order in
+[`gcp.md`](./gcp.md#adoption-hazards): Google-managed service agents, default service
+accounts, Google-created buckets, and the Terraform identity itself are not adopted, and
+the foundation pass comes before any live system.
+
+### Import IDs
+
+Formats are inconsistent between resource types, and a wrong one fails the import (or
+worse, matches nothing and the plan proposes a create). Verified against a real adoption:
+
+| Resource | Import ID |
+|---|---|
+| `google_project_service` | `<project-id>/<service>` |
+| `google_storage_bucket` | `<project-id>/<bucket-name>` (or bare `<bucket-name>`) |
+| `google_service_account` | `projects/<project-id>/serviceAccounts/<email>` |
+| `google_artifact_registry_repository` | `projects/<project-id>/locations/<location>/repositories/<repo-id>` |
+| `google_project_iam_member` | `<project-id> <role> <member>` — **space-separated**, not slash |
+
+The space-separated IAM form is the one people get wrong, e.g.
+`"my-project roles/storage.admin serviceAccount:ci@my-project.iam.gserviceaccount.com"`.
+For anything else, read the resource's *Import* section in the registry docs before
+writing the block.
+
+### `-generate-config-out` failure modes
+
+`terraform plan -generate-config-out=generated.tf` writes a block for every `import`
+whose target has no configuration yet, each preceded by
+`# __generated__ by Terraform from "<id>"`. Two ways it goes wrong quietly:
+
+**Deleting a resource strands its comment on the next one.** Deleting from `resource`
+through the following blank line takes the *next* resource's comment with it and leaves
+the deleted one's comment attached to an unrelated resource. The file still parses,
+`validate` and `fmt` pass, and every comment below the edit now lies. Delete the comment
+and its block as a unit, then re-check each comment against the resource beneath it. In
+practice, removing four IAM bindings left three mislabeled resources, and the stray text
+still matched a `grep` for the very member that had been excluded — the config looked
+broken when it was correct, and would have looked correct had it been broken.
+
+**Regeneration silently drops hand edits.** The generator cannot reproduce a
+`prevent_destroy`, a `disable_on_destroy = false`, or a deliberate exclusion; a fresh run
+re-emits what you removed and drops what you added. Keep `generated.tf` purely generated
+and move every resource you edit by hand into its own hand-maintained file. If you must
+edit the generated file, say so in a header comment so nobody regenerates over it.
+
+### Verification checklist
+
+Cheap and mechanical; each item caught a real problem:
+
+- [ ] `import` blocks ↔ resource blocks are 1:1 — no orphans either way, no duplicate
+      addresses
+- [ ] The plan reads `N to import, 0 to add, 0 to change, 0 to destroy`
+- [ ] Any `will be created` means a **wrong import address or ID** — fix it, never apply
+      it
+- [ ] Every `# __generated__` comment matches the resource beneath it
+- [ ] Every `google_project_service` sets `disable_on_destroy = false`, and no
+      `google_project_iam_binding` / `_policy` appears
+- [ ] `terraform fmt -recursive -check` and `terraform validate` are both clean
 
 ## After a clean import plan
 

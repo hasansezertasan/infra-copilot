@@ -69,6 +69,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 "new-provider-plan-access",
                 "new-provider-fork-safety",
                 "new-provider-credentials",
+                "new-provider-gcp-wif-trust",
                 "new-provider-plan",
                 # Object-storage mode steps
                 "new-provider-secrets-gha",
@@ -247,6 +248,26 @@ class NewProviderFlowTests(unittest.TestCase):
                 "| Use AWS, not GCP | aws | locked |\n",
                 encoding="utf-8",
             )
+            # Every case runs against a committed fixture. Uncommitted, the check fails
+            # at its git cleanliness gate whatever the rows say, and the case proves
+            # nothing about the row logic.
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "add", ".infra-copilot/config.md", ".infra-copilot/decisions.md",
+                 "terraform/README.md"],
+                cwd=root,
+                check=True,
+            )
+
+            def commit(message: str) -> None:
+                subprocess.run(
+                    ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                     "commit", "-qam", message],
+                    cwd=root,
+                    check=True,
+                )
+
+            commit("unrelated decision")
             negative = subprocess.run(
                 ["/bin/sh", "-c", literal_check(decision)],
                 cwd=root,
@@ -259,9 +280,28 @@ class NewProviderFlowTests(unittest.TestCase):
                 "| Provider: gcp | adopt | locked |\n",
                 encoding="utf-8",
             )
+            commit("provider row only")
+            # A non-GCP inventory, so the GCP choice validation cannot be what turns
+            # this red: only the missing authentication row can.
+            no_auth = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"EXAMPLE_TOKEN","category":"env","sensitive":true}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | Workload Identity Federation | locked |\n",
+                encoding="utf-8",
+            )
             (root / "terraform/README.md").write_text(
                 "terraform/gcp-old\n", encoding="utf-8"
             )
+            commit("prefix-only readme")
             prefix_only = subprocess.run(
                 ["/bin/sh", "-c", literal_check(decision)],
                 cwd=root,
@@ -272,20 +312,7 @@ class NewProviderFlowTests(unittest.TestCase):
             (root / "terraform/README.md").write_text(
                 "terraform/gcp\n", encoding="utf-8"
             )
-            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-            subprocess.run(
-                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
-                 "add", ".infra-copilot/config.md", ".infra-copilot/decisions.md",
-                 "terraform/README.md"],
-                cwd=root,
-                check=True,
-            )
-            subprocess.run(
-                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
-                 "commit", "-qm", "test fixture"],
-                cwd=root,
-                check=True,
-            )
+            commit("test fixture")
             positive = subprocess.run(
                 ["/bin/sh", "-c", literal_check(decision)],
                 cwd=root,
@@ -293,7 +320,208 @@ class NewProviderFlowTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+            # A keyless decision over a key inventory would skip the WIF trust check and
+            # go green on the key it rejected; the reverse is just as contradictory.
+            key_inventory = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | service-account key | locked |\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qam", "key decision"],
+                cwd=root,
+                check=True,
+            )
+            key_decision_wif_inventory = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            # Another provider's federation shares the words but not the GCP variable.
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | Workload Identity Federation | locked |\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qam", "wif decision"],
+                cwd=root,
+                check=True,
+            )
+            azure_wif = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_MISE_TOOLS": "[]", "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"ARM_USE_OIDC","category":"env","sensitive":false}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | service-account key | locked |\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qam", "key decision again"],
+                cwd=root,
+                check=True,
+            )
+            # Two locked authentication rows: row order must not be the decision.
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | Workload Identity Federation | locked |\n"
+                "| GCP authentication | service-account key | locked |\n",
+                encoding="utf-8",
+            )
+            commit("two auth rows")
+            two_auth_rows = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
+            # GCLOUD_/CLOUDSDK_ keys are GCP credentials too, so a WIF decision over one
+            # is a mismatch, not "some other provider".
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | Workload Identity Federation | locked |\n",
+                encoding="utf-8",
+            )
+            commit("wif decision over gcloud keyfile")
+            gcloud_keyfile_wif = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"GCLOUD_KEYFILE_JSON","category":"env","sensitive":true}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
+            lowercase_key_wif = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"google_credentials","category":"terraform","sensitive":true}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
+            # Free text reduced to a keyword is not a decision.
+            free_text = {}
+            for choice, inventory in (
+                ("hardware token",
+                 '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'),
+                ("do not use Workload Identity Federation",
+                 '[{"key":"TFC_GCP_PROVIDER_AUTH","category":"env","sensitive":false}]'),
+            ):
+                decisions.write_text(
+                    "| Decision | Choice | Status |\n"
+                    "| Provider: gcp | adopt | locked |\n"
+                    f"| GCP authentication | {choice} | locked |\n",
+                    encoding="utf-8",
+                )
+                subprocess.run(
+                    ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                     "commit", "-qam", f"choice {choice}"],
+                    cwd=root,
+                    check=True,
+                )
+                free_text[choice] = subprocess.run(
+                    ["/bin/sh", "-c", literal_check(decision)],
+                    cwd=root,
+                    env={**env, "NEW_PROVIDER_CREDENTIALS": inventory},
+                    capture_output=True,
+                    text=True,
+                )
+            decisions.write_text(
+                "| Decision | Choice | Status |\n"
+                "| Provider: gcp | adopt | locked |\n"
+                "| GCP authentication | service-account key | locked |\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qam", "key decision final"],
+                cwd=root,
+                check=True,
+            )
+            visible_key = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":false}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
+            # A key under a custom name is still GCP key authentication: the entry pins
+            # gcloud and chose a service-account key, so the documented inventory applies.
+            custom_key_name = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_MISE_TOOLS": "[]", "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"GCP_KEY","category":"terraform","sensitive":false}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
+            extra_credential = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true},'
+                    '{"key":"GOOGLE_OAUTH_ACCESS_TOKEN","category":"env","sensitive":false}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
+            key_decision_key_inventory = subprocess.run(
+                ["/bin/sh", "-c", literal_check(decision)],
+                cwd=root,
+                env={**env, "NEW_PROVIDER_CREDENTIALS": (
+                    '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'
+                )},
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(azure_wif.returncode, 0, azure_wif.stderr)
+        self.assertNotEqual(two_auth_rows.returncode, 0, "two locked authentication rows")
+        self.assertNotEqual(gcloud_keyfile_wif.returncode, 0, "WIF decision, GCLOUD_ inventory")
+        self.assertNotEqual(lowercase_key_wif.returncode, 0, "WIF decision, google_credentials")
+        self.assertNotEqual(visible_key.returncode, 0, "key declared non-sensitive")
+        self.assertNotEqual(custom_key_name.returncode, 0, "key under a custom variable name")
+        self.assertNotEqual(extra_credential.returncode, 0, "a second Google credential beside the key")
+        for choice, credentials in free_text.items():
+            with self.subTest(choice=choice):
+                self.assertNotEqual(credentials.returncode, 0, "free-text GCP auth choice")
+        self.assertNotEqual(key_inventory.returncode, 0, "WIF decision, key inventory")
+        self.assertNotEqual(key_decision_wif_inventory.returncode, 0, "key decision, WIF inventory")
+        self.assertEqual(key_decision_key_inventory.returncode, 0, key_decision_key_inventory.stderr)
         self.assertNotEqual(negative.returncode, 0)
+        self.assertNotEqual(no_auth.returncode, 0, "the authentication decision is required")
         self.assertNotEqual(prefix_only.returncode, 0)
         self.assertEqual(positive.returncode, 0, positive.stderr)
 
@@ -1046,6 +1274,63 @@ terraform {
         )[0]
         self.assertIn("NEW_PROVIDER_MISE_TOOLS", gcloud)
         self.assertNotIn("test -d terraform/gcp", gcloud)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_wif_trust_step_skips_key_based_adoption(self) -> None:
+        step = self.steps["new-provider-gcp-wif-trust"]
+        when = re.search(r"^    when: >-\n(?P<body>(?:      .*\n)+)", step, re.MULTILINE)
+        self.assertIsNotNone(when)
+        condition = " ".join(line.strip() for line in when.group("body").splitlines())
+        wif = '[{"key":"TFC_GCP_PROVIDER_AUTH","category":"env","sensitive":false}]'
+        key = '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'
+        # (provider name, inventory, backend, runs?) — run in an empty directory, so no
+        # decisions.md can trigger (or hide) the step: only the inventory can.
+        empty = tempfile.TemporaryDirectory()
+        self.addCleanup(empty.cleanup)
+        for name, credentials, backend, runs in (
+            ("gcp", wif, "hcp", True),
+            ("gcp-prod", wif, "hcp", True),      # keyed on the inventory, not the name
+            ("gcp", key, "hcp", True),           # key-based adoption: key mode
+            ("aws", '[{"key":"AWS_ROLE_ARN","category":"env","sensitive":false}]', "hcp", False),
+            ("gcp", "not json", "hcp", True),    # unreadable: run, never silently skip
+            ("gcp", "", "hcp", True),
+            ("gcp", wif, "object-storage", False),
+            ("gcp", '[{"key":"GCP_KEY","category":"terraform","sensitive":true}]', "hcp", False),
+        ):
+            with self.subTest(name=name, credentials=credentials, backend=backend):
+                result = subprocess.run(
+                    ["/bin/sh", "-c", condition],
+                    cwd=empty.name,
+                    env={**os.environ, "NEW_PROVIDER": name, "BACKEND": backend,
+                         "NEW_PROVIDER_CREDENTIALS": credentials},
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode == 0, runs, result.stderr)
+        # A locked WIF decision runs the check even over a key-shaped inventory, so a
+        # terraform-category google_credentials cannot hide a static key behind it.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".infra-copilot").mkdir()
+            (root / ".infra-copilot/decisions.md").write_text(
+                "| Decision | Choice | Status |\n"
+                "| GCP authentication | Workload Identity Federation | locked |\n",
+                encoding="utf-8",
+            )
+            # Only the decision can trigger here: the inventory holds no Google-family
+            # key and neither entry pins gcloud.
+            for name, runs in (("gcp", True), ("aws", False)):
+                with self.subTest(decision_for=name):
+                    result = subprocess.run(
+                        ["/bin/sh", "-c", condition],
+                        cwd=root,
+                        env={**os.environ, "NEW_PROVIDER": name, "BACKEND": "hcp",
+                             "NEW_PROVIDER_MISE_TOOLS": "[]",
+                             "NEW_PROVIDER_CREDENTIALS":
+                                 '[{"key":"SOME_TOKEN","category":"terraform",'
+                                 '"sensitive":true}]'},
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode == 0, runs, result.stderr)
 
     def test_router_and_status_use_the_durable_inventory(self) -> None:
         for path in (CONFIG, STATUS_RUNBOOK):

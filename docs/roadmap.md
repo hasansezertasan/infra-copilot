@@ -5,9 +5,6 @@ oversight. Each item links to the issue that owns it.
 
 ## Known gaps in shipped guidance
 
-- **GCP is a template, not a runbook.** `references/gcp.md` is marked *TEMPLATE — not
-  active*, and its Workload Identity Federation section has a literal `...` where the
-  pool, provider, attribute mapping, and trust condition belong. ([#6](https://github.com/hasansezertasan/infra-copilot/issues/6))
 - **The prune step cannot tell a pending block from a spent one.** `prune-spent-imports`
   is a `git`/`grep` read, so it goes red whenever an `import {}` or `moved {}` block is
   committed — which is also true mid-import, before the apply. Proving spent-ness needs
@@ -25,7 +22,7 @@ oversight. Each item links to the issue that owns it.
   pre-exist, and the provider-neutral Phase 6 has no instances until
   `additional_providers` is populated. Once an entry or an extra Terraform leaf exists,
   its checks are real resumable state; `status` must not call an interrupted adoption
-  healthy. GCP remains a template until #6 fills in its WIF runbook.
+  healthy.
 
 ## Known gaps in the repository itself
 

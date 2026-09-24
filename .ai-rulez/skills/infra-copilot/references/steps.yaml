@@ -1626,7 +1626,16 @@ steps:
     why: A provider changes a locked design decision, and later runs need durable names for every check.
     run: |
       1. Add a row to .infra-copilot/decisions.md whose decision is exactly
-         `Provider: <provider>`, choice is `adopt`, and status is `locked`.
+         `Provider: <provider>`, choice is `adopt`, and status is `locked`, and a second
+         locked row whose decision is exactly `<provider> authentication` and whose
+         choice names the credential mechanism (e.g. `Workload Identity Federation` or
+         `service-account key`). Auth is a decision of its own so a long-lived key is
+         never the unexamined default. In backend: hcp, for a GCP entry (one whose
+         inventory has TFC_GCP_*, GOOGLE_*, GCLOUD_*, or CLOUDSDK_* keys, whose mise tools
+         include gcloud, or whose choice is a service-account key), the choice must be exactly `Workload Identity Federation`
+         (inventory declares TFC_GCP_PROVIDER_AUTH) or `service-account key` (inventory
+         declares GOOGLE_CREDENTIALS as a sensitive env variable and not
+         TFC_GCP_PROVIDER_AUTH).
       2. Add terraform/<provider> to terraform/README.md.
       3. For backend: hcp:
          Add an `additional_providers` entry to .infra-copilot/config.md with its
@@ -1699,15 +1708,67 @@ steps:
           and length == (map(.category + "\u0000" + .key) | unique | length)' \
           >/dev/null || exit 1
       fi
-      awk -F '|' -v provider="$NEW_PROVIDER" '
+      auth_choice=$(awk -F '|' -v provider="$NEW_PROVIDER" '
         function clean(value) {
           gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
           return tolower(value)
         }
-        BEGIN { found=0; expected="provider: " tolower(provider) }
+        BEGIN { found=0; auth=0; expected="provider: " tolower(provider)
+          auth_expected=tolower(provider) " authentication" }
         clean($2) == expected && clean($3) == "adopt" && clean($4) == "locked" { found=1 }
-        END { exit !found }
-      ' .infra-copilot/decisions.md || exit 1
+        clean($2) == auth_expected && clean($3) != "" && clean($4) == "locked" {
+          auth++; choice=clean($3)
+        }
+        # Exactly one locked authentication row: two would be simultaneously
+        # authoritative, and "last one wins" would make row order the decision.
+        END { if (found && auth == 1) print choice; exit !(found && auth == 1) }
+      ' .infra-copilot/decisions.md) || exit 1
+      # The recorded mechanism must be the one the inventory actually installs, in both
+      # directions: a locked keyless decision over a key inventory would otherwise skip
+      # the WIF trust check and go green on the key it rejected.
+      # Scoped to GCP inventories — any key in a family the Google provider or SDK reads
+      # (TFC_GCP_*, GOOGLE_*, GCLOUD_*, CLOUDSDK_*). Other providers use the same words
+      # for their own federation (Azure's ARM_USE_OIDC, say) and must not be held to a
+      # GCP variable; a GCLOUD_KEYFILE_JSON inventory under a WIF decision must. Case
+      # is ignored: a terraform-category google_credentials is the same family.
+      # An entry is also GCP when it pins gcloud or chooses a service-account key, so a
+      # key stored under a custom name (GCP_KEY) cannot skip these rules.
+      is_gcp=false
+      printf '%s' "$NEW_PROVIDER_CREDENTIALS" \
+        | jq -e 'any(.[]; .key | test("^(TFC_GCP_|GOOGLE_|GCLOUD_|CLOUDSDK_)"; "i"))' >/dev/null \
+        && is_gcp=true
+      printf '%s' "$NEW_PROVIDER_MISE_TOOLS" | jq -e 'index("gcloud") != null' >/dev/null \
+        && is_gcp=true
+      case "$auth_choice" in "service-account key"|"service account key") is_gcp=true ;; esac
+      if [ "$BACKEND" != "object-storage" ] && [ "$is_gcp" = true ]; then
+        # Exactly one of the two documented mechanisms, never free text reduced to a
+        # keyword: "do not use workload identity federation" is not a WIF decision.
+        case "$auth_choice" in
+          "workload identity federation") choice_wif=true ;;
+          "service-account key"|"service account key") choice_wif=false ;;
+          *) exit 1 ;;
+        esac
+        inventory_wif=false
+        printf '%s' "$NEW_PROVIDER_CREDENTIALS" \
+          | jq -e 'any(.[]; .key == "TFC_GCP_PROVIDER_AUTH")' >/dev/null && inventory_wif=true
+        test "$choice_wif" = "$inventory_wif" || exit 1
+        # The key must stay a sensitive env variable: declared non-sensitive, the vars
+        # API would hand its value to the plan-only agent.
+        # ...and it must be the only credential: an extra GOOGLE_OAUTH_ACCESS_TOKEN or
+        # GCLOUD_KEYFILE_JSON could authenticate instead (and, non-sensitive, be read by
+        # the agent). Only identity-free location settings may sit beside it.
+        if [ "$choice_wif" = false ]; then
+          printf '%s' "$NEW_PROVIDER_CREDENTIALS" | jq -e 'any(.[];
+            .key == "GOOGLE_CREDENTIALS" and .category == "env" and .sensitive == true)' \
+            >/dev/null || exit 1
+          printf '%s' "$NEW_PROVIDER_CREDENTIALS" | jq -e 'all(.[];
+            (.key | test("^(TFC_GCP_|GOOGLE_|GCLOUD_|CLOUDSDK_)"; "i") | not)
+            or .key == "GOOGLE_CREDENTIALS"
+            or (.key | IN("GOOGLE_PROJECT", "GOOGLE_REGION", "GOOGLE_ZONE",
+                          "GOOGLE_CLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT")))' \
+            >/dev/null || exit 1
+        fi
+      fi
       grep -Eq "(^|[^A-Za-z0-9_-])terraform/$NEW_PROVIDER(/|[^A-Za-z0-9_-]|$)" \
         terraform/README.md || exit 1
       git ls-files --error-unmatch .infra-copilot/config.md \
@@ -1716,7 +1777,7 @@ steps:
         .infra-copilot/decisions.md terraform/README.md || exit 1
       git diff --cached --quiet HEAD -- .infra-copilot/config.md \
         .infra-copilot/decisions.md terraform/README.md
-    produces: locked provider decision plus a non-secret verification inventory
+    produces: locked provider and authentication decisions plus a non-secret verification inventory
     docs: config.md
 
   - id: new-provider-leaf
@@ -2066,6 +2127,49 @@ steps:
     tri_state: true
     produces: exact declared workspace-variable metadata in HCP
     docs: docs/secrets.md
+
+  - id: new-provider-gcp-wif-trust
+    phase: 6
+    provider: gcp
+    actor: HUMAN
+    # Runs for every GCP entry — WIF or key — keyed on the inventory, tools, and
+    # decision rather than the provider's name. Skipped only when the inventory is
+    # provably a list with no Google-family key, the entry does not pin gcloud, and no
+    # locked WIF row exists; an unreadable inventory runs the check.
+    when: >-
+      { [ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]; } &&
+      { ! printf '%s' "$NEW_PROVIDER_CREDENTIALS" |
+        jq -e 'type == "array" and all(.[]; .key | test("^(TFC_GCP_|GOOGLE_|GCLOUD_|CLOUDSDK_)"; "i") | not)' >/dev/null 2>&1 ||
+        printf '%s' "${NEW_PROVIDER_MISE_TOOLS:-[]}" | jq -e 'index("gcloud") != null' >/dev/null 2>&1 ||
+        awk -F '|' -v provider="$NEW_PROVIDER" '
+          function clean(v) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return tolower(v) }
+          clean($2) == tolower(provider) " authentication" &&
+          clean($3) == "workload identity federation" && clean($4) == "locked" { found=1 }
+          END { exit !found }' .infra-copilot/decisions.md 2>/dev/null; }
+    title: Verify the GCP run identity (WIF trust scope, or key-only configuration)
+    why: >-
+      Every HCP customer shares the issuer, so an unconditioned or name-only trust lets
+      another organization impersonate the service account while every plan stays green.
+    run: |
+      For a key-based entry, remove any Google credential variable other than the
+      sensitive GOOGLE_CREDENTIALS and any credentials/access_token/
+      impersonate_service_account argument from the google provider blocks. For WIF,
+      using your own gcloud login, fix what the check reported, following gcp.md's
+      "create the WIF trust" section: the provider's issuer must be exactly
+      https://app.terraform.io, its attribute condition must be `&&`-joined terms in
+      the forms gcp.md lists, binding both the HCP organization and this workspace
+      (name or ws- ID), and every member holding roles/iam.workloadIdentityUser on the
+      run service accounts must be a principal of that pool, and no federated principal
+      outside it may hold any role on those accounts or an impersonation role on their
+      projects. Detach any variable sets. The TFC_GCP_* coordinates must stay
+      non-sensitive so they can be read.
+      If the check could not verify (exit 2), log in with an account that can read the
+      pool and service-account IAM policies (`gcloud auth login`). Reply `done`; the
+      agent re-runs this check.
+    tri_state: true
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/gcp-wif-trust.sh"
+    produces: runs that use only the declared identity (a WIF trust only this workspace can use, or the sensitive key)
+    docs: gcp.md#human--create-the-wif-trust
 
   - id: new-provider-plan
     phase: 6

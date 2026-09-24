@@ -5,8 +5,8 @@ description: "Provision something new in an already-bootstrapped infra repo: a m
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:5cfa0f88d53b7bee37e8ec5334b390d8d29a9e1945368a1bd4c1d48a3d549d31
-Source-Hash: blake3:8082f1b00d319c34cad7aa62eb0ccd5b93a7cebb1eec147d26fc85a9e28ee62c
+Content-Hash: blake3:21f7c9aea7161dd3c1ea40d208f53122a72795c0dd357c9676a41a45caefec8c
+Source-Hash: blake3:0c8fe49f2b9176078253d4b7766935d2df696eb77be572991dc7115fc0470241
 Schema-Version: v1
 -->
 
@@ -70,14 +70,14 @@ workspace/token already exist, so this is pure Terraform:
 ### 3. Adopt a brand-new provider (largest — a design decision)
 
 Adding a provider like **GCP** is a **locked-design-decision change**, not a routine add.
-GCP is *not* provisioned today (template only).
+GCP is opt-in: nothing is provisioned until the decision is recorded.
 
 Route a new-provider adoption through Phase 6 of
 [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml), using
 the shared resume protocol. The manifest and protocol own the bootstrap behavior,
 sequence, and safety rules.
 
-Template + rationale for the GCP case: [`../infra-copilot/references/gcp.md`](../infra-copilot/references/gcp.md).
+Runbook for the GCP case (keyless WIF auth, adoption hazards): [`../infra-copilot/references/gcp.md`](../infra-copilot/references/gcp.md).
 
 ## Workflow
 

@@ -63,14 +63,14 @@ workspace/token already exist, so this is pure Terraform:
 ### 3. Adopt a brand-new provider (largest — a design decision)
 
 Adding a provider like **GCP** is a **locked-design-decision change**, not a routine add.
-GCP is *not* provisioned today (template only).
+GCP is opt-in: nothing is provisioned until the decision is recorded.
 
 Route a new-provider adoption through Phase 6 of
 [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml), using
 the shared resume protocol. The manifest and protocol own the bootstrap behavior,
 sequence, and safety rules.
 
-Template + rationale for the GCP case: [`../infra-copilot/references/gcp.md`](../infra-copilot/references/gcp.md).
+Runbook for the GCP case (keyless WIF auth, adoption hazards): [`../infra-copilot/references/gcp.md`](../infra-copilot/references/gcp.md).
 
 ## Workflow
 
