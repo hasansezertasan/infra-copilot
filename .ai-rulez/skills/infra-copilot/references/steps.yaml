@@ -2132,26 +2132,29 @@ steps:
     phase: 6
     provider: gcp
     actor: HUMAN
-    # Keyed on the inventory and the decision, not the provider's name: an entry called
-    # gcp-prod declaring TFC_GCP_PROVIDER_AUTH is still a WIF adoption, and so is one
-    # whose locked authentication row says Workload Identity Federation whatever its
-    # inventory holds. Skipped only when the inventory is provably a list without that
-    # key AND no such row exists; an unreadable inventory runs the check.
+    # Runs for every GCP entry — WIF or key — keyed on the inventory, tools, and
+    # decision rather than the provider's name. Skipped only when the inventory is
+    # provably a list with no Google-family key, the entry does not pin gcloud, and no
+    # locked WIF row exists; an unreadable inventory runs the check.
     when: >-
       { [ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]; } &&
       { ! printf '%s' "$NEW_PROVIDER_CREDENTIALS" |
-        jq -e 'type == "array" and all(.[]; .key != "TFC_GCP_PROVIDER_AUTH")' >/dev/null 2>&1 ||
+        jq -e 'type == "array" and all(.[]; .key | test("^(TFC_GCP_|GOOGLE_|GCLOUD_|CLOUDSDK_)"; "i") | not)' >/dev/null 2>&1 ||
+        printf '%s' "${NEW_PROVIDER_MISE_TOOLS:-[]}" | jq -e 'index("gcloud") != null' >/dev/null 2>&1 ||
         awk -F '|' -v provider="$NEW_PROVIDER" '
           function clean(v) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return tolower(v) }
           clean($2) == tolower(provider) " authentication" &&
           clean($3) == "workload identity federation" && clean($4) == "locked" { found=1 }
           END { exit !found }' .infra-copilot/decisions.md 2>/dev/null; }
-    title: Scope the GCP workload identity trust to this organization and workspace
+    title: Verify the GCP run identity (WIF trust scope, or key-only configuration)
     why: >-
       Every HCP customer shares the issuer, so an unconditioned or name-only trust lets
       another organization impersonate the service account while every plan stays green.
     run: |
-      Using your own gcloud login, fix what the check reported, following gcp.md's
+      For a key-based entry, remove any Google credential variable other than the
+      sensitive GOOGLE_CREDENTIALS and any credentials/access_token/
+      impersonate_service_account argument from the google provider blocks. For WIF,
+      using your own gcloud login, fix what the check reported, following gcp.md's
       "create the WIF trust" section: the provider's issuer must be exactly
       https://app.terraform.io, its attribute condition must be `&&`-joined terms in
       the forms gcp.md lists, binding both the HCP organization and this workspace
@@ -2165,7 +2168,7 @@ steps:
       agent re-runs this check.
     tri_state: true
     check: sh "$INFRA_COPILOT_REFERENCES/checks/gcp-wif-trust.sh"
-    produces: a WIF trust only this organization's workspace can use
+    produces: runs that use only the declared identity (a WIF trust only this workspace can use, or the sensitive key)
     docs: gcp.md#human--create-the-wif-trust
 
   - id: new-provider-plan

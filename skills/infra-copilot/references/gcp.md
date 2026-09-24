@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:28422a476f8bf79b2c94bce1a538ab732a35a649ce0534456d161fa6f3c6ebc5
-Source-Hash: blake3:87a9ccd8a01c988fcdaf154a464e916c1b6dd231ae6af5985c813f51a13349d6
+Content-Hash: blake3:015066ee9cb486ac50c91f88dab950fba195d7c963d0b9861ec0aabce07a8965
+Source-Hash: blake3:0c8fe49f2b9176078253d4b7766935d2df696eb77be572991dc7115fc0470241
 Schema-Version: v1
 -->
 
@@ -282,7 +282,10 @@ plan and apply identities.
 
 A key-based adoption declares only `GOOGLE_CREDENTIALS` (`category: env`,
 `sensitive: true`, the key JSON pasted by the human) and none of the `TFC_GCP_*`
-variables, so `new-provider-gcp-wif-trust` is skipped.
+variables. `new-provider-gcp-wif-trust` then runs in key mode: no variable set, no other
+Google credential variable, and no `credentials`, `access_token`, or
+`impersonate_service_account` argument in any google provider block — the key arrives
+through the environment, so any such argument would be a second identity.
 
 > **With WIF, never set `GOOGLE_CREDENTIALS`, `GOOGLE_APPLICATION_CREDENTIALS`, or any
 > other Google credential or identity variable** (`GOOGLE_OAUTH_ACCESS_TOKEN`,

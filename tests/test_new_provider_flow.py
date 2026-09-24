@@ -1290,11 +1290,12 @@ terraform {
         for name, credentials, backend, runs in (
             ("gcp", wif, "hcp", True),
             ("gcp-prod", wif, "hcp", True),      # keyed on the inventory, not the name
-            ("gcp", key, "hcp", False),          # key-based adoption
+            ("gcp", key, "hcp", True),           # key-based adoption: key mode
             ("aws", '[{"key":"AWS_ROLE_ARN","category":"env","sensitive":false}]', "hcp", False),
             ("gcp", "not json", "hcp", True),    # unreadable: run, never silently skip
             ("gcp", "", "hcp", True),
             ("gcp", wif, "object-storage", False),
+            ("gcp", '[{"key":"GCP_KEY","category":"terraform","sensitive":true}]', "hcp", False),
         ):
             with self.subTest(name=name, credentials=credentials, backend=backend):
                 result = subprocess.run(
@@ -1315,14 +1316,17 @@ terraform {
                 "| GCP authentication | Workload Identity Federation | locked |\n",
                 encoding="utf-8",
             )
+            # Only the decision can trigger here: the inventory holds no Google-family
+            # key and neither entry pins gcloud.
             for name, runs in (("gcp", True), ("aws", False)):
                 with self.subTest(decision_for=name):
                     result = subprocess.run(
                         ["/bin/sh", "-c", condition],
                         cwd=root,
                         env={**os.environ, "NEW_PROVIDER": name, "BACKEND": "hcp",
+                             "NEW_PROVIDER_MISE_TOOLS": "[]",
                              "NEW_PROVIDER_CREDENTIALS":
-                                 '[{"key":"google_credentials","category":"terraform",'
+                                 '[{"key":"SOME_TOKEN","category":"terraform",'
                                  '"sensitive":true}]'},
                         capture_output=True, text=True,
                     )

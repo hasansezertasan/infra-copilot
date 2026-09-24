@@ -72,17 +72,30 @@ var() {
         | if . == null then "" elif .sensitive then "<sensitive>" else (.value // "") end'
 }
 
+# Key mode: a service-account-key adoption (sensitive GOOGLE_CREDENTIALS, no
+# TFC_GCP_PROVIDER_AUTH) has no federation trust, but the same question applies — does
+# the run use the declared identity? — so it gets the variable-family and provider-block
+# checks, with GOOGLE_CREDENTIALS as the one allowed credential and no provider identity
+# argument at all (the key arrives through the environment), and then stops.
+key_mode=false
+if [ -z "$(var TFC_GCP_PROVIDER_AUTH)" ] \
+    && printf '%s' "$vars" | jq -e 'any(.data[].attributes;
+        .key == "GOOGLE_CREDENTIALS" and .category == "env" and .sensitive == true)' >/dev/null; then
+    key_mode=true
+fi
+
 # The Google provider and SDK read credentials, tokens, and impersonation targets from a
 # family of variables (GOOGLE_CREDENTIALS, GOOGLE_OAUTH_ACCESS_TOKEN,
 # GOOGLE_CLOUD_KEYFILE_JSON, GCLOUD_KEYFILE_JSON, GOOGLE_IMPERSONATE_SERVICE_ACCOUNT,
 # CLOUDSDK_AUTH_*, ...). Any of them would make the run use an identity other than the
 # one verified below, so the family is refused wholesale rather than listed; only
 # location settings, which carry no identity, are allowed through.
-overrides=$(printf '%s' "$vars" | jq -r '
+overrides=$(printf '%s' "$vars" | jq -r --argjson key_mode "$key_mode" '
     .data[].attributes | select(.category == "env") | .key
     | select(test("^(GOOGLE_|GCLOUD_|CLOUDSDK_)"))
     | select(IN("GOOGLE_PROJECT", "GOOGLE_REGION", "GOOGLE_ZONE",
-                "GOOGLE_CLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT") | not)')
+                "GOOGLE_CLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT") | not)
+    | select($key_mode and . == "GOOGLE_CREDENTIALS" | not)')
 [ -z "$overrides" ] \
     || fail "$NEW_PROVIDER_WORKSPACE sets Google credential or identity variables that override dynamic credentials — delete them: $(printf '%s' "$overrides" | tr '\n' ' ')"
 
@@ -98,6 +111,14 @@ overrides=$(printf '%s' "$vars" | jq -r '
 # exemption is anchored
 # to the whole assignment (after grep -n's "N:" prefix): unanchored, the allowed text
 # inside a trailing comment would excuse a static key before it.
+# In key mode nothing is exempt: the pattern below can never match a real line.
+if [ "$key_mode" = true ]; then
+    allowed_hcl='^$never'
+    allowed_json='^$never'
+else
+    allowed_hcl='^[0-9]+:[[:space:]]*credentials[[:space:]]*=[[:space:]]*try\(var\.tfc_gcp_dynamic_credentials\.(default|aliases\["[A-Za-z0-9_-]+"\])\.credentials,[[:space:]]*null\)[[:space:]]*(#.*)?$'
+    allowed_json='^credentials = \$\{try\(var\.tfc_gcp_dynamic_credentials\.(default|aliases\["[A-Za-z0-9_-]+"\])\.credentials, ?null\)\}$'
+fi
 if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
     static=$(find "terraform/$NEW_PROVIDER" terraform/modules -name '*.tf' -type f 2>/dev/null \
         | while IFS= read -r file; do
@@ -165,7 +186,7 @@ if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
                 print out
             }' "$file" \
                 | grep -En '(^[[:space:]]*(credentials|access_token|impersonate_service_account)([^A-Za-z0-9_-]|$))|([^A-Za-z0-9_.-](credentials|access_token|impersonate_service_account)[[:space:]]*=)' \
-                | grep -Ev '^[0-9]+:[[:space:]]*credentials[[:space:]]*=[[:space:]]*try\(var\.tfc_gcp_dynamic_credentials\.(default|aliases\["[A-Za-z0-9_-]+"\])\.credentials,[[:space:]]*null\)[[:space:]]*(#.*)?$' \
+                | grep -Ev "$allowed_hcl" \
                 | sed "s|^|$file:|"
         done)
     # Phase 6 accepts JSON-syntax leaves too; the same keys in a google or google-beta
@@ -184,13 +205,17 @@ if [ -n "${NEW_PROVIDER:-}" ] && [ -d "terraform/$NEW_PROVIDER" ]; then
             | "\(.key) = \(.value | tostring)"' "$file" 2>/dev/null) \
             || cannot_verify "could not parse $file as JSON to look for provider identity arguments"
         bad=$(printf '%s\n' "$found" | sed '/^$/d' \
-            | grep -Ev '^credentials = \$\{try\(var\.tfc_gcp_dynamic_credentials\.(default|aliases\["[A-Za-z0-9_-]+"\])\.credentials, ?null\)\}$' \
+            | grep -Ev "$allowed_json" \
             | sed "s|^|$file: |" || true)
         [ -z "$bad" ] || static="$static${static:+
 }$bad"
     done
     [ -z "$static" ] \
-        || fail "the committed configuration sets a Google identity argument other than the dynamic-credentials form, so runs may not use the verified trust: $static"
+        || fail "the committed configuration sets a Google identity argument other than the one allowed for this mode (key mode: none; WIF: the dynamic-credentials form), so runs may not use the declared identity: $static"
+fi
+
+if [ "$key_mode" = true ]; then
+    exit 0
 fi
 
 # Tagged configurations (TFC_GCP_*_<TAG>, TFC_DEFAULT_GCP_*) give provider aliases their

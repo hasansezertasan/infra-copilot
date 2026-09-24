@@ -550,6 +550,19 @@ class GcpWifTrustTests(unittest.TestCase):
         self.assert_exit(self.run_check(variables=variables, policies={
             plan_sa: [f"{phase}/apply"], apply_sa: [f"{phase}/apply"]}), 1)
 
+    def test_key_mode_allows_only_the_environment_key(self) -> None:
+        key = [env_var("GOOGLE_CREDENTIALS", "", sensitive=True)]
+        self.assert_exit(self.run_check(variables=key, tf_files={
+            "terraform/gcp/providers.tf": 'provider "google" {\n  project = "p"\n}\n'}), 0)
+        for line in ('  credentials = var.GCP_KEY\n',
+                     '  credentials = try(var.tfc_gcp_dynamic_credentials.default.credentials, null)\n'):
+            with self.subTest(line=line):
+                self.assert_exit(self.run_check(variables=key, tf_files={
+                    "terraform/gcp/providers.tf": 'provider "google" {\n' + line + '}\n'}), 1)
+        self.assert_exit(self.run_check(
+            variables=[*key, env_var("GOOGLE_OAUTH_ACCESS_TOKEN", "t")]), 1)
+        self.assert_exit(self.run_check(variables=key, varsets=1), 1)
+
     def test_only_service_account_impersonation_is_verifiable(self) -> None:
         pool_mode = [DEFAULT_VARS[0], env_var("TFC_GCP_PRINCIPAL_TYPE", "workload_pool"),
                      *DEFAULT_VARS[2:]]
