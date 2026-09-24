@@ -165,8 +165,8 @@ version is below 1.0, a breaking change also bumps only the minor version
 (`bump-minor-pre-major`).
 
 The release PR bumps every version copy `validate_versions` compares and adds the
-`CHANGELOG.md` section, and the release workflow runs `check` on it (see *Repository
-setup*). Merging it is the release: the next run of the workflow runs `check-all` on the
+`CHANGELOG.md` section, and `check` runs on it once approved (see *Repository setup*).
+Merging it is the release: the next run of the workflow runs `check-all` on the
 merged tree, then creates the `vX.Y.Z` tag and the GitHub Release. Nobody edits a version
 string or a changelog heading by hand, and a tag pushed by hand publishes nothing.
 
@@ -190,18 +190,18 @@ The workflow uses the default `GITHUB_TOKEN`, so there is no secret to store. It
 one repository setting: **Settings → Actions → General → Allow GitHub Actions to create
 and approve pull requests**. Without it release-please cannot open the release PR.
 
-GitHub starts no `pull_request` workflow for a branch that `GITHUB_TOKEN` pushes, so the
-release PR would show no `check` runs. A `workflow_dispatch` sent with `GITHUB_TOKEN` is
-the exception, so the release workflow dispatches `check.yml` on the release branch after
-every rewrite, once the regenerated commit is pushed. The runs land on the branch head
-and show on the PR. A GitHub App token would also trigger them, but it is a stored
-credential with write access to `main`.
+The release PR is opened and updated with `GITHUB_TOKEN`, so GitHub treats its author,
+`github-actions[bot]`, as a first-time contributor and holds its `check` run for approval.
+Open the PR's **Checks** tab and choose **Approve and run workflows** before merging; a
+push by release-please or by the regenerate step needs a new approval. Dispatching
+`check.yml` from the release workflow does not replace this step: a `workflow_dispatch`
+run's checks land on the branch head but are not counted for the PR. A GitHub App token
+would also avoid it, but it is a stored credential with write access to `main`.
 
-`main` is protected by a ruleset: changes land by pull request, and the three `check`
-jobs (`validate`, `Smoke-test the OpenCode payload`, `Validate portable paths (Windows)`)
-must pass on the PR's head. Every release-please rewrite moves the head to a commit with
-no checks, so the release PR cannot be merged between a rewrite and its regenerated,
-checked commit.
+`main` is protected by a ruleset: changes land by squash-merged pull request, and the
+three `check` jobs (`validate`, `Smoke-test the OpenCode payload`, `Validate portable
+paths (Windows)`) must pass on the PR's head. The release PR therefore cannot be merged
+before its run is approved and green, nor between a rewrite and its regenerated commit.
 
 ### Recovering a release
 
