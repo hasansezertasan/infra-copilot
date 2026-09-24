@@ -165,11 +165,10 @@ version is below 1.0, a breaking change also bumps only the minor version
 (`bump-minor-pre-major`).
 
 The release PR bumps every version copy `validate_versions` compares and adds the
-`CHANGELOG.md` section. `make check` runs on it once it is closed and reopened (see
-*Repository setup*). Merging it is the
-release: the next run of the workflow runs `check-all` on the merged tree, then creates
-the `vX.Y.Z` tag and the GitHub Release. Nobody edits a version string or a changelog
-heading by hand, and a tag pushed by hand publishes nothing.
+`CHANGELOG.md` section, and the release workflow runs `check` on it (see *Repository
+setup*). Merging it is the release: the next run of the workflow runs `check-all` on the
+merged tree, then creates the `vX.Y.Z` tag and the GitHub Release. Nobody edits a version
+string or a changelog heading by hand, and a tag pushed by hand publishes nothing.
 
 The tagged repository tree is the installable artifact; there is no separate npm or
 Python package to publish.
@@ -191,11 +190,18 @@ The workflow uses the default `GITHUB_TOKEN`, so there is no secret to store. It
 one repository setting: **Settings → Actions → General → Allow GitHub Actions to create
 and approve pull requests**. Without it release-please cannot open the release PR.
 
-GitHub starts no workflow for a PR that `GITHUB_TOKEN` opens or updates, so the release
-PR shows no `check` runs at first. Close and reopen it before merging to run them. A
-GitHub App token would avoid that step, but it is a stored credential with write access
-to `main`. Like the other repositories using release-please, this one accepts the
-manual step instead.
+GitHub starts no `pull_request` workflow for a branch that `GITHUB_TOKEN` pushes, so the
+release PR would show no `check` runs. A `workflow_dispatch` sent with `GITHUB_TOKEN` is
+the exception, so the release workflow dispatches `check.yml` on the release branch after
+every rewrite, once the regenerated commit is pushed. The runs land on the branch head
+and show on the PR. A GitHub App token would also trigger them, but it is a stored
+credential with write access to `main`.
+
+`main` is protected by a ruleset: changes land by pull request, and the three `check`
+jobs (`validate`, `Smoke-test the OpenCode payload`, `Validate portable paths (Windows)`)
+must pass on the PR's head. Every release-please rewrite moves the head to a commit with
+no checks, so the release PR cannot be merged between a rewrite and its regenerated,
+checked commit.
 
 ### Recovering a release
 
@@ -220,11 +226,10 @@ push, no release is created. release-please then leaves the merged PR labelled
 ### The first release
 
 The manifest starts at `0.1.0`, the only tag, so the first release PR proposes the next
-minor version, which the version copies already name. The hand-written `(unreleased)`
-section in `CHANGELOG.md` predates release-please, and the release PR adds its generated
-section for the same version above it. Merge the two by hand in that PR once, just before
-merging it. release-please rewrites the PR on every push to `main`, so an earlier edit
-would be lost. Delete this subsection in the same PR.
+minor version, which the version copies already name. That version's `(summary)` section
+in `CHANGELOG.md` was written by hand before release-please; the release PR adds its
+generated section for the same version above it and leaves the summary as it is. No
+release after that has a hand-written section.
 
 ## Versioning
 

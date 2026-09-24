@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0 (summary)
 
 - `references/gcp.md` is now a runbook rather than a template: the Workload Identity
   Federation setup is complete (trust scoped to one HCP organization and workspace, the

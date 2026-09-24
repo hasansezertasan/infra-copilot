@@ -52,6 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      actions: write # dispatches `check` on the release PR branch
       contents: write
       issues: write # release-please manages PR labels via the Issues API
       pull-requests: write
@@ -72,8 +73,8 @@ jobs:
             | select(.merged_at != null)
             | select(any(.labels[]; .name == "autorelease: pending"))] | length')
           echo "is-release-merge=$([ "$pending" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      # GITHUB_TOKEN, so the release PR needs a close and reopen before `check` runs on
-      # it. CONTRIBUTING ("Repository setup") records why that trade was taken.
+      # GITHUB_TOKEN, so no workflow starts for the release PR on its own; the last step
+      # dispatches `check` instead. CONTRIBUTING ("Repository setup") records why.
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release-please
         with:
@@ -111,3 +112,14 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "chore: regenerate host packages for the release"
           git push origin "HEAD:$BRANCH"
+
+      # GitHub starts no `pull_request` workflow for a branch GITHUB_TOKEN pushed, but a
+      # `workflow_dispatch` it sends does run. Its check runs land on the branch head, so
+      # they appear on the release PR and satisfy the ruleset's required checks. Last, so
+      # they run on the regenerated commit, and also when regeneration had nothing to add.
+      - name: Run check on the release PR branch
+        if: steps.release-please.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ fromJSON(steps.release-please.outputs.pr).headBranchName }}
+        run: gh workflow run check.yml --ref "$BRANCH"
