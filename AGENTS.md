@@ -22,11 +22,11 @@ valid in them: the JSON manifests (`marketplace.json`, `plugin.json`),
 (`terraform-apply.yml`, `terraform-plan.yml`). Absence of the header is not evidence a
 file is safe to edit. The manifest is the authority; the header is only a convenience.
 
-One writer is exempt: the release PR that release-please opens. It bumps the version in
-the three generated JSON manifests alongside `.ai-rulez/config.toml`, their source, in
-the same commit, so `make generate` reproduces the same files and the drift check stays
-green. That exemption covers only the version field and only release-please — hand edits
-to those manifests are still wrong.
+One writer is exempt: the release PR. release-please bumps the version in the three
+generated JSON manifests alongside `.ai-rulez/config.toml`, their source, and the release
+workflow then runs `make generate` on the PR branch and commits the result — the bump
+changes the source hash every generated file records. That exemption covers only the
+release workflow — hand edits to generated files are still wrong.
 
 ## File resolution
 

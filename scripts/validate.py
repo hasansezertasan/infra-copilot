@@ -1480,8 +1480,8 @@ def changelog_version(root: Path = ROOT) -> tuple[str | None, str]:
     """The version token of the *newest* release heading, and that heading's text.
 
     A release heading is any `## ` heading, or a `### ` heading opening with a
-    `[` -- release-please writes a patch release as `### [0.2.1](…)` and every
-    other release as `## [0.3.0](…)`, and the link form is accepted at both
+    `[` -- release-please writes a patch release as `### [X.Y.Z](…)` and every
+    other release as `## [X.Y.Z](…)`, and the link form is accepted at both
     levels. A `### ` heading without the bracket (`### Features`) is a section
     inside a release, not a release.
 

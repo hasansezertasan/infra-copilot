@@ -75,7 +75,39 @@ jobs:
       # GITHUB_TOKEN, so the release PR needs a close and reopen before `check` runs on
       # it. CONTRIBUTING ("Repository setup") records why that trade was taken.
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release-please
         with:
           config-file: .config/release-please-config.json
           manifest-file: .config/release-please-manifest.json
           skip-github-release: ${{ steps.release-merge.outputs.is-release-merge != 'true' }}
+
+      # Bumping `.ai-rulez/config.toml` changes the source hash that `.ai-rulez-generated.json`
+      # and every generated Markdown header record, which release-please cannot compute.
+      # Without this the release PR fails `ai-rulez verify --plugin`. release-please
+      # force-pushes its branch whenever it rewrites the PR, dropping this commit, and it
+      # reports the PR as created or updated exactly then -- so the commit is re-added on
+      # every run that removed it.
+      - name: Check out the release PR branch
+        if: steps.release-please.outputs.prs_created == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ fromJSON(steps.release-please.outputs.pr).headBranchName }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: steps.release-please.outputs.prs_created == 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - name: Regenerate the host packages on the release PR branch
+        if: steps.release-please.outputs.prs_created == 'true'
+        env:
+          BRANCH: ${{ fromJSON(steps.release-please.outputs.pr).headBranchName }}
+        run: |
+          make generate
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "generated output already matches the bumped version"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: regenerate host packages for the release"
+          git push origin "HEAD:$BRANCH"

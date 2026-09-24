@@ -206,9 +206,16 @@ push, no release is created. release-please then leaves the merged PR labelled
 
 - A transient failure: re-run the failed or cancelled run for that merge commit from the
   Actions tab.
-- `check-all` genuinely failed: remove the `autorelease: pending` label from the merged
-  release PR and merge the fix. The next push opens a fresh release PR for the same
-  version, which now includes the fix.
+- `check-all` genuinely failed: merge the fix. The merged release PR already moved every
+  version copy and the manifest to the new version, so release-please will not propose it
+  again. Once the release workflow's `validate` job passes on the fix commit, create the
+  release by hand on that commit, then mark the release PR as released so release-please
+  continues from it:
+
+  ```bash
+  gh release create vX.Y.Z --target <fix-commit-sha> --title vX.Y.Z --generate-notes
+  gh pr edit <release-pr> --remove-label "autorelease: pending" --add-label "autorelease: tagged"
+  ```
 
 ### The first release
 
@@ -230,7 +237,10 @@ any `##` heading, or a `###` heading that opens with `[`, which is how release-p
 writes a patch release.
 
 release-please bumps all five files in the release PR, including the generated
-manifests, so `make generate` produces the same output and the drift check stays green.
+manifests. The bump also changes the source hash that `.ai-rulez-generated.json` and
+every generated Markdown header record, which release-please cannot compute, so the
+release workflow runs `make generate` on the PR branch and pushes the result. That keeps
+`ai-rulez verify --plugin` green on the release PR.
 `validate_release_please` fails any PR that adds a compared file without adding it to
 `extra-files` in `.config/release-please-config.json`. Without that check, the first
 failure would come on the release PR itself.
