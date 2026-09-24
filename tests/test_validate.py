@@ -11,6 +11,7 @@ from pathlib import Path
 
 from scripts.validate import (
     JSON_MANIFESTS,
+    RELEASE_PLEASE_CONFIG,
     MAX_DESCRIPTION_BUDGET,
     TOOL_PACKAGES,
     TOOL_PIN_WORKFLOWS,
@@ -27,6 +28,7 @@ from scripts.validate import (
     validate_links,
     validate_manifest_paths,
     validate_phase_five_rule,
+    validate_release_please,
     validate_toolchain_contract,
     audited_version,
     validate_shipped_check_paths,
@@ -1497,6 +1499,136 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             )
 
             self.assertEqual(validate_versions(repository), [])
+
+    def test_release_please_headings_are_read(self) -> None:
+        """release-please links the version, and writes a patch release at `###`.
+
+        Its `## [X.Y.Z](…) (date)` heading failed the old `## <version>` match, so
+        every release PR would have failed `make check`.
+        """
+        link = "https://github.com/o/r/compare/v9.9.8...v9.9.9"
+        for changelog in (
+            f"## [9.9.9]({link}) (2026-09-24)\n\n### Features\n\n* x\n",
+            f"### [9.9.9]({link}) (2026-09-24)\n\n### Bug Fixes\n\n## 9.9.8\n",
+            f"## [9.9.9]({link}) (2026-09-24)\n\n## 9.9.9 (unreleased)\n",
+        ):
+            with self.subTest(changelog=changelog):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._version_fixture(repository, changelog=changelog)
+
+                    self.assertEqual(validate_versions(repository), [])
+
+    def test_section_heading_is_not_a_release(self) -> None:
+        """`### Features` above a release heading must not hide drift below it."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._version_fixture(
+                repository, changelog="### Features\n\n## [9.9.8](u) (2026-09-24)\n"
+            )
+
+            self.assertEqual(
+                validate_versions(repository),
+                ["CHANGELOG.md: version '9.9.8' != '9.9.9'"],
+            )
+
+    def test_newer_patch_heading_wins_over_an_older_minor(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._version_fixture(
+                repository, changelog="### [9.9.10](u) (2026-09-24)\n\n## [9.9.9](u)\n"
+            )
+
+            self.assertEqual(
+                validate_versions(repository),
+                ["CHANGELOG.md: version '9.9.10' != '9.9.9'"],
+            )
+
+    def test_malformed_linked_heading_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._version_fixture(repository, changelog="## [9.9](u)\n\n## 9.9.9\n")
+
+            self.assertEqual(
+                validate_versions(repository),
+                ["CHANGELOG.md: newest heading '[9.9](u)' does not start with a version"],
+            )
+
+    def test_release_please_bumps_every_compared_copy(self) -> None:
+        self.assertEqual(validate_release_please(), [])
+
+    @staticmethod
+    def _release_please_fixture(root: Path, extra_files: object) -> None:
+        """The version fixture plus a release-please config with `extra_files`."""
+        ValidateReleaseSurfacesTests._version_fixture(root)
+        (root / ".config").mkdir()
+        (root / RELEASE_PLEASE_CONFIG).write_text(
+            json.dumps({"packages": {".": {"extra-files": extra_files}}}),
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def _real_extra_files() -> list[dict[str, str]]:
+        config = json.loads(
+            (Path(__file__).resolve().parents[1] / RELEASE_PLEASE_CONFIG)
+            .read_text(encoding="utf-8")
+        )
+        return config["packages"]["."]["extra-files"]
+
+    def test_release_please_fixture_passes_with_the_real_extra_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._release_please_fixture(repository, self._real_extra_files())
+
+            self.assertEqual(validate_release_please(repository), [])
+
+    def test_release_please_missing_or_wrong_extra_file_is_reported(self) -> None:
+        """A version nothing bumps would fail only on the release PR itself.
+
+        release-please skips a jsonpath that matches nothing, or a file parsed as
+        the wrong type, with only a log warning -- so both count as missing.
+        """
+        target = ".agents/plugins/marketplace.json"
+        for change in (
+            lambda entry: None,
+            lambda entry: {**entry, "jsonpath": "$.plugins[*].verison"},
+            lambda entry: {**entry, "type": "toml"},
+        ):
+            extra_files = [
+                change(entry) if entry["path"] == target else entry
+                for entry in self._real_extra_files()
+            ]
+            with self.subTest(extra_files=extra_files):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    self._release_please_fixture(
+                        repository, [entry for entry in extra_files if entry]
+                    )
+
+                    self.assertEqual(
+                        validate_release_please(repository),
+                        [
+                            ".config/release-please-config.json: extra-files has no "
+                            f"json entry for {target} at $.plugins[*].version, so the "
+                            "release PR would leave that version behind and fail "
+                            "validate_versions"
+                        ],
+                    )
+
+    def test_release_please_malformed_config_is_reported_not_raised(self) -> None:
+        for config in ('{"packages": []}', '{"packages": {".": "x"}}', "[]"):
+            with self.subTest(config=config):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    (repository / ".config").mkdir()
+                    (repository / RELEASE_PLEASE_CONFIG).write_text(
+                        config, encoding="utf-8"
+                    )
+
+                    self.assertEqual(
+                        validate_release_please(repository),
+                        ['.config/release-please-config.json: no object at packages["."]'],
+                    )
 
     def test_repository_spells_the_plugin_version_only_where_it_is_compared(
         self,

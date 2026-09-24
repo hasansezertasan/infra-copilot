@@ -30,7 +30,12 @@
       },
       "homepage": "https://github.com/hasansezertasan/infra-copilot",
       "license": "MIT",
-      "keywords": ["terraform", "infrastructure", "cloudflare", "github"]
+      "keywords": [
+        "terraform",
+        "infrastructure",
+        "cloudflare",
+        "github"
+      ]
     }
   ]
 }
