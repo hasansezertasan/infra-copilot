@@ -47,7 +47,7 @@ Hand-authored, and safe to edit directly:
 | `hooks/` | The SessionStart hook; `ai-rulez` has no hook support, so these are hand-authored |
 | `agents/` | The `infra-auditor` subagent; `ai-rulez` has no agent surface. Which host this directory's dialect serves, and why the others go without, are recorded in [`hosts.md`](../.ai-rulez/skills/infra-copilot/references/hosts.md) |
 | `Makefile`, `.github/workflows/` | Build and CI |
-| `README.md`, `CHANGELOG.md`, `.github/CONTRIBUTING.md`, `AGENTS.md`, `docs/` | Documentation |
+| `README.md`, `.github/CONTRIBUTING.md`, `AGENTS.md`, `docs/` | Documentation |
 
 ## The loop
 
@@ -78,7 +78,6 @@ Generated files are committed on purpose, so users can install the plugin withou
 | `make check-all` | `check` plus the smoke test |
 | `make clean` | removes `.agents/skills`, `skills-lock.json`, `__pycache__` |
 | `make preflight` | checks `node`, `npm` and `python3` are present |
-| `make release` | regenerates, verifies the worktree is clean, runs `check-all`, prints the tag command |
 
 `smoke-opencode` is outside `check` on purpose: installing the plugin is a different
 claim from the payloads being valid, so it is a separate CI job with its own signal, and
@@ -158,25 +157,83 @@ says so by name. Renovate needs no such edit; this is only the repository's own 
 
 ## Releasing
 
-`make release` regenerates the host packages, refuses to continue if generation left the
-worktree dirty, runs **`check-all`**, and prints the tag command. `check-all` rather than
-`check` because it includes the OpenCode smoke test that `release.yml` runs — so a green
-`make release` means the release workflow will not fail on it.
+Releases are cut by [release-please](https://github.com/googleapis/release-please).
+`.github/workflows/release.yml` runs on every push to `main`. It runs `make check-all`,
+then release-please opens or updates a release PR from the Conventional Commit titles
+merged since the last tag. `feat` bumps the minor version and `fix` the patch. While the
+version is below 1.0, a breaking change also bumps only the minor version
+(`bump-minor-pre-major`).
 
-It does not bump anything — the bump is one edit to `[plugin].version` in
-`.ai-rulez/config.toml`, after which `ai-rulez` propagates it to the three generated
-manifests. Two copies are **not** generated and must be edited by hand:
-`.agents/plugins/marketplace.json` and the `CHANGELOG.md` heading. `validate_versions`
-checks all of them, so `check` fails until they agree.
+The release PR bumps every version copy `validate_versions` compares and adds the
+`CHANGELOG.md` section. `make check` runs on it once it is closed and reopened (see
+*Repository setup*). Merging it is the
+release: the next run of the workflow runs `check-all` on the merged tree, then creates
+the `vX.Y.Z` tag and the GitHub Release. Nobody edits a version string or a changelog
+heading by hand, and a tag pushed by hand publishes nothing.
+
+The tagged repository tree is the installable artifact; there is no separate npm or
+Python package to publish.
+
+Because squash merging uses the PR title as the commit message, the PR title decides what
+the release notes say. A `chore`, `docs` or `test` title releases nothing on its own.
+
+The config lives in `.config/`: `release-please-config.json` lists the files to bump, and
+`release-please-manifest.json` records the last released version.
+
+Renovate leaves the release PR alone: it only rebases and updates the `renovate/*`
+branches it created, and release-please's branch is `release-please--branches--main…`.
+Renovate's `chore(deps)` titles do not bump the version, so they release nothing by
+themselves.
+
+### Repository setup
+
+The workflow uses the default `GITHUB_TOKEN`, so there is no secret to store. It needs
+one repository setting: **Settings → Actions → General → Allow GitHub Actions to create
+and approve pull requests**. Without it release-please cannot open the release PR.
+
+GitHub starts no workflow for a PR that `GITHUB_TOKEN` opens or updates, so the release
+PR shows no `check` runs at first. Close and reopen it before merging to run them. A
+GitHub App token would avoid that step, but it is a stored credential with write access
+to `main`. Like the other repositories using release-please, this one accepts the
+manual step instead.
+
+### Recovering a release
+
+The release is created only by the run for the release PR's own merge commit, after
+`check-all` passes on it. If that run fails, or is replaced while still queued by a newer
+push, no release is created. release-please then leaves the merged PR labelled
+`autorelease: pending` and refuses to open the next release PR until it is resolved:
+
+- A transient failure: re-run the failed or cancelled run for that merge commit from the
+  Actions tab.
+- `check-all` genuinely failed: remove the `autorelease: pending` label from the merged
+  release PR and merge the fix. The next push opens a fresh release PR for the same
+  version, which now includes the fix.
+
+### The first release
+
+The manifest starts at `0.1.0`, the only tag, so the first release PR proposes the next
+minor version, which the version copies already name. The hand-written `(unreleased)`
+section in `CHANGELOG.md` predates release-please, and the release PR adds its generated
+section for the same version above it. Merge the two by hand in that PR once, just before
+merging it. release-please rewrites the PR on every push to `main`, so an earlier edit
+would be lost. Delete this subsection in the same PR.
 
 ## Versioning
 
 The canonical plugin version is `[plugin].version` in `.ai-rulez/config.toml`. Four
 manifests carry a copy — three generated (`.claude-plugin/marketplace.json`,
 `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`) and one hand-authored
-(`.agents/plugins/marketplace.json`, which must be bumped by hand). `scripts/validate.py`
-asserts all four agree with each other and with the newest level-2 (`##`) heading in
-`CHANGELOG.md`.
+(`.agents/plugins/marketplace.json`). `scripts/validate.py` asserts all four agree with
+each other and with the newest release heading in `CHANGELOG.md`. A release heading is
+any `##` heading, or a `###` heading that opens with `[`, which is how release-please
+writes a patch release.
+
+release-please bumps all five files in the release PR, including the generated
+manifests, so `make generate` produces the same output and the drift check stays green.
+`validate_release_please` fails any PR that adds a compared file without adding it to
+`extra-files` in `.config/release-please-config.json`. Without that check, the first
+failure would come on the release PR itself.
 
 `validate_versions` discovers version strings inside those manifests, but only in two
 shapes: a top-level `version`, and `plugins[*].version`. Adding another JSON manifest to

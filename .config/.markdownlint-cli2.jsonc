@@ -13,8 +13,12 @@
   },
   // Generated trees are excluded: their content is owned by .ai-rulez/ sources, and
   // linting the output would report the same finding once per host package.
+  // CHANGELOG.md is excluded for the same reason: release-please writes it, with `*`
+  // bullets, commit links past the line limit, and a repeated `### Bug Fixes` under
+  // one release when a patch follows it. A lint failure there would fail the release
+  // PR on output nobody wrote by hand.
   "globs": [
-    "README.md", "AGENTS.md", "CHANGELOG.md", ".github/CONTRIBUTING.md",
+    "README.md", "AGENTS.md", ".github/CONTRIBUTING.md",
     "docs/**/*.md",
     // Canonical sources. A nested .ai-rulez/.markdownlint-cli2.jsonc relaxes
     // line width there; everything else still applies.

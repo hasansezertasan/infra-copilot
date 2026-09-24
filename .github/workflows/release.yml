@@ -1,20 +1,40 @@
 name: release
 
-on:
-  push:
-    tags: ["v*"]
+# release-please opens and maintains a release PR from the Conventional Commit titles
+# that land on `main`. The PR bumps every version copy validate_versions compares and
+# writes the CHANGELOG.md section. Merging it makes the next run of this workflow create
+# the `vX.Y.Z` tag and the GitHub Release. Nothing else creates releases: a tag pushed by
+# hand triggers no workflow.
+#
+# The release is created here rather than by a workflow reacting to the tag, because
+# `check-all` has to pass on the exact tree being released. release-please only runs
+# after `check-all` passes on the same commit, and only creates a release when that
+# commit is the release PR's merge, so a release is never created from a tree that
+# fails it.
 
+on:
+  # For re-running release-please after a transient failure. A manual run still goes
+  # through `validate` first, and the release step still only fires on a release merge.
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+# Never cancelled: a cancelled run between tag creation and release creation would
+# leave a tag without its release. Note that a *pending* run is still replaced when a
+# newer one queues; see "Recovering a release" in CONTRIBUTING.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   validate:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -27,44 +47,35 @@ jobs:
       - name: Run all checks
         run: make check-all
 
-  release:
+  release-please:
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: write
+      issues: write # release-please manages PR labels via the Issues API
+      pull-requests: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: "3.12"
-      - name: Verify tag matches canonical version
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          python3 - <<'PY'
-          import os
-          import tomllib
-
-          with open(".ai-rulez/config.toml", "rb") as config_file:
-              version = tomllib.load(config_file)["plugin"]["version"]
-          expected = f"v{version}"
-          actual = os.environ["TAG_NAME"]
-          if actual != expected:
-              raise SystemExit(f"release tag {actual!r} must equal {expected!r}")
-          PY
-      - name: Create GitHub Release
+      # release-please creates a release for *any* merged release PR still labelled
+      # `autorelease: pending`, and tags that PR's merge commit -- not the commit this
+      # run validated. Left alone, a release merge whose `validate` failed would be
+      # released by the next green push, from the tree that failed. So the release step
+      # runs only when the commit this run validated is itself the release PR's merge.
+      - name: Is this commit a release PR merge?
+        id: release-merge
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
         run: |
-          args=(
-            "$TAG_NAME"
-            --verify-tag
-            --generate-notes
-            --title "infra-copilot $TAG_NAME"
-          )
-          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            args+=(--prerelease)
-          fi
-          gh release create "${args[@]}"
+          pending=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[]
+            | select(.merged_at != null)
+            | select(any(.labels[]; .name == "autorelease: pending"))] | length')
+          echo "is-release-merge=$([ "$pending" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      # GITHUB_TOKEN, so the release PR needs a close and reopen before `check` runs on
+      # it. CONTRIBUTING ("Repository setup") records why that trade was taken.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: .config/release-please-config.json
+          manifest-file: .config/release-please-manifest.json
+          skip-github-release: ${{ steps.release-merge.outputs.is-release-merge != 'true' }}

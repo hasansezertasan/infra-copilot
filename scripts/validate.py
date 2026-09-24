@@ -1441,6 +1441,10 @@ def toml_string(path: str, table: str, key: str, root: Path = ROOT) -> str:
     return value.group("value")
 
 
+#: The one authoritative plugin version: `[plugin].version` in this file.
+CANONICAL_VERSION_FILE = ".ai-rulez/config.toml"
+
+
 # Root plugin.json deliberately carries no version. Anything else in
 # JSON_MANIFESTS must have one, so a manifest added later either declares a
 # version or is added here on purpose — silence is not an option.
@@ -1473,7 +1477,13 @@ def json_versions(path: str, root: Path = ROOT) -> dict[str, str | None]:
 
 
 def changelog_version(root: Path = ROOT) -> tuple[str | None, str]:
-    """The version token of the *newest* `## ` heading, and that heading's text.
+    """The version token of the *newest* release heading, and that heading's text.
+
+    A release heading is any `## ` heading, or a `### ` heading opening with a
+    `[` -- release-please writes a patch release as `### [0.2.1](…)` and every
+    other release as `## [0.3.0](…)`, and the link form is accepted at both
+    levels. A `### ` heading without the bracket (`### Features`) is a section
+    inside a release, not a release.
 
     Deliberately not a search for the first semver-shaped heading anywhere: a
     malformed newest heading (`## 0.3 (unreleased)`) would then be skipped in
@@ -1481,15 +1491,21 @@ def changelog_version(root: Path = ROOT) -> tuple[str | None, str]:
     drift would pass unnoticed.
     """
     for line in (root / "CHANGELOG.md").read_text(encoding="utf-8").splitlines():
-        if line.startswith("## "):
-            heading = line[3:].strip()
-            match = re.match(rf"(?P<version>{VERSION_PATTERN})(?=\s|$)", heading)
-            return (match.group("version") if match else None), heading
+        if line.startswith("## ") or line.startswith("### ["):
+            heading = line.split(" ", 1)[1].strip()
+            match = re.match(
+                rf"(?P<version>{VERSION_PATTERN})(?=\s|$)"
+                rf"|\[(?P<linked>{VERSION_PATTERN})\]\(",
+                heading,
+            )
+            if match is None:
+                return None, heading
+            return match.group("version") or match.group("linked"), heading
     return None, ""
 
 
 def validate_versions(root: Path = ROOT) -> list[str]:
-    expected = toml_string(".ai-rulez/config.toml", "plugin", "version", root)
+    expected = toml_string(CANONICAL_VERSION_FILE, "plugin", "version", root)
     errors: list[str] = []
     actual: dict[str, str] = {}
 
@@ -1527,11 +1543,89 @@ def validate_versions(root: Path = ROOT) -> list[str]:
 #: Files validate_versions compares, plus the one it compares them against. Any
 #: other file spelling the plugin version is a copy nothing keeps in step (#22).
 VERSIONED_FILES = frozenset(
-    {".ai-rulez/config.toml", "CHANGELOG.md", *JSON_MANIFESTS}
+    {CANONICAL_VERSION_FILE, "CHANGELOG.md", *JSON_MANIFESTS}
 )
 #: Files whose version strings are not ours. npm's lockfile pins every transitive
 #: package, so one of them sharing the plugin's version is a coincidence, not a copy.
-UNRELATED_VERSION_FILES = frozenset({"package-lock.json"})
+#:
+#: release-please's manifest is ours but is a different quantity: the last *released*
+#: version, which release-please reads to compute the next one. It is not compared,
+#: because until the first release PR merges it trails the canonical version on
+#: purpose: it was introduced at the last tag while the canonical version already
+#: named the release in progress. release-please writes it in the same commit as
+#: every copy it bumps, and validate_release_please asserts that commit covers
+#: every copy.
+UNRELATED_VERSION_FILES = frozenset(
+    {"package-lock.json", ".config/release-please-manifest.json"}
+)
+
+
+RELEASE_PLEASE_CONFIG = ".config/release-please-config.json"
+
+
+def release_please_targets(root: Path = ROOT) -> set[tuple[str, str, str]]:
+    """Every `(path, type, jsonpath)` the release PR has to bump.
+
+    Derived from the files, like json_versions, so the paths match what
+    validate_versions compares: a manifest that gains `plugins[*].version` needs
+    a second entry, and a jsonpath naming a field the file does not have is
+    caught. release-please only warns when a jsonpath matches nothing.
+    """
+    targets = {(CANONICAL_VERSION_FILE, "toml", "$.plugin.version")}
+    for manifest in sorted(set(JSON_MANIFESTS) - VERSIONLESS_MANIFESTS):
+        try:
+            data = load_json(manifest, root)
+        except (OSError, json.JSONDecodeError):
+            # collect_manifest_errors() reports unreadable manifests.
+            continue
+        if not isinstance(data, dict):
+            continue
+        if "version" in data:
+            targets.add((manifest, "json", "$.version"))
+        if isinstance(data.get("plugins"), list):
+            targets.add((manifest, "json", "$.plugins[*].version"))
+    return targets
+
+
+def validate_release_please(root: Path = ROOT) -> list[str]:
+    """The release PR must bump every copy validate_versions compares.
+
+    A manifest added to JSON_MANIFESTS without an `extra-files` entry would pass
+    every PR and then fail `make check` on the release PR itself, the first time a
+    version changes. So would an entry with the wrong `type` or a jsonpath that
+    matches nothing, because release-please skips those with only a log warning.
+    This moves that failure to the PR that introduces it. CHANGELOG.md is
+    release-please's own changelog, so it is not an extra file.
+    """
+    try:
+        config = load_json(RELEASE_PLEASE_CONFIG, root)
+    except (OSError, json.JSONDecodeError) as error:
+        return [f"{RELEASE_PLEASE_CONFIG}: unreadable: {error}"]
+    packages = config.get("packages") if isinstance(config, dict) else None
+    package = packages.get(".") if isinstance(packages, dict) else None
+    if not isinstance(package, dict):
+        return [f"{RELEASE_PLEASE_CONFIG}: no object at packages[\".\"]"]
+    extra_files = package.get("extra-files")
+    if not isinstance(extra_files, list):
+        extra_files = []
+    covered = {
+        (entry.get("path"), entry.get("type"), entry.get("jsonpath"))
+        for entry in extra_files
+        if isinstance(entry, dict)
+    }
+    errors = [
+        f"{RELEASE_PLEASE_CONFIG}: extra-files has no {kind} entry for {path} at "
+        f"{jsonpath}, so the release PR would leave that version behind and fail "
+        "validate_versions"
+        for path, kind, jsonpath in sorted(release_please_targets(root) - covered)
+    ]
+    changelog = package.get("changelog-path", "CHANGELOG.md")
+    if changelog != "CHANGELOG.md":
+        errors.append(
+            f"{RELEASE_PLEASE_CONFIG}: changelog-path is {changelog!r}, but "
+            "validate_versions reads CHANGELOG.md"
+        )
+    return errors
 
 
 def repository_files(root: Path = ROOT) -> list[str]:
@@ -1574,7 +1668,7 @@ def validate_version_locations(root: Path = ROOT) -> list[str]:
     compared by validate_versions and listed here -- or removed.
     """
     try:
-        expected = toml_string(".ai-rulez/config.toml", "plugin", "version", root)
+        expected = toml_string(CANONICAL_VERSION_FILE, "plugin", "version", root)
     except (OSError, ValueError):
         # validate_versions reports an unreadable canonical version.
         return []
@@ -2696,6 +2790,8 @@ def validate_layout() -> list[str]:
         "docs/install-antigravity.md",
         "docs/install-opencode.md",
         ".github/renovate.json",
+        ".config/release-please-config.json",
+        ".config/release-please-manifest.json",
         "package.json",
         "package-lock.json",
         ".github/workflows/check.yml",
@@ -2803,6 +2899,7 @@ def main(argv: list[str] | None = None) -> int:
         *validate_tool_pins(),
         *validate_versions(),
         *validate_version_locations(),
+        *validate_release_please(),
     ]
     if errors:
         for error in errors:

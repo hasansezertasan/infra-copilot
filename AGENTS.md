@@ -22,6 +22,12 @@ valid in them: the JSON manifests (`marketplace.json`, `plugin.json`),
 (`terraform-apply.yml`, `terraform-plan.yml`). Absence of the header is not evidence a
 file is safe to edit. The manifest is the authority; the header is only a convenience.
 
+One writer is exempt: the release PR that release-please opens. It bumps the version in
+the three generated JSON manifests alongside `.ai-rulez/config.toml`, their source, in
+the same commit, so `make generate` reproduces the same files and the drift check stays
+green. That exemption covers only the version field and only release-please — hand edits
+to those manifests are still wrong.
+
 ## File resolution
 
 | To change… | Edit | Then |
@@ -31,7 +37,9 @@ file is safe to edit. The manifest is the authority; the header is only a conven
 | A host's question tool or capabilities | `.ai-rulez/skills/infra-copilot/references/hosts.md` | `make generate` |
 | A host's install instructions | `docs/install-<host>.md` | hand-authored — edit directly |
 | A slash command | `.ai-rulez/commands/<name>.md` | `make generate` |
-| Plugin identity, version, keywords | `.ai-rulez/config.toml` | `make generate` |
+| Plugin identity, keywords | `.ai-rulez/config.toml` | `make generate` |
+| The plugin version or `CHANGELOG.md` | nothing — release-please's release PR bumps every copy | merge the release PR |
+| What gets bumped at release | `.config/release-please-config.json` | `make check` |
 | Antigravity manifest | `plugin.json` | hand-authored — edit directly |
 | Codex marketplace | `.agents/plugins/marketplace.json` | hand-authored — edit directly |
 | Repository validators | `scripts/validate.py`, `tests/` | `make check` |

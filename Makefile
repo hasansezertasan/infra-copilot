@@ -160,38 +160,6 @@ clean:  ## Remove build artifacts from the working tree
 	find . -name __pycache__ -type d -prune -not -path "./.git/*" -exec rm -rf {} +
 	@echo "clean: removed .agents/skills, skills-lock.json and __pycache__"
 
-# The canonical version is [plugin].version in .ai-rulez/config.toml; ai-rulez propagates
-# it into the three generated manifests. `.agents/plugins/marketplace.json` is
-# hand-authored and must be edited by hand, and CHANGELOG.md carries the heading --
-# validate_versions checks all of them, so `check` fails until they agree.
-#
-# Read with tomllib, as .github/workflows/release.yml does: a regex over the [plugin]
-# table breaks on valid TOML that ai-rulez accepts, such as a comment after the table
-# header. Needs Python 3.11+, which only affects this maintainer target.
-#
-# generate and check-all are separate recursive invocations so an inherited -j cannot run
-# them concurrently, which would let the drift verifier read files ai-rulez is rewriting.
-#
-# check-all, not check: `check` deliberately omits the OpenCode smoke test, so using it
-# here would print "ready to tag" while the test that release.yml runs could still fail.
-.PHONY: release
-release:  ## Verify a release is ready to tag (see CONTRIBUTING for the bump itself)
-	@version=$$($(PYTHON) -c "import sys,tomllib; \
-	  sys.exit('make release needs Python 3.11+ for tomllib') if sys.version_info < (3,11) else None; \
-	  print(tomllib.load(open('.ai-rulez/config.toml','rb'))['plugin']['version'])")
-	@$(MAKE) generate
-	@if [ -n "$$(git status --porcelain)" ]; then \
-	  echo "release: generation changed the worktree, or it was already dirty:" >&2; \
-	  git status --short >&2; \
-	  echo "release: commit these before tagging — the tag would point at HEAD without them." >&2; \
-	  exit 1; \
-	fi
-	@$(MAKE) check-all
-	@version=$$($(PYTHON) -c "import tomllib; \
-	  print(tomllib.load(open('.ai-rulez/config.toml','rb'))['plugin']['version'])"); \
-	echo "release: v$$version is ready and the worktree is clean."; \
-	echo "release: git tag -a v$$version -m \"infra-copilot v$$version\" && git push origin v$$version"
-
 .PHONY: check
 check: lint validate test  ## Everything CI runs on a pull request
 	@echo "all checks passed"
