@@ -99,9 +99,13 @@ jobs:
           cache: npm
       - name: Regenerate the host packages on the release PR branch
         if: steps.release-please.outputs.prs_created == 'true'
+        # The raw output, parsed in the shell: a step's `env` is evaluated even when its
+        # `if` is false, and `fromJSON` of the empty `pr` output -- a run that opened or
+        # updated no PR, such as every release merge -- fails the job.
         env:
-          BRANCH: ${{ fromJSON(steps.release-please.outputs.pr).headBranchName }}
+          PR: ${{ steps.release-please.outputs.pr }}
         run: |
+          BRANCH=$(jq -r .headBranchName <<<"$PR")
           make generate
           if [ -z "$(git status --porcelain)" ]; then
             echo "generated output already matches the bumped version"
