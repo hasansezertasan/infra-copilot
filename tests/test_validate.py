@@ -2355,6 +2355,12 @@ else cat >/dev/null; printf '%s\n' '1.15.9'; fi
         )
         self.assertIsNotNone(match)
         check = " ".join(line[6:] for line in match.group("body").splitlines())
+        # Only the preflight copy runs below. new-provider-toolchain is not held
+        # byte-identical to it as a whole, so pin its trust match to the same text.
+        trust = re.compile(r"      repo_dir=\$\(pwd -P\) &&\n(?:      .*\n)*?.*: trusted\" >/dev/null &&\n")
+        segments = trust.findall(steps)
+        self.assertEqual(len(segments), 3)
+        self.assertEqual(len(set(segments)), 1, segments)
 
         fixture_mise = """#!/bin/sh
 case "$1" in
@@ -2425,6 +2431,10 @@ esac
             # $HOME must prefix whole path components, as it does for mise.
             self.assertNotEqual(run(base / "home/re", "~po: trusted"), 0)
             self.assertNotEqual(run("/", f"~{repository}: trusted"), 0)
+            self.assertNotEqual(run("", f"~{repository}: trusted"), 0)
+            # A repository at $HOME itself is shown as a bare `~`.
+            self.assertEqual(run(repository, "~: trusted"), 0)
+            self.assertNotEqual(run(repository, "~/: trusted"), 0)
 
     # Executed against shell fixtures, so POSIX-only for the same reason as above.
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
