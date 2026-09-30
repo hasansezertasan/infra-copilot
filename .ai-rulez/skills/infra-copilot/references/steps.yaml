@@ -112,8 +112,10 @@ hcp_api: https://app.terraform.io/api/v2
 # version fails closed — a table-form entry has to be rewritten as a plain pin.
 #
 # `mise trust --show` has no machine-readable mode, and since 2026.9 it prints a path
-# under $HOME as `~/…` (and $HOME itself as `~`). The trust match accepts that form alongside the absolute path,
-# abbreviating only on a whole-component $HOME prefix, as mise does.
+# under $HOME as `~/…` (and $HOME itself as `~`). The trust match accepts that form
+# alongside the absolute path, abbreviating only on a whole-component $HOME prefix, as
+# mise does. mise strips $HOME as a literal string, so a trailing slash in $HOME yields
+# `~repo`, not `~/repo`; the match reproduces that rather than normalising $HOME.
 preflight:
   - tool: mise
     check: >-
@@ -123,7 +125,9 @@ preflight:
       git diff --cached --quiet HEAD -- mise.toml mise.lock &&
       repo_dir=$(pwd -P) &&
       shown_dir=$repo_dir &&
-      case $HOME in ''|/) ;; *) case $repo_dir in "$HOME") shown_dir="~" ;;
+      case $HOME in ''|/) ;;
+      */) case $repo_dir in "$HOME"*) shown_dir="~${repo_dir#"$HOME"}" ;; esac ;;
+      *) case $repo_dir in "$HOME") shown_dir="~" ;;
       "$HOME"/*) shown_dir="~${repo_dir#"$HOME"}" ;; esac ;; esac &&
       mise trust --show 2>/dev/null |
       grep -Fx -e "$repo_dir: trusted" -e "$shown_dir: trusted" >/dev/null &&
@@ -235,7 +239,9 @@ steps:
       git diff --cached --quiet HEAD -- mise.toml mise.lock &&
       repo_dir=$(pwd -P) &&
       shown_dir=$repo_dir &&
-      case $HOME in ''|/) ;; *) case $repo_dir in "$HOME") shown_dir="~" ;;
+      case $HOME in ''|/) ;;
+      */) case $repo_dir in "$HOME"*) shown_dir="~${repo_dir#"$HOME"}" ;; esac ;;
+      *) case $repo_dir in "$HOME") shown_dir="~" ;;
       "$HOME"/*) shown_dir="~${repo_dir#"$HOME"}" ;; esac ;; esac &&
       mise trust --show 2>/dev/null |
       grep -Fx -e "$repo_dir: trusted" -e "$shown_dir: trusted" >/dev/null &&
@@ -1872,7 +1878,9 @@ steps:
       [ "$NEW_PROVIDER_MISE_LOCK_BLOB" = "$current_mise_lock_blob" ] &&
       repo_dir=$(pwd -P) &&
       shown_dir=$repo_dir &&
-      case $HOME in ''|/) ;; *) case $repo_dir in "$HOME") shown_dir="~" ;;
+      case $HOME in ''|/) ;;
+      */) case $repo_dir in "$HOME"*) shown_dir="~${repo_dir#"$HOME"}" ;; esac ;;
+      *) case $repo_dir in "$HOME") shown_dir="~" ;;
       "$HOME"/*) shown_dir="~${repo_dir#"$HOME"}" ;; esac ;; esac &&
       mise trust --show 2>/dev/null |
       grep -Fx -e "$repo_dir: trusted" -e "$shown_dir: trusted" >/dev/null &&

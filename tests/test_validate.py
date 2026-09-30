@@ -2435,6 +2435,11 @@ esac
             # A repository at $HOME itself is shown as a bare `~`.
             self.assertEqual(run(repository, "~: trusted"), 0)
             self.assertNotEqual(run(repository, "~/: trusted"), 0)
+            # mise strips a trailing-slash $HOME literally: `~repo`, not `~/repo`.
+            self.assertEqual(run(f"{home}/", "~repo: trusted"), 0)
+            self.assertNotEqual(run(f"{home}/", "~/repo: trusted"), 0)
+            self.assertEqual(run(f"{repository}/", f"{repository}: trusted"), 0)
+            self.assertNotEqual(run(f"{base}/home/re/", "~po: trusted"), 0)
 
     # Executed against shell fixtures, so POSIX-only for the same reason as above.
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
