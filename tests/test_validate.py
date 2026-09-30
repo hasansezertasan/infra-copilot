@@ -2344,6 +2344,105 @@ else cat >/dev/null; printf '%s\n' '1.15.9'; fi
 
     # Executed against shell fixtures, so POSIX-only for the same reason as above.
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_trust_check_accepts_the_home_abbreviated_path(self) -> None:
+        """mise 2026.9 prints `~/…` for a trusted path under $HOME (#88)."""
+        steps = (
+            Path(__file__).parents[1]
+            / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"  - tool: mise\n    check: >-\n(?P<body>(?:      [^\n]*\n)+)", steps
+        )
+        self.assertIsNotNone(match)
+        check = " ".join(line[6:] for line in match.group("body").splitlines())
+        # Only the preflight copy runs below. new-provider-toolchain is not held
+        # byte-identical to it as a whole, so pin its trust match to the same text.
+        trust = re.compile(r"      repo_dir=\$\(pwd -P\) &&\n(?:      .*\n)*?.*: trusted\" >/dev/null &&\n")
+        segments = trust.findall(steps)
+        self.assertEqual(len(segments), 3)
+        self.assertEqual(len(set(segments)), 1, segments)
+
+        fixture_mise = """#!/bin/sh
+case "$1" in
+  --version) exit 0 ;;
+  trust) printf '%s\\n' "$TRUST_LINE" ;;
+  config) sed -n '/^\\[tools\\]/,$p' ./mise.toml | sed '1d' ;;
+esac
+"""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            base = Path(temporary_directory).resolve()
+            binaries = base / "bin"
+            binaries.mkdir()
+            executable = binaries / "mise"
+            executable.write_text(fixture_mise, encoding="utf-8")
+            executable.chmod(0o755)
+            repository = base / "home/repo"
+            repository.mkdir(parents=True)
+            (repository / "mise.toml").write_text(
+                '[tools]\nterraform = "1.15.9"\n', encoding="utf-8"
+            )
+            (repository / "mise.lock").write_text("# @generated\n", encoding="utf-8")
+            git = os.environ | {
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_SYSTEM": os.devnull,
+            }
+            for command in (
+                ["git", "init", "-q"],
+                ["git", "add", "mise.toml", "mise.lock"],
+                [
+                    "git",
+                    "-c",
+                    "user.email=test@example.com",
+                    "-c",
+                    "user.name=test",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "commit",
+                    "-qm",
+                    "pins",
+                ],
+            ):
+                subprocess.run(command, cwd=repository, env=git, check=True)
+
+            def run(home: Path | str, line: str) -> int:
+                return subprocess.run(
+                    ["/bin/sh", "-c", check],
+                    cwd=repository,
+                    env=os.environ
+                    | {
+                        "PATH": f"{binaries}:/usr/bin:/bin",
+                        "HOME": str(home),
+                        "TRUST_LINE": line,
+                    },
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                ).returncode
+
+            home = base / "home"
+            self.assertEqual(run(home, f"{repository}: trusted"), 0)
+            self.assertEqual(run(home, "~/repo: trusted"), 0)
+            # A different trusted directory must not stand in for this one.
+            self.assertNotEqual(run(home, "~/repo-fork: trusted"), 0)
+            self.assertNotEqual(run(home, "~/other/repo: trusted"), 0)
+            # Outside $HOME there is no abbreviation, so `~` + the absolute path is
+            # a different directory under the home, not this repository.
+            self.assertNotEqual(run(base / "elsewhere", f"~{repository}: trusted"), 0)
+            # $HOME must prefix whole path components, as it does for mise.
+            self.assertNotEqual(run(base / "home/re", "~po: trusted"), 0)
+            self.assertNotEqual(run("/", f"~{repository}: trusted"), 0)
+            self.assertNotEqual(run("", f"~{repository}: trusted"), 0)
+            # A repository at $HOME itself is shown as a bare `~`.
+            self.assertEqual(run(repository, "~: trusted"), 0)
+            self.assertNotEqual(run(repository, "~/: trusted"), 0)
+            # mise strips a trailing-slash $HOME literally: `~repo`, not `~/repo`.
+            self.assertEqual(run(f"{home}/", "~repo: trusted"), 0)
+            self.assertNotEqual(run(f"{home}/", "~/repo: trusted"), 0)
+            self.assertEqual(run(f"{repository}/", f"{repository}: trusted"), 0)
+            self.assertNotEqual(run(f"{base}/home/re/", "~po: trusted"), 0)
+
+    # Executed against shell fixtures, so POSIX-only for the same reason as above.
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
     def test_lock_check_covers_every_configured_tool(self) -> None:
         """The locked dry-run must cover conditionally added tools, not a fixed set."""
         steps = (
