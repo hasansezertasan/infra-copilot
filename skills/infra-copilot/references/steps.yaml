@@ -431,6 +431,7 @@ steps:
       # onto a later page, and reading only the first concluded "no GitHub
       # client" and re-emitted the OAuth handoff for a connection that exists.
       oauth_page=1
+      oauth_read=no
       while : ; do
         code=$(curl -s -o "$body" -w '%{http_code}' \
           "$hcp_api/organizations/$ORG/oauth-clients?page%5Bsize%5D=100&page%5Bnumber%5D=$oauth_page" \
@@ -455,19 +456,31 @@ steps:
         # every organization whose response omits it.
         oauth_count=$(jq -e '.data | length' "$body" 2>/dev/null) \
           || { echo "CANNOT VERIFY: $ORG's oauth-clients response was not the expected JSON" >&2; exit 2; }
-        [ "$oauth_count" -eq 100 ] || exit 1   # last page, no GitHub client anywhere
+        [ "$oauth_count" -eq 100 ] || { oauth_read=yes; break; }   # last page, no GitHub client
         oauth_pages=$(jq -er '.meta.pagination["total-pages"]
                       | if type == "number" and . == floor and . > 0
                         then (floor | tostring) else empty end' "$body" 2>/dev/null) \
           || { echo "CANNOT VERIFY: $ORG's oauth-clients list filled a page but carried no positive-integer total-pages, so later pages could not be reached" >&2; exit 2; }
-        [ "$oauth_page" -lt "$oauth_pages" ] || exit 1   # every page read, no GitHub client
+        [ "$oauth_page" -lt "$oauth_pages" ] || { oauth_read=yes; break; }   # every page read
         oauth_page=$((oauth_page + 1))
       done
-      case "$code" in
-        401|403) ;;   # fall through to the workspace-scoped evidence below
-        *) echo "CANNOT VERIFY: reading $ORG's oauth-clients returned $code" >&2; exit 2 ;;
-      esac
-      # The plan-only credential from hcp-apply-scope cannot read organization VCS
+      # Every page read and no GitHub client is not yet a verdict: a workspace
+      # connected through the HCP GitHub App needs no OAuth client at all, so an
+      # organization using only the App has an empty list and every workspace
+      # connected. Exiting 1 there kept the step permanently red. That path falls
+      # through to the workspace evidence below, but accepts only the App
+      # installation id: with the full client list read and no GitHub client in
+      # it, an oauth-token-id can only belong to another provider's client.
+      if [ "$oauth_read" = yes ]; then
+        cause="$ORG has no GitHub OAuth client"
+      else
+        case "$code" in
+          401|403) ;;   # fall through to the workspace-scoped evidence below
+          *) echo "CANNOT VERIFY: reading $ORG's oauth-clients returned $code" >&2; exit 2 ;;
+        esac
+        cause="this credential may not read $ORG's VCS settings ($code)"
+      fi
+      # On 401/403: the plan-only credential from hcp-apply-scope cannot read organization VCS
       # settings, and stopping here would leave `setup` unable to resume past phase 1
       # after that handoff. A workspace connected to $REPO is stronger evidence of the
       # same fact anyway -- it is the connection actually being used -- and it is
@@ -477,8 +490,9 @@ steps:
       while : ; do
         curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
           -H "Authorization: Bearer $HCP_TOKEN" >"$body" \
-          || { echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code) and page $page of the workspace list could not be read either" >&2; exit 2; }
-        # Require an actual VCS connection, by either mechanism. create_ws in
+          || { echo "CANNOT VERIFY: $cause, and page $page of the workspace list could not be read either" >&2; exit 2; }
+        # Require an actual VCS connection, by either mechanism -- or, when the
+        # organization has no GitHub OAuth client, by the App alone. create_ws in
         # hcp.md connects through `oauth-token-id`, so requiring a GitHub App
         # installation id rejected every workspace this manifest provisions --
         # which put the fallback back into the exit-2 state it exists to avoid.
@@ -488,23 +502,30 @@ steps:
         # client needs an organization-scoped read the narrowed credential does
         # not have. So an organization holding a GitLab workspace with the same
         # owner/name would satisfy this. Accepted deliberately: the primary path
-        # above does check GitHub specifically, and this branch runs only after
-        # the handoff, when phase 1 is complete and was verified under the user
-        # token. Recorded in docs/policy.md's limits.
-        if jq -e --arg repo "${REPO:-}" \
+        # above does check GitHub specifically, and the 401/403 branch runs only
+        # after the handoff, when phase 1 is complete and was verified under the
+        # user token. Recorded in docs/policy.md's limits. The no-GitHub-client
+        # branch does not share the gap: it counts only the App installation id,
+        # which only a GitHub connection carries.
+        if jq -e --arg repo "${REPO:-}" --arg app_only "$oauth_read" \
              '[.data[] | select(.attributes["vcs-repo"].identifier == $repo)
-                       | select((.attributes["vcs-repo"]["oauth-token-id"] != null)
-                                or (.attributes["vcs-repo"]["github-app-installation-id"] != null))]
+                       | select((.attributes["vcs-repo"]["github-app-installation-id"] != null)
+                                or ($app_only != "yes"
+                                    and .attributes["vcs-repo"]["oauth-token-id"] != null))]
               | length > 0' "$body" >/dev/null 2>&1; then
           exit 0
         fi
         pages=$(jq -er '.meta.pagination["total-pages"]
                         | if type == "number" and . == floor and . > 0
                           then (floor | tostring) else empty end' "$body" 2>/dev/null) \
-          || { echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code), and the workspace list carried no positive-integer total-pages so later pages could not be reached" >&2; exit 2; }
+          || { echo "CANNOT VERIFY: $cause, and the workspace list carried no positive-integer total-pages so later pages could not be reached" >&2; exit 2; }
         [ "$page" -lt "$pages" ] || break
         page=$((page + 1))
       done
+      # A readable organization with no GitHub OAuth client and no App-connected
+      # workspace for $REPO is not connected: a verdict, not uncertainty.
+      [ "$oauth_read" = no ] \
+        || { echo "$cause, and no workspace for ${REPO:-<REPO unset>} is connected through the GitHub App" >&2; exit 1; }
       echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code), and no VCS-connected workspace for ${REPO:-<REPO unset>} is visible; if the plan-only identity is in use, phase 1 was verified under the user token" >&2
       exit 2
     produces: GitHub<->HCP OAuth connection
