@@ -486,6 +486,10 @@ steps:
       # same fact anyway -- it is the connection actually being used -- and it is
       # workspace-scoped, so the narrowed credential can read it. Only available once
       # workspaces exist, which on a resume they do.
+      # Without $REPO there is nothing to match, so the readable path below could
+      # only conclude "not connected" -- a verdict it has no evidence for.
+      [ "$oauth_read" = no ] || [ -n "${REPO:-}" ] \
+        || { echo "CANNOT VERIFY: $cause, and \$REPO is unset so no workspace can be matched" >&2; exit 2; }
       page=1
       while : ; do
         curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
@@ -509,29 +513,37 @@ steps:
         # which only a GitHub connection carries.
         if jq -e --arg repo "${REPO:-}" --arg app_only "$oauth_read" \
              '[.data[] | select(.attributes["vcs-repo"].identifier == $repo)
-                       | select((.attributes["vcs-repo"]["github-app-installation-id"] != null)
+                       | select(((.attributes["vcs-repo"]["github-app-installation-id"] // "") != "")
                                 or ($app_only != "yes"
                                     and .attributes["vcs-repo"]["oauth-token-id"] != null))]
               | length > 0' "$body" >/dev/null 2>&1; then
           exit 0
         fi
-        # A short page is the last one, as for oauth-clients above: a missing
-        # meta.pagination would otherwise turn a clean red into CANNOT VERIFY.
-        ws_count=$(jq -e '.data | length' "$body" 2>/dev/null) \
+        # `arrays` makes a body without a .data array (an errors object, null)
+        # fail here rather than read as an empty last page.
+        ws_count=$(jq -e '.data | arrays | length' "$body" 2>/dev/null) \
           || { echo "CANNOT VERIFY: $cause, and page $page of the workspace list was not the expected JSON" >&2; exit 2; }
-        [ "$ws_count" -eq 100 ] || break
         pages=$(jq -er '.meta.pagination["total-pages"]
                         | if type == "number" and . == floor and . > 0
                           then (floor | tostring) else empty end' "$body" 2>/dev/null) \
-          || { echo "CANNOT VERIFY: $cause, and the workspace list carried no positive-integer total-pages so later pages could not be reached" >&2; exit 2; }
+          || pages=
+        # total-pages decides when present. Only when it is absent does a short
+        # page count as the last one, as for oauth-clients above: otherwise a
+        # missing meta.pagination would turn a clean red into CANNOT VERIFY.
+        if [ -z "$pages" ]; then
+          [ "$ws_count" -eq 100 ] || break
+          echo "CANNOT VERIFY: $cause, and the workspace list carried no positive-integer total-pages so later pages could not be reached" >&2; exit 2
+        fi
         [ "$page" -lt "$pages" ] || break
         page=$((page + 1))
       done
       # A readable organization with no GitHub OAuth client and no App-connected
       # workspace for $REPO is not connected: a verdict, not uncertainty.
-      [ "$oauth_read" = no ] \
-        || { echo "$cause, and no workspace for ${REPO:-<REPO unset>} is connected through the GitHub App" >&2; exit 1; }
-      echo "CANNOT VERIFY: this credential may not read $ORG's VCS settings ($code), and no VCS-connected workspace for ${REPO:-<REPO unset>} is visible; if the plan-only identity is in use, phase 1 was verified under the user token" >&2
+      if [ "$oauth_read" = yes ]; then
+        echo "$cause, and no workspace for $REPO is connected through the HCP GitHub App" >&2
+        exit 1
+      fi
+      echo "CANNOT VERIFY: $cause, and no VCS-connected workspace for ${REPO:-<REPO unset>} is visible; if the plan-only identity is in use, phase 1 was verified under the user token" >&2
       exit 2
     produces: GitHub<->HCP OAuth connection
     docs: docs/setup.md#2-hcp-terraform--workspaces

@@ -58,6 +58,7 @@ def workspace(identifier: str, *, connection: str = "oauth", pages: int = 1) -> 
         "oauth": '"oauth-token-id":"ot-1","github-app-installation-id":null',
         "app": '"oauth-token-id":null,"github-app-installation-id":"ghi-1"',
         "none": '"oauth-token-id":null,"github-app-installation-id":null',
+        "empty-app": '"oauth-token-id":null,"github-app-installation-id":""',
     }[connection]
     return (
         '{"data":[{"attributes":{"vcs-repo":{"identifier":"%s",%s}}}],'
@@ -236,6 +237,42 @@ class VcsConnectCheckTests(unittest.TestCase):
             code="200", oauth_body=NO_CLIENT, workspace_body='{"data":[]}'
         )
         self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_a_workspace_list_without_a_data_array_cannot_be_verified(self) -> None:
+        """An errors body is not an empty last page, so it is not a verdict."""
+        for body in ('{"errors":[{"status":"500"}]}', '{"data":null}'):
+            with self.subTest(body=body):
+                result = self.run_check(
+                    code="200", oauth_body=NO_CLIENT, workspace_body=body
+                )
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertIn("not the expected JSON", result.stderr)
+
+    def test_total_pages_outranks_a_short_workspace_page(self) -> None:
+        """A short page that promises a successor is not the last one."""
+        result = self.run_check(
+            code="403",
+            oauth_body="{}",
+            workspace_body=workspace("acme/other", pages=2),
+            later_pages={2: workspace("acme/infra", pages=2)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_an_empty_app_installation_id_is_not_evidence(self) -> None:
+        result = self.run_check(
+            code="200",
+            oauth_body=GITLAB_ONLY,
+            workspace_body=workspace("acme/infra", connection="empty-app"),
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_no_client_with_repo_unset_cannot_be_verified(self) -> None:
+        """Without $REPO nothing can match, so red would be a guess."""
+        result = self.run_check(
+            code="200", oauth_body=NO_CLIENT, workspace_body=NO_WORKSPACES, repo=""
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("REPO is unset", result.stderr)
 
     def test_no_client_with_an_unreadable_workspace_list_cannot_be_verified(self) -> None:
         """An App connection may exist; not being able to look is not a verdict."""
