@@ -65,6 +65,15 @@ def workspace(identifier: str, *, connection: str = "oauth", pages: int = 1) -> 
     )
 
 
+def workspace_page(identifier: str, *, pages: int) -> str:
+    """A full 100-entry workspace page; a shorter one is read as the last."""
+    entry = '{"attributes":{"vcs-repo":{"identifier":"%s","oauth-token-id":null}}}' % identifier
+    return '{"data":[%s],"meta":{"pagination":{"total-pages":%d}}}' % (
+        ",".join([entry] * 100),
+        pages,
+    )
+
+
 CONNECTED_WORKSPACE = workspace("acme/infra")
 OTHER_WORKSPACE = workspace("acme/other")
 #: Right identifier, but no VCS connection at all.
@@ -212,6 +221,22 @@ class VcsConnectCheckTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_no_client_finds_an_app_workspace_on_a_later_page(self) -> None:
+        result = self.run_check(
+            code="200",
+            oauth_body=NO_CLIENT,
+            workspace_body=workspace_page("acme/other", pages=2),
+            later_pages={2: workspace("acme/infra", connection="app", pages=2)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_short_workspace_page_without_pagination_metadata_is_conclusive(self) -> None:
+        """Mirrors the oauth-clients rule: a short page is the last one."""
+        result = self.run_check(
+            code="200", oauth_body=NO_CLIENT, workspace_body='{"data":[]}'
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+
     def test_no_client_with_an_unreadable_workspace_list_cannot_be_verified(self) -> None:
         """An App connection may exist; not being able to look is not a verdict."""
         result = self.run_check(code="200", oauth_body=NO_CLIENT)
@@ -335,7 +360,7 @@ class VcsConnectCheckTests(unittest.TestCase):
         result = self.run_check(
             code="403",
             oauth_body="{}",
-            workspace_body=workspace("acme/other", pages=2),
+            workspace_body=workspace_page("acme/other", pages=2),
             later_pages={2: workspace("acme/infra", pages=2)},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -344,7 +369,9 @@ class VcsConnectCheckTests(unittest.TestCase):
         result = self.run_check(
             code="403",
             oauth_body="{}",
-            workspace_body='{"data":[],"meta":{"pagination":{"total-pages":"lots"}}}',
+            workspace_body=workspace_page("acme/other", pages=2).replace(
+                '"total-pages":2', '"total-pages":"lots"'
+            ),
         )
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("total-pages", result.stderr)

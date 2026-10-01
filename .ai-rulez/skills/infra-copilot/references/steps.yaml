@@ -515,6 +515,11 @@ steps:
               | length > 0' "$body" >/dev/null 2>&1; then
           exit 0
         fi
+        # A short page is the last one, as for oauth-clients above: a missing
+        # meta.pagination would otherwise turn a clean red into CANNOT VERIFY.
+        ws_count=$(jq -e '.data | length' "$body" 2>/dev/null) \
+          || { echo "CANNOT VERIFY: $cause, and page $page of the workspace list was not the expected JSON" >&2; exit 2; }
+        [ "$ws_count" -eq 100 ] || break
         pages=$(jq -er '.meta.pagination["total-pages"]
                         | if type == "number" and . == floor and . > 0
                           then (floor | tostring) else empty end' "$body" 2>/dev/null) \
