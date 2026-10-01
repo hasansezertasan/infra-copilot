@@ -18,6 +18,7 @@ from scripts.check_upstream import (
     check_api_path_coherence,
     check_api_paths,
     check_coherence,
+    check_paged_api_paths,
     check_linkage,
     cited_api_paths,
     cited_strings,
@@ -339,6 +340,77 @@ class ApiPathTests(unittest.TestCase):
 
             self.assertEqual(len(errors), 1, errors)
             self.assertIn("no HCP API path found", errors[0])
+
+
+
+#: The two shapes that matter, as go-tfe's spec writes them: one paged endpoint
+#: declaring its page parameters by $ref, and the unpaginated workspace vars list.
+PAGED_SPEC: dict[str, object] = {
+    "paths": {
+        "/workspaces/{workspace_id}/varsets": {
+            "parameters": [{"name": "workspace_id", "in": "path"}],
+            "get": {"parameters": [
+                {"$ref": "#/components/parameters/page_number"},
+                {"$ref": "#/components/parameters/page_size"},
+            ]},
+        },
+        "/workspaces/{workspace_id}/vars": {
+            "get": {"parameters": [
+                {"name": "workspace_id", "in": "path"},
+                {"name": "fields[vars]", "in": "query"},
+            ]},
+        },
+    },
+    "components": {"parameters": {
+        "page_number": {"name": "page[number]", "in": "query"},
+        "page_size": {"name": "page[size]", "in": "query"},
+    }},
+}
+
+
+class PagedApiPathTests(unittest.TestCase):
+    def test_only_calls_that_page_are_extracted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "guide.md").write_text(
+                'curl "$hcp_api/workspaces/$WS/varsets?page%5Bsize%5D=1&page%5Bnumber%5D=1"\n'
+                'curl "$hcp_api/workspaces/$WS/vars" -H "Authorization: Bearer $T"\n'
+                "GET `api/v2/organizations/<org>/workspaces?search[name]=x&page[size]=100`\n"
+                'curl "$hcp_api/organizations/$ORG/projects?q=x"\n',
+                encoding="utf-8",
+            )
+
+            paged = cited_api_paths(["guide.md"], root, paged=True)
+
+            self.assertEqual(
+                sorted(paged), ["/organizations/{}/workspaces", "/workspaces/{}/varsets"]
+            )
+
+    def test_paging_an_endpoint_without_page_parameters_is_reported(self) -> None:
+        """Issue #90: the vars list is not paginated, so its loop never finished."""
+        findings = check_paged_api_paths(
+            {"/workspaces/{}/vars": ["steps.yaml:2153"], "/workspaces/{}/varsets": ["x:1"]},
+            PAGED_SPEC,
+            "spec",
+        )
+
+        self.assertEqual(len(findings), 1, findings)
+        self.assertIn("/workspaces/{}/vars is paged", findings[0])
+        self.assertIn("steps.yaml:2153", findings[0])
+        self.assertIn("declares no page[number] or page[size]", findings[0])
+
+    def test_a_path_the_spec_does_not_list_is_left_to_the_path_check(self) -> None:
+        """check_api_paths already reports it; a second finding would only be noise."""
+        self.assertEqual(
+            check_paged_api_paths({"/runs/{}/actions/discard": ["x:1"]}, PAGED_SPEC, "spec"),
+            [],
+        )
+
+    def test_the_shipped_guidance_pages_only_endpoints_that_paginate(self) -> None:
+        """The real guidance no longer pages the unpaginated workspace vars list."""
+        paged = cited_api_paths(list(load_api_paths()["scan"]), paged=True)
+        self.assertIn("/workspaces/{}/varsets", paged)
+        self.assertNotIn("/workspaces/{}/vars", paged)
 
 
 if __name__ == "__main__":
