@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:50a8640a9f9cb658526e72854125a20336b4d2b3ce9eebb0f28f8a9ec0f14f6e
-Source-Hash: blake3:67e2be40fbb9579a4e90db876dad586c0355a467545fbbf7a7b13a9aacc4c070
+Content-Hash: blake3:776baadec4ead71bd1abc68d25724a301ddcaa94454616c567b711ba3b559c39
+Source-Hash: blake3:9e71d86ce96bb7197c8b3bc07c4faf3fcdba1ae9f102c18587527fe96a1aa937
 Schema-Version: v1
 -->
 
@@ -331,7 +331,7 @@ Map the first red step to the skill that owns it, so the user knows what to run 
 | First red step is in… | Run |
 |---|---|
 | `status-check-context` exit 2 (`CANNOT VERIFY`) | **Nothing to fix in the repo.** Report `?` and name the cause — most often `gh auth login`. Do not route to any skill. |
-| `vcs-connect` exit 2 (`CANNOT VERIFY`) | **Nothing to fix in the repo.** The check is tri-state: after the plan-only handoff the credential cannot read `/organizations/<org>/oauth-clients`, which is organization-scoped, so it falls back to looking for a workspace connected to `$REPO`. A 2 means neither signal was readable. Report `?` and name the cause; do not route to `setup`, and **do not** widen the team's organization access to turn it green — that would undo `hcp-apply-scope`. |
+| `vcs-connect` exit 2 (`CANNOT VERIFY`) | **Nothing to fix in the repo.** The check is tri-state: after the plan-only handoff the credential cannot read `/organizations/<org>/oauth-clients`, which is organization-scoped, so it falls back to looking for a workspace connected to `$REPO`. A 2 means neither signal was readable. It can also follow a readable organization with no GitHub OAuth client, when the workspace list that might show an HCP GitHub App connection could not be read; the message then names that cause instead of the credential. Report `?` and name the cause; do not route to `setup`, and **do not** widen the team's organization access to turn it green — that would undo `hcp-apply-scope`. |
 | `hcp-apply-scope` exit 2 (`CANNOT VERIFY`) | **Nothing to fix in the repo.** Report `?` and name the cause — a missing credential, an unreadable API response, or a managed `terraform/<leaf>/` with no visible workspace. Do not route to any skill; a transient read failure is not setup work. |
 | `hcp-apply-scope` exit 1 (phase 4) | **Nothing — this is credential work, not `setup`.** For `UNPROTECTED`, the agent's credential can apply: provision the plan-only identity in that step's `run`. For `OVER-RESTRICTED`, grant the team the workspace `Plan` permission. For `SPLIT-BRAIN`, re-export `HCP_TOKEN` from the source `terraform` uses. Running `setup` fixes none of these. |
 | `status-check-context` exit 1 (phase 4) | **Nothing — fix it directly**, not via `setup`. For `BLOCKED`, replace only the stale `Terraform Cloud/…` entry in `terraform/github/branch_protection.tf`, keep every other required context, and follow the break-glass sequence ([`docs/ci.md`](docs/ci.md#hcp-status-check-context)). For `UNDERPROTECTED`, re-apply `branch_protection.tf` so an HCP context is required again. |

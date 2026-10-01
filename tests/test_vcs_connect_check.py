@@ -7,7 +7,9 @@ stopped at the first non-zero check and re-emitted the OAuth handoff, so
 human to redo a step that was already done.
 
 It has to tell four states apart: connected (organization read), not connected,
-connected but only provable from a workspace, and unreadable.
+connected but only provable from a workspace, and unreadable. An organization
+with no GitHub OAuth client may still be connected through the GitHub App, which
+only a workspace shows (#89).
 
 The check lives in the manifest rather than a shipped script, so these extract
 it from steps.yaml and run it with `curl` stubbed. Extracting keeps the test
@@ -56,6 +58,7 @@ def workspace(identifier: str, *, connection: str = "oauth", pages: int = 1) -> 
         "oauth": '"oauth-token-id":"ot-1","github-app-installation-id":null',
         "app": '"oauth-token-id":null,"github-app-installation-id":"ghi-1"',
         "none": '"oauth-token-id":null,"github-app-installation-id":null',
+        "empty-app": '"oauth-token-id":null,"github-app-installation-id":""',
     }[connection]
     return (
         '{"data":[{"attributes":{"vcs-repo":{"identifier":"%s",%s}}}],'
@@ -63,10 +66,21 @@ def workspace(identifier: str, *, connection: str = "oauth", pages: int = 1) -> 
     )
 
 
+def workspace_page(identifier: str, *, pages: int) -> str:
+    """A full 100-entry workspace page; a shorter one is read as the last."""
+    entry = '{"attributes":{"vcs-repo":{"identifier":"%s","oauth-token-id":null}}}' % identifier
+    return '{"data":[%s],"meta":{"pagination":{"total-pages":%d}}}' % (
+        ",".join([entry] * 100),
+        pages,
+    )
+
+
 CONNECTED_WORKSPACE = workspace("acme/infra")
 OTHER_WORKSPACE = workspace("acme/other")
 #: Right identifier, but no VCS connection at all.
 UNCONNECTED_WORKSPACE = workspace("acme/infra", connection="none")
+#: A readable workspace list with nothing in it -- a fresh organization.
+NO_WORKSPACES = '{"data":[],"meta":{"pagination":{"total-pages":1}}}'
 
 
 def extract_check() -> str:
@@ -161,8 +175,110 @@ class VcsConnectCheckTests(unittest.TestCase):
 
     def test_no_client_is_red(self) -> None:
         """A readable answer of "not connected" is a verdict, not uncertainty."""
-        result = self.run_check(code="200", oauth_body=NO_CLIENT)
+        result = self.run_check(
+            code="200", oauth_body=NO_CLIENT, workspace_body=NO_WORKSPACES
+        )
         self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_no_client_with_a_github_app_workspace_is_green(self) -> None:
+        """Issue #89: an App-only organization has no OAuth client at all.
+
+        Exiting 1 on the empty list kept the step permanently red although every
+        workspace was VCS-connected.
+        """
+        result = self.run_check(
+            code="200",
+            oauth_body=NO_CLIENT,
+            workspace_body=workspace("acme/infra", connection="app"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_no_github_client_does_not_accept_an_oauth_token_workspace(self) -> None:
+        """With every client read and none GitHub, the token is another provider's.
+
+        Accepting it would let a GitLab workspace for the same owner/name turn
+        the step green.
+        """
+        result = self.run_check(
+            code="200", oauth_body=GITLAB_ONLY, workspace_body=CONNECTED_WORKSPACE
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("GitHub App", result.stderr)
+
+    def test_no_client_with_an_app_workspace_for_another_repo_is_red(self) -> None:
+        result = self.run_check(
+            code="200",
+            oauth_body=NO_CLIENT,
+            workspace_body=workspace("acme/other", connection="app"),
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_no_client_after_every_oauth_page_reaches_the_app_fallback(self) -> None:
+        """The total-pages exit is the other way the listing can complete."""
+        result = self.run_check(
+            code="200",
+            oauth_body=oauth_page(total_pages=1, fill=True),
+            workspace_body=workspace("acme/infra", connection="app"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_no_client_finds_an_app_workspace_on_a_later_page(self) -> None:
+        result = self.run_check(
+            code="200",
+            oauth_body=NO_CLIENT,
+            workspace_body=workspace_page("acme/other", pages=2),
+            later_pages={2: workspace("acme/infra", connection="app", pages=2)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_short_workspace_page_without_pagination_metadata_is_conclusive(self) -> None:
+        """Mirrors the oauth-clients rule: a short page is the last one."""
+        result = self.run_check(
+            code="200", oauth_body=NO_CLIENT, workspace_body='{"data":[]}'
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_a_workspace_list_without_a_data_array_cannot_be_verified(self) -> None:
+        """An errors body is not an empty last page, so it is not a verdict."""
+        for body in ('{"errors":[{"status":"500"}]}', '{"data":null}'):
+            with self.subTest(body=body):
+                result = self.run_check(
+                    code="200", oauth_body=NO_CLIENT, workspace_body=body
+                )
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertIn("not the expected JSON", result.stderr)
+
+    def test_total_pages_outranks_a_short_workspace_page(self) -> None:
+        """A short page that promises a successor is not the last one."""
+        result = self.run_check(
+            code="403",
+            oauth_body="{}",
+            workspace_body=workspace("acme/other", pages=2),
+            later_pages={2: workspace("acme/infra", pages=2)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_an_empty_app_installation_id_is_not_evidence(self) -> None:
+        result = self.run_check(
+            code="200",
+            oauth_body=GITLAB_ONLY,
+            workspace_body=workspace("acme/infra", connection="empty-app"),
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_no_client_with_repo_unset_cannot_be_verified(self) -> None:
+        """Without $REPO nothing can match, so red would be a guess."""
+        result = self.run_check(
+            code="200", oauth_body=NO_CLIENT, workspace_body=NO_WORKSPACES, repo=""
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("REPO is unset", result.stderr)
+
+    def test_no_client_with_an_unreadable_workspace_list_cannot_be_verified(self) -> None:
+        """An App connection may exist; not being able to look is not a verdict."""
+        result = self.run_check(code="200", oauth_body=NO_CLIENT)
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("no GitHub OAuth client", result.stderr)
 
     def test_a_github_client_on_a_later_page_is_found(self) -> None:
         """Reading only the first page concluded "no GitHub client".
@@ -194,11 +310,15 @@ class VcsConnectCheckTests(unittest.TestCase):
         Demanding it unconditionally would report CANNOT VERIFY for every
         organization whose response omits it.
         """
-        result = self.run_check(code="200", oauth_body='{"data":[]}')
+        result = self.run_check(
+            code="200", oauth_body='{"data":[]}', workspace_body=NO_WORKSPACES
+        )
         self.assertEqual(result.returncode, 1, result.stdout)
 
     def test_a_non_github_client_is_red(self) -> None:
-        result = self.run_check(code="200", oauth_body=GITLAB_ONLY)
+        result = self.run_check(
+            code="200", oauth_body=GITLAB_ONLY, workspace_body=NO_WORKSPACES
+        )
         self.assertEqual(result.returncode, 1, result.stderr)
 
     def test_forbidden_falls_back_to_workspace_evidence(self) -> None:
@@ -277,7 +397,7 @@ class VcsConnectCheckTests(unittest.TestCase):
         result = self.run_check(
             code="403",
             oauth_body="{}",
-            workspace_body=workspace("acme/other", pages=2),
+            workspace_body=workspace_page("acme/other", pages=2),
             later_pages={2: workspace("acme/infra", pages=2)},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -286,7 +406,9 @@ class VcsConnectCheckTests(unittest.TestCase):
         result = self.run_check(
             code="403",
             oauth_body="{}",
-            workspace_body='{"data":[],"meta":{"pagination":{"total-pages":"lots"}}}',
+            workspace_body=workspace_page("acme/other", pages=2).replace(
+                '"total-pages":2', '"total-pages":"lots"'
+            ),
         )
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("total-pages", result.stderr)
