@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/hasansezertasan/infra-copilot/compare/v0.2.0...v0.2.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* **steps:** accept GitHub App connections when vcs-connect finds no OAuth client ([#94](https://github.com/hasansezertasan/infra-copilot/issues/94)) ([b404413](https://github.com/hasansezertasan/infra-copilot/commit/b40441330d14fb215edb7b3196164995ee840783))
+* **steps:** accept mise's ~-abbreviated path in the trust check ([#92](https://github.com/hasansezertasan/infra-copilot/issues/92)) ([1031bd0](https://github.com/hasansezertasan/infra-copilot/commit/1031bd028a2b7aeaf064f2de311355a843832ab6))
+
 ## [0.2.0](https://github.com/hasansezertasan/infra-copilot/compare/v0.1.0...v0.2.0) (2026-09-24)
 
 
