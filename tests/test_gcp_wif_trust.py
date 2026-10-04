@@ -117,9 +117,9 @@ class GcpWifTrustTests(unittest.TestCase):
             (root / "project-hcp.json").write_text(
                 json.dumps({"data": {"id": "prj-1", "attributes": {"name": "Default Project"}}})
             )
-            (root / "vars.json").write_text(
-                json.dumps({"data": variables, "meta": {"pagination": {"next-page": None}}})
-            )
+            # The real shape: HCP's workspace vars endpoint is not paginated and its
+            # response carries no meta at all (#90).
+            (root / "vars.json").write_text(json.dumps({"data": variables}))
             (root / "provider.json").write_text(json.dumps(provider))
             (root / "providers.json").write_text(json.dumps(providers))
             (root / "policy.json").write_text(json.dumps(policy_for(members)))

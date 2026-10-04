@@ -11,8 +11,9 @@ Two independent checks, deliberately separated:
 default
     Freshness. Also fetches the current upstream release and reports any
     audited version that has fallen behind, and checks every HCP API path the
-    shipped guidance calls against HCP's OpenAPI spec. Needs network, so it
-    runs nightly.
+    shipped guidance calls against HCP's OpenAPI spec — including that a call
+    which pages hits an endpoint that declares page parameters. Needs network,
+    so it runs nightly.
 
 The shipped references hardcode a lot of external fact. Nothing checked any of
 it, and the failure mode is the worst kind for this repository: an agent follows
@@ -143,6 +144,9 @@ def check_coherence(entries: list[dict[str, object]], references: Path = REFEREN
 # A path ends at anything that cannot be part of a segment in shell or Markdown; the
 # query string is cut because the spec's `paths` never carry one.
 API_PATH = re.compile(r"(?:api/v2|\$\{?hcp_api\}?)(/[^\s\"'`)|\\?#;,]*)")
+# A query that pages, URL-encoded as the shell calls write it or bracketed as prose does.
+PAGED_QUERY = re.compile(r"\?[^\s\"'`)|]*\bpage(?:%5B|\[)", re.IGNORECASE)
+PAGE_PARAMETERS = {"page[number]", "page[size]"}
 
 
 def path_shape(path: str) -> str:
@@ -173,8 +177,13 @@ def shape_matches(cited: str, spec: str) -> bool:
     )
 
 
-def cited_api_paths(scan: list[str], root: Path = ROOT) -> dict[str, list[str]]:
-    """Every HCP API path shape the shipped guidance calls, with where it is cited."""
+def cited_api_paths(
+    scan: list[str], root: Path = ROOT, *, paged: bool = False
+) -> dict[str, list[str]]:
+    """Every HCP API path shape the shipped guidance calls, with where it is cited.
+
+    With ``paged``, only the calls that send ``page[number]`` or ``page[size]``.
+    """
     cited: dict[str, list[str]] = {}
     for relative in scan:
         base = root / relative
@@ -191,6 +200,8 @@ def cited_api_paths(scan: list[str], root: Path = ROOT) -> dict[str, list[str]]:
                     shape = path_shape(match.group(1))
                     if shape == "/":
                         continue  # the bare base URL, e.g. `hcp_api: .../api/v2`
+                    if paged and not PAGED_QUERY.match(line, match.end()):
+                        continue
                     location = f"{document.relative_to(root).as_posix()}:{line_number}"
                     cited.setdefault(shape, []).append(location)
     return cited
@@ -263,6 +274,56 @@ def check_api_paths(
     return findings
 
 
+def declared_query_parameters(spec: dict[str, object], path: str) -> set[str]:
+    """The query parameter names a spec path's GET declares, ``$ref``s resolved."""
+    item = dict(dict(spec["paths"])[path])  # type: ignore[arg-type]
+    components = dict(dict(spec.get("components", {})).get("parameters", {}))  # type: ignore[arg-type]
+    names: set[str] = set()
+    shared = list(item.get("parameters", []))  # type: ignore[arg-type]
+    own = list(dict(item["get"]).get("parameters", []))  # type: ignore[arg-type]
+    for parameter in shared + own:
+        parameter = dict(parameter)  # type: ignore[arg-type]
+        reference = str(parameter.get("$ref", ""))
+        if reference.startswith("#/components/parameters/"):
+            parameter = dict(components.get(reference.rsplit("/", 1)[1], {}))  # type: ignore[arg-type]
+        if parameter.get("in") == "query":
+            names.add(str(parameter.get("name")))
+    return names
+
+
+def check_paged_api_paths(
+    paged: dict[str, list[str]], spec: dict[str, object], spec_label: str
+) -> list[str]:
+    """Paging a spec path whose GET declares no page parameters.
+
+    Such an endpoint returns its whole list in one response with no ``meta``, so a
+    loop that demands ``meta.pagination`` can never finish — new-provider-credentials
+    reported CANNOT VERIFY for every workspace that way (#90). A cited path the spec
+    does not list is left to ``check_api_paths``, which already reports it.
+    """
+    findings: list[str] = []
+    items = dict(spec["paths"])  # type: ignore[arg-type]
+    for shape, locations in sorted(paged.items()):
+        # Only paths that serve a GET: a POST-only template of the same shape says
+        # nothing about how the list is read.
+        served = [
+            path
+            for path, item in items.items()
+            if shape_matches(shape, path_shape(path)) and "get" in dict(item)  # type: ignore[arg-type]
+        ]
+        if not served or any(
+            declared_query_parameters(spec, path) & PAGE_PARAMETERS for path in served
+        ):
+            continue
+        findings.append(
+            f"api_paths: {shape} is paged (cited at {', '.join(locations)}) but its GET in "
+            f"{spec_label} declares no page[number] or page[size]. The endpoint returns the "
+            "whole list in one response, with no meta.pagination to follow: drop the page "
+            "query and read the single response as complete"
+        )
+    return findings
+
+
 class Unreachable(RuntimeError):
     """The upstream version could not be read. Not the same as being stale."""
 
@@ -328,10 +389,15 @@ def check_api_paths_upstream(config: dict[str, object]) -> tuple[list[str], list
         spec_paths = list(dict(spec["paths"]))  # type: ignore[arg-type]
     except (Unreachable, KeyError, TypeError, ValueError) as error:
         return [], [f"api_paths: could not read {source.get('repo')}/{source.get('path')}: {error}"]
-    cited = cited_api_paths(list(config["scan"]))  # type: ignore[arg-type]
+    scan = list(config["scan"])  # type: ignore[arg-type]
     unlisted = [str(item["path"]) for item in config.get("unlisted", [])]  # type: ignore[union-attr,index]
     label = f"{source['repo']} {tag} {source['path']}"
-    return check_api_paths(cited, spec_paths, unlisted, label), []
+    findings = check_api_paths(cited_api_paths(scan), spec_paths, unlisted, label)
+    try:
+        findings += check_paged_api_paths(cited_api_paths(scan, paged=True), spec, label)
+    except (KeyError, TypeError, ValueError) as error:
+        return findings, [f"api_paths: could not read parameters from {label}: {error}"]
+    return findings, []
 
 
 def resolve_tag_sha(repo: str, tag: str) -> str:

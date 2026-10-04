@@ -55,13 +55,14 @@ varset_count=$(printf '%s' "$varsets" | jq -er '.data | select(type == "array") 
 [ "$varset_count" -eq 0 ] \
     || fail "$NEW_PROVIDER_WORKSPACE has variable sets attached; their variables cannot be verified here — detach them and set the variables on the workspace"
 
-vars=$(curl -sf "$hcp_api/workspaces/$ws_id/vars?page%5Bsize%5D=100" \
+# Not paginated, as in new-provider-credentials: one response is the whole list.
+vars=$(curl -sf "$hcp_api/workspaces/$ws_id/vars" \
     -H "Authorization: Bearer $HCP_TOKEN") \
     || cannot_verify "could not read variables of $NEW_PROVIDER_WORKSPACE"
 printf '%s' "$vars" | jq -e '.data | type == "array"' >/dev/null 2>&1 \
     || cannot_verify "variables response was not a list"
-printf '%s' "$vars" | jq -e '(.meta.pagination["next-page"] // null) == null' >/dev/null 2>&1 \
-    || cannot_verify "more than 100 workspace variables; this check reads one page"
+printf '%s' "$vars" | jq -e '.meta.pagination["next-page"] == null' >/dev/null 2>&1 \
+    || cannot_verify "the variables response now names a next page; this check reads one response"
 
 # $1 = key; prints the env variable's value. Empty when absent. A sensitive value reads
 # back as null, which is itself a finding: these coordinates are not secrets, and hiding

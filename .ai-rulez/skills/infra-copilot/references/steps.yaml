@@ -2144,37 +2144,26 @@ steps:
       varset_count=$(printf '%s' "$varset_body" \
         | jq -er '.data | select(type == "array") | length' 2>/dev/null) || exit 2
       test "$varset_count" -eq 0 || exit 1
-      pages=$(mktemp) || exit 2
-      trap 'rm -f "$pages"' EXIT
-      : >"$pages" || exit 2
-      page=1
-      while : ; do
-        body=$(curl -sf \
-          "$hcp_api/workspaces/$WS_ID/vars?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
-          -H "Authorization: Bearer $HCP_TOKEN") || exit 2
-        printf '%s' "$body" | jq -e '
-          (.data | type == "array")
-          and (.meta.pagination | type == "object")
-          and ((.meta.pagination["next-page"] == null)
-            or (.meta.pagination["next-page"]
-              | type == "number" and . == floor and . > 0))' >/dev/null 2>&1 \
-          || exit 2
-        printf '%s\n' "$body" >>"$pages"
-        next_page=$(printf '%s' "$body" \
-          | jq -r '.meta.pagination["next-page"] // empty') || exit 2
-        test -n "$next_page" || break
-        test "$next_page" -eq $((page + 1)) || exit 2
-        page=$next_page
-      done
-      jq -se --argjson expected "$NEW_PROVIDER_CREDENTIALS" '
-        [.[].data[] | .attributes
+      # The workspace vars endpoint is not paginated: HCP's OpenAPI spec gives it no
+      # page parameters and no meta in its response, so one response is the whole
+      # list. Requiring meta.pagination left this step CANNOT VERIFY for every
+      # workspace. Should HCP start paginating it, a next page would mean the list
+      # below is partial, so that fails closed rather than judging half an inventory.
+      body=$(curl -sf "$hcp_api/workspaces/$WS_ID/vars" \
+        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+      printf '%s' "$body" | jq -e '
+        (.data | type == "array")
+        and (.meta.pagination["next-page"] == null)' >/dev/null 2>&1 \
+        || exit 2
+      printf '%s' "$body" | jq -e --argjson expected "$NEW_PROVIDER_CREDENTIALS" '
+        [.data[] | .attributes
           | {key: .key, category: .category, sensitive: .sensitive}]
           | sort_by(.category, .key) as $actual
         | ($expected
             | map({key: .key, category: .category, sensitive: .sensitive})
             | sort_by(.category, .key)) as $wanted
         | ($expected | type == "array" and length > 0)
-          and ($actual == $wanted)' "$pages" >/dev/null || exit 1
+          and ($actual == $wanted)' >/dev/null || exit 1
       printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \
         | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' || exit 1
       printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" | jq -Re '
