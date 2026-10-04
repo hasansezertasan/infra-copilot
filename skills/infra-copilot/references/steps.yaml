@@ -405,11 +405,16 @@ steps:
     provider: hcp
     actor: HUMAN
     when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
-    title: Connect GitHub to HCP via OAuth
+    title: Connect GitHub to HCP via OAuth or the GitHub App
     why: Workspaces need a VCS provider to run speculative plans on PRs.
     run: |
       In HCP -> org Settings -> Version Control / VCS Providers, connect GitHub via OAuth,
-      scoped to this repo only. Note the oauth-token id if the agent will script workspace creation.
+      scoped to this repo only, or install the HCP Terraform GitHub App for $REPO and
+      authorize it on the bootstrap user's GitHub account. The agent discovers the
+      installation by $REPO's GitHub owner using that user token. Select an ambiguous
+      connection with OAUTH_TOKEN_ID or GITHUB_APP_INSTALLATION_ID (HCP ghain- id,
+      not GitHub's numeric installation id); never export both.
+      After the handoff, keep that selection exported for workspace creation.
     # Assert a GitHub-family VCS provider specifically, not just "any oauth client" —
     # otherwise a pre-existing GitLab/Bitbucket connection would false-green this step.
     # Tri-state, because this endpoint is organization-scoped and the plan-only
@@ -496,10 +501,8 @@ steps:
           -H "Authorization: Bearer $HCP_TOKEN" >"$body" \
           || { echo "CANNOT VERIFY: $cause, and page $page of the workspace list could not be read either" >&2; exit 2; }
         # Require an actual VCS connection, by either mechanism -- or, when the
-        # organization has no GitHub OAuth client, by the App alone. create_ws in
-        # hcp.md connects through `oauth-token-id`, so requiring a GitHub App
-        # installation id rejected every workspace this manifest provisions --
-        # which put the fallback back into the exit-2 state it exists to avoid.
+        # organization has no GitHub OAuth client, by the App alone. hcp.md
+        # supports both mechanisms; a resume preserves either connection.
         #
         # This cannot establish the provider family: a workspace's vcs-repo
         # carries no service-provider field, and resolving the oauth token to its
@@ -537,15 +540,22 @@ steps:
         [ "$page" -lt "$pages" ] || break
         page=$((page + 1))
       done
-      # A readable organization with no GitHub OAuth client and no App-connected
-      # workspace for $REPO is not connected: a verdict, not uncertainty.
+      # Before the first workspace exists, check user-scoped App installations.
+      # Installation and user authorization do not prove repository access:
+      # workspace creation must still succeed. Narrowed tokens use the workspace
+      # evidence above and do not require this user-scoped read.
       if [ "$oauth_read" = yes ]; then
-        echo "$cause, and no workspace for $REPO is connected through the HCP GitHub App" >&2
-        exit 1
+        sh "$INFRA_COPILOT_REFERENCES/checks/hcp-github-app.sh" >/dev/null
+        rc=$?
+        case "$rc" in
+          0) exit 0 ;;
+          1|3) echo "$cause, and no unique GitHub App installation for $REPO; finish authorization or select GITHUB_APP_INSTALLATION_ID" >&2; exit 1 ;;
+          *) echo "CANNOT VERIFY: $cause, and user-scoped GitHub App installations could not be read" >&2; exit 2 ;;
+        esac
       fi
       echo "CANNOT VERIFY: $cause, and no VCS-connected workspace for ${REPO:-<REPO unset>} is visible; if the plan-only identity is in use, phase 1 was verified under the user token" >&2
       exit 2
-    produces: GitHub<->HCP OAuth connection
+    produces: GitHub<->HCP VCS connection
     docs: docs/setup.md#2-hcp-terraform--workspaces
 
   - id: workspaces-create
@@ -569,7 +579,7 @@ steps:
         auto-destroy-at:     null
         auto-destroy-activity-duration: null
         speculative-enabled: true       # plans on PRs
-        vcs-repo:            identifier $REPO, oauth-token-id from vcs-connect, branch main
+        vcs-repo:            identifier $REPO, selected oauth-token-id OR github-app-installation-id, branch main
       Then in each workspace's UI -> Version Control, confirm FORK speculative plans are OFF
       (separate toggle, no clean create-time attribute; defaults off).
     # The same complete invariant decides whether hcp-login may accept a narrowed
@@ -1989,12 +1999,12 @@ steps:
     title: Create the workspace and make it visible to the plan-only team
     why: A missing or invisible workspace is expected setup work, not an unverifiable terminal state.
     run: |
-      Using a user or organization token yourself, load hcp.md's helpers, resolve the
-      repository-specific OAuth token, create/configure the workspace, and grant the
+      Using a user token yourself (required for GitHub App connections), load hcp.md's
+      helpers, resolve the repository-specific VCS connection, create/configure the workspace, and grant the
       plan-only team `Plan` (never `Write`):
 
         load_tf_version
-        resolve_oauth_token_id
+        resolve_vcs_connection
         create_ws "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
         set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
 
@@ -2022,12 +2032,11 @@ steps:
     title: Create and safely configure the new HCP workspace
     why: The leaf needs a remote, VCS-backed workspace with path-scoped plans and auto-apply disabled.
     run: |
-      If this verification finds drift after Plan access is established, use a user or
-      organization token yourself and run hcp.md's set_workspace_config helper (it
-      reconciles every asserted setting, including an already-existing workspace):
+      If this verification finds drift after Plan access is established, use a user
+      token yourself and run hcp.md's set_workspace_config helper. It preserves the
+      existing VCS connection and reconciles every asserted setting:
 
         load_tf_version
-        resolve_oauth_token_id
         set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
 
       If the helper reports a mismatched existing working directory, inspect the named

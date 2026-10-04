@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:ee83830b84861e3ca39afc8960079722b5afe21bb4e468dac86bd2338195b109
-Source-Hash: blake3:24821f56c0e3b06c7aeaff751121fe436cda941fb75306727f34cee6b43de7b2
+Content-Hash: blake3:4cf75e7725ffa1929ba7bdc0bf0dd511d0b252bb13b0df810502669bac83b4d3
+Source-Hash: blake3:dedf14b07eb01d197feca8f7dff3baf1b0457a7ca174f2e64aa793bd39b948c2
 Schema-Version: v1
 -->
 
@@ -31,7 +31,7 @@ For each Terraform leaf directory, create a VCS-linked workspace under the `infr
 
 For each workspace, in Settings → Version Control:
 
-- VCS provider: GitHub (connect via OAuth, scope to this repo only).
+- VCS provider: GitHub (connect via OAuth or the HCP Terraform GitHub App, scope to this repo only).
 - **Terraform Working Directory**: set as above.
 - **Automatic Run Triggering**: set to **"Only trigger runs when files in specified paths change"**, with both `<working-dir>/**` (e.g. `terraform/cloudflare/**`) and `.infra-copilot/config.md`. The shared config must trigger both workspaces; otherwise either root can plan against stale public identifiers. Directory scoping still prevents a docs-only commit from spuriously planning both providers.
 - **Automatic speculative plans**: **enabled**. This is the master toggle for plans on PRs; without it, PRs get no speculative plan and the GitHub status check never appears.

@@ -890,7 +890,7 @@ terraform {
         self.assertIn("404) exit 1", bootstrap)
         self.assertIn("*) exit 2", bootstrap)
         self.assertIn("create_ws", bootstrap)
-        self.assertIn("resolve_oauth_token_id", bootstrap)
+        self.assertIn("resolve_vcs_connection", bootstrap)
 
     def test_plan_access_reuses_repository_derived_inventory(self) -> None:
         access = self.steps["new-provider-plan-access"]
@@ -1371,11 +1371,11 @@ terraform {
         ):
             self.assertIn(marker, config)
 
-    def test_hcp_workspace_creation_selects_a_repository_specific_oauth_token(self) -> None:
+    def test_hcp_workspace_creation_selects_a_repository_specific_connection(self) -> None:
         hcp = HCP.read_text(encoding="utf-8")
         self.assertNotIn('.data[0].relationships["oauth-tokens"]', hcp)
         self.assertIn('select(.identifier == $repo)', hcp)
-        self.assertIn("resolve_oauth_token_id", hcp)
+        self.assertIn("resolve_vcs_connection", hcp)
         self.assertIn("select(length == 1)", hcp)
         self.assertIn("export the intended OAUTH_TOKEN_ID", hcp)
 
