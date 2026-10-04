@@ -18,8 +18,8 @@ from scripts.check_upstream import (
     check_api_path_coherence,
     check_api_paths,
     check_coherence,
-    check_paged_api_paths,
     check_linkage,
+    check_paged_api_paths,
     cited_api_paths,
     cited_strings,
     load_api_paths,
@@ -342,7 +342,6 @@ class ApiPathTests(unittest.TestCase):
             self.assertIn("no HCP API path found", errors[0])
 
 
-
 #: The two shapes that matter, as go-tfe's spec writes them: one paged endpoint
 #: declaring its page parameters by $ref, and the unpaginated workspace vars list.
 PAGED_SPEC: dict[str, object] = {
@@ -404,6 +403,16 @@ class PagedApiPathTests(unittest.TestCase):
         self.assertEqual(
             check_paged_api_paths({"/runs/{}/actions/discard": ["x:1"]}, PAGED_SPEC, "spec"),
             [],
+        )
+
+    def test_a_path_that_serves_no_get_is_not_reported(self) -> None:
+        """A POST-only path says nothing about how a list is read."""
+        spec = {
+            "paths": {"/runs/{run_id}/actions/apply": {"post": {"parameters": []}}},
+            "components": {},
+        }
+        self.assertEqual(
+            check_paged_api_paths({"/runs/{}/actions/apply": ["x:1"]}, spec, "spec"), []
         )
 
     def test_the_shipped_guidance_pages_only_endpoints_that_paginate(self) -> None:

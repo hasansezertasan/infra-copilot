@@ -2153,7 +2153,7 @@ steps:
         -H "Authorization: Bearer $HCP_TOKEN") || exit 2
       printf '%s' "$body" | jq -e '
         (.data | type == "array")
-        and ((.meta.pagination["next-page"] // null) == null)' >/dev/null 2>&1 \
+        and (.meta.pagination["next-page"] == null)' >/dev/null 2>&1 \
         || exit 2
       printf '%s' "$body" | jq -e --argjson expected "$NEW_PROVIDER_CREDENTIALS" '
         [.data[] | .attributes

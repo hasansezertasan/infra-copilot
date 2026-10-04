@@ -126,7 +126,8 @@ class NewProviderCredentialsCheckTests(unittest.TestCase):
     def test_the_vars_request_sends_no_page_parameters(self) -> None:
         """The endpoint declares none; sending them implied a paging that does not exist."""
         result = self.run_check()
-        vars_calls = [url for url in result.requests if url.endswith("/vars") or "/vars?" in url]  # type: ignore[attr-defined]
+        requests: list[str] = result.requests  # type: ignore[attr-defined]
+        vars_calls = [url for url in requests if url.endswith("/vars") or "/vars?" in url]
         self.assertEqual(vars_calls, ["https://app.terraform.io/api/v2/workspaces/ws-abc/vars"])
 
     def test_more_than_a_page_size_of_variables_is_still_one_complete_list(self) -> None:
@@ -161,6 +162,13 @@ class NewProviderCredentialsCheckTests(unittest.TestCase):
         })
         result = self.run_check(vars_body=body)
         self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_a_malformed_next_page_cannot_be_verified(self) -> None:
+        """`false` is not "no next page": jq's `//` would have read it as absent."""
+        for meta in ({"pagination": {"next-page": False}}, {"pagination": "x"}, "x"):
+            with self.subTest(meta=meta):
+                body = json.dumps({"data": variables(DECLARED), "meta": meta})
+                self.assertEqual(self.run_check(vars_body=body).returncode, 2)
 
     def test_pagination_metadata_without_a_next_page_is_green(self) -> None:
         body = json.dumps({

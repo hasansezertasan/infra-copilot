@@ -144,6 +144,9 @@ def check_coherence(entries: list[dict[str, object]], references: Path = REFEREN
 # A path ends at anything that cannot be part of a segment in shell or Markdown; the
 # query string is cut because the spec's `paths` never carry one.
 API_PATH = re.compile(r"(?:api/v2|\$\{?hcp_api\}?)(/[^\s\"'`)|\\?#;,]*)")
+# A query that pages, URL-encoded as the shell calls write it or bracketed as prose does.
+PAGED_QUERY = re.compile(r"\?[^\s\"'`)|]*\bpage(?:%5B|\[)", re.IGNORECASE)
+PAGE_PARAMETERS = {"page[number]", "page[size]"}
 
 
 def path_shape(path: str) -> str:
@@ -172,10 +175,6 @@ def shape_matches(cited: str, spec: str) -> bool:
         ours == theirs or theirs == "{}"
         for ours, theirs in zip(cited_segments, spec_segments)
     )
-
-
-# A query that pages, URL-encoded as the shell calls write it or bracketed as prose does.
-PAGED_QUERY = re.compile(r"\?[^\s\"'`)|]*\bpage(?:%5B|\[)", re.IGNORECASE)
 
 
 def cited_api_paths(
@@ -275,15 +274,14 @@ def check_api_paths(
     return findings
 
 
-PAGE_PARAMETERS = {"page[number]", "page[size]"}
-
-
 def declared_query_parameters(spec: dict[str, object], path: str) -> set[str]:
     """The query parameter names a spec path's GET declares, ``$ref``s resolved."""
     item = dict(dict(spec["paths"])[path])  # type: ignore[arg-type]
     components = dict(dict(spec.get("components", {})).get("parameters", {}))  # type: ignore[arg-type]
     names: set[str] = set()
-    for parameter in list(item.get("parameters", [])) + list(dict(item.get("get", {})).get("parameters", [])):  # type: ignore[arg-type]
+    shared = list(item.get("parameters", []))  # type: ignore[arg-type]
+    own = list(dict(item["get"]).get("parameters", []))  # type: ignore[arg-type]
+    for parameter in shared + own:
         parameter = dict(parameter)  # type: ignore[arg-type]
         reference = str(parameter.get("$ref", ""))
         if reference.startswith("#/components/parameters/"):
@@ -304,9 +302,15 @@ def check_paged_api_paths(
     does not list is left to ``check_api_paths``, which already reports it.
     """
     findings: list[str] = []
-    spec_paths = list(dict(spec["paths"]))  # type: ignore[arg-type]
+    items = dict(spec["paths"])  # type: ignore[arg-type]
     for shape, locations in sorted(paged.items()):
-        served = [path for path in spec_paths if shape_matches(shape, path_shape(path))]
+        # Only paths that serve a GET: a POST-only template of the same shape says
+        # nothing about how the list is read.
+        served = [
+            path
+            for path, item in items.items()
+            if shape_matches(shape, path_shape(path)) and "get" in dict(item)  # type: ignore[arg-type]
+        ]
         if not served or any(
             declared_query_parameters(spec, path) & PAGE_PARAMETERS for path in served
         ):

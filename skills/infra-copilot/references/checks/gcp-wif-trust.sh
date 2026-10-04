@@ -61,7 +61,7 @@ vars=$(curl -sf "$hcp_api/workspaces/$ws_id/vars" \
     || cannot_verify "could not read variables of $NEW_PROVIDER_WORKSPACE"
 printf '%s' "$vars" | jq -e '.data | type == "array"' >/dev/null 2>&1 \
     || cannot_verify "variables response was not a list"
-printf '%s' "$vars" | jq -e '(.meta.pagination["next-page"] // null) == null' >/dev/null 2>&1 \
+printf '%s' "$vars" | jq -e '.meta.pagination["next-page"] == null' >/dev/null 2>&1 \
     || cannot_verify "the variables response now names a next page; this check reads one response"
 
 # $1 = key; prints the env variable's value. Empty when absent. A sensitive value reads

@@ -924,7 +924,7 @@ terraform {
         # Not paginated (#90): one request, and a named next page fails closed.
         self.assertIn('curl -sf "$hcp_api/workspaces/$WS_ID/vars" \\', credentials)
         self.assertNotIn("/vars?", credentials)
-        self.assertIn('(.meta.pagination["next-page"] // null) == null', credentials)
+        self.assertIn('.meta.pagination["next-page"] == null', credentials)
         self.assertIn("NEW_PROVIDER_CREDENTIALS_VERIFIED_AT", credentials)
         self.assertIn("fromdateiso8601", credentials)
         self.assertIn('strftime("%Y-%m-%dT%H:%M:%SZ")', credentials)
