@@ -24,7 +24,7 @@ for file in "$leaf"/*.tf "$leaf"/*.tf.json; do
             # Tokenize structure, masking comments, strings and heredocs. Keep all
             # provider/resource declarations, including implicit requirements and
             # overrides. A backend is a direct child of a top-level terraform block.
-            awk '
+            LC_ALL=C awk '
               function emit(text) { if (!skip) out = out text }
               {
                 sub(/\r$/, "", $0)
@@ -45,17 +45,35 @@ for file in "$leaf"/*.tf "$leaf"/*.tf.json; do
                   }
                   if (quoted) {
                     emit(c)
-                    if (escaped) escaped = 0
-                    else if (c == "\\") escaped = 1
-                    else if (c == "\"") quoted = 0
+                    if (template_comment) {
+                      if (pair == "*/") { emit("/"); i++; template_comment = 0 }
+                      continue
+                    }
+                    if (template_line_comment) {
+                      if (c == "\n") template_line_comment = 0
+                      continue
+                    }
+                    if (interpolation[quoted]) {
+                      if (pair == "/*") { emit("*"); i++; template_comment = 1 }
+                      else if (c == "#" || pair == "//") template_line_comment = 1
+                      else if (c == "\"") { quoted++; interpolation[quoted] = 0 }
+                      else if (c == "{") interpolation[quoted]++
+                      else if (c == "}") interpolation[quoted]--
+                    } else if (escaped[quoted]) escaped[quoted] = 0
+                    else if (c == "\\") escaped[quoted] = 1
+                    else if ((pair == "$$" || pair == "%%") && substr(line, i + 2, 1) == "{") {
+                      emit(substr(line, i + 1, 2)); i += 2
+                    } else if (pair == "${" || pair == "%{") {
+                      emit("{"); i++; interpolation[quoted] = 1
+                    } else if (c == "\"") quoted--
                     continue
                   }
                   if (pair == "/*") { comment = 1; emit(" "); i++; continue }
                   if (c == "#" || pair == "//") { emit("\n"); break }
-                  if (c == "\"") { quoted = 1; emit(c); continue }
+                  if (c == "\"") { quoted = 1; interpolation[1] = 0; emit(c); continue }
                   if (pair == "<<") {
                     rest = substr(line, i)
-                    if (match(rest, /^<<-?[ \t]*[A-Za-z_][A-Za-z0-9_-]*/)) {
+                    if (match(rest, /^<<-?[ \t]*[^[:space:]]+/)) {
                       marker = substr(rest, 1, RLENGTH)
                       indent = (marker ~ /^<<-/)
                       sub(/^<<-?[ \t]*/, "", marker)
@@ -93,6 +111,16 @@ for file in "$leaf"/*.tf "$leaf"/*.tf.json; do
     esac
 done
 [ "$found" = true ] || exit 2
+# `terraform providers` includes requirements introduced by test runs. Preserve
+# both root test files and the default tests/ directory, without executing tests.
+for directory in "" tests; do
+    for file in "$leaf"/${directory:+$directory/}*.tftest.hcl "$leaf"/${directory:+$directory/}*.tftest.json; do
+        [ -f "$file" ] || continue
+        destination="$scratch${directory:+/$directory}"
+        mkdir -p "$destination" || exit 2
+        cp "$file" "$destination/${file##*/}" || exit 2
+    done
+done
 # Reuse only the module inventory from an initialized leaf, resolving relative
 # module directories against the original leaf. No backend metadata or state is
 # copied. An uninstalled child module remains unknown rather than being skipped.

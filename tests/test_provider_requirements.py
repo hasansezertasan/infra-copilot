@@ -147,6 +147,10 @@ class RealTerraformProviderRequirementsTests(unittest.TestCase):
     def test_real_cloud_and_json_leaves_without_init(self) -> None:
         configurations = [
             {"main.tf": CONFIG},
+            {"main.tf": CONFIG + 'locals { message = "${format("hello { %s", "world")}" }\n'},
+            {"main.tf": CONFIG + 'locals { café = "Unicode" }\n'},
+            {"main.tf": CONFIG + 'locals {\n message = <<ÉOF\nhi {\nÉOF\n}\n'},
+            {"main.tf": CONFIG + 'locals { message = "$${literal { brace}" }\n'},
             {"main.tf": CONFIG.replace("\n", "\r\n")},
             {"main.tf.json": '''{"terraform":{"cloud":{"organization":"fake",
               "workspaces":{"name":"fake"}},"required_providers":{
@@ -196,3 +200,29 @@ class RealTerraformProviderRequirementsTests(unittest.TestCase):
                 (Path(directory) / "main.tf").write_text(content)
                 result = subprocess.run(["sh", str(CHECK), directory], capture_output=True, text=True, env=self.env)
                 self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_test_only_provider_requirement_is_not_skipped(self) -> None:
+        for test_path in ("main.tftest.hcl", "tests/main.tftest.hcl"):
+            with self.subTest(test_path=test_path), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                leaf = root / "terraform/gcp"
+                leaf.mkdir(parents=True)
+                (leaf / "main.tf").write_text('resource "terraform_data" "test" {}\n')
+                fixture = leaf / "fixture"
+                fixture.mkdir()
+                (fixture / "main.tf").write_text('resource "random_pet" "test" {}\n')
+                test = leaf / test_path
+                test.parent.mkdir(exist_ok=True)
+                test.write_text('run "basic" {\n command = plan\n module { source = "./fixture" }\n}\n')
+                subprocess.run([REAL_TERRAFORM, f"-chdir={leaf}", "get", "-no-color"],
+                               env=self.env, check=True, capture_output=True, text=True)
+                result = subprocess.run(["sh", str(CHECK), str(leaf)],
+                                        capture_output=True, text=True, env=self.env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("registry.terraform.io/hashicorp/random", result.stdout)
+                env = self.env | {"NEW_PROVIDER": "gcp", "INFRA_COPILOT_REFERENCES": str(REFERENCES)}
+                lock_check = subprocess.run(
+                    ["sh", "-c", literal_check(phase_six_steps()["new-provider-lock"])],
+                    cwd=root, env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(lock_check.returncode, 1, lock_check.stderr)
