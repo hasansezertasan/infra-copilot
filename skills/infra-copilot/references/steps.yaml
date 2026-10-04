@@ -1950,22 +1950,22 @@ steps:
     provider: repo
     actor: AGENT
     title: Verify committed selections for every required provider
+    tri_state: true
     why: The trust gate must activate Terraform before lock validation, while HCP must not invent missing selections remotely.
     run: |
       After new-provider-toolchain and the complete preflight are green, inspect the
-      committed dependency lock. If a required provider selection is missing, run
+      committed dependency lock. The check enumerates configuration requirements in a
+      disposable copy without backend initialization, state reads, or HCP access; it
+      never writes .terraform/ or the lock in the checkout. Exit 2 means requirements
+      could not be enumerated (including unavailable child modules); exit 1 means a
+      required selection or checksum is missing. If a selection is missing, run
       `terraform init -backend=false` in terraform/$NEW_PROVIDER and commit the reviewed
       `.terraform.lock.hcl` before re-running this check.
     check: |
-      provider_output=$(mktemp) || exit 1
-      trap 'rm -f "$provider_output"' EXIT
-      terraform -chdir="terraform/$NEW_PROVIDER" providers \
-        >"$provider_output" 2>/dev/null || exit 1
-      required_providers=$(sed -n 's/.*provider\[\([^]]*\)\].*/\1/p' \
-        "$provider_output" | sort -u) || exit 1
-      test -n "$required_providers" || exit 1
+      required_providers=$(sh "$INFRA_COPILOT_REFERENCES/checks/provider-requirements.sh" \
+        "terraform/$NEW_PROVIDER") || exit 2
       printf '%s\n' "$required_providers" | while IFS= read -r provider; do
-        case "$provider" in terraform.io/builtin/*) continue ;; esac
+        case "$provider" in ""|terraform.io/builtin/*) continue ;; esac
         awk -v target="$provider" '
           $1 == "provider" {
             address=$2; gsub(/^"|"$/, "", address)

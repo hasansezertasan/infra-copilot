@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:ecd9c735cfe790217ad367dbeb1f65ff3c1edc2dc6f063c346916076251dbe17",
+  "source_hash": "blake3:25fcb871790406232e6dd8aeebc176f755026adc381a218041d3d096d551db2b",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -52,6 +52,9 @@
     },
     "skills/infra-copilot/references/checks/leaf-cloud.sh": {
       "content_hash": "blake3:d1fa46a53dcaecbfc0313a0f0808424d374f942d165f6402450bd6358824afac"
+    },
+    "skills/infra-copilot/references/checks/provider-requirements.sh": {
+      "content_hash": "blake3:2bd9d6b662993a7d95124e97b5d95cc7c4cf995fb303653c99084cf208c82dc6"
     },
     "skills/infra-copilot/references/checks/status-check-context.sh": {
       "content_hash": "blake3:7b43a11dc33a9af654fac6bf546ea73c9b4ff7d312cef74cd15f2591948de7be"
@@ -111,7 +114,7 @@
       "content_hash": "blake3:776baadec4ead71bd1abc68d25724a301ddcaa94454616c567b711ba3b559c39"
     },
     "skills/infra-copilot/references/steps.yaml": {
-      "content_hash": "blake3:4ebc5d10ec33a956a8dd1f4f6f343ef3639453780b10ea12564e92f9c3921ec4"
+      "content_hash": "blake3:fab1b66c37ac2dbe6f46a8540ecf7689afaa5dce3282629afbdaf68a724f2e04"
     },
     "skills/infra-copilot/references/templates/terraform-apply.yml": {
       "content_hash": "blake3:58f05966aac00db18d13ef6f792ea5de1900255c7f9bf51791b487babeffd723"
