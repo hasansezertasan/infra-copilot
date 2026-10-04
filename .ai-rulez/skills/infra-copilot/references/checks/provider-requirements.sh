@@ -26,12 +26,20 @@ for file in "$leaf"/*.tf "$leaf"/*.tf.json; do
             # overrides. A backend is a direct child of a top-level terraform block.
             LC_ALL=C awk '
               function emit(text) { if (!skip) out = out text }
+              function begin_heredoc(rest) {
+                rest = substr(line, i)
+                if (!match(rest, /^<<-?[ \t]*[^[:space:]]+/)) return 0
+                marker = substr(rest, 1, RLENGTH)
+                sub(/^<<-?[ \t]*/, "", marker)
+                heredoc = 1; emit(rest); return 1
+              }
               {
                 sub(/\r$/, "", $0)
                 if (heredoc) {
                   emit($0 "\n")
                   end = $0
-                  if (indent) sub(/^[ \t]*/, "", end)
+                  sub(/^[ \t]*/, "", end)
+                  sub(/[ \t]*$/, "", end)
                   if (end == marker) heredoc = 0
                   next
                 }
@@ -44,6 +52,8 @@ for file in "$leaf"/*.tf "$leaf"/*.tf.json; do
                     continue
                   }
                   if (quoted) {
+                    if (interpolation[quoted] && !template_comment && !template_line_comment &&
+                        pair == "<<" && begin_heredoc()) break
                     emit(c)
                     if (template_comment) {
                       if (pair == "*/") { emit("/"); i++; template_comment = 0 }
@@ -71,15 +81,7 @@ for file in "$leaf"/*.tf "$leaf"/*.tf.json; do
                   if (pair == "/*") { comment = 1; emit(" "); i++; continue }
                   if (c == "#" || pair == "//") { emit("\n"); break }
                   if (c == "\"") { quoted = 1; interpolation[1] = 0; emit(c); continue }
-                  if (pair == "<<") {
-                    rest = substr(line, i)
-                    if (match(rest, /^<<-?[ \t]*[^[:space:]]+/)) {
-                      marker = substr(rest, 1, RLENGTH)
-                      indent = (marker ~ /^<<-/)
-                      sub(/^<<-?[ \t]*/, "", marker)
-                      heredoc = 1; emit(rest); break
-                    }
-                  }
+                  if (pair == "<<" && begin_heredoc()) break
                   if (c ~ /[A-Za-z_]/) {
                     word = c; start = length(out) + 1
                     while (substr(line, i + 1, 1) ~ /[A-Za-z0-9_-]/) {

@@ -151,6 +151,9 @@ class RealTerraformProviderRequirementsTests(unittest.TestCase):
             {"main.tf": CONFIG + 'locals { café = "Unicode" }\n'},
             {"main.tf": CONFIG + 'locals {\n message = <<ÉOF\nhi {\nÉOF\n}\n'},
             {"main.tf": CONFIG + 'locals { message = "$${literal { brace}" }\n'},
+            {"main.tf": CONFIG + 'locals {\n message = "${join("", [<<EOT\nhello {\nEOT\n])}"\n}\n'},
+            {"main.tf": CONFIG + 'locals {\n message = "${trimspace(<<EOT\n"\nEOT\n)}"\n}\n'},
+            {"main.tf": CONFIG + 'locals {\n message = <<EOT\nhello {\n  EOT  \n}\n'},
             {"main.tf": CONFIG.replace("\n", "\r\n")},
             {"main.tf.json": '''{"terraform":{"cloud":{"organization":"fake",
               "workspaces":{"name":"fake"}},"required_providers":{
