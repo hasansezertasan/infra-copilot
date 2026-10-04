@@ -809,8 +809,8 @@ terraform {
         self.assertIn(".terraform.lock.hcl", leaf)
         self.assertIn("terraform init -backend=false", leaf)
         self.assertIn("git --no-optional-locks status --porcelain", leaf)
-        self.assertIn('terraform -chdir="terraform/$NEW_PROVIDER" providers', lock)
-        self.assertIn('provider\\[\\([^]]*\\)\\]', lock)
+        self.assertIn('checks/provider-requirements.sh', lock)
+        self.assertIn('tri_state: true', lock)
         self.assertIn("version && checksum", lock)
         self.assertNotIn('terraform -chdir="terraform/$NEW_PROVIDER" providers', leaf)
 
@@ -882,7 +882,7 @@ terraform {
             )
         self.assertEqual(valid.returncode, 0, valid.stderr)
         self.assertNotEqual(empty.returncode, 0)
-        self.assertNotEqual(failed_provider_query.returncode, 0)
+        self.assertEqual(failed_provider_query.returncode, 2)
 
     def test_workspace_bootstrap_makes_the_creation_handoff_reachable(self) -> None:
         bootstrap = self.steps["new-provider-workspace-bootstrap"]
