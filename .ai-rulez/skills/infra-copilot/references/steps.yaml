@@ -549,7 +549,7 @@ steps:
         rc=$?
         case "$rc" in
           0) exit 0 ;;
-          1|3) echo "$cause, and no unique GitHub App installation for $REPO; finish authorization or select GITHUB_APP_INSTALLATION_ID" >&2; exit 1 ;;
+          1|3|4) echo "$cause, and no unique GitHub App installation for $REPO; finish authorization or select GITHUB_APP_INSTALLATION_ID" >&2; exit 1 ;;
           *) echo "CANNOT VERIFY: $cause, and user-scoped GitHub App installations could not be read" >&2; exit 2 ;;
         esac
       fi

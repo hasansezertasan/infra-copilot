@@ -1,5 +1,6 @@
 #!/bin/sh
-# Print one HCP installation id for REPO. 1 = absent; 2 = unreadable; 3 = ambiguous.
+# Print one HCP installation id for REPO.
+# 1 = absent; 2 = unreadable; 3 = ambiguous; 4 = authorization denied.
 set -u
 [ "${hcp_api:-https://app.terraform.io/api/v2}" = "https://app.terraform.io/api/v2" ] || exit 2
 [ -n "${REPO:-}" ] && [ -n "${HCP_TOKEN:-}" ] || exit 2
@@ -13,8 +14,18 @@ pages=$(mktemp) || { rm -f "$body"; exit 2; }
 trap 'rm -f "$body" "$pages"' EXIT
 page=1
 while :; do
-    curl -sf "https://app.terraform.io/api/v2/github-app/installations?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
-        -H "Authorization: Bearer $HCP_TOKEN" >"$body" || exit 2
+    code=$(curl -s -o "$body" -w '%{http_code}' \
+        "https://app.terraform.io/api/v2/github-app/installations?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
+        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+    case "$code" in
+        200) ;;
+        401|403)
+            # A denial before any App evidence means this user cannot use the
+            # App. Losing authorization mid-list leaves partial evidence.
+            [ "$page" -eq 1 ] && exit 4
+            exit 2 ;;
+        *) exit 2 ;;
+    esac
     count=$(jq -er '.data | arrays | length' "$body") || exit 2
     cat "$body" >>"$pages"
     printf '\n' >>"$pages"

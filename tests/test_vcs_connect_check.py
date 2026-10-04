@@ -100,6 +100,7 @@ class VcsConnectCheckTests(unittest.TestCase):
         oauth_body: str,
         app_body: str = NO_CLIENT,
         app_unreadable: bool = False,
+        app_code: str = "200",
         workspace_body: str = "{}",
         repo: str = "acme/infra",
         later_pages: dict[int, str] | None = None,
@@ -131,7 +132,10 @@ class VcsConnectCheckTests(unittest.TestCase):
                 )
                 + f'    [ "${{body:-}}" != "" ] || body={oauth_body!r}\n'
                 f'    printf "%s" "$body" > "${{out:-/dev/stdout}}"; printf "%s" {code!r} ;;\n'
-                f'  https://app.terraform.io/api/v2/github-app/installations*) {"exit 22" if app_unreadable else f"printf %s {app_body!r}"} ;;\n'
+                f'  https://app.terraform.io/api/v2/github-app/installations*)\n'
+                + ('    exit 6\n' if app_unreadable else '')
+                + f'    printf "%s" {app_body!r} > "${{out:-/dev/stdout}}"; printf "%s" {app_code!r} ;;\n'
+
                 f'  https://app.terraform.io/api/v2/organizations/*/workspaces*)\n'
                 f'    page=1\n'
                 f'    for a in "$@"; do case "$a" in *page%5Bnumber%5D=*) page=${{a##*page%5Bnumber%5D=}}; page=${{page%%&*}} ;; esac; done\n'
@@ -202,6 +206,16 @@ class VcsConnectCheckTests(unittest.TestCase):
             app_body='{"data":[{"id":"ghain-one","attributes":{"name":"acme"}},'
                      '{"id":"ghain-two","attributes":{"name":"acme"}}]}')
         self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_no_oauth_or_app_authorization_requires_handoff(self) -> None:
+        result = self.run_check(code="200", oauth_body=NO_CLIENT,
+            workspace_body=NO_WORKSPACES, app_code="403")
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_unexpected_app_http_failure_is_unknown(self) -> None:
+        result = self.run_check(code="200", oauth_body=NO_CLIENT,
+            workspace_body=NO_WORKSPACES, app_code="500")
+        self.assertEqual(result.returncode, 2, result.stderr)
 
     def test_a_github_client_is_green(self) -> None:
         result = self.run_check(code="200", oauth_body=GITHUB_CLIENT)

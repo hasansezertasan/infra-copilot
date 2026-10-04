@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:fbb1fcb3d969209ebb988d5fc77948b3d2adf61103eb7421c0743ad9ad18c653
-Source-Hash: blake3:dedf14b07eb01d197feca8f7dff3baf1b0457a7ca174f2e64aa793bd39b948c2
+Content-Hash: blake3:88e1169073376106d8553762ee5551f4fb994c2451fa51331b192990a4b9007b
+Source-Hash: blake3:1853ee0fac069a2846485eb016032ac840e1a7f04c3b3f3232d4f6396be91573
 Schema-Version: v1
 -->
 
@@ -141,7 +141,8 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
     rc=$?
     case "$rc" in
       0) jq -nc --arg id "$app" '{"github-app-installation-id":$id}' >>"$candidates" ;;
-      1) ;; # no matching App installation
+      1|4) ;; # no matching installation or no usable App authorization;
+              # a sole organization-scoped OAuth candidate can still be used
       3) rm -f "$pages" "$candidates"; echo "Several App installations match; export GITHUB_APP_INSTALLATION_ID" >&2; return 1 ;;
       *) rm -f "$pages" "$candidates"; echo "Cannot read GitHub App installations; select a connection explicitly" >&2; return 1 ;;
     esac

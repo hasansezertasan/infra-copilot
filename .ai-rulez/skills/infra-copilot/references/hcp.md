@@ -134,7 +134,8 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
     rc=$?
     case "$rc" in
       0) jq -nc --arg id "$app" '{"github-app-installation-id":$id}' >>"$candidates" ;;
-      1) ;; # no matching App installation
+      1|4) ;; # no matching installation or no usable App authorization;
+              # a sole organization-scoped OAuth candidate can still be used
       3) rm -f "$pages" "$candidates"; echo "Several App installations match; export GITHUB_APP_INSTALLATION_ID" >&2; return 1 ;;
       *) rm -f "$pages" "$candidates"; echo "Cannot read GitHub App installations; select a connection explicitly" >&2; return 1 ;;
     esac

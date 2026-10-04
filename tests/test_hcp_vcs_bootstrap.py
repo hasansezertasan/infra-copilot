@@ -47,7 +47,13 @@ if method != "GET":
     if "-w" in a: print("201")
 elif "/github-app/installations" in url:
     page = url.split("page%5Bnumber%5D=")[-1]
-    print(json.dumps(f["app_pages"].get(page, f["apps"])))
+    code = os.environ.get("APP_STATUS", "200")
+    if os.environ.get("APP_TRANSPORT_FAILS") == "yes": sys.exit(6)
+    if "-sf" in a and code != "200": sys.exit(22)
+    body = json.dumps(f["app_pages"].get(page, f["apps"]))
+    if "-o" in a: Path(a[a.index("-o")+1]).write_text(body)
+    else: print(body)
+    if "-w" in a: print(code)
 elif "/oauth-clients" in url:
     print(json.dumps(f["oauth"]))
 elif "/workspaces/" in url:
@@ -155,6 +161,34 @@ else:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(payloads[0]["payload"]["data"]["attributes"]["vcs-repo"],
                          {"identifier": "acme/infra", "branch": "main"})
+
+    def test_oauth_only_user_without_app_authorization_can_bootstrap(self):
+        for code in ("401", "403"):
+            with self.subTest(code=code):
+                result, payloads = self.run_helper(
+                    'resolve_vcs_connection && create_ws github-org terraform/github',
+                    oauth=[{"attributes": {"service-provider": "github"},
+                            "relationships": {"oauth-tokens": {"data": [{"id": "ot-test"}]}}}],
+                    overrides={"APP_STATUS": code})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(payloads[0]["payload"]["data"]["attributes"]["vcs-repo"]
+                                 ["oauth-token-id"], "ot-test")
+
+    def test_app_network_failure_does_not_silently_select_oauth(self):
+        result, payloads = self.run_helper(
+            'resolve_vcs_connection && create_ws github-org terraform/github',
+            oauth=[{"attributes": {"service-provider": "github"},
+                    "relationships": {"oauth-tokens": {"data": [{"id": "ot-test"}]}}}],
+            overrides={"APP_TRANSPORT_FAILS": "yes"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(payloads, [])
+
+    def test_app_denial_without_oauth_refuses_creation(self):
+        result, payloads = self.run_helper(
+            'resolve_vcs_connection && create_ws github-org terraform/github',
+            overrides={"APP_STATUS": "403"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(payloads, [])
 
     def test_patch_preserves_app_with_oauth_override(self):
         result, payloads = self.run_helper(
