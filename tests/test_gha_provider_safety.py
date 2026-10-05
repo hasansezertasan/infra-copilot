@@ -66,6 +66,77 @@ jobs:
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_workflow_oidc_permission_is_rejected(self) -> None:
+        self.plan.write_text('permissions:\n  id-token: write\n' + self.plan.read_text())
+        self.commit()
+        self.assertEqual(self.check().returncode, 1)
+
+    def test_unguarded_job_oidc_permission_is_rejected(self) -> None:
+        self.plan.write_text(self.plan.read_text() +
+                             '  validate:\n    permissions:\n      id-token: write\n    steps: []\n')
+        self.commit()
+        self.assertEqual(self.check().returncode, 1)
+
+    def test_unguarded_job_secret_access_is_rejected(self) -> None:
+        self.plan.write_text(self.plan.read_text() +
+                             '  validate:\n    env:\n      TOKEN: ${{ secrets.TOKEN }}\n    steps: []\n')
+        self.commit()
+        self.assertEqual(self.check().returncode, 1)
+
+    def test_unguarded_inherited_and_whole_context_secrets_are_rejected(self) -> None:
+        original = self.plan.read_text()
+        for credentials in ['    secrets: inherit\n', '    env: {TOKEN: "${{ toJSON(secrets) }}"}\n']:
+            with self.subTest(credentials=credentials):
+                self.plan.write_text(original + '  validate:\n' + credentials + '    steps: []\n')
+                self.commit()
+                self.assertEqual(self.check().returncode, 1)
+
+    def test_shipped_templates_keep_oidc_in_guarded_jobs(self) -> None:
+        templates = SCRIPT.parent.parent / 'templates'
+        for target, filename in [(self.plan, 'terraform-plan.yml'), (self.apply, 'terraform-apply.yml')]:
+            target.write_text((templates / filename).read_text().replace('cloudflare', 'aws'))
+        self.commit()
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_credential_alias_cannot_bypass_job_guard(self) -> None:
+        original = self.plan.read_text()
+        for name in ['provider_credentials', '1']:
+            with self.subTest(name=name):
+                self.plan.write_text(original.replace(
+                    '    steps: []', f'    env: &{name}\n      TOKEN: ${{{{ secrets.TOKEN }}}}\n    steps: []') +
+                    f'  validate:\n    env: *{name}\n    steps: []\n')
+                self.commit()
+                self.assertEqual(self.check().returncode, 1)
+
+    def test_escaped_permission_key_is_rejected(self) -> None:
+        self.plan.write_text(self.plan.read_text() +
+                             '  validate:\n    permissions:\n      "id-\\u0074oken": write\n    steps: []\n')
+        self.commit()
+        self.assertEqual(self.check().returncode, 1)
+
+    def test_workflow_oidc_after_jobs_is_rejected(self) -> None:
+        self.plan.write_text(self.plan.read_text() + 'permissions:\n    id-token: write\n')
+        self.commit()
+        self.assertEqual(self.check().returncode, 1)
+
+    def test_workflow_credentials_after_jobs_are_rejected(self) -> None:
+        self.plan.write_text(self.plan.read_text() + 'env: {TOKEN: "${{ secrets.TOKEN }}"}\n')
+        self.commit()
+        self.assertEqual(self.check().returncode, 1)
+
+    def test_flow_permissions_cannot_hide_workflow_oidc(self) -> None:
+        self.plan.write_text("permissions: {'id-token': write}\n" + self.plan.read_text())
+        self.commit()
+        self.assertEqual(self.check().returncode, 1)
+
+    def test_guarded_job_oidc_permission_passes(self) -> None:
+        self.plan.write_text(self.plan.read_text().replace(
+            '    runs-on:', '    permissions:\n      id-token: write\n    runs-on:'))
+        self.commit()
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_unprotected_new_job_cannot_borrow_another_jobs_guard(self) -> None:
         original = self.plan.read_text()
         other = original.replace('plan-aws:', 'plan-other:')

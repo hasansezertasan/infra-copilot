@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:bb4433b4d6ea8f9e34da29d1cf3877167719e35eafb5f209a2d8d66c54acbc49
-Source-Hash: blake3:e1c3c194721f00271c1ad1dfcb0eebe9952987c27b20a0b027e312ea68d4e674
+Content-Hash: blake3:098f7e7ef49ff63e7205dd39eef9e660f9dc5d4fd6faa3f9fd19b665948db137
+Source-Hash: blake3:c9f2ea75fea5a68af83110818ebd2c862f0a97488346426b1173d85860ee8b73
 Schema-Version: v1
 -->
 
@@ -50,12 +50,15 @@ already admitted into the repository.
 Each `plan-<provider>` job uses the job-level conjunction of its path filter with:
 `(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)`.
 Do not use `pull_request_target` to execute changed Terraform. Secrets and OIDC belong
-only in those guarded jobs. Apply jobs use the protected production environment.
+only in those guarded jobs. Grant `id-token: write` at job scope, never workflow
+scope, so change detection and fork validation cannot request OIDC tokens. Apply jobs use the protected production environment.
 
 Run `sh "$INFRA_COPILOT_REFERENCES/checks/gha-provider-safety.sh"` with `NEW_PROVIDER` and
 `REPO` exported before storing credentials. It verifies committed, clean workflows in
-the supported template syntax, the new job's exact fork guard, its production environment
-and live required reviewers. It accepts only the templates' block event syntax and exact guard expression, preserving
+the supported template syntax, credential access across all jobs, the new job's exact
+fork guard, its production environment
+and live required reviewers. YAML anchors, aliases and quoted permission keys are
+unsupported and rejected. It accepts only the templates' block event syntax and exact guard expression, preserving
 quoted literal contents. It rejects unfamiliar syntax rather than guessing that a
 textual occurrence elsewhere protects the job. IAM trust is a separate HUMAN review.
 

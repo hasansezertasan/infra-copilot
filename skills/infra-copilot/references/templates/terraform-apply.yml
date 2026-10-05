@@ -28,7 +28,6 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   TF_IN_AUTOMATION: true
@@ -63,6 +62,10 @@ jobs:
               - '.infra-copilot/config.md'
 
   apply-cloudflare:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     needs: changes
     if: needs.changes.outputs.cloudflare == 'true'
     runs-on: ubuntu-latest
@@ -106,6 +109,10 @@ jobs:
         run: terraform apply -auto-approve
 
   apply-github:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     needs: changes
     if: needs.changes.outputs.github == 'true'
     runs-on: ubuntu-latest

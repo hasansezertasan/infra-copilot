@@ -43,12 +43,15 @@ already admitted into the repository.
 Each `plan-<provider>` job uses the job-level conjunction of its path filter with:
 `(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)`.
 Do not use `pull_request_target` to execute changed Terraform. Secrets and OIDC belong
-only in those guarded jobs. Apply jobs use the protected production environment.
+only in those guarded jobs. Grant `id-token: write` at job scope, never workflow
+scope, so change detection and fork validation cannot request OIDC tokens. Apply jobs use the protected production environment.
 
 Run `sh "$INFRA_COPILOT_REFERENCES/checks/gha-provider-safety.sh"` with `NEW_PROVIDER` and
 `REPO` exported before storing credentials. It verifies committed, clean workflows in
-the supported template syntax, the new job's exact fork guard, its production environment
-and live required reviewers. It accepts only the templates' block event syntax and exact guard expression, preserving
+the supported template syntax, credential access across all jobs, the new job's exact
+fork guard, its production environment
+and live required reviewers. YAML anchors, aliases and quoted permission keys are
+unsupported and rejected. It accepts only the templates' block event syntax and exact guard expression, preserving
 quoted literal contents. It rejects unfamiliar syntax rather than guessing that a
 textual occurrence elsewhere protects the job. IAM trust is a separate HUMAN review.
 

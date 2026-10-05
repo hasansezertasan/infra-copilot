@@ -37,10 +37,60 @@ for file in .github/workflows/terraform-plan.yml .github/workflows/terraform-app
 done
 job() {
   awk -v name="$2" '
+    /^[^[:space:]#]/ {inside=0}
     /^  [a-zA-Z0-9_-]+:/ {inside=($0 == "  " name ":")}
     inside {print}
   ' "$1"
 }
+# Credentials must not be inherited by validation or change-detection jobs.
+# Support only block permissions, so flow maps/aliases cannot conceal OIDC grants.
+for file in .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml; do
+  awk '
+    /^[[:space:]]*#/ {next}
+    /^[[:space:]]*$/ {next}
+    /(^|[[:space:]:,{\[])[&*][^[:space:]&*]/ {exit 1}
+    /^[[:space:]]*["\047].*["\047]:/ {exit 1}
+    permission_indent {
+      value=$0; sub(/^ */, "", value)
+      indent=length($0)-length(value)
+      if (indent >= permission_indent) {
+        if (indent != permission_indent || value !~ /^[a-z][a-z-]*: (read|write|none)[[:space:]]*$/) {exit 1}
+      } else {permission_indent=0}
+    }
+    /^(    )?permissions:[[:space:]]*$/ {permission_indent=($0 ~ /^    / ? 6 : 2)}
+    /^jobs:/ {jobs=1; next}
+    /^[^[:space:]#]/ {jobs=0}
+    jobs && /^  [^[:space:]#]/ && $0 !~ /^  [a-zA-Z0-9_-]+:[[:space:]]*$/ {exit 1}
+    /permissions["\047]?:/ && $0 !~ /^(    )?permissions:[[:space:]]*$/ {exit 1}
+    !jobs && /id-token/ && $0 !~ /^  id-token: none[[:space:]]*$/ {exit 1}
+    !jobs && /(^|[^a-zA-Z0-9_])secrets([^a-zA-Z0-9_]|$)/ {exit 1}
+  ' "$file" || {
+    echo 'UNSAFE: workflow-wide credentials or unsupported permissions syntax' >&2
+    exit 1
+  }
+  names=$(awk '/^jobs:/ {inside=1; next} inside && /^[^[:space:]#]/ {exit} inside && /^  [a-zA-Z0-9_-]+:/ {sub(/^  /, ""); sub(/:.*/, ""); print}' "$file")
+  for name in $names; do
+    block=$(job "$file" "$name")
+    # Comments are guidance, not active credential references.
+    active=$(printf '%s\n' "$block" | sed '/^[[:space:]]*#/d')
+    if printf '%s\n' "$active" | grep -Eq 'id-token|(^|[^a-zA-Z0-9_])secrets([^a-zA-Z0-9_]|$)'; then
+      case "$file:$name" in
+        *terraform-plan.yml:plan-*)
+          provider=${name#plan-}
+          guard=$(printf '%s\n' "$block" | sed -n 's/^    if: //p')
+          dot="needs.changes.outputs.$provider == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"
+          bracket="needs.changes.outputs['$provider'] == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"
+          [ "$guard" = "$dot" ] || [ "$guard" = "$bracket" ] || exit 1
+          ;;
+        *terraform-apply.yml:apply-*)
+          [ "$(printf '%s\n' "$block" | grep -c '^    environment:' || true)" = 1 ] || exit 1
+          printf '%s\n' "$block" | grep -Eq '^    environment: production[[:space:]]*$' || exit 1
+          ;;
+        *) echo 'UNSAFE: credentials available to an unguarded job' >&2; exit 1 ;;
+      esac
+    fi
+  done
+done
 # Ambiguous duplicate declarations are not supported evidence.
 for entry in 'terraform-plan.yml plan' 'terraform-apply.yml apply'; do
   file=${entry% *}
