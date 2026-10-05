@@ -881,17 +881,21 @@ steps:
     actor: HUMAN
     when: '[ "$BACKEND" = "object-storage" ]'
     title: Configure GitHub Environments for apply approval
-    why: Environments gate applies behind human approval, replacing HCP's confirm button.
+    why: >-
+      The production environment holds the apply credentials. A main-only branch policy
+      stops other branches from using it; reviewers or a recorded gate supply the human
+      approval HCP's confirm button gave.
     run: |
-      1. Go to repo Settings -> Environments
-      2. Create an environment named "production"
-      3. Enable "Required reviewers" and add appropriate approvers
-      4. The terraform-apply workflow references this environment
-    check: |
-      env_json=$(gh api "repos/$REPO/environments/production" 2>/dev/null) || exit 1
-      printf '%s' "$env_json" | jq -e '.protection_rules[]? | select(.type == "required_reviewers")' >/dev/null
-    produces: GitHub Environment with required reviewers
-    docs: docs/object-storage-ci.md#github-actions
+      1. Go to repo Settings -> Environments and create an environment named "production"
+      2. Deployment branches and tags: "Selected branches and tags", add exactly "main"
+      3. Required reviewers: enable and add approvers if GitHub offers them (public repos,
+         or GitHub Enterprise for private ones; Free/Pro/Team reject the rule with a 422)
+      4. Without reviewers, lock an "Apply gate" row in .infra-copilot/decisions.md whose
+         choice is "merge-approval" or "dispatch" (docs/object-storage-ci.md#github-environments)
+      5. The terraform-apply workflow references this environment
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh"
+    produces: main-only GitHub Environment with reviewers or a recorded apply gate
+    docs: docs/object-storage-ci.md#github-environments
 
   # ── Phase 2 — Cloudflare credentials (backend: object-storage) ──────────
   - id: cf-token-gha
@@ -2108,9 +2112,9 @@ steps:
       # Path filter mentions the new provider (either form)
       grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-plan.yml || exit 1
       grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-apply.yml || exit 1
-      # Environment protection verified by gha-environments (phase 1) which checks the
-      # production environment exists with required reviewers. New provider jobs should
-      # copy the environment: production setting from apply-cloudflare/apply-github.
+      # Environment protection verified by gha-environments (phase 1): a main-only
+      # production environment with reviewers or a recorded apply gate. New provider jobs
+      # should copy the environment: production setting from apply-cloudflare/apply-github.
     produces: GitHub Actions workflows updated for new provider
     docs: docs/object-storage-ci.md#github-actions
 
@@ -2280,7 +2284,7 @@ steps:
     run: |
       Provision the new provider execution first using object-storage.md, without storing
       provider credentials. The plan job must reject forks at job scope, and the apply
-      job must use the production environment with required human reviewers.
+      job must use the production environment gated by gha-environments.
       Never use pull_request_target to execute changed Terraform. Commit the workflows.
     tri_state: true
     check: sh "$INFRA_COPILOT_REFERENCES/checks/gha-provider-safety.sh"

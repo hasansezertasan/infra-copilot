@@ -119,7 +119,7 @@ For cloud provider auth (GCS, S3, Azure), use Workload Identity Federation where
 - **Read state**: Anyone with bucket read access
 - **Trigger CI**: Anyone who can open a PR; fork PRs run validation only.
 - **Trigger credentialed plan**: The guarded same-repository branch path in the committed workflow
-- **Confirm apply**: Reviewers in the GitHub Environment (see [`object-storage-ci.md#github-actions`](./object-storage-ci.md#github-actions))
+- **Confirm apply**: Reviewers in the `main`-only GitHub Environment where the plan offers them, otherwise the locked `Apply gate` decision (see [`object-storage-ci.md#github-environments`](./object-storage-ci.md#github-environments))
 - **Direct apply**: Anyone with bucket write access + `terraform apply` locally
 
 ## Migrating from HCP

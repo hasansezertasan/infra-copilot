@@ -45,11 +45,17 @@ jobs:
         self.bin = self.root / 'bin'
         self.bin.mkdir()
         stub = self.bin / 'gh'
-        stub.write_text('#!/bin/sh\n[ "${API_FAIL:-0}" = 0 ] || exit 1\nprintf "%s\\n" "$API_BODY"\n')
+        stub.write_text('#!/bin/sh\n[ "${API_FAIL:-0}" = 0 ] || exit 1\n'
+                        'case "$2" in */deployment-branch-policies) printf "%s\\n" "$POLICIES_BODY" ;;\n'
+                        '*) printf "%s\\n" "$API_BODY" ;; esac\n')
         stub.chmod(0o755)
         self.env = {**os.environ, 'PATH': str(self.bin) + os.pathsep + os.environ['PATH'],
                     'NEW_PROVIDER': 'aws', 'REPO': 'owner/repo',
-                    'API_BODY': json.dumps({'protection_rules': [{'type': 'required_reviewers', 'reviewers': [{'id': 1}]}]})}
+                    'INFRA_COPILOT_REFERENCES': str(SCRIPT.parent.parent),
+                    'POLICIES_BODY': json.dumps({'branch_policies': [{'name': 'main', 'type': 'branch'}]}),
+                    'API_BODY': json.dumps({'protection_rules': [{'type': 'required_reviewers', 'reviewers': [{'id': 1}]}],
+                                            'deployment_branch_policy': {'protected_branches': False,
+                                                                         'custom_branch_policies': True}})}
         self.commit()
 
     def git(self, *args: str) -> None:
@@ -192,8 +198,19 @@ jobs:
         self.assertEqual(self.check().returncode, 1)
 
     def test_reviewers_must_be_required(self) -> None:
-        self.env['API_BODY'] = '{"protection_rules": []}'
+        self.env['API_BODY'] = json.dumps({'protection_rules': [], 'deployment_branch_policy': {
+            'protected_branches': False, 'custom_branch_policies': True}})
+        # The repo-visibility lookup returns this body too; without .visibility the gate
+        # treats the repo as private, so a missing decision row is what fails it.
         self.assertEqual(self.check().returncode, 1)
+
+    def test_apply_gate_is_required(self) -> None:
+        self.env['POLICIES_BODY'] = json.dumps({'branch_policies': []})
+        self.assertEqual(self.check().returncode, 1)
+
+    def test_missing_references_is_unknown(self) -> None:
+        del self.env['INFRA_COPILOT_REFERENCES']
+        self.assertEqual(self.check().returncode, 2)
 
     def test_unreadable_api_is_unknown(self) -> None:
         self.env['API_FAIL'] = '1'

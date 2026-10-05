@@ -114,18 +114,13 @@ printf '%s\n' "$apply" | grep -Eq '^    environment: production[[:space:]]*$' ||
   echo 'UNSAFE: apply job must use the protected production environment' >&2
   exit 1
 }
-body=$(gh api "repos/$REPO/environments/production") || {
-  echo 'CANNOT VERIFY: production environment could not be read' >&2
+[ -n "${INFRA_COPILOT_REFERENCES:-}" ] && [ -r "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh" ] || {
+  echo 'CANNOT VERIFY: INFRA_COPILOT_REFERENCES does not contain checks/gha-apply-gate.sh; export it per references/config.md' >&2
   exit 2
 }
-printf '%s\n' "$body" | jq -e '.protection_rules | type == "array"' >/dev/null || {
-  echo 'CANNOT VERIFY: malformed environment response' >&2
-  exit 2
-}
-printf '%s\n' "$body" | jq -e '
-  any(.protection_rules[]?; .type == "required_reviewers" and ((.reviewers // []) | length > 0))
-' >/dev/null || {
-  echo 'UNSAFE: production environment has no required reviewers' >&2
-  exit 1
-}
-echo "SAFE: $NEW_PROVIDER rejects forks and applies require production approval"
+# The same gate gha-environments checks: main-only environment, plus reviewers or a
+# recorded apply-gate decision where the plan cannot offer reviewers.
+gate=0
+sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh" >/dev/null || gate=$?
+[ "$gate" = 0 ] || exit "$gate"
+echo "SAFE: $NEW_PROVIDER rejects forks and applies are gated by the production environment"

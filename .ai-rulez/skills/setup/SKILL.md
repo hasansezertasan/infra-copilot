@@ -110,8 +110,8 @@ Adopting resources that already exist (a live domain, existing repos)? That's
   `AGENT` writes `backend.tf` blocks in each leaf pointing to the state bucket.
   [`../infra-copilot/references/docs/object-storage-state.md#object-storage-backend`](../infra-copilot/references/docs/object-storage-state.md#object-storage-backend).
 - **Phase 1 — GitHub Actions CI.** `AGENT` creates `.github/workflows/terraform-plan.yml` and
-  `terraform-apply.yml`. `HUMAN` configures the `production` GitHub Environment with required
-  reviewers to gate applies.
+  `terraform-apply.yml`. `HUMAN` restricts the `production` GitHub Environment to `main` and adds
+  required reviewers where the plan offers them, or locks an `Apply gate` decision.
   [`../infra-copilot/references/docs/object-storage-ci.md#github-actions`](../infra-copilot/references/docs/object-storage-ci.md#github-actions).
 - **Phase 2 — Cloudflare.** `HUMAN` mints scoped token and adds `CLOUDFLARE_API_TOKEN` to
   GitHub Actions secrets; `AGENT` verifies.
