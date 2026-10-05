@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6227982f0b57460a5b21ed06d02e56defe6f4e060bd5df003256a4076e533afe
-Source-Hash: blake3:1dc2bb768d75a6b5f133bcb28897bd2eec92647e797988f199e55974253b44f8
+Content-Hash: blake3:bb4433b4d6ea8f9e34da29d1cf3877167719e35eafb5f209a2d8d66c54acbc49
+Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
 Schema-Version: v1
 -->
 
@@ -55,7 +55,8 @@ only in those guarded jobs. Apply jobs use the protected production environment.
 Run `sh "$INFRA_COPILOT_REFERENCES/checks/gha-provider-safety.sh"` with `NEW_PROVIDER` and
 `REPO` exported before storing credentials. It verifies committed, clean workflows in
 the supported template syntax, the new job's exact fork guard, its production environment
-and live required reviewers. It rejects unfamiliar syntax rather than guessing that a
+and live required reviewers. It accepts only the templates' block event syntax and exact guard expression, preserving
+quoted literal contents. It rejects unfamiliar syntax rather than guessing that a
 textual occurrence elsewhere protects the job. IAM trust is a separate HUMAN review.
 
 ## Store-provider-credential

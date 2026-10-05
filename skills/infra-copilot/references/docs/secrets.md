@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:b5372d1b501ce2778016e57202b3e7f7b8f2e0e4144c9c3d64efbfb4eea530b9
-Source-Hash: blake3:1dc2bb768d75a6b5f133bcb28897bd2eec92647e797988f199e55974253b44f8
+Content-Hash: blake3:1d167d6ce7717bea44529953a0c574384ca4547fb7aba2092f5097568e70d5f6
+Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
 Schema-Version: v1
 -->
 
@@ -29,3 +29,35 @@ key first, store the full PEM including delimiters and newlines, verify, then de
 
 Identifiers such as account IDs and repository names are not credentials. State can still
 contain sensitive values: keep it outside git and treat access as privileged.
+
+## Cloudflare API token scopes
+
+The persistent edit token needs **Edit** for every managed resource type, currently
+Zone — DNS — Edit and Zone — Zone Settings — Edit. Widen scope before declaring a new
+resource type. Use a separate short-lived **Read** token for discovery, scoped to the
+specific account/zone and resource types, then revoke it when discovery finishes.
+
+## GitHub App setup
+
+Create an App under the managed organization and install it only on the managed
+repositories. Grant Repository Administration (read/write), Contents (read), Metadata
+(read), Pull requests (read/write), and Organization Members (read), Administration
+(read/write) for the existing management scope. Adjust scope deliberately when managed
+resource types change. Record the App ID and installation ID, generate a private key,
+and store the full PEM and IDs with
+[store-provider-credential](../operations.md#store-provider-credential).
+The PEM includes its BEGIN/END delimiters and newlines; never commit it.
+
+## Cloudflare API token
+
+Mint a replacement with the existing managed-resource scopes, store it through
+[store-provider-credential](../operations.md#store-provider-credential), and obtain a
+no-op plan. Revoke the previous token only after the new token authenticates successfully.
+If validation fails, restore the still-live old value and investigate.
+
+## GitHub App private key
+
+Generate a second private key while the old one remains active. Store the full new PEM
+through [store-provider-credential](../operations.md#store-provider-credential), obtain a
+no-op plan, then delete the old App key. Correct newline/delimiter problems before revoking
+anything. The selected credential implementation owns the storage commands.

@@ -22,6 +22,8 @@
 #             HUMAN steps: the human_action text (browser instructions)
 #   when      optional shell condition. If present and evaluates false, skip this step.
 #             Use for backend-specific steps: '[ "$BACKEND" = "hcp" ]'
+#   refresh_credentials optional. Refresh selected config exports after this member
+#             passes, before checking its next member (never wait for the whole operation).
 #   tri_state optional. `true` means this check reserves exit 2 for "could not verify"
 #             (see protocol.md). Absent/false: any non-zero exit is red, which is the
 #             default because ordinary tools use 2 for their own errors — jq exits 2 on
@@ -296,6 +298,7 @@ steps:
 
   # ── Phase 0 — HCP bootstrap (backend: hcp only) ──────────────────────────
   - id: hcp-login
+    refresh_credentials: true
     operation: bootstrap-state
     implementation: hcp
     phase: 0
@@ -410,7 +413,7 @@ steps:
       curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e '.data.id'
     check: '[ "$hcp_api" = "https://app.terraform.io/api/v2" ] && curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
     produces: verified API access
-    docs: docs/state.md#api-access
+    docs: docs/hcp-state.md#api-access
 
   # ── Phase 1 — HCP workspaces (backend: hcp only) ─────────────────────────
   - id: vcs-connect
@@ -603,7 +606,7 @@ steps:
     # team token. Keep it in one executable source rather than duplicating jq.
     check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh"
     produces: workspaces `cloudflare`, `github-org`
-    docs: docs/state.md#workspaces
+    docs: docs/hcp-state.md#workspaces
 
   # ── Phase 0 — Object-storage bootstrap (backend: object-storage only) ───
   - id: state-bucket
@@ -829,7 +832,7 @@ steps:
           ;;
       esac
     produces: Cloud identity federation and GitHub secrets for backend access
-    docs: docs/state.md#authentication
+    docs: docs/object-storage-ci.md#authentication
 
   # ── Phase 1 — GitHub Actions CI (backend: object-storage only) ──────────
   - id: gha-workflows
@@ -1051,7 +1054,7 @@ steps:
       # PRs will merge without required checks which is immediately visible.
       # The HCL source-of-truth above ensures the Terraform run will configure it correctly.
     produces: branch protection references GitHub Actions job names
-    docs: docs/ci.md#branch-protection
+    docs: docs/object-storage-ci.md#branch-protection
 
   # ── Phase 2 — Cloudflare credentials (backend: hcp) ──────────────────────
   - id: cf-token

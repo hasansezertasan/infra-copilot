@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:fd137515c562368b266d27c55955f5514136c09e37dc2904de6eda4a4b32e1be
-Source-Hash: blake3:1dc2bb768d75a6b5f133bcb28897bd2eec92647e797988f199e55974253b44f8
+Content-Hash: blake3:86f3c29efbbf307311526b5820e1f876a16e3bfcbd497cef2e26dbadbe90da06
+Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
 Schema-Version: v1
 -->
 
@@ -125,7 +125,7 @@ For cloud provider auth (GCS, S3, Azure), use Workload Identity Federation where
 
 - **Read state**: Anyone with bucket read access
 - **Trigger plan**: Anyone who can open a PR (GitHub Actions runs on `pull_request`)
-- **Confirm apply**: Reviewers in the GitHub Environment (see [`ci.md#github-actions`](./ci.md#github-actions))
+- **Confirm apply**: Reviewers in the GitHub Environment (see [`object-storage-ci.md#github-actions`](./object-storage-ci.md#github-actions))
 - **Direct apply**: Anyone with bucket write access + `terraform apply` locally
 
 ## Migrating from HCP

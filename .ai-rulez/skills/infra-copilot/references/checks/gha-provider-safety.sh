@@ -14,12 +14,26 @@ for file in .github/workflows/terraform-plan.yml .github/workflows/terraform-app
   git cat-file -e "HEAD:$file" 2>/dev/null || exit 1
   dirty=$(git --no-optional-locks status --porcelain -- "$file") || exit 2
   [ -z "$dirty" ] || exit 1
-  # This gate recognizes the shipped workflow dialect, not arbitrary YAML.
-  # Alternate syntax must receive human review, never a green guess.
-  if grep -Eq '^[[:space:]]*pull_request_target[[:space:]]*:' "$file"; then
-    echo 'UNSAFE: pull_request_target is not supported for authenticated Terraform' >&2
+  # Accept only the block event syntax used by the shipped templates. A flow/scalar
+  # pull_request_target trigger must not evade a token check elsewhere in the file.
+  on_count=$(grep -Ec "^(on|'on'|\"on\"):" "$file" || true)
+  [ "$on_count" = 1 ] && grep -Eq '^on:[[:space:]]*$' "$file" || {
+    echo 'UNSAFE: unsupported workflow event syntax' >&2
     exit 1
-  fi
+  }
+  events=$(awk '
+    /^on:[[:space:]]*$/ {inside=1; next}
+    inside && /^[^[:space:]#]/ {exit}
+    inside && /^  [^[:space:]#]/ {sub(/^  /, ""); sub(/:.*/, ""); print}
+  ' "$file")
+  [ -n "$events" ] || exit 1
+  printf '%s\n' "$events" | while IFS= read -r event; do
+    case "$file:$event" in
+      *terraform-plan.yml:pull_request|*terraform-plan.yml:workflow_dispatch) ;;
+      *terraform-apply.yml:push|*terraform-apply.yml:workflow_dispatch) ;;
+      *) echo 'UNSAFE: unsupported workflow event; authenticated target events are forbidden' >&2; exit 1 ;;
+    esac
+  done || exit 1
 done
 job() {
   awk -v name="$2" '
@@ -37,11 +51,9 @@ done
 plan=$(job .github/workflows/terraform-plan.yml "plan-$NEW_PROVIDER")
 apply=$(job .github/workflows/terraform-apply.yml "apply-$NEW_PROVIDER")
 [ -n "$plan" ] && [ -n "$apply" ] || exit 1
-condition=$(printf '%s\n' "$plan" | sed -n 's/^    if: //p' | tr -d '[:space:]')
+condition=$(printf '%s\n' "$plan" | sed -n 's/^    if: //p')
 expected="needs.changes.outputs.$NEW_PROVIDER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"
-expected=$(printf '%s' "$expected" | tr -d '[:space:]')
 bracket_expected="needs.changes.outputs['$NEW_PROVIDER'] == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"
-bracket_expected=$(printf '%s' "$bracket_expected" | tr -d '[:space:]')
 [ "$condition" = "$expected" ] || [ "$condition" = "$bracket_expected" ] || {
   echo 'UNSAFE: plan job must use the supported job-level same-repository fork guard' >&2
   exit 1

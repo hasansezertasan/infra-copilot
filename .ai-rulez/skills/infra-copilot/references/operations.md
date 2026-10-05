@@ -13,7 +13,9 @@ Reject missing, empty or invalid config choices before evaluating conditions.
 
 Preserve manifest order, phase boundaries, actor handoffs, tri-state semantics and the
 per-provider inventory loop. An operation can have several ordered implementation steps;
-run every applicable member, never select just the first matching member. Resume at the
+run every applicable member, never select just the first matching member. When a member
+sets `refresh_credentials: true`, refresh the selected config exports immediately after
+its check passes, before evaluating any later member. Resume at the
 first red member. Group reports by `(phase, operation, provider entry)`, using the first
 member's position, and keep the member ID for diagnostics. Never group across provider entries.
 An operation is green only if all applicable members are green; failed outranks unknown,
@@ -89,7 +91,7 @@ latest applicable run; an older green result cannot override a newer failure. Co
 expected creates for add; for import reject creates, destroys and forgotten resources;
 for prune require a no-op. Bootstrap `plan-cloudflare`, `plan-github`, and Phase 6
 `plan-provider` use this contract.
-Implementation: [service plans](hcp.md), [runner plans](object-storage.md#get-plan).
+Implementation: [service plans](hcp.md#get-plan), [runner plans](object-storage.md#get-plan).
 
 ## Read-run-status
 

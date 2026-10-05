@@ -16,3 +16,10 @@ previous storage. Human approval remains required before any apply.
 
 Execution installs committed mise pins and lock through `jdx/mise-action`; preserve
 parity with the local toolchain when updating pins.
+
+## Toolchain in CI
+
+Keep exact tool versions in the repository's committed `mise.toml` and `mise.lock`.
+The selected [provision-execution](../operations.md#provision-execution) implementation
+installs those pins, and the get-plan contract verifies relevant inputs match the commit.
+Do not introduce an independent executor version that diverges from the reviewed pin.

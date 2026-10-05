@@ -1,6 +1,7 @@
 """Regression gates for backend-neutral skills and complete operation coverage."""
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 import unittest
@@ -21,6 +22,30 @@ class BackendOperationTests(unittest.TestCase):
 
     def test_current_contracts_are_complete(self) -> None:
         self.assertEqual(validate_backend_operations(self.root), [])
+
+    def test_credential_refresh_is_member_scoped(self) -> None:
+        text = self.manifest.read_text()
+        login = text.split('  - id: hcp-login\n', 1)[1].split('  - id: ', 1)[0]
+        self.assertIn('    refresh_credentials: true', login)
+        protocol = self.manifest.with_name('protocol.md').read_text()
+        self.assertIn('before evaluating the next member, even if its operation is not yet green', protocol)
+
+    def test_relocated_runbook_links_resolve_to_sections(self) -> None:
+        references = self.manifest.parent
+        runbooks = {'ci.md', 'state.md', 'secrets.md', 'hcp-ci.md', 'hcp-state.md',
+                    'hcp-secrets.md', 'object-storage-ci.md', 'object-storage-state.md'}
+        checked = 0
+        for source in [*references.rglob('*.md'), self.manifest]:
+            for match in re.finditer(r'([./a-zA-Z0-9_-]+\.md)#([a-zA-Z0-9_-]+)', source.read_text()):
+                target = (source.parent / match[1]).resolve()
+                if target.name not in runbooks:
+                    continue
+                self.assertTrue(target.is_file(), str(target))
+                anchors = {re.sub(r'[^\w -]', '', heading.lower()).replace(' ', '-')
+                           for heading in re.findall(r'^#{1,6} (.+)$', target.read_text(), re.M)}
+                self.assertIn(match[2], anchors, f'{source.name}: {match[0]} has no target section')
+                checked += 1
+        self.assertGreater(checked, 10)
 
     def test_router_cannot_select_backend(self) -> None:
         for reference in ('$BACKEND', '${BACKEND}', 'HCP', 'GitHub Actions', 'object-storage'):
@@ -55,7 +80,6 @@ class BackendOperationTests(unittest.TestCase):
 
     def test_not_applicable_cannot_be_unexplained(self) -> None:
         text = self.manifest.read_text()
-        import re
         text = re.sub(r'    not_applicable: .*', '    not_applicable: ""', text, count=1)
         self.manifest.write_text(text)
         self.assertTrue(any('backend-specific reason' in e for e in validate_backend_operations(self.root)))

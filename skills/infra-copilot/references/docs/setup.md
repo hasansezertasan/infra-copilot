@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:a29b4d04d78fa031c5aa4904df476a6c37e4ab55fc5ed8cb4abed17683e98132
-Source-Hash: blake3:1dc2bb768d75a6b5f133bcb28897bd2eec92647e797988f199e55974253b44f8
+Content-Hash: blake3:07b0700e7aaae031ad5b2aaa790f5587204a22c2219cdfb71601061734c52bb2
+Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
 Schema-Version: v1
 -->
 
@@ -186,7 +186,7 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
 
 3. If the Phase 0 token is absent or expired, re-run `terraform login`. It opens a browser
    and writes the user API token to `~/.terraform.d/credentials.tfrc.json`. The same token
-   authenticates HCP API calls (see [`state.md`](./state.md#api-access)).
+   authenticates HCP API calls (see [`state.md`](./hcp-state.md#api-access)).
 4. From any leaf directory: `terraform init` (authenticates to HCP automatically), then `terraform plan`. A VCS-connected workspace allows `plan` from CLI but blocks `apply` — that gate is intentional.
 
 ## 7. Importing existing Cloudflare resources

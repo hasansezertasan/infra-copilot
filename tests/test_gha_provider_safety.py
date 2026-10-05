@@ -95,6 +95,21 @@ jobs:
         self.plan.write_text(self.plan.read_text() + '# not committed\n')
         self.assertEqual(self.check().returncode, 1)
 
+    def test_flow_target_event_is_rejected(self) -> None:
+        self.plan.write_text(self.plan.read_text().replace('on:\n  pull_request:\n  workflow_dispatch:', 'on: [pull_request_target, workflow_dispatch]'))
+        self.commit()
+        self.assertEqual(self.check().returncode, 1)
+
+    def test_scalar_target_event_is_rejected(self) -> None:
+        self.plan.write_text(self.plan.read_text().replace('on:\n  pull_request:\n  workflow_dispatch:', 'on: pull_request_target'))
+        self.commit()
+        self.assertEqual(self.check().returncode, 1)
+
+    def test_whitespace_inside_event_literal_cannot_change_the_guard(self) -> None:
+        self.plan.write_text(self.plan.read_text().replace("!= 'pull_request'", "!= 'pull_ request'"))
+        self.commit()
+        self.assertEqual(self.check().returncode, 1)
+
     def test_target_event_is_rejected(self) -> None:
         self.plan.write_text(self.plan.read_text().replace('pull_request:', 'pull_request_target:'))
         self.commit()

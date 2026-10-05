@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:26de6befcf3bc6a07dcce39fc2700204ef6224533a5982f9a23b3ba5a3c83e2c
-Source-Hash: blake3:1dc2bb768d75a6b5f133bcb28897bd2eec92647e797988f199e55974253b44f8
+Content-Hash: blake3:b213c7e1badc7fae1b171a17a191d635f906b8ef7ec732544ed75e3149cd0dbc
+Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
 Schema-Version: v1
 -->
 
@@ -51,8 +51,8 @@ reports this handoff read-only. Only after validation, export the shell vars eve
 depends on — including the implementation selector used by [operations](operations.md). Full schema, migration
 rules, and export block: [`config.md`](config.md).
 
-After a credential-establishing operation turns green, refresh config's selected
-credential exports before evaluating its later members. The selected implementation
+Immediately after a credential-establishing member turns green, refresh config's selected
+credential exports before evaluating the next member, even if its operation is not yet green. The selected implementation
 owns export precedence; never invent an execution credential locally.
 
 ## Actors
@@ -202,12 +202,17 @@ repository with only the legacy config fallback skips synchronization because no
 
 ```text
 for step in resolved_members(scope(steps.yaml), config):
+    if step.not_applicable:
+        record(step, "N/A", step.not_applicable)
+        continue
     if step.when and not eval(step.when):
-        skip, print "N/A {step.operation or step.id} ({step.id}: condition false)"
+        record(step, "N/A", "condition false")
         continue
     rc = run(step.check)
     if rc == 0:
-        skip, print "✓ {step.id}"
+        record(step, "passed")
+        if step.refresh_credentials:
+            refresh_selected_config_exports() # before the next member, not after aggregation
     elif not step.tri_state:
         resume here                     # two-state: any non-zero is red
     elif rc == 1:
@@ -216,6 +221,7 @@ for step in resolved_members(scope(steps.yaml), config):
         report "? {step.id} — could not verify: <stderr>", STOP, do NOT run step.run
     else:
         report "? {step.id} — unexpected check exit code {rc}", STOP, do NOT run step.run
+emit_report(group(records, phase, operation_or_id, provider_entry))
 ```
 
 Never assume state from memory or a prior session — always re-check. See

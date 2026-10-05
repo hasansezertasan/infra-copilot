@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:5a83dbdc08e8151dbc53629244505fcbcf6f5c858dc093a4b4a075347ba4145a
-Source-Hash: blake3:1dc2bb768d75a6b5f133bcb28897bd2eec92647e797988f199e55974253b44f8
+Content-Hash: blake3:e5c223cdf6fdbfb4939ef82da065a1ea8afdca02c1caefe084c19a118c2898c1
+Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
 Schema-Version: v1
 -->
 
@@ -287,3 +287,37 @@ before accepting check evidence. Require imports without creates, destroys or fo
 resources. Obtain read-only run evidence with [service status](hcp-status.md); the plan's
 success alone does not prove that its imports have applied. Wait for a HUMAN-confirmed
 apply before [pruning](docs/hcp-prune.md).
+
+## Get-plan
+
+For add, import or prune, select the leaf from the request and validated config: bootstrap
+`cloudflare` and `github` use their existing cloud blocks; additional providers use the
+entry's committed workspace binding. Never substitute another workspace or supply provider
+secrets locally. The plan-only credential from config authenticates the CLI; workspace
+variables supply provider authentication remotely.
+
+Commit reviewed leaf/shared/config/tool changes before accepting evidence. From the
+repository root, with `LEAF` set to the validated leaf name, run:
+
+```sh
+(
+  : "${LEAF:?Select the target leaf from config first}"
+  dirty=$(git --no-optional-locks status --porcelain -- "terraform/$LEAF" \
+    terraform/modules .infra-copilot/config.md mise.toml mise.lock) || exit 2
+  [ -z "$dirty" ] || { echo 'Commit relevant inputs before obtaining plan evidence' >&2; exit 1; }
+  cd "terraform/$LEAF" || exit 1
+  terraform init -input=false || exit 1
+  terraform plan -input=false -no-color
+)
+```
+
+This is an action operation: initialization writes `.terraform/` and can refresh the lock
+file. It is never a status check. If initialization changes a tracked lock, review and
+commit it, then repeat the plan so its inputs match the commit. Inspect the speculative
+plan's output/run URL: expected creates for add, imports without creates/destroys for
+import, and `No changes.` for prune. Never apply from this CLI workflow.
+
+For read-only status, use [HCP run evidence](hcp-status.md) and the
+[API lookup](docs/hcp-api.md) for the newest commit affecting the leaf, shared modules,
+config and mise pins. Judge the newest run for that revision; an older success cannot
+hide a newer failure. A dirty checkout, absent run or unreadable response is unknown.

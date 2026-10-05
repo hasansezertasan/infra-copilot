@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:d6627e0fd1c69d10bc8572883b1a36c4d153ca3a18be73b8c57f4c2e1b3dd9cd
-Source-Hash: blake3:1dc2bb768d75a6b5f133bcb28897bd2eec92647e797988f199e55974253b44f8
+Content-Hash: blake3:17050584d18c55fc4a3f33858f4c8a871972e67579952a8a16378b5e4b15cf68
+Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
 Schema-Version: v1
 -->
 
@@ -23,3 +23,10 @@ previous storage. Human approval remains required before any apply.
 
 Execution installs committed mise pins and lock through `jdx/mise-action`; preserve
 parity with the local toolchain when updating pins.
+
+## Toolchain in CI
+
+Keep exact tool versions in the repository's committed `mise.toml` and `mise.lock`.
+The selected [provision-execution](../operations.md#provision-execution) implementation
+installs those pins, and the get-plan contract verifies relevant inputs match the commit.
+Do not introduce an independent executor version that diverges from the reviewed pin.

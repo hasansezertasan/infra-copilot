@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9ac1f8d38b8258b47d144452274233263538506e04a87fee00ba6547477e312f
-Source-Hash: blake3:1dc2bb768d75a6b5f133bcb28897bd2eec92647e797988f199e55974253b44f8
+Content-Hash: blake3:e9f57abfcab595ae85c00ee669529a30b56045659ea4c32261838e5020f1d481
+Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
 Schema-Version: v1
 -->
 
@@ -20,7 +20,9 @@ Reject missing, empty or invalid config choices before evaluating conditions.
 
 Preserve manifest order, phase boundaries, actor handoffs, tri-state semantics and the
 per-provider inventory loop. An operation can have several ordered implementation steps;
-run every applicable member, never select just the first matching member. Resume at the
+run every applicable member, never select just the first matching member. When a member
+sets `refresh_credentials: true`, refresh the selected config exports immediately after
+its check passes, before evaluating any later member. Resume at the
 first red member. Group reports by `(phase, operation, provider entry)`, using the first
 member's position, and keep the member ID for diagnostics. Never group across provider entries.
 An operation is green only if all applicable members are green; failed outranks unknown,
@@ -96,7 +98,7 @@ latest applicable run; an older green result cannot override a newer failure. Co
 expected creates for add; for import reject creates, destroys and forgotten resources;
 for prune require a no-op. Bootstrap `plan-cloudflare`, `plan-github`, and Phase 6
 `plan-provider` use this contract.
-Implementation: [service plans](hcp.md), [runner plans](object-storage.md#get-plan).
+Implementation: [service plans](hcp.md#get-plan), [runner plans](object-storage.md#get-plan).
 
 ## Read-run-status
 
