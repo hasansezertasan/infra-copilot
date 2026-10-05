@@ -9,10 +9,18 @@
 # `merge-approval` or `dispatch` records the human gate instead.
 set -eu
 [ -n "${REPO:-}" ] || { echo 'CANNOT VERIFY: REPO is required' >&2; exit 2; }
-env_json=$(gh api "repos/$REPO/environments/production" 2>/dev/null) || {
+env_err=$(mktemp)
+env_json=$(gh api "repos/$REPO/environments/production" 2>"$env_err") || {
+  if grep -Eq "HTTP 404|Not Found" "$env_err"; then
+    rm -f "$env_err"
+    echo 'UNSAFE: production environment does not exist' >&2
+    exit 1
+  fi
+  rm -f "$env_err"
   echo 'CANNOT VERIFY: production environment could not be read' >&2
   exit 2
 }
+rm -f "$env_err"
 printf '%s\n' "$env_json" | jq -e '.protection_rules | type == "array"' >/dev/null 2>&1 || {
   echo 'CANNOT VERIFY: malformed environment response' >&2
   exit 2
@@ -44,8 +52,20 @@ visibility=$(gh api "repos/$REPO" -q .visibility 2>/dev/null) || {
   echo 'CANNOT VERIFY: repository visibility could not be read' >&2
   exit 2
 }
-# User-owned repositories have no org endpoint and cannot be on Enterprise.
-plan=$(gh api "orgs/${REPO%%/*}" -q '.plan.name' 2>/dev/null) || plan=unknown
+# User-owned repositories have no org endpoint (404) and cannot be on Enterprise.
+org_err=$(mktemp)
+plan_raw=$(gh api "orgs/${REPO%%/*}" -q '.plan.name // empty' 2>"$org_err") || {
+  if grep -Eq "HTTP 404|Not Found" "$org_err"; then
+    plan_raw=unknown
+  else
+    rm -f "$org_err"
+    echo 'CANNOT VERIFY: organization plan could not be read' >&2
+    exit 2
+  fi
+}
+rm -f "$org_err"
+plan=$(printf '%s' "$plan_raw" | tr '[:upper:]' '[:lower:]')
+[ -n "$plan" ] || plan=unknown
 if [ "$visibility" = public ] || [ "$plan" = enterprise ]; then
   echo 'UNSAFE: required reviewers are available here; add them to the production environment' >&2
   exit 1

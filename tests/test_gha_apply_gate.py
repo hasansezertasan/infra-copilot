@@ -21,7 +21,14 @@ case "$2" in
   *) exit 1 ;;
 esac
 eval "fail=\${FAIL_$key:-0}; body=\${$key:-}"
-[ "$fail" = 0 ] || exit 1
+if [ "$fail" != 0 ]; then
+  if [ "$fail" = 404 ]; then
+    printf 'gh: Not Found (HTTP 404)\n' >&2
+  else
+    printf 'gh: network error (HTTP 500)\n' >&2
+  fi
+  exit 1
+fi
 if [ "${3:-}" = -q ]; then printf '%s\n' "$body" | jq -r "$4"; else printf '%s\n' "$body"; fi
 '''
 
@@ -67,6 +74,12 @@ class ApplyGateTests(unittest.TestCase):
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_missing_production_environment_fails(self) -> None:
+        self.env['FAIL_ENV'] = '404'
+        result = self.check()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('does not exist', result.stderr)
+
     def test_reviewers_without_branch_policy_fail(self) -> None:
         for policy in [None, {'protected_branches': True, 'custom_branch_policies': False}]:
             with self.subTest(policy=policy):
@@ -105,15 +118,23 @@ class ApplyGateTests(unittest.TestCase):
                 self.assertEqual(self.check().returncode, 1)
 
     def test_user_owned_private_repo_can_use_a_gate(self) -> None:
-        self.env['FAIL_ORG'] = '1'
+        self.env['FAIL_ORG'] = '404'
         self.decide('| Apply gate | dispatch | locked | x |')
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_org_plan_read_failure_is_unknown(self) -> None:
+        self.env['FAIL_ORG'] = '1'
+        self.decide('| Apply gate | dispatch | locked | x |')
+        result = self.check()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('organization plan could not be read', result.stderr)
+
     def test_gate_cannot_replace_available_reviewers(self) -> None:
         self.decide('| Apply gate | merge-approval | locked | x |')
         for repo, org in [({'visibility': 'public'}, {'plan': {'name': 'team'}}),
-                          ({'visibility': 'private'}, {'plan': {'name': 'enterprise'}})]:
+                          ({'visibility': 'private'}, {'plan': {'name': 'enterprise'}}),
+                          ({'visibility': 'private'}, {'plan': {'name': 'Enterprise'}})]:
             with self.subTest(repo=repo, org=org):
                 self.env['REPO_BODY'], self.env['ORG'] = json.dumps(repo), json.dumps(org)
                 self.assertEqual(self.check().returncode, 1)

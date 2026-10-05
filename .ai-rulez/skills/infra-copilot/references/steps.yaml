@@ -880,6 +880,7 @@ steps:
     provider: github
     actor: HUMAN
     when: '[ "$BACKEND" = "object-storage" ]'
+    tri_state: true   # exit 2 = could not verify; see protocol.md
     title: Configure GitHub Environments for apply approval
     why: >-
       The production environment holds the apply credentials. A main-only branch policy
