@@ -24,15 +24,17 @@ Content-Hash: blake3:…
 -->
 ```
 
-Seventeen of the 44 have no such header — the outputs that are not Markdown:
+Eighteen of the 54 have no such header — the outputs that are not Markdown:
 `.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`,
 `.codex-plugin/plugin.json`, `config.md.example`, `decisions.md.example`, `steps.yaml`,
 `checks/status-check-context.sh`, `checks/hcp-apply-scope.sh`, `checks/gcp-wif-trust.sh`,
 `checks/hcp-bootstrap-workspaces.sh`, `checks/leaf-cloud.sh`,
-`checks/hcp-github-app.sh`, `checks/hcp-current-plan.sh`, `checks/provider-requirements.sh`, `checks/gha-latest-runs.sh`,
+`checks/hcp-github-app.sh`, `checks/hcp-current-plan.sh`,
+`checks/provider-requirements.sh`, `checks/gha-latest-runs.sh`,
+`checks/gha-provider-safety.sh`,
 `templates/terraform-apply.yml`, and `templates/terraform-plan.yml` — so a missing header proves nothing.
 
-`.ai-rulez-generated.json` is the authoritative list — 44 paths today. If a file is in
+`.ai-rulez-generated.json` is the authoritative list — 54 paths today. If a file is in
 there, edit its source instead.
 
 ### What is *not* generated
@@ -282,3 +284,18 @@ reason. `package-lock.json` is already listed.
 - Behavior belongs in `.ai-rulez/skills/`; host manifests and commands are **adapters
   only** and must not become a second source of truth. Claude-specific `allowed-tools`
   values live in command frontmatter; workflow bodies stay host-neutral.
+
+## Backend operation contracts
+
+Action skill bodies outside `setup` use the named contracts in
+[operations.md](../.ai-rulez/skills/infra-copilot/references/operations.md).
+The manifest records an `operation` and `implementation` for every backend-dependent
+step. Several ordered members can implement one operation; preserve actor handoffs,
+phase boundaries, per-provider iteration and tri-state outcomes. Status groups members
+by operation and uses selected read-only evidence for mutating plan checks.
+
+Add both backend implementations, a shared `both` implementation, or an explicit
+`not_applicable` reason for a mechanism that does not exist in one backend. N/A is not
+proof that the shared safety contract is satisfied. Keep execution-specific instructions
+in the backend references. `make check` rejects backend names/selectors in non-setup
+skill bodies and incomplete operation coverage.

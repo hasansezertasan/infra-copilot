@@ -271,3 +271,12 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
 > The end state of Phases 0–1 (HCP-as-clickops today) is tracked for future
 > Terraform-ification as a tracked improvement in this repo's issue tracker (see the
 > repo's open issues). Until then these steps are API calls, not `.tf` files.
+
+## Import-resources
+
+Generate imports with a short-lived discovery token, then use the workspace's speculative
+plan with persistent credentials supplied by workspace variables. Review and commit HCL
+before accepting check evidence. Require imports without creates, destroys or forgotten
+resources. Obtain read-only run evidence with [service status](hcp-status.md); the plan's
+success alone does not prove that its imports have applied. Wait for a HUMAN-confirmed
+apply before [pruning](docs/hcp-prune.md).

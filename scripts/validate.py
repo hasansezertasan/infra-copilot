@@ -2827,6 +2827,72 @@ def validate_layout() -> list[str]:
     ]
 
 
+def validate_backend_operations(root: Path = ROOT) -> list[str]:
+    """Keep action routers neutral and require complete operation implementations.
+
+    Parse only manifest field lines at their declared indentation, as the existing
+    manifest validators do. Generated content is guarded separately by verify.
+    """
+    errors: list[str] = []
+    skills = root / ".ai-rulez/skills"
+    forbidden = re.compile(r"\$\{?BACKEND\b|\bHCP\b|\bGHA\b|GitHub Actions|object-storage", re.I)
+    for path in sorted(skills.glob("*/SKILL.md")):
+        if path.parent.name == "setup":
+            continue
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if forbidden.search(line):
+                errors.append(
+                    f"{path.relative_to(root)}:{line_number}: skill outside setup "
+                    "references backend details; use an operation contract"
+                )
+    manifest = skills / "infra-copilot/references/steps.yaml"
+    if not manifest.is_file():
+        return [*errors, "steps.yaml: missing backend operation manifest"]
+    text = manifest.read_text(encoding="utf-8")
+    contracts = read_document(manifest.with_name("operations.md")) or ""
+    coverage: dict[str, set[str]] = {}
+    phases: dict[str, set[str]] = {}
+    for match in re.finditer(r"^  - id: ([^\n]+)\n(.*?)(?=^  - id: |\Z)", text, re.M | re.S):
+        step, body = match.groups()
+        fields = dict(re.findall(r"^    ([a-z_]+): ([^\n]+)$", body, re.M))
+        operation = fields.get("operation")
+        implementation = fields.get("implementation")
+        if not operation:
+            if implementation or re.search(r"\$\{?BACKEND\b", body):
+                errors.append(f"steps.yaml: {step}: backend-dependent step needs an operation")
+            continue
+        if not re.fullmatch(r"[a-z][a-z0-9-]*", operation):
+            errors.append(f"steps.yaml: {step}: invalid operation slug {operation!r}")
+        if f"| `{operation}` |" not in contracts:
+            errors.append(f"steps.yaml: {step}: {operation} has no operation contract inventory")
+        if implementation not in {"hcp", "object-storage", "both"}:
+            errors.append(f"steps.yaml: {step}: operation needs a valid implementation")
+            continue
+        if implementation != "both":
+            gate = f'[ "$BACKEND" = "{implementation}" ]'
+            # A backend's implementation must not run in the other mode.
+            when = re.search(r"^    when: ([^\n]+)(?:\n((?:      .*\n)*))", body, re.M)
+            if when is None or gate not in when.group(0):
+                errors.append(f"steps.yaml: {step}: implementation selector lacks its backend gate")
+        elif re.search(r'^    when:.*BACKEND', body, re.M):
+            errors.append(f"steps.yaml: {step}: shared implementation cannot gate on backend")
+        if "not_applicable" in fields:
+            reason = fields["not_applicable"].strip(" '\"")
+            if len(reason) < 20 or implementation == "both":
+                errors.append(f"steps.yaml: {step}: not-applicable needs a backend-specific reason")
+        coverage.setdefault(operation, set()).update(
+            {"hcp", "object-storage"} if implementation == "both" else {implementation}
+        )
+        phases.setdefault(operation, set()).add(fields.get("phase", ""))
+    for operation, backends in coverage.items():
+        if backends != {"hcp", "object-storage"}:
+            errors.append(f"steps.yaml: {operation}: missing implementation or explicit not-applicable for "
+                          + ", ".join(sorted({"hcp", "object-storage"} - backends)))
+        if len(phases[operation]) != 1 or "" in phases[operation]:
+            errors.append(f"steps.yaml: {operation}: operation members must share one phase")
+    return errors
+
+
 def main(argv: list[str] | None = None) -> int:
     # `--closure <skill>` prints the install arguments for one skill and its
     # dependencies, so `make smoke-opencode` asserts a real resolved closure instead
@@ -2882,6 +2948,7 @@ def main(argv: list[str] | None = None) -> int:
 
     errors = [
         *validate_skills(),
+        *validate_backend_operations(),
         *validate_command_tools(),
         *validate_skill_sections(),
         *validate_description_budget(),

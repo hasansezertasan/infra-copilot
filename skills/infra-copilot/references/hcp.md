@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:88e1169073376106d8553762ee5551f4fb994c2451fa51331b192990a4b9007b
-Source-Hash: blake3:ead7306292e52740e8f300f0924f860f38008d24e597bcc27d226e270c01a019
+Content-Hash: blake3:5a83dbdc08e8151dbc53629244505fcbcf6f5c858dc093a4b4a075347ba4145a
+Source-Hash: blake3:1dc2bb768d75a6b5f133bcb28897bd2eec92647e797988f199e55974253b44f8
 Schema-Version: v1
 -->
 
@@ -278,3 +278,12 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
 > The end state of Phases 0–1 (HCP-as-clickops today) is tracked for future
 > Terraform-ification as a tracked improvement in this repo's issue tracker (see the
 > repo's open issues). Until then these steps are API calls, not `.tf` files.
+
+## Import-resources
+
+Generate imports with a short-lived discovery token, then use the workspace's speculative
+plan with persistent credentials supplied by workspace variables. Review and commit HCL
+before accepting check evidence. Require imports without creates, destroys or forgotten
+resources. Obtain read-only run evidence with [service status](hcp-status.md); the plan's
+success alone does not prove that its imports have applied. Wait for a HUMAN-confirmed
+apply before [pruning](docs/hcp-prune.md).

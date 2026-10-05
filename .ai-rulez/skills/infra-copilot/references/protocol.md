@@ -16,12 +16,12 @@ independent trust decision. The human surface is five action kinds only:
 
 1. **Sign up** for a service (browser-only).
 2. **Mint a credential** in a dashboard (browser-only — no API bootstraps the first token).
-3. **Paste a secret** into the secret store (HCP workspace variables or GitHub Actions
-   secrets, depending on backend mode — the agent must never see the plaintext).
+3. **Paste a secret** through the selected store-provider-credential operation;
+   the agent must never see the plaintext.
 4. **Choose and review repository tool pins** before trusting executable `mise.toml`
    behavior; the agent that proposes a config must not approve its own trust boundary.
-5. **Run a privileged mutation after credential narrowing** (HCP mode: workspace changes
-   using the canonical helper; object-storage mode: environment approval configuration).
+5. **Run a privileged mutation after credential narrowing** through the selected
+   operation's HUMAN handoff, without giving the agent privileged credentials.
 
 Everything else — repository changes, verification, imports, and plans — is the agent's.
 
@@ -35,20 +35,18 @@ handoff block, show the schema, offer to scaffold from
 config already exists and you are re-scaffolding, preserve the region between its
 `infra-copilot:customization` markers verbatim and hand off rather than guess when those
 markers are missing or unbalanced: [`config.md`](config.md#re-scaffolding-an-existing-config). Once a
-config is loaded, validate that it explicitly sets `backend: hcp` or
-`backend: object-storage` before preflight, any `when` evaluation, check, or run. Missing,
+config is loaded, validate the execution choice using [config.md](config.md) before preflight, any
+`when` evaluation, check, or run. Missing,
 empty, or invalid `backend` means stop and emit the migration handoff in
 [`config.md`](config.md#migration-existing-configs-without-backend); existing `cloud {}`
-blocks prompt an offer to record `backend: hcp`, never an inferred default. `status`
+blocks are migration evidence for setup, never an inferred default. `status`
 reports this handoff read-only. Only after validation, export the shell vars every check
-depends on — including `BACKEND`, which gates which steps apply. Full schema, migration
+depends on — including the implementation selector used by [operations](operations.md). Full schema, migration
 rules, and export block: [`config.md`](config.md).
 
-On a cold HCP-mode run, `hcp-login` creates the credential file after this initial export;
-as soon as that step's check turns green, repeat the `HCP_TOKEN` export from `config.md`
-before checking `hcp-signup` or any later HCP step. In object-storage mode, no HCP
-credential is needed — cloud provider auth happens via Workload Identity Federation or
-environment variables.
+After a credential-establishing operation turns green, refresh config's selected
+credential exports before evaluating its later members. The selected implementation
+owns export precedence; never invent an execution credential locally.
 
 ## Actors
 
@@ -56,8 +54,8 @@ Every step in [`steps.yaml`](steps.yaml) is tagged with who performs it:
 
 | Tag | Meaning | Behaviour |
 |---|---|---|
-| **`AGENT`** | Agent runs it (shell, `gh`, `terraform`, HCP API). | Execute. Verify with the step's `check`. Continue on green. |
-| **`HUMAN`** | Requires signup, dashboard identity, secret custody, executable-config review, or post-handoff HCP authority intentionally withheld from the agent. | **Stop.** Emit the handoff block. Wait for `done`. Then run the `check` before continuing. |
+| **`AGENT`** | Agent runs it (shell, `gh`, `terraform`, execution API). | Execute. Verify with the step's `check`. Continue on green. |
+| **`HUMAN`** | Requires signup, dashboard identity, secret custody, executable-config review, or post-handoff execution authority intentionally withheld from the agent. | **Stop.** Emit the handoff block. Wait for `done`. Then run the `check` before continuing. |
 
 ### The handoff block
 
@@ -188,7 +186,7 @@ available, then begin its resume scan with phase 0's `toolchain-pin` step. Do no
 pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool
 checks) before that step has established committed pins. Once `toolchain-pin` is green,
 run the full preflight, stop for the `HUMAN` `repo-config-sync` step when its check is red, and continue the
-resume scan at `hcp-login`. The sync step is a no-op when the consuming repository does
+resume scan at the selected `bootstrap-state` operation. The sync step is a no-op when the consuming repository does
 not ship `scripts/sync-config.sh`. This keeps the fail-fast gate while giving a missing
 toolchain and repository-specific literal synchronization owned, resumable steps. A
 repository with only the legacy config fallback skips synchronization because no canonical
@@ -196,9 +194,9 @@ repository with only the legacy config fallback skips synchronization because no
 `status` remains read-only: it reports the same failed step but never executes its `run`.
 
 ```text
-for step in scope(steps.yaml):
+for step in resolved_members(scope(steps.yaml), config):
     if step.when and not eval(step.when):
-        skip, print "- {step.id} (skipped: backend mode)"
+        skip, print "N/A {step.operation or step.id} ({step.id}: condition false)"
         continue
     rc = run(step.check)
     if rc == 0:
@@ -256,12 +254,10 @@ never a second set of rules, so the inline result is the same result.
 
 `setup`, `import`, `prune`, and `add` must run their resume scan themselves, even though
 it looks like the same walk. It is not: the auditor follows [`status.md`](status.md), which
-deliberately *substitutes* for the checks that would touch the working tree — in HCP mode
-it reads the last remote run instead of running `terraform plan`, and in object-storage
-mode it reports a dirty leaf as `?`. Those substitutions are correct for a report and
-wrong for resumption, because an action skill's `plan-cloudflare` and `plan-github` checks
-are defined against the *current checkout*. Delegating would let an older committed run
-read as green, or stop at `?`, and the interrupted work would never be picked up.
+deliberately *substitutes* [read-run-status](operations.md#read-run-status) evidence for
+checks that touch the working tree. These substitutions are correct for a report and
+wrong for resumption: action checks judge the current checkout. Delegation could accept
+an older committed run or stop at unknown, leaving interrupted work untouched.
 
 `prune` is in that list for a different reason, and the difference is worth stating rather
 than letting the sentence above cover it by proximity. Its resume scan is the single
@@ -275,29 +271,17 @@ has to defend — though it does carry shell access, so the contract is still a 
 a sandbox. Where no subagent surface exists, run the same scan
 inline — the agent is an isolation boundary, never a second set of rules.
 
-### Conditional steps (`when`)
+### Operation selection and conditional steps
 
-A step may carry a `when` field — a shell condition that gates whether the step runs at all.
-If `when` evaluates false, the step is skipped entirely: no check, no run, no handoff.
+Follow [operations.md](operations.md#selection-and-resume) to resolve the validated
+config choice to implementation members. A shared contract may have several ordered
+members; execute every applicable member and retain its actor and check semantics.
+Report the operation once, with the member ID identifying a failure or handoff.
 
-```yaml
-- id: hcp-login
-  when: '[ "$BACKEND" = "hcp" ]'
-  # ... rest of step
-```
-
-This is how backend-specific steps coexist in one manifest:
-
-- HCP-mode steps use `'[ "$BACKEND" = "hcp" ]'` — run only in that mode
-- Object-storage steps use `'[ "$BACKEND" = "object-storage" ]'` — run only in that mode
-
-The condition runs **before** the check. A skipped step does not count as green or red — it
-simply does not exist for this run. The resume scan proceeds to the next step.
-
-Evaluate `when` exactly as written — a shell test expression. The variables it references
-(`$BACKEND`, etc.) are exported during Step 0 config loading.
-Step 0 must stop on an unspecified backend before reaching this evaluation; skipped
-steps must never turn an incomplete config into an all-green report.
+After implementation selection, evaluate a member's `when` exactly as written with
+config's exported variables. A false condition skips check/run/handoff and is N/A with
+its reason. Explicit `not_applicable` records a service-specific mechanism that does not
+exist in that implementation; it does not prove the shared safety contract green.
 
 ### Exit code 2 — could not verify
 
@@ -309,7 +293,7 @@ is wrong*.
 [`steps.yaml`](steps.yaml).** Every other check is two-state: any non-zero means red,
 full stop. That distinction is not cosmetic — ordinary tools already use 2 for their own
 reasons. `jq` exits 2 when its input file does not exist, which is exactly the cold-start
-state of `hcp-login`'s check, so treating 2 as "cannot verify" everywhere would refuse to
+state of a cold credential check, so treating 2 as "cannot verify" everywhere would refuse to
 run the login step that creates the file and would block every greenfield bootstrap.
 
 For a `tri_state` step, treat 2 as neither green nor red:
@@ -333,8 +317,8 @@ Confirm the toolbox. All of these are the agent's to install if missing — none
 ```sh
 terraform version      # provisioning + import blocks
 gh --version           # GitHub CLI — repo ops, Pages, App install checks
-jq --version           # JSON wrangling for HCP/Cloudflare/GitHub APIs
-curl --version         # HCP + Cloudflare REST
+jq --version           # JSON wrangling for execution/provider APIs
+curl --version         # execution + provider REST
 mise --version         # reads committed pins and enforces the lockfile
 ```
 
@@ -381,18 +365,5 @@ Do not perform this export during config loading: a fresh repository has not est
 the toolchain contract yet. `status` remains read-only and reports missing pin files
 instead of creating them.
 
-Then detect the credential the whole flow pivots on:
-
-```sh
-# Either source, in terraform's precedence order — see config.md Step 0. A
-# file-only test reports "no token" for anyone using TF_TOKEN_app_terraform_io,
-# which is the route hcp-apply-scope's plan-only handoff may leave in place.
-if [ -n "${TF_TOKEN_app_terraform_io:-}" ] \
-  || jq -e '.credentials["app.terraform.io"].token | strings | length > 0' \
-       ~/.terraform.d/credentials.tfrc.json >/dev/null 2>&1
-then
-  echo "HCP token present — agent can drive the API"
-else
-  echo "No HCP token yet — the first HUMAN step will mint one"
-fi
-```
+Then verify the credentials required by the selected operations using their reference
+contracts. Report missing or unreadable credentials without exposing values.

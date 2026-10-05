@@ -38,12 +38,12 @@ So:
    `No changes.` A block that has not run still shows up — a pending `import` prints
    `will be imported`, a pending `moved` prints its rename — so the plan is what separates
    spent from pending. How many plans, where they run, and whether `terraform state list`
-   can filter in front of them is the **backend's** answer and the runbook's to give; it
-   is not the same for HCP and object-storage. Membership is never the sole evidence
+   can filter in front of them is the **backend's** answer and the runbook's to give; the
+   [prune-blocks operation](../infra-copilot/references/operations.md#prune-blocks) supplies the procedure. Membership is never the sole evidence
    anywhere: an aggregate module target or a `count` added on one side defeats it.
 3. **Refuse on a dirty plan.** If the leaf does not plan cleanly apart from the blocks you
    are about to remove, stop and report rather than prune into an unrelated diff.
-4. **One pull request per leaf.** Leaves have separate workspaces and separate applies.
+4. **One pull request per leaf.** Leaves have separate states and separate applies.
 5. **Leaves only — never `terraform/modules/`.** Every consuming state reads a module's
    blocks separately, and that set is not closed. A module's `moved` block is its upgrade
    path, which Terraform says to retain; its `import` block is spent only per consumer, and
@@ -79,16 +79,14 @@ not withhold the PR waiting for it.
 ## Example
 
 ```text
-# terraform/cloudflare — before (HCP; object-storage differs, see the runbook)
+# terraform/cloudflare — before (see the selected execution procedure)
 $ grep -c '^import {' generated_dns.tf
 99
-$ terraform state list | grep -c cloudflare_dns_record
-99                      # filter: every `to =` address is already in state
-$ terraform plan
+get-plan output for the selected execution
 No changes. Your infrastructure matches the configuration.   # nothing pending
 
 # after removing the 99 import blocks, nothing else
-$ terraform plan
+get-plan output for the committed deletion
 No changes. Your infrastructure matches the configuration.   # they were inert
 ```
 

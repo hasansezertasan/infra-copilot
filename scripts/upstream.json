@@ -80,7 +80,7 @@
       },
       "audited": "4.3.0",
       "cited_in": [
-        "docs/ci.md"
+        "docs/hcp-ci.md"
       ],
       "why_it_matters": "Pinned by commit SHA in the CI example. The SHA is the value that runs; the version is only a comment. The nightly resolves the audited tag and requires the cited SHA to match it, so the two cannot be updated independently.",
       "cited_as": [

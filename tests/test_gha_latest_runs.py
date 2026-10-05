@@ -18,7 +18,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "skills/infra-copilot/references/checks/gha-latest-runs.sh"
 SOURCE = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/checks/gha-latest-runs.sh"
-STATUS_RUNBOOK = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/status.md"
+STATUS_RUNBOOK = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/object-storage.md"
 
 
 def run(

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e7b862877a27a8c490232341ef44c5d546d3af374ee869244a6cc323491d5693
-Source-Hash: blake3:ead7306292e52740e8f300f0924f860f38008d24e597bcc27d226e270c01a019
+Content-Hash: blake3:9dce6583d3114e139742e3b8e5186ca0d5cc5796175040a1dd40ba4d8c82103e
+Source-Hash: blake3:1dc2bb768d75a6b5f133bcb28897bd2eec92647e797988f199e55974253b44f8
 Schema-Version: v1
 -->
 
@@ -32,11 +32,11 @@ Every migration, whatever the provider, is the same five moves:
 
 | Action | Actor | Why |
 |---|---|---|
-| Mint a short-lived **read-only** discovery token | **HUMAN** | Dashboard-only; scoped narrower than the HCP edit token. |
+| Mint a short-lived **read-only** discovery token | **HUMAN** | Dashboard-only; scoped narrower than the persistent edit token. |
 | Run the discovery tool / API | **AGENT** | `cf-terraforming`, `gcloud`, `gh` — read-only. |
 | Generate HCL + import blocks | **AGENT** | Deterministic transformation. |
 | Review/rename generated HCL, drop unwanted resources | **AGENT** (human confirms scope) | Scope decisions may need a human nod. |
-| `terraform plan` to confirm imports-only | **AGENT** | Speculative run in HCP. |
+| `terraform plan` to confirm imports-only | **AGENT** | Selected get-plan implementation. |
 | Delete the discovery token when done | **HUMAN** | Revoke in dashboard. |
 
 ## Cloudflare — canonical
@@ -66,7 +66,7 @@ gh repo list "$GITHUB_ORG" --json name,visibility,defaultBranchRef
 # Then, per resource, an import block in terraform/github/*.tf:
 #   import { to = github_repository.infra          id = "infra" }
 #   import { to = github_branch_protection.infra    id = "infra:main" }   # provider-specific id format
-cd terraform/github && terraform plan   # expect: imported, not created
+# Use get-plan for terraform/github: imported, not created
 ```
 
 Import ID formats are provider-specific (a repo is its name; branch protection is
@@ -83,7 +83,7 @@ either handwritten or via `terraform plan -generate-config-out=generated.tf`:
 mise exec -- gcloud services list --enabled --format='value(config.name)'
 mise exec -- gcloud storage buckets list --format='value(name)'   # etc., per resource type
 # import { to = google_storage_bucket.assets  id = "<project-id>/<bucket-name>" }
-cd terraform/gcp && terraform plan  # expect: imported, not created
+# Use get-plan for terraform/gcp: imported, not created
 ```
 
 Before generating anything, apply the exclusions and scope order in
@@ -148,7 +148,7 @@ Cheap and mechanical; each item caught a real problem:
 
 Open a PR (Conventional title). The four required checks run
 ([`ci.md`](docs/ci.md)); a maintainer reads the plan (UI or the
-[HCP API toolkit](docs/hcp-api.md)) and confirms the apply on merge. The import executes as a
+[read-run-status operation](operations.md#read-run-status)) and confirms the apply on merge. The import executes as a
 real run.
 
 **The blocks then have to come out, in a second PR.** `import {}` and `moved {}` are
