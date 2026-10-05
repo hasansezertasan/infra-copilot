@@ -15,7 +15,7 @@ path filter. Add the leaf to validation, the changes output, the aggregate plan'
 and the apply job condition. Use the committed mise lock via `jdx/mise-action`.
 
 Provision execution before adding provider secrets. The new leaf's apply job must set
-`environment: production`. A HUMAN configures required reviewers on that environment.
+`environment: production`. A HUMAN restricts that environment to `main` and adds required reviewers or records an apply gate ([GitHub Environments](docs/object-storage-ci.md#github-environments)).
 The `new-provider-identity-trust-gha` HUMAN step checks cloud IAM trust: the OIDC subject must bind the exact repository and permitted
 branch or protected environment, never a wildcard repository or arbitrary fork. Verify
 state isolation, locking and the exact runner service account/role before authorizing it.
@@ -50,7 +50,7 @@ Run `sh "$INFRA_COPILOT_REFERENCES/checks/gha-provider-safety.sh"` with `NEW_PRO
 `REPO` exported before storing credentials. It verifies committed, clean workflows in
 the supported template syntax, credential access across all jobs, the new job's exact
 fork guard, its production environment
-and live required reviewers. YAML anchors, aliases and quoted permission keys are
+and the same apply gate `gha-environments` checks (`checks/gha-apply-gate.sh`). YAML anchors, aliases and quoted permission keys are
 unsupported and rejected. It accepts only the templates' block event syntax and exact guard expression, preserving
 quoted literal contents. It rejects unfamiliar syntax rather than guessing that a
 textual occurrence elsewhere protects the job. IAM trust is a separate HUMAN review.

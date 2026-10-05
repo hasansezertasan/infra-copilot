@@ -23,6 +23,11 @@ both. For GCP (see `references/gcp.md`) that is a
 `Workload Identity Federation` / `locked` row whose rationale names the HCP organization
 and workspace the trust is scoped to.
 
+Object-storage repositories that cannot use GitHub Environment required reviewers (private
+repositories outside GitHub Enterprise) lock an `Apply gate` row whose choice is
+`merge-approval` or `dispatch`; the `gha-environments` check reads it. See
+`references/docs/object-storage-ci.md#github-environments`.
+
 Statuses:
 
 - `proposed` — under discussion; workflows must not assume it.

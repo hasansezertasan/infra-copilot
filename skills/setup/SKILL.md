@@ -5,8 +5,8 @@ description: "Greenfield bootstrap of a Terraform + Cloudflare + GitHub infra re
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:251c9507df99744e33a7cd634d7e25ed7d1fc30ab7d9c401a226c6f18395581a
-Source-Hash: blake3:0701b063a68b5dc12bcd2d634e041e74cf431681c98eab86a076c7e32a5cbead
+Content-Hash: blake3:49caa2c2987b6abb4b7b2d46a7d6c59e510e65a7a5b532643d438204a7725291
+Source-Hash: blake3:fb04982dd14bab48a654df3108e7c40b77124972f7bcf7b4441c2bc0365fbe26
 Schema-Version: v1
 -->
 
@@ -117,8 +117,8 @@ Adopting resources that already exist (a live domain, existing repos)? That's
   `AGENT` writes `backend.tf` blocks in each leaf pointing to the state bucket.
   [`../infra-copilot/references/docs/object-storage-state.md#object-storage-backend`](../infra-copilot/references/docs/object-storage-state.md#object-storage-backend).
 - **Phase 1 — GitHub Actions CI.** `AGENT` creates `.github/workflows/terraform-plan.yml` and
-  `terraform-apply.yml`. `HUMAN` configures the `production` GitHub Environment with required
-  reviewers to gate applies.
+  `terraform-apply.yml`. `HUMAN` restricts the `production` GitHub Environment to `main` and adds
+  required reviewers where the plan offers them, or locks an `Apply gate` decision.
   [`../infra-copilot/references/docs/object-storage-ci.md#github-actions`](../infra-copilot/references/docs/object-storage-ci.md#github-actions).
 - **Phase 2 — Cloudflare.** `HUMAN` mints scoped token and adds `CLOUDFLARE_API_TOKEN` to
   GitHub Actions secrets; `AGENT` verifies.

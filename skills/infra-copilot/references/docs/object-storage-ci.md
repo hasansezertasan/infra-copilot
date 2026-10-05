@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:8eea54ee08ae7794d9a0de93c2d04da2837b59fa0313dcf2766369d4dd9b07cc
-Source-Hash: blake3:0701b063a68b5dc12bcd2d634e041e74cf431681c98eab86a076c7e32a5cbead
+Content-Hash: blake3:f6f22312812d0a94d371de52e407bae618f8f5402c6f9230597c38a51389e466
+Source-Hash: blake3:fb04982dd14bab48a654df3108e7c40b77124972f7bcf7b4441c2bc0365fbe26
 Schema-Version: v1
 -->
 
@@ -26,20 +26,61 @@ Unlike HCP mode, plan output appears directly in PR comments. Mark all sensitive
 Two workflows handle the Terraform lifecycle. See the templates for full implementations:
 
 - [`../templates/terraform-plan.yml`](../templates/terraform-plan.yml) — runs on every PR that touches `terraform/**`
-- [`../templates/terraform-apply.yml`](../templates/terraform-apply.yml) — runs on merge to `main`, gated by environment approval
+- [`../templates/terraform-apply.yml`](../templates/terraform-apply.yml) — runs on merge to `main` in the `main`-only `production` environment
 
-The plan workflow uses `dorny/paths-filter` to detect which leaves changed, runs `terraform plan` for each, and posts the output as a PR comment. The apply workflow references a GitHub Environment (`production`) that requires reviewer approval before any apply proceeds.
+The plan workflow uses `dorny/paths-filter` to detect which leaves changed, runs `terraform plan` for each, and posts the output as a PR comment. The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
 
 ## GitHub Environments
 
-The apply workflow references a GitHub Environment for approval gating:
+The apply workflow runs in a GitHub Environment named `production`:
 
-1. Go to repo **Settings → Environments**
-2. Create environment `production`
-3. Enable **Required reviewers** and add approvers
-4. Optionally add deployment branch rules (e.g., only `main`)
+1. Go to repo **Settings → Environments** and create environment `production`
+2. Under **Deployment branches and tags**, choose **Selected branches and tags** and add
+   exactly `main`. This is required on every plan: it is what stops a pushed branch from
+   running a job in `production` and receiving the apply credentials.
+3. Enable **Required reviewers** and add approvers *if GitHub offers them to this repo*.
+   For private repositories they exist only on GitHub Enterprise; Free, Pro and Team reject
+   the rule with `422 … ensure the billing plan supports the required reviewers protection rule`.
+   Public repositories get them on every plan.
 
-This replaces HCP's "confirm apply" button. An apply waits for environment approval before running.
+As Terraform:
+
+```hcl
+resource "github_repository_environment" "production" {
+  repository  = "infra"
+  environment = "production"
+  deployment_branch_policy {
+    protected_branches     = false
+    custom_branch_policies = true
+  }
+}
+
+resource "github_repository_environment_deployment_policy" "main" {
+  repository     = "infra"
+  environment    = github_repository_environment.production.environment
+  branch_pattern = "main"
+}
+```
+
+With reviewers, an apply waits for environment approval, like HCP's "confirm apply".
+Where reviewers are available the `gha-environments` check requires them.
+
+Where they are not, pick one of these human gates and lock it as an `Apply gate` row in
+`.infra-copilot/decisions.md` (choice `merge-approval` or `dispatch`, status `locked`):
+
+- **Merge is the approval** (`merge-approval`). Apply runs automatically on push to `main`.
+  The human gate is the reviewed PR plan plus the required review in `main`'s branch
+  protection. The apply recomputes its plan, so it can differ from the reviewed one if state
+  or `main` moved in between (see the header of
+  [`../templates/terraform-apply.yml`](../templates/terraform-apply.yml)).
+- **Dispatch gate** (`dispatch`). Apply runs only on `workflow_dispatch`, and the apply
+  identity's WIF/OIDC trust pins `assertion.actor_id` (or the triggering actor) to named
+  maintainers, so nobody else's run can obtain the apply identity. That trust condition is
+  a HUMAN IAM review; the check cannot see it.
+
+The `gha-environments` check (`checks/gha-apply-gate.sh`) verifies the main-only branch
+policy, then either live required reviewers or, where GitHub cannot offer them, the locked
+decision.
 
 ## Authentication
 
@@ -119,7 +160,7 @@ The template uses `github.event.pull_request.head.repo.full_name == github.repos
 | Aspect | HCP mode | Object-storage mode |
 |--------|----------|---------------------|
 | Plan visibility | HCP UI (login required) | PR comment (repo access) |
-| Apply approval | HCP confirm button | GitHub Environment reviewers |
+| Apply approval | HCP confirm button | Environment reviewers (Enterprise or public repos), or merge approval + `main`-only environment |
 | Secrets storage | HCP workspace variables | GitHub Actions secrets |
 | Run logs | HCP | GitHub Actions |
 | Cost | HCP pricing | GitHub Actions minutes |
