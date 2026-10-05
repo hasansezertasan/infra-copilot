@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:20b8a6596aff022cb5aa40012145f7868093e580792da1b4b040c33cd5bef48d
-Source-Hash: blake3:1853ee0fac069a2846485eb016032ac840e1a7f04c3b3f3232d4f6396be91573
+Content-Hash: blake3:5ef6e1b019df0befd2c51c830e83539ea15814ebaf6dd38e8ae29d6c8fbdbfa8
+Source-Hash: blake3:ead7306292e52740e8f300f0924f860f38008d24e597bcc27d226e270c01a019
 Schema-Version: v1
 -->
 
@@ -42,8 +42,14 @@ handoff block, show the schema, offer to scaffold from
 config already exists and you are re-scaffolding, preserve the region between its
 `infra-copilot:customization` markers verbatim and hand off rather than guess when those
 markers are missing or unbalanced: [`config.md`](config.md#re-scaffolding-an-existing-config). Once a
-config is loaded, export the shell vars every check depends on — including `BACKEND`, which
-gates which steps apply. Full schema, migration rules, and export block: [`config.md`](config.md).
+config is loaded, validate that it explicitly sets `backend: hcp` or
+`backend: object-storage` before preflight, any `when` evaluation, check, or run. Missing,
+empty, or invalid `backend` means stop and emit the migration handoff in
+[`config.md`](config.md#migration-existing-configs-without-backend); existing `cloud {}`
+blocks prompt an offer to record `backend: hcp`, never an inferred default. `status`
+reports this handoff read-only. Only after validation, export the shell vars every check
+depends on — including `BACKEND`, which gates which steps apply. Full schema, migration
+rules, and export block: [`config.md`](config.md).
 
 On a cold HCP-mode run, `hcp-login` creates the credential file after this initial export;
 as soon as that step's check turns green, repeat the `HCP_TOKEN` export from `config.md`
@@ -283,13 +289,13 @@ If `when` evaluates false, the step is skipped entirely: no check, no run, no ha
 
 ```yaml
 - id: hcp-login
-  when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+  when: '[ "$BACKEND" = "hcp" ]'
   # ... rest of step
 ```
 
 This is how backend-specific steps coexist in one manifest:
 
-- HCP-mode steps use `'[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'` — run when HCP or default
+- HCP-mode steps use `'[ "$BACKEND" = "hcp" ]'` — run only in that mode
 - Object-storage steps use `'[ "$BACKEND" = "object-storage" ]'` — run only in that mode
 
 The condition runs **before** the check. A skipped step does not count as green or red — it
@@ -297,6 +303,8 @@ simply does not exist for this run. The resume scan proceeds to the next step.
 
 Evaluate `when` exactly as written — a shell test expression. The variables it references
 (`$BACKEND`, etc.) are exported during Step 0 config loading.
+Step 0 must stop on an unspecified backend before reaching this evaluation; skipped
+steps must never turn an incomplete config into an all-green report.
 
 ### Exit code 2 — could not verify
 

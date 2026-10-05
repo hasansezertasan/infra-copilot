@@ -7,7 +7,11 @@ Run in order. Each step explains what it produces and where the value goes.
 
 ## 1. HCP Terraform — organization
 
-1. Sign up at <https://app.terraform.io/> if needed (free tier is sufficient to start).
+1. Sign up at <https://app.terraform.io/> if needed. This workflow requires a paid tier
+   with team management for phase 4's mandatory plan-only team token, even below the
+   free tier's 500-resource limit. Confirm this prerequisite when choosing the backend;
+   see the [backend comparison](../config.md#backend-modes). A free-tier signup cannot
+   complete the HCP workflow.
 2. Run `terraform login` and approve the browser flow so the agent can verify every
    subsequent HCP step through the API.
 3. Create an organization matching your `hcp_org` value (see [`../config.md`](../config.md)) — it must match the `organization` field in every `terraform/*/versions.tf`.

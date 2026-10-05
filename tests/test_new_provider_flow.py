@@ -52,6 +52,8 @@ def literal_check(step: str) -> str:
 class NewProviderFlowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.steps = phase_six_steps()
+        # Startup exports a validated backend before any manifest check.
+        self.env = {**os.environ, "BACKEND": "hcp"}
 
     def test_phase_six_tracks_every_resumable_state_in_order(self) -> None:
         self.assertEqual(
@@ -98,7 +100,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 encoding="utf-8",
             )
             common_env = {
-                **os.environ,
+                **self.env,
                 "ADDITIONAL_PROVIDER_WORKSPACES": '["gcp"]',
                 "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
@@ -129,7 +131,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 'variable "name" {}\n', encoding="utf-8"
             )
             base_env = {
-                **os.environ,
+                **self.env,
                 "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
             module_only = subprocess.run(
@@ -167,7 +169,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 'terraform { required_version = ">= 1.0" }\n', encoding="utf-8"
             )
             env = {
-                **os.environ,
+                **self.env,
                 "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
                 "ADDITIONAL_PROVIDER_MISE_TOOLS": "[]",
                 "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
@@ -185,7 +187,7 @@ class NewProviderFlowTests(unittest.TestCase):
     def test_inventory_rejects_reserved_bootstrap_leaf_names(self) -> None:
         inventory = self.steps["new-provider-inventory"]
         env = {
-            **os.environ,
+            **self.env,
             "ADDITIONAL_PROVIDER_WORKSPACES": '["extra"]',
             "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
         }
@@ -218,7 +220,7 @@ class NewProviderFlowTests(unittest.TestCase):
     def test_decision_requires_the_standardized_affirmative_row(self) -> None:
         decision = self.steps["new-provider-decision"]
         env = {
-            **os.environ,
+            **self.env,
             "NEW_PROVIDER": "gcp",
             "NEW_PROVIDER_WORKSPACE": "gcp",
             "NEW_PROVIDER_MISE_TOOLS": '["gcloud"]',
@@ -1191,7 +1193,7 @@ terraform {
             )
             fake_mise.chmod(0o755)
             env = {
-                **os.environ,
+                **self.env,
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                 "ADDITIONAL_PROVIDER_NAMES": "[]",
                 "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
@@ -1255,7 +1257,7 @@ terraform {
                 ["/bin/sh", "-c", literal_check(inventory)],
                 cwd=root,
                 env={
-                    **os.environ,
+                    **self.env,
                     "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                     "ADDITIONAL_PROVIDER_NAMES": "[]",
                     "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
@@ -1301,7 +1303,7 @@ terraform {
                 result = subprocess.run(
                     ["/bin/sh", "-c", condition],
                     cwd=empty.name,
-                    env={**os.environ, "NEW_PROVIDER": name, "BACKEND": backend,
+                    env={**self.env, "NEW_PROVIDER": name, "BACKEND": backend,
                          "NEW_PROVIDER_CREDENTIALS": credentials},
                     capture_output=True, text=True,
                 )
@@ -1323,7 +1325,7 @@ terraform {
                     result = subprocess.run(
                         ["/bin/sh", "-c", condition],
                         cwd=root,
-                        env={**os.environ, "NEW_PROVIDER": name, "BACKEND": "hcp",
+                        env={**self.env, "NEW_PROVIDER": name, "BACKEND": "hcp",
                              "NEW_PROVIDER_MISE_TOOLS": "[]",
                              "NEW_PROVIDER_CREDENTIALS":
                                  '[{"key":"SOME_TOKEN","category":"terraform",'

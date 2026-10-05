@@ -12,7 +12,7 @@
 # Read-only: `gh run list` / `gh run view` reads and `git --no-optional-locks`. Safe for
 # infra-copilot:status.
 #
-# Requires $REPO (owner/name) exported per references/config.md.
+# Requires explicit $BACKEND and $REPO (owner/name) exported per references/config.md.
 #
 # Each line stands on its own: a read that fails marks that line `?` and the other line
 # is still read and printed, so one unreadable workflow never discards a real result.
@@ -21,7 +21,7 @@
 #   0  every latest run passed, is still in flight, or does not exist yet
 #   1  a latest run FAILED — failure, timed_out, or startup_failure. Wins over 2: a
 #      failure that was read is a finding even if the other line could not be.
-#   2  COULD NOT VERIFY — missing REPO, no readable git worktree, or a line's read
+#   2  COULD NOT VERIFY — missing/invalid BACKEND, missing REPO, no readable git worktree, or a line's read
 #      failed (gh not authenticated, an API error). The `?` line names the cause; any other line is still a real
 #      result. A 2 is never evidence of a failed run.
 set -u
@@ -30,13 +30,15 @@ cannot_verify() { echo "CANNOT VERIFY: $1" >&2; exit 2; }
 
 [ -n "${REPO:-}" ] || cannot_verify "REPO is not set; export it per references/config.md"
 
-# A missing backend means hcp (references/config.md), exactly as the steps.yaml guards
-# read it. Testing only for a non-empty non-object-storage value treated an unset
-# BACKEND as object-storage and queried Actions on an HCP repo.
-if [ "${BACKEND:-hcp}" != "object-storage" ]; then
-    echo "not applicable: backend is ${BACKEND:-hcp (default)}; HCP runs are read from the HCP API"
-    exit 0
-fi
+# Step 0 requires an explicit mode. Refuse an incomplete export here as well, so a
+# direct invocation cannot report a missing backend as verified HCP or query Actions.
+case ${BACKEND:-} in
+    object-storage) : ;;
+    hcp)
+        echo "not applicable: backend is hcp; HCP runs are read from the HCP API"
+        exit 0 ;;
+    *) cannot_verify "BACKEND must be explicitly hcp or object-storage; record backend in config per references/config.md" ;;
+esac
 
 # The workflow-file probe below is relative, so anchor it at the repository root rather
 # than wherever the caller happens to be; from a subdirectory both workflows would

@@ -17,8 +17,9 @@ preflight — is in
   working tree. The phase-4 plan checks and the phase-5 `migrate-import` check run
   `terraform init`/`plan`, which writes `.terraform/` and can update
   `.terraform.lock.hcl`; read run status via the HCP API instead.
-- Never emit the handoff block. Nothing is being unblocked here, so a `HUMAN` step's
-  `check` is classified like any other and its handoff is not printed.
+- Never emit a manifest `HUMAN` step's handoff block. Its `check` is classified like
+  any other; nothing is being unblocked here. The startup backend migration handoff is
+  the exception: display it read-only, then stop before preflight or the scan.
 - Never scaffold or edit config. A missing or incomplete `.infra-copilot/config.md` is
   reported and the scan stops; offering to create it belongs to `setup`.
 - Read git with `git --no-optional-locks`, which leaves git's index untouched.
@@ -27,10 +28,16 @@ preflight — is in
 ## Workflow
 
 1. **Read config** (shared protocol, Step 0). Load `.infra-copilot/config.md`, falling
-   back to `.claude/infra-copilot.local.md` for migration, and export the org vars
-   ([`config.md`](config.md)). If both are missing, or the loaded
-   config is incomplete, report it and stop; do **not** offer to scaffold or edit (that
-   belongs to `setup`).
+   back to `.claude/infra-copilot.local.md` for migration. If both files are missing,
+   report it and stop without offering to scaffold or edit (that belongs to `setup`).
+   For a loaded config, before exporting vars or evaluating any `when` or check,
+   validate that `backend` is explicitly `hcp` or
+   `object-storage`. If missing, empty, or invalid, display the
+   [backend migration handoff](config.md#migration-existing-configs-without-backend)
+   and stop. Report any detected `cloud {}` blocks as evidence for adding `backend: hcp`,
+   but never write config. If other required config is
+   incomplete, report it and stop; do **not** offer to scaffold or edit (that belongs
+   to `setup`). Only after validation, export the vars per [`config.md`](config.md).
 2. **Preflight** — first load the provider inventory. If a provider toolchain trust gate
    is pending, evaluate and report that Phase 6 gate before running the full mise check;
    do not misroute its expected HUMAN re-trust handoff as a generic phase-0 failure.
@@ -115,8 +122,8 @@ preflight — is in
      Never let an older green run for the same commit override a newer failing one.
    - **Null checks** (`check: ~`, e.g. `migrate-discovery-token`) — nothing scriptable to
      run. Report them as `·` (human-gated / ephemeral), never attempt to execute the null.
-   - For `HUMAN` steps, apply the same classification to their `check`; never emit the
-     handoff block — nothing is being unblocked here.
+   - For manifest `HUMAN` steps, apply the same classification to their `check`; never
+     emit their handoff block — nothing is being unblocked here.
 
    **Phase 6 plan contents and durable completion.** For `new-provider-plan`, a terminal
    green HCP run is necessary but not sufficient. Its manifest helper correlates on the
@@ -255,8 +262,9 @@ preflight — is in
    the read-only helper [`checks/gha-latest-runs.sh`](checks/gha-latest-runs.sh) with
    `BACKEND`, `REPO` and `INFRA_COPILOT_REFERENCES` exported
    ([`config.md`](config.md)), through `sh` as the manifest's checks are:
-   `sh "$INFRA_COPILOT_REFERENCES/checks/gha-latest-runs.sh"`. It anchors itself at the repository root, and prints `not applicable` unless
-   the backend is `object-storage` (a missing backend is `hcp`). It prints two lines: the
+   `sh "$INFRA_COPILOT_REFERENCES/checks/gha-latest-runs.sh"`. It anchors itself at the repository root, and prints `not applicable` when
+   the explicit backend is `hcp`. A missing, empty, or invalid backend returns
+   `CANNOT VERIFY` without querying Actions. In object-storage mode it prints two lines: the
    latest `terraform-plan.yml` run on the current branch (a PR's head branch, or a
    `workflow_dispatch`), and the latest `terraform-apply.yml` run on `main`. Each carries
    the run's outcome — `✓` passed, `✗` failed, `⏳` in progress, `?` ended without a

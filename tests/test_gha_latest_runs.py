@@ -341,12 +341,14 @@ esac
         self.assertIn("CANNOT VERIFY: could not enter the repository root", result.stderr)
         self.assertEqual(self.gh_calls, "")
 
-    def test_unset_backend_is_hcp(self) -> None:
-        """references/config.md: a missing backend is hcp, not object-storage."""
-        result = self.run_helper(backend=None)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("not applicable: backend is hcp (default)", result.stdout)
-        self.assertEqual(self.gh_calls, "")
+    def test_unspecified_or_invalid_backend_cannot_verify(self) -> None:
+        for backend in (None, "", "invalid"):
+            with self.subTest(backend=backend):
+                result = self.run_helper(backend=backend)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("CANNOT VERIFY: BACKEND must be explicitly", result.stderr)
+                self.assertNotIn("not applicable", result.stdout)
+                self.assertEqual(self.gh_calls, "")
 
     def test_hcp_backend_is_not_applicable(self) -> None:
         result = self.run_helper(backend="hcp")

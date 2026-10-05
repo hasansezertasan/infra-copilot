@@ -55,6 +55,13 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 1. **Read config first** (shared protocol, Step 0). Load `.infra-copilot/config.md`, or
    use `.claude/infra-copilot.local.md` as the migration fallback, and export the org
    vars. If both are missing → handoff, offer to scaffold, wait.
+   For a new setup, recommend **object-storage** first. Explain HCP's managed runs and
+   UI, its free tier's 500-resource limit, and this workflow's required paid tier with
+   team management for the plan-only credential, even below 500 resources. Ask for the
+   choice using the shared protocol, then always write `backend: object-storage` or
+   `backend: hcp` explicitly.
+   Existing configs without `backend` stop for the migration handoff; existing `cloud {}`
+   blocks prompt an offer to record `backend: hcp`, never an automatic mode switch.
    See [`../infra-copilot/references/config.md`](../infra-copilot/references/config.md).
 2. **Bootstrap preflight**, then **resume scan** over phases 0–4 of
    [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). On a cold repo, check that `mise` itself
@@ -119,6 +126,8 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 ## Validation
 
 Setup is complete when you can report:
+
+- ✓ `.infra-copilot/config.md` explicitly records the chosen `backend`.
 
 **For HCP mode (`backend: hcp`):**
 
