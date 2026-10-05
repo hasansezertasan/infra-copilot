@@ -73,6 +73,9 @@ Object-storage is the recommended starting choice. Confirm it during setup, or s
 `backend: hcp` and fill in the HCP fields instead. Always record the choice explicitly;
 omitting `backend` stops every action skill before checks run. For an existing HCP repo,
 add `backend: hcp` to preserve its current workflow.
+HCP mode requires a paid tier with team management for the mandatory plan-only team
+token, even below the free tier's 500-resource limit; see the backend comparison in
+[`config.md`](config.md#backend-modes).
 
 - **HCP mode**: Secrets live in HCP workspace variables.
 - **Object-storage mode**: Secrets live in GitHub Actions secrets.

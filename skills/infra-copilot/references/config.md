@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:56c0ad501407fea3f85b12059bdb005b1e384e5413d2fad56625ce2d6cfacff2
-Source-Hash: blake3:e1bc0f81c35c81a97b6e07fcaab0399da07152268c2da6feffe92b968cc2d94b
+Content-Hash: blake3:f67aedd67df87a12fb21a7bcba410b365f9f47658bb1daba988451d3254b3b28
+Source-Hash: blake3:ead7306292e52740e8f300f0924f860f38008d24e597bcc27d226e270c01a019
 Schema-Version: v1
 -->
 
@@ -30,9 +30,15 @@ infra-copilot supports two execution modes:
 
 The `backend` field is required and selects the mode; there is no implicit default.
 For a new setup, recommend `object-storage`: cloud storage state + GitHub Actions CI
-puts plan output in the PR. HCP Terraform offers managed runs and a UI, but requires a
-paid plan above its free tier's 500 managed resources
-([subscription plans](https://developer.hashicorp.com/terraform/cloud-docs/overview)).
+puts plan output in the PR. HCP Terraform offers managed runs and a UI. Its free tier
+is limited to 500 managed resources
+([subscription plans](https://developer.hashicorp.com/terraform/cloud-docs/overview)),
+but **infra-copilot's HCP workflow requires a paid tier with team management even below
+500 resources**: the mandatory `hcp-apply-scope` step uses a custom plan-only team and
+team token, and free-tier organizations have only the owners team
+([security model](https://developer.hashicorp.com/terraform/cloud-docs/architectural-details/security-model)).
+Disclose both the resource limit and this paid-plan prerequisite before asking for the
+backend choice; never substitute an apply-capable token to complete setup on the free tier.
 Present HCP as a deliberate choice. Ask using the shared protocol's decision mechanism,
 put object-storage first and mark it recommended, then write `backend:` explicitly into
 `.infra-copilot/config.md` for whichever mode the user chooses before any step runs.
@@ -67,7 +73,7 @@ config; direct the user to add the field or run `setup` to record their choice.
 │ Step:   config-backend — record an explicit backend
 │ Why:    Checks require the repo's state and CI mode; there is no default.
 │ Do this:
-│   1. Choose backend: hcp (managed runs/UI) or backend: object-storage (bucket/Actions).
+│   1. Choose backend: hcp (paid team management + runs/UI) or object-storage (bucket/Actions).
 │   2. Record the existing mode in .infra-copilot/config.md and commit it.
 │ When done, reply "done" and I'll verify.
 └───────────────────────────────────────────────────

@@ -89,6 +89,11 @@ Full schema, the shell-export contract, and the startup behavior when the file i
 missing: [`config.md`](skills/infra-copilot/references/config.md). A fillable template ships at
 [`config.md.example`](skills/infra-copilot/references/config.md.example).
 
+HCP mode requires a paid tier with team management for this workflow's plan-only team
+token, even below the free tier's 500-resource limit. The
+[backend comparison](skills/infra-copilot/references/config.md#backend-modes) explains
+this prerequisite before setup asks for the choice.
+
 **Migration:** `backend:` is now required. Existing HCP repos must add `backend: hcp`
 to keep their current workflow. All action skills stop with a handoff when it is missing;
 `setup` offers to record HCP when existing `cloud {}` blocks are found. This records the

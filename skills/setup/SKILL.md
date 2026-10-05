@@ -5,8 +5,8 @@ description: "Greenfield bootstrap of a Terraform + Cloudflare + GitHub infra re
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:57cb2528eab6adf461aea61cc145fd7dd12c51f63e48e4c2d3877f9e8bd67352
-Source-Hash: blake3:e1bc0f81c35c81a97b6e07fcaab0399da07152268c2da6feffe92b968cc2d94b
+Content-Hash: blake3:6aa8c3d9f44538ca1ed32ae43e2f356987dce1ededff44844210a4c20e24478e
+Source-Hash: blake3:ead7306292e52740e8f300f0924f860f38008d24e597bcc27d226e270c01a019
 Schema-Version: v1
 -->
 
@@ -62,9 +62,11 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 1. **Read config first** (shared protocol, Step 0). Load `.infra-copilot/config.md`, or
    use `.claude/infra-copilot.local.md` as the migration fallback, and export the org
    vars. If both are missing → handoff, offer to scaffold, wait.
-   For a new setup, recommend **object-storage** first; explain HCP's managed runs and
-   UI with a paid plan above 500 managed resources. Ask for the choice using the shared
-   protocol, then always write `backend: object-storage` or `backend: hcp` explicitly.
+   For a new setup, recommend **object-storage** first. Explain HCP's managed runs and
+   UI, its free tier's 500-resource limit, and this workflow's required paid tier with
+   team management for the plan-only credential, even below 500 resources. Ask for the
+   choice using the shared protocol, then always write `backend: object-storage` or
+   `backend: hcp` explicitly.
    Existing configs without `backend` stop for the migration handoff; existing `cloud {}`
    blocks prompt an offer to record `backend: hcp`, never an automatic mode switch.
    See [`../infra-copilot/references/config.md`](../infra-copilot/references/config.md).
