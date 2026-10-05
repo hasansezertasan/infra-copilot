@@ -9,7 +9,8 @@ human to redo a step that was already done.
 It has to tell four states apart: connected (organization read), not connected,
 connected but only provable from a workspace, and unreadable. An organization
 with no GitHub OAuth client may still be connected through the GitHub App, which
-only a workspace shows (#89).
+workspace evidence shows (#89), or user-scoped installation discovery before
+the first workspace exists (#95).
 
 The check lives in the manifest rather than a shipped script, so these extract
 it from steps.yaml and run it with `curl` stubbed. Extracting keeps the test
@@ -51,8 +52,8 @@ GITLAB_ONLY = '{"data":[{"attributes":{"service-provider":"gitlab"}}]}'
 def workspace(identifier: str, *, connection: str = "oauth", pages: int = 1) -> str:
     """One workspace, connected by `oauth`, `app`, or not at all (`none`).
 
-    hcp.md's create_ws connects through oauth-token-id, so that is the shape the
-    real flow produces -- an earlier fix required the App field and rejected it.
+    hcp.md supports either connection; OAuth remains the default fixture so
+    the narrowed-token fallback keeps covering it.
     """
     markers = {
         "oauth": '"oauth-token-id":"ot-1","github-app-installation-id":null',
@@ -97,6 +98,9 @@ class VcsConnectCheckTests(unittest.TestCase):
         *,
         code: str,
         oauth_body: str,
+        app_body: str = NO_CLIENT,
+        app_unreadable: bool = False,
+        app_code: str = "200",
         workspace_body: str = "{}",
         repo: str = "acme/infra",
         later_pages: dict[int, str] | None = None,
@@ -128,6 +132,10 @@ class VcsConnectCheckTests(unittest.TestCase):
                 )
                 + f'    [ "${{body:-}}" != "" ] || body={oauth_body!r}\n'
                 f'    printf "%s" "$body" > "${{out:-/dev/stdout}}"; printf "%s" {code!r} ;;\n'
+                f'  https://app.terraform.io/api/v2/github-app/installations*)\n'
+                + ('    exit 6\n' if app_unreadable else '')
+                + f'    printf "%s" {app_body!r} > "${{out:-/dev/stdout}}"; printf "%s" {app_code!r} ;;\n'
+
                 f'  https://app.terraform.io/api/v2/organizations/*/workspaces*)\n'
                 f'    page=1\n'
                 f'    for a in "$@"; do case "$a" in *page%5Bnumber%5D=*) page=${{a##*page%5Bnumber%5D=}}; page=${{page%%&*}} ;; esac; done\n'
@@ -150,6 +158,7 @@ class VcsConnectCheckTests(unittest.TestCase):
             environment["CALLS"] = str(calls)
             environment.update(
                 {
+                    "INFRA_COPILOT_REFERENCES": str(MANIFEST.parent),
                     "ORG": "acme",
                     "REPO": repo,
                     "HCP_TOKEN": "token",
@@ -168,6 +177,45 @@ class VcsConnectCheckTests(unittest.TestCase):
                 calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
             )
             return result
+
+    def test_fresh_app_installation_is_green_without_workspaces(self) -> None:
+        result = self.run_check(code="200", oauth_body=NO_CLIENT,
+            workspace_body=NO_WORKSPACES,
+            app_body='{"data":[{"id":"ghain-test","attributes":{"name":"acme"}}]}')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_app_evidence_unreadable_is_unknown(self) -> None:
+        result = self.run_check(code="200", oauth_body=NO_CLIENT,
+            workspace_body=NO_WORKSPACES, app_unreadable=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_malformed_app_response_is_unknown(self) -> None:
+        result = self.run_check(code="200", oauth_body=NO_CLIENT,
+            workspace_body=NO_WORKSPACES, app_body='{"errors":[]}')
+        self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_other_owners_installation_is_red(self) -> None:
+        result = self.run_check(code="200", oauth_body=NO_CLIENT,
+            workspace_body=NO_WORKSPACES,
+            app_body='{"data":[{"id":"ghain-test","attributes":{"name":"other"}}]}')
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_ambiguous_app_installations_are_red(self) -> None:
+        result = self.run_check(code="200", oauth_body=NO_CLIENT,
+            workspace_body=NO_WORKSPACES,
+            app_body='{"data":[{"id":"ghain-one","attributes":{"name":"acme"}},'
+                     '{"id":"ghain-two","attributes":{"name":"acme"}}]}')
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_no_oauth_or_app_authorization_requires_handoff(self) -> None:
+        result = self.run_check(code="200", oauth_body=NO_CLIENT,
+            workspace_body=NO_WORKSPACES, app_code="403")
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_unexpected_app_http_failure_is_unknown(self) -> None:
+        result = self.run_check(code="200", oauth_body=NO_CLIENT,
+            workspace_body=NO_WORKSPACES, app_code="500")
+        self.assertEqual(result.returncode, 2, result.stderr)
 
     def test_a_github_client_is_green(self) -> None:
         result = self.run_check(code="200", oauth_body=GITHUB_CLIENT)

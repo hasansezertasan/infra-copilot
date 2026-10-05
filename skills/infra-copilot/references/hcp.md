@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9e2cb2b0ecc165c05b75b5eee4f56c91755de7ef1ce8d9e8e99a636ebccb9d38
-Source-Hash: blake3:24821f56c0e3b06c7aeaff751121fe436cda941fb75306727f34cee6b43de7b2
+Content-Hash: blake3:88e1169073376106d8553762ee5551f4fb994c2451fa51331b192990a4b9007b
+Source-Hash: blake3:1853ee0fac069a2846485eb016032ac840e1a7f04c3b3f3232d4f6396be91573
 Schema-Version: v1
 -->
 
@@ -38,7 +38,7 @@ The only unavoidable cold-start. Produces the HCP token that lets the agent scri
 ## Phase 1 — workspaces
 
 Two workspaces, one per leaf. You create them via API; a human does the one-time
-GitHub↔HCP OAuth connection (browser).
+GitHub↔HCP connection through OAuth or the GitHub App (browser).
 
 | Workspace | Leaf | VCS working dir | Path filter | Auto-apply |
 |---|---|---|---|---|
@@ -46,7 +46,14 @@ GitHub↔HCP OAuth connection (browser).
 | `github-org` | `terraform/github/` | `terraform/github` | `terraform/github/**` | **no** |
 
 - **`HUMAN` — vcs-connect.** In HCP → org Settings → VCS Providers, connect GitHub via
-  OAuth, scoped to this repo only. (Browser-only OAuth handshake.)
+  OAuth or install the HCP Terraform GitHub App for this repo. For the App, also
+  authorize it on the bootstrap user’s GitHub account. The agent discovers the HCP
+  installation id under that user token; export `GITHUB_APP_INSTALLATION_ID=ghain-…`
+  to select it explicitly. Never export both connection overrides. The
+  [installations API](https://developer.hashicorp.com/terraform/cloud-docs/api-docs/github-app-installations)
+  is user-scoped; this evidence proves installation and authorization, while
+  workspace creation verifies repository access. Keep the linked user token
+  through bootstrap; team and organization tokens cannot create App links.
 - **`AGENT` — workspaces-create.** Create both workspaces with the correct working
   directory, path-based run triggering, remote execution, and auto-apply **off**. The
   Terraform version is read from the committed `mise.toml` and applied to both workspaces.
@@ -73,64 +80,91 @@ GitHub↔HCP OAuth connection (browser).
       || { echo "mise.toml must contain an exact tools.terraform version" >&2; return 1; }
   }
 
-  # Reuse the OAuth token already proven to serve $REPO. Phase 6 can derive it
-  # from either bootstrap workspace. During the initial Phase 1 bootstrap there
-  # is no workspace yet, so an organization with exactly one GitHub OAuth token
-  # is unambiguous; an organization with several must export OAUTH_TOKEN_ID
-  # explicitly instead of silently taking whichever connection sorts first.
-  resolve_oauth_token_id () {
-    local workspace body token page count pages
+  # Select exactly one mechanism. Explicit overrides win; otherwise reuse the
+  # connection proven on a bootstrap workspace, or discover a fresh connection.
+  # GITHUB_APP_INSTALLATION_ID is HCP's ghain- id, not GitHub's numeric id.
+  resolve_vcs_connection () {
+    local workspace body candidates page count pages app rc
+    VCS_CONNECTION=
+    if [ -n "${OAUTH_TOKEN_ID:-}" ] && [ -n "${GITHUB_APP_INSTALLATION_ID:-}" ]; then
+      echo "Export only OAUTH_TOKEN_ID or GITHUB_APP_INSTALLATION_ID, never both" >&2
+      return 1
+    fi
     if [ -n "${OAUTH_TOKEN_ID:-}" ]; then
-      printf '%s' "$OAUTH_TOKEN_ID" | grep -Eq '^ot-[A-Za-z0-9]+$' \
-        || { echo "OAUTH_TOKEN_ID is not an HCP OAuth token id" >&2; return 1; }
+      printf '%s' "$OAUTH_TOKEN_ID" | grep -Eq '^ot-[A-Za-z0-9]+$' || return 1
+      VCS_CONNECTION=$(jq -n --arg id "$OAUTH_TOKEN_ID" '{"oauth-token-id":$id}')
       return 0
     fi
+    if [ -n "${GITHUB_APP_INSTALLATION_ID:-}" ]; then
+      app=$(sh "$INFRA_COPILOT_REFERENCES/checks/hcp-github-app.sh") || return 1
+      VCS_CONNECTION=$(jq -n --arg id "$app" '{"github-app-installation-id":$id}')
+      return 0
+    fi
+    candidates=$(mktemp) || return 1
     for workspace in cloudflare github-org; do
       body=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$workspace" \
         -H "Authorization: Bearer $HCP_TOKEN") || continue
-      token=$(printf '%s' "$body" | jq -er --arg repo "$REPO" '
-        .data.attributes["vcs-repo"]
-        | select(.identifier == $repo)
-        | .["oauth-token-id"]
-        | select(type == "string" and length > 0)' 2>/dev/null) || continue
-      OAUTH_TOKEN_ID=$token
-      return 0
+      printf '%s' "$body" | jq -c --arg repo "$REPO" '
+        .data.attributes["vcs-repo"] | select(.identifier == $repo)
+        | if (.["github-app-installation-id"] // "") != "" then
+            {"github-app-installation-id":.["github-app-installation-id"]}
+          elif (.["oauth-token-id"] // "") != "" then
+            {"oauth-token-id":.["oauth-token-id"]}
+          else empty end' >>"$candidates" || { rm -f "$candidates"; return 1; }
     done
-
-    pages=$(mktemp) || return 1
-    : >"$pages" || { rm -f "$pages"; return 1; }
+    count=$(jq -s 'unique | length' "$candidates") || { rm -f "$candidates"; return 1; }
+    if [ "$count" -gt 0 ]; then
+      VCS_CONNECTION=$(jq -ser 'unique | select(length == 1) | .[0]' "$candidates")
+      rc=$?
+      rm -f "$candidates"
+      [ "$rc" -eq 0 ] || { echo "Bootstrap workspaces use different connections; select one explicitly" >&2; return 1; }
+      return 0
+    fi
+    pages=$(mktemp) || { rm -f "$candidates"; return 1; }
     page=1
-    while : ; do
+    while :; do
       body=$(curl -sf \
         "https://app.terraform.io/api/v2/organizations/$ORG/oauth-clients?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
-        -H "Authorization: Bearer $HCP_TOKEN") \
-        || { rm -f "$pages"; return 1; }
+        -H "Authorization: Bearer $HCP_TOKEN") || { rm -f "$pages" "$candidates"; return 1; }
       printf '%s\n' "$body" >>"$pages"
-      count=$(printf '%s' "$body" | jq -er '.data | length' 2>/dev/null) \
-        || { rm -f "$pages"; return 1; }
+      count=$(printf '%s' "$body" | jq -er '.data | arrays | length') \
+        || { rm -f "$pages" "$candidates"; return 1; }
       [ "$count" -eq 100 ] || break
       page=$((page + 1))
     done
-    token=$(jq -ser '
-      [.[].data[]
-        | select(.attributes["service-provider"] | test("^github"))
-        | .relationships["oauth-tokens"].data[].id]
-      | unique
-      | select(length == 1)
-      | .[0]' "$pages" 2>/dev/null) || token=
-    rm -f "$pages"
-    [ -n "$token" ] || {
-      echo "Could not select one VCS connection for $REPO; export the intended OAUTH_TOKEN_ID" >&2
+    jq -sc '[.[].data[]
+      | select(.attributes["service-provider"] | test("^github"))
+      | .relationships["oauth-tokens"].data[].id
+      | {"oauth-token-id":.}] | unique[]' "$pages" >>"$candidates" \
+      || { rm -f "$pages" "$candidates"; return 1; }
+    app=$(sh "$INFRA_COPILOT_REFERENCES/checks/hcp-github-app.sh")
+    rc=$?
+    case "$rc" in
+      0) jq -nc --arg id "$app" '{"github-app-installation-id":$id}' >>"$candidates" ;;
+      1|4) ;; # no matching installation or no usable App authorization;
+              # a sole organization-scoped OAuth candidate can still be used
+      3) rm -f "$pages" "$candidates"; echo "Several App installations match; export GITHUB_APP_INSTALLATION_ID" >&2; return 1 ;;
+      *) rm -f "$pages" "$candidates"; echo "Cannot read GitHub App installations; select a connection explicitly" >&2; return 1 ;;
+    esac
+    VCS_CONNECTION=$(jq -ser 'unique | select(length == 1) | .[0]' "$candidates")
+    rc=$?
+    rm -f "$pages" "$candidates"
+    [ "$rc" -eq 0 ] || {
+      echo "Could not select one VCS connection for $REPO; export the intended OAUTH_TOKEN_ID or GITHUB_APP_INSTALLATION_ID" >&2
       return 1
     }
-    OAUTH_TOKEN_ID=$token
   }
 
   # jq -n builds the payload (correct quoting for free); curl -w captures the HTTP status
   # so we can tell "created" (201) from "already exists" (422 name-taken) from a real error.
   create_ws () {  # $1 = workspace name   $2 = working directory
     local resp code body
-    resp=$(jq -n --arg name "$1" --arg dir "$2" --arg repo "$REPO" --arg tok "$OAUTH_TOKEN_ID" \
+    printf '%s' "${VCS_CONNECTION:-}" | jq -e '
+      type == "object" and length == 1
+      and ((.["oauth-token-id"] // "" | test("^ot-[A-Za-z0-9]+$"))
+        or (.["github-app-installation-id"] // "" | test("^ghain-[A-Za-z0-9]+$")))' >/dev/null \
+      || { echo "Resolve a VCS connection before creating a workspace" >&2; return 1; }
+    resp=$(jq -n --arg name "$1" --arg dir "$2" --arg repo "$REPO" --argjson connection "$VCS_CONNECTION" \
       --arg tf_version "$TERRAFORM_VERSION" '
       {data:{type:"workspaces",attributes:{
         name:$name, "working-directory":$dir, "execution-mode":"remote",
@@ -138,7 +172,7 @@ GitHub↔HCP OAuth connection (browser).
         "auto-apply":false, "auto-destroy-at":null, "auto-destroy-activity-duration":null,
         "speculative-enabled":true, "file-triggers-enabled":true,
         "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"], "queue-all-runs":false, "global-remote-state":false,
-        "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}' \
+        "vcs-repo":({identifier:$repo, branch:"main"} + $connection)}}}' \
       | curl -s -w '\n%{http_code}' -X POST "https://app.terraform.io/api/v2/organizations/$ORG/workspaces" \
           -H "Authorization: Bearer $HCP_TOKEN" \
           -H "Content-Type: application/vnd.api+json" -d @-)
@@ -152,6 +186,8 @@ GitHub↔HCP OAuth connection (browser).
     esac
   }
 
+  # PATCH only the repository identifier and branch, leaving the connection fields
+  # untouched even when a different creation override is exported.
   # POST cannot update an existing workspace. Reconcile every setting asserted by the
   # verification below after either response so a 422 resume repairs partial drift.
   set_workspace_config () { # $1 = workspace name   $2 = working directory
@@ -174,7 +210,7 @@ GitHub↔HCP OAuth connection (browser).
       return 1
     fi
     payload=$(jq -n --arg id "$ws_id" --arg dir "$2" --arg repo "$REPO" \
-      --arg tok "$OAUTH_TOKEN_ID" --arg tf_version "$TERRAFORM_VERSION" \
+      --arg tf_version "$TERRAFORM_VERSION" \
       '{data:{id:$id,type:"workspaces",attributes:{
         "working-directory":$dir, "execution-mode":"remote",
         "terraform-version":$tf_version,
@@ -182,7 +218,7 @@ GitHub↔HCP OAuth connection (browser).
         "speculative-enabled":true, "file-triggers-enabled":true,
         "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"], "queue-all-runs":false,
         "global-remote-state":false,
-        "vcs-repo":{identifier:$repo, "oauth-token-id":$tok, branch:"main"}}}}')
+        "vcs-repo":{identifier:$repo, branch:"main"}}}}')
     curl -sf -X PATCH "https://app.terraform.io/api/v2/workspaces/$ws_id" \
       -H "Authorization: Bearer $HCP_TOKEN" \
       -H "Content-Type: application/vnd.api+json" -d "$payload" >/dev/null \
@@ -194,8 +230,8 @@ GitHub↔HCP OAuth connection (browser).
   # and `exit` would kill an interactive shell if pasted. if/else is correct in every context.
   if ! load_tf_version; then
     echo "Not creating or updating workspaces without a committed Terraform pin." >&2
-  elif ! resolve_oauth_token_id; then
-    echo "No unambiguous VCS oauth-token found — finish vcs-connect or select the connection explicitly; not creating workspaces." >&2
+  elif ! resolve_vcs_connection; then
+    echo "No unambiguous VCS connection found — finish vcs-connect or select the connection explicitly; not creating workspaces." >&2
   else
     create_ws cloudflare terraform/cloudflare && set_workspace_config cloudflare terraform/cloudflare
     create_ws github-org  terraform/github && set_workspace_config github-org terraform/github
