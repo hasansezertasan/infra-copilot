@@ -73,6 +73,15 @@ class BackendOperationTests(unittest.TestCase):
         self.manifest.write_text(text[:a] + text[b:], encoding='utf-8')
         self.assertTrue(any('plan-cloudflare: missing implementation' in e for e in validate_backend_operations(self.root)))
 
+    def test_inventory_operation_without_members_is_rejected(self) -> None:
+        text = self.manifest.read_text(encoding='utf-8')
+        text = re.sub(r'^  - id: [^\n]+\n.*?(?=^  - id: |\Z)',
+                      lambda match: '' if '    operation: plan-cloudflare\n' in match[0] else match[0],
+                      text, flags=re.M | re.S)
+        self.manifest.write_text(text, encoding='utf-8')
+        self.assertTrue(any('plan-cloudflare: missing implementation' in error
+                            for error in validate_backend_operations(self.root)))
+
     def test_backend_gate_must_match_implementation(self) -> None:
         text = self.manifest.read_text(encoding='utf-8').replace('    implementation: hcp\n', '    implementation: object-storage\n', 1)
         self.manifest.write_text(text, encoding='utf-8')

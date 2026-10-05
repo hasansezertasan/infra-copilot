@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:86f3c29efbbf307311526b5820e1f876a16e3bfcbd497cef2e26dbadbe90da06
-Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
+Content-Hash: blake3:db1b249dfcd1b17d4c17834447def75d07020d80674244b3136236de0be31431
+Source-Hash: blake3:e1c3c194721f00271c1ad1dfcb0eebe9952987c27b20a0b027e312ea68d4e674
 Schema-Version: v1
 -->
 
@@ -21,7 +21,7 @@ Supported backends with automated verification:
 | `s3` | DynamoDB table | Required | Set `state_lock_table` |
 | `azurerm` | Native (blob lease) | Required (location) | Azure Storage container (set `azure_storage_account`, `azure_resource_group`) |
 
-S3-compatible object stores (Cloudflare R2, MinIO, etc.) are **not currently supported** by automated verification. The `state-bucket` check uses AWS S3 APIs without custom endpoint support, and there is no alternative locking mechanism for stores without DynamoDB. Manual backend configuration may work but will not pass Phase 0 verification.
+S3-compatible object stores (Cloudflare R2, MinIO, etc.) are **not currently supported** by automated verification. The `state-bucket` check uses AWS S3 APIs without custom endpoint support, and requires a DynamoDB lock table for S3. This is a repository verification requirement. Terraform also supports [native S3 lockfiles](https://developer.hashicorp.com/terraform/language/backend/s3#state-locking) with `use_lockfile`; that configuration is not covered by this check. Manual backend configuration may work but will not pass Phase 0 verification.
 
 ## Bucket setup
 
@@ -124,7 +124,8 @@ For cloud provider auth (GCS, S3, Azure), use Workload Identity Federation where
 ## Access control
 
 - **Read state**: Anyone with bucket read access
-- **Trigger plan**: Anyone who can open a PR (GitHub Actions runs on `pull_request`)
+- **Trigger CI**: Anyone who can open a PR; fork PRs run validation only.
+- **Trigger credentialed plan**: The guarded same-repository branch path in the committed workflow
 - **Confirm apply**: Reviewers in the GitHub Environment (see [`object-storage-ci.md#github-actions`](./object-storage-ci.md#github-actions))
 - **Direct apply**: Anyone with bucket write access + `terraform apply` locally
 

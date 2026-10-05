@@ -87,7 +87,7 @@ cd terraform/github && terraform init && terraform plan   # green = App auth wor
   (`Terraform Cloud/<your-org>/<hcp-status-check-id>`, i.e. `$HCP_STATUS_CHECK_ID`). If the
   GitHub↔HCP OAuth connection is ever rebuilt, that string changes and **every PR is
   silently blocked** until `terraform/github/branch_protection.tf` is updated. See
-  [`ci.md`](docs/ci.md).
+  [`hcp-ci.md`](docs/hcp-ci.md#hcp-status-check-context).
 - **Pages cert can wedge** (`https_certificate: null` for >15 min). Fix by removing +
   re-adding the custom domain via `gh api` — see [`setup.md`](docs/setup.md#github-pages-cert-stuck-at-null).
 

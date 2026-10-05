@@ -44,9 +44,9 @@ validation and migration contract without editing its choice.
 A successful plan does not mean a provider has finished adoption. Follow the selected
 [get-plan](operations.md#get-plan) and [read-run-status](operations.md#read-run-status)
 contracts: compare resource-count evidence and approved apply evidence to committed
-inputs. Unexpected destroys are
-   zero before accepting completion; a safe first plan may be green with expected creates. Describe deployed resources as
-applied only after the approved apply lands. Keep credentials verification and provider completion distinct.
+inputs. Unexpected destroys must be zero before accepting completion; a safe first plan
+may be green with expected creates. Describe deployed resources as applied only after
+the approved apply lands. Keep credentials verification and provider completion distinct.
 
 ## Phase 5 completion
 

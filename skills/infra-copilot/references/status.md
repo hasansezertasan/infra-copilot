@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:00188bc558fc0c94df44722012b1abaa1a26f3425f86cbc1ff6b584d77d9ba72
-Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
+Content-Hash: blake3:25f7a444c627f462783dc3be78101eb9087b0a987356a09afb623302d865327d
+Source-Hash: blake3:e1c3c194721f00271c1ad1dfcb0eebe9952987c27b20a0b027e312ea68d4e674
 Schema-Version: v1
 -->
 
@@ -51,9 +51,9 @@ validation and migration contract without editing its choice.
 A successful plan does not mean a provider has finished adoption. Follow the selected
 [get-plan](operations.md#get-plan) and [read-run-status](operations.md#read-run-status)
 contracts: compare resource-count evidence and approved apply evidence to committed
-inputs. Unexpected destroys are
-   zero before accepting completion; a safe first plan may be green with expected creates. Describe deployed resources as
-applied only after the approved apply lands. Keep credentials verification and provider completion distinct.
+inputs. Unexpected destroys must be zero before accepting completion; a safe first plan
+may be green with expected creates. Describe deployed resources as applied only after
+the approved apply lands. Keep credentials verification and provider completion distinct.
 
 ## Phase 5 completion
 

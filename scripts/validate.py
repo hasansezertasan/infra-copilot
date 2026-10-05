@@ -2884,11 +2884,13 @@ def validate_backend_operations(root: Path = ROOT) -> list[str]:
             {"hcp", "object-storage"} if implementation == "both" else {implementation}
         )
         phases.setdefault(operation, set()).add(fields.get("phase", ""))
-    for operation, backends in coverage.items():
+    inventory = set(re.findall(r"^\| `([a-z][a-z0-9-]*)` \|", contracts, re.M))
+    for operation in sorted(inventory | coverage.keys()):
+        backends = coverage.get(operation, set())
         if backends != {"hcp", "object-storage"}:
             errors.append(f"steps.yaml: {operation}: missing implementation or explicit not-applicable for "
                           + ", ".join(sorted({"hcp", "object-storage"} - backends)))
-        if len(phases[operation]) != 1 or "" in phases[operation]:
+        if operation in phases and (len(phases[operation]) != 1 or "" in phases[operation]):
             errors.append(f"steps.yaml: {operation}: operation members must share one phase")
     return errors
 

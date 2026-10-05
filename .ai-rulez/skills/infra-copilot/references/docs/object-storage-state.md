@@ -14,7 +14,7 @@ Supported backends with automated verification:
 | `s3` | DynamoDB table | Required | Set `state_lock_table` |
 | `azurerm` | Native (blob lease) | Required (location) | Azure Storage container (set `azure_storage_account`, `azure_resource_group`) |
 
-S3-compatible object stores (Cloudflare R2, MinIO, etc.) are **not currently supported** by automated verification. The `state-bucket` check uses AWS S3 APIs without custom endpoint support, and there is no alternative locking mechanism for stores without DynamoDB. Manual backend configuration may work but will not pass Phase 0 verification.
+S3-compatible object stores (Cloudflare R2, MinIO, etc.) are **not currently supported** by automated verification. The `state-bucket` check uses AWS S3 APIs without custom endpoint support, and requires a DynamoDB lock table for S3. This is a repository verification requirement. Terraform also supports [native S3 lockfiles](https://developer.hashicorp.com/terraform/language/backend/s3#state-locking) with `use_lockfile`; that configuration is not covered by this check. Manual backend configuration may work but will not pass Phase 0 verification.
 
 ## Bucket setup
 
@@ -117,7 +117,8 @@ For cloud provider auth (GCS, S3, Azure), use Workload Identity Federation where
 ## Access control
 
 - **Read state**: Anyone with bucket read access
-- **Trigger plan**: Anyone who can open a PR (GitHub Actions runs on `pull_request`)
+- **Trigger CI**: Anyone who can open a PR; fork PRs run validation only.
+- **Trigger credentialed plan**: The guarded same-repository branch path in the committed workflow
 - **Confirm apply**: Reviewers in the GitHub Environment (see [`object-storage-ci.md#github-actions`](./object-storage-ci.md#github-actions))
 - **Direct apply**: Anyone with bucket write access + `terraform apply` locally
 

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9dce6583d3114e139742e3b8e5186ca0d5cc5796175040a1dd40ba4d8c82103e
-Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
+Content-Hash: blake3:64b4ab9e46f080339c006330c4ee87f6116c7473d6f2d345f4eedd6288f03da6
+Source-Hash: blake3:e1c3c194721f00271c1ad1dfcb0eebe9952987c27b20a0b027e312ea68d4e674
 Schema-Version: v1
 -->
 
@@ -15,14 +15,15 @@ without recreating them — across providers. The Cloudflare specifics are canon
 
 ## The universal pattern
 
-Every migration, whatever the provider, is the same five moves:
+Every migration, whatever the provider, follows this sequence:
 
 1. **Discover** what exists (read-only credential).
 2. **Generate HCL** for each resource.
 3. **Emit `import` blocks** (Terraform 1.5+ `import { to = … id = "…" }`).
-4. **Plan** — the success signal is *"will be imported"*, and crucially **nothing
+4. **Commit** the reviewed HCL and import blocks before calling get-plan.
+5. **Plan** — the success signal is *"will be imported"*, and crucially **nothing
    *"will be created"*.**
-5. **Commit + apply** on merge (human/API-confirmed, per [`ci.md`](docs/ci.md)).
+6. **Apply** on merge after plan review and approval (human/API-confirmed, per [`ci.md`](docs/ci.md)).
 
 > The single check that catches a botched import: `terraform plan` must show the resource
 > as **imported**, never **created**. A `create` for something that already exists means

@@ -14,12 +14,14 @@ State may contain credentials and sensitive resource attributes. Keep it out of 
 public logs. Protect state access and locking, and verify migration before removing its
 previous storage. Human approval remains required before any apply.
 
-Execution installs committed mise pins and lock through `jdx/mise-action`; preserve
-parity with the local toolchain when updating pins.
+Runner execution installs committed mise pins and lock through `jdx/mise-action`.
+Service-managed execution configures its Terraform version from committed `mise.toml`.
+Preserve parity with the local toolchain when updating pins.
 
 ## Toolchain in CI
 
 Keep exact tool versions in the repository's committed `mise.toml` and `mise.lock`.
 The selected [provision-execution](../operations.md#provision-execution) implementation
-installs those pins, and the get-plan contract verifies relevant inputs match the commit.
+owns pin installation or executor-version configuration. Its reference documents the
+mechanism; the get-plan contract verifies relevant inputs match the commit.
 Do not introduce an independent executor version that diverges from the reviewed pin.

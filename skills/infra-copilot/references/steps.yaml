@@ -1259,7 +1259,7 @@ steps:
       terraform fmt and both terraform validate checks — exactly as they are;
       dropping them would allow merges with no CI at all. The stale context
       blocks the very PR carrying this fix, so follow the break-glass sequence
-      in docs/ci.md.
+      in docs/hcp-ci.md#break-glass-the-fix-cannot-merge-through-the-normal-path.
     tri_state: true   # exit 2 = could not verify; see protocol.md
     check: sh "$INFRA_COPILOT_REFERENCES/checks/status-check-context.sh"
     produces: proof that branch protection cannot silently block every PR

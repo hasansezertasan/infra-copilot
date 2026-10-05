@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e5c223cdf6fdbfb4939ef82da065a1ea8afdca02c1caefe084c19a118c2898c1
-Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
+Content-Hash: blake3:d2c26d231d4af10c0b1295d226bb04fedb15e14b64eeba1547f5c7dc56ce3974
+Source-Hash: blake3:e1c3c194721f00271c1ad1dfcb0eebe9952987c27b20a0b027e312ea68d4e674
 Schema-Version: v1
 -->
 
@@ -246,7 +246,7 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
   > is the master switch for plans on PRs.
   > The **fork** speculative-plan toggle is *separate* and has no clean create-time
   > attribute — confirm it's **off** in the workspace's UI → Settings → Version Control
-  > (it defaults off; the label-gated flow in [`docs/ci.md`](docs/ci.md) replaces it for forks).
+  > (it defaults off; the label-gated flow in [`docs/hcp-ci.md`](docs/hcp-ci.md#what-runs-on-a-pr) replaces it for forks).
 
   Verify:
 

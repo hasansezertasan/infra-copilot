@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:71c8c60461f0cc790906637da0391c8038671bf54ad80a5fb89c2e0edccdc140
-Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
+Content-Hash: blake3:d303f16ebab8a270422c6ffb66ae85ed086aaf879ddde542e3057a66c094684d
+Source-Hash: blake3:e1c3c194721f00271c1ad1dfcb0eebe9952987c27b20a0b027e312ea68d4e674
 Schema-Version: v1
 -->
 
@@ -18,7 +18,7 @@ This repo is **public**. Plaintext secrets must never be committed — not in co
 | GitHub App ID, installation ID, private key (PEM) | HCP Terraform workspace variables on `github-org`, marked sensitive | `terraform` runs in HCP |
 | HCP Terraform user API token | `~/.terraform.d/credentials.tfrc.json` (set by `terraform login`), per maintainer | local Terraform CLI; scripted HCP API calls |
 
-**Nothing encrypted is committed to the repo.** No SOPS, no `git-crypt`. If we ever run our own hosts and need runtime secrets, we pick an out-of-band store then; until that day, all secrets in scope live in HCP workspace variables.
+**Nothing encrypted is committed to the repo.** No SOPS, no `git-crypt`. If we ever run our own hosts and need runtime secrets, we pick an out-of-band store then; until that day, Terraform-time provider secrets live in HCP workspace variables. The maintainer’s HCP user API token stays in the local credentials file listed above.
 
 ## Why HCP Terraform as the vault
 

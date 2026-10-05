@@ -239,7 +239,7 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
   > is the master switch for plans on PRs.
   > The **fork** speculative-plan toggle is *separate* and has no clean create-time
   > attribute — confirm it's **off** in the workspace's UI → Settings → Version Control
-  > (it defaults off; the label-gated flow in [`docs/ci.md`](docs/ci.md) replaces it for forks).
+  > (it defaults off; the label-gated flow in [`docs/hcp-ci.md`](docs/hcp-ci.md#what-runs-on-a-pr) replaces it for forks).
 
   Verify:
 

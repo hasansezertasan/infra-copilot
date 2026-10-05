@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:640fd8d42f71f8cadf54c76361e4ffb2f77af2b804a7f95cf3366bb9240a59f9
-Source-Hash: blake3:6712d29db04e3727de45cb87d8b0389e6199300dc2d02460a4c4452d25baf96f
+Content-Hash: blake3:88d78e1dc738dcd6b8304fabc837d8f2f165a480435ad5898480b8474becb6fb
+Source-Hash: blake3:e1c3c194721f00271c1ad1dfcb0eebe9952987c27b20a0b027e312ea68d4e674
 Schema-Version: v1
 -->
 
@@ -94,7 +94,7 @@ cd terraform/github && terraform init && terraform plan   # green = App auth wor
   (`Terraform Cloud/<your-org>/<hcp-status-check-id>`, i.e. `$HCP_STATUS_CHECK_ID`). If the
   GitHub↔HCP OAuth connection is ever rebuilt, that string changes and **every PR is
   silently blocked** until `terraform/github/branch_protection.tf` is updated. See
-  [`ci.md`](docs/ci.md).
+  [`hcp-ci.md`](docs/hcp-ci.md#hcp-status-check-context).
 - **Pages cert can wedge** (`https_certificate: null` for >15 min). Fix by removing +
   re-adding the custom domain via `gh api` — see [`setup.md`](docs/setup.md#github-pages-cert-stuck-at-null).
 
