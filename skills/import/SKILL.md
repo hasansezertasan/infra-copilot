@@ -5,8 +5,8 @@ description: "Adopt infrastructure that already exists at a provider into Terraf
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:bd19ed5d8c8a10351ed6e3f925f35b126a7eb68ff37f12f6a0ee0e72c229aade
-Source-Hash: blake3:ead7306292e52740e8f300f0924f860f38008d24e597bcc27d226e270c01a019
+Content-Hash: blake3:8d2bc00a51ff17068c38722f40181449679305efec50d15e84a8edaba13f1ff6
+Source-Hash: blake3:0701b063a68b5dc12bcd2d634e041e74cf431681c98eab86a076c7e32a5cbead
 Schema-Version: v1
 -->
 
@@ -24,23 +24,15 @@ preflight — lives in [`../infra-copilot/references/protocol.md`](../infra-copi
 
 > **Why a separate skill?** Import is destructive if done wrong (a stray `create` recreates
 > live DNS). It has its own credential (a throwaway **read-only** discovery token, never the
-> HCP edit token) and its own success signal. Keeping it distinct from `setup` means you
+> persistent edit token) and its own success signal. Keeping it distinct from `setup` means you
 > only reach for it deliberately, when there's pre-existing infra to adopt.
 
 ## Guardrails
 
-`infra-copilot:setup` phases 0–4 are green — in HCP mode, HCP is reachable and both
-workspaces exist; in object-storage mode, the state bucket and GitHub Actions workflows exist;
-and credentials and first plans are proven on both leaves. If not, run `setup` first; import
-needs the target leaf working (the `cloudflare` leaf for a zone/DNS import, `github` for repos)
-and a green plan to diff the imports against.
-
-**Plan verification differs by backend mode:**
-
-- **HCP mode**: Run `terraform plan` locally — credentials are in the HCP workspace variables.
-- **Object-storage mode**: Credentials are GitHub Actions secrets; local plans won't authenticate.
-  Commit the generated imports, trigger a workflow run (`gh workflow run terraform-plan.yml`),
-  and inspect the workflow logs for `will be imported` / no `will be created`.
+`infra-copilot:setup` phases 0–4 are green: the target leaf's execution, credential
+storage and first plan are proven. Otherwise run `setup` first. Obtain plans through
+[get-plan](../infra-copilot/references/operations.md#get-plan), and verify adoption through
+[import-resources](../infra-copilot/references/operations.md#import-resources).
 
 ## Branch on the provider first
 
@@ -54,7 +46,7 @@ write `terraform/cloudflare/generated.tf` for repos that live in the GitHub leaf
 - **GitHub repos, or any other provider** — no scripted step yet. Follow the universal
   pattern in [`../infra-copilot/references/migration.md`](../infra-copilot/references/migration.md): write `import` blocks
   (`import { to = <resource> id = "<existing-id>" }`) in the matching leaf
-  (`terraform/github/` for repos), then `terraform plan`. Same success signal — imports,
+  (`terraform/github/` for repos), then obtain [get-plan](../infra-copilot/references/operations.md#get-plan). Same success signal — imports,
   not creates. No cf-terraforming and no Cloudflare discovery token are involved; use a
   read-only listing (e.g. `gh repo list`) to enumerate ids.
 
@@ -62,8 +54,8 @@ write `terraform/cloudflare/generated.tf` for repos that live in the GitHub leaf
 
 | Step | Actor | What |
 |---|---|---|
-| `migrate-discovery-token` | `HUMAN` | Mint a short-lived **read-only** Cloudflare token (DNS·Read, etc.), scoped to the zone, TTL a few hours. Never the HCP edit token. |
-| `migrate-import` | `AGENT` | `cf-terraforming generate` + import blocks (`--modern-import-block`) into `terraform/cloudflare/generated.tf`, then `terraform plan`. |
+| `migrate-discovery-token` | `HUMAN` | Mint a short-lived **read-only** Cloudflare token (DNS·Read, etc.), scoped to the zone, TTL a few hours. Never the persistent edit token. |
+| `migrate-import` | `AGENT` | `cf-terraforming generate` + import blocks (`--modern-import-block`) into `terraform/cloudflare/generated.tf`, then obtain the selected plan. |
 
 The manifest's phase-5 steps are Cloudflare-specific — for other providers, there's no
 `check` to resume against; verify by hand with the same imports-not-creates plan diff.
@@ -110,8 +102,7 @@ imports, review by hand (and consider whether that new resource belongs in
 
 **Commit the reviewed HCL before expecting the step to go green.** The check plans what is
 committed and refuses a dirty `terraform/cloudflare`, because a local plan reads the
-working tree while HCP applies the commit. So the order is: generate, review, `terraform
-plan` by hand to see the imports, commit, then run the check. Committing is not applying —
+working tree while the execution service applies the commit. So the order is: generate, review, commit, obtain the selected plan to see the imports, then run the check. Committing is not applying —
 the apply still happens on merge, confirmed by a human.
 
 Once green: delete the throwaway discovery token, and the resources are under management.

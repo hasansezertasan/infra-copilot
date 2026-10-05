@@ -25,7 +25,7 @@ HCP_CURRENT_PLAN = (
 )
 STATUS = REPO_ROOT / ".ai-rulez/skills/status/SKILL.md"
 STATUS_RUNBOOK = (
-    REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/status.md"
+    REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/hcp-status.md"
 )
 
 
@@ -65,17 +65,21 @@ class NewProviderFlowTests(unittest.TestCase):
                 "new-provider-leaf",
                 "new-provider-toolchain",
                 "new-provider-lock",
+                # Execution is provisioned before any credential handoff.
+                "new-provider-workflow-gha",
                 # HCP mode steps
                 "new-provider-workspace-bootstrap",
                 "new-provider-workspace",
                 "new-provider-plan-access",
                 "new-provider-fork-safety",
+                "new-provider-plan-access-gha",
+                "new-provider-fork-safety-gha",
                 "new-provider-credentials",
                 "new-provider-gcp-wif-trust",
+                "new-provider-identity-trust-gha",
                 "new-provider-plan",
                 # Object-storage mode steps
                 "new-provider-secrets-gha",
-                "new-provider-workflow-gha",
                 "new-provider-plan-gha",
             ],
         )

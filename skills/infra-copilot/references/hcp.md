@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:88e1169073376106d8553762ee5551f4fb994c2451fa51331b192990a4b9007b
-Source-Hash: blake3:ead7306292e52740e8f300f0924f860f38008d24e597bcc27d226e270c01a019
+Content-Hash: blake3:d2c26d231d4af10c0b1295d226bb04fedb15e14b64eeba1547f5c7dc56ce3974
+Source-Hash: blake3:0701b063a68b5dc12bcd2d634e041e74cf431681c98eab86a076c7e32a5cbead
 Schema-Version: v1
 -->
 
@@ -246,7 +246,7 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
   > is the master switch for plans on PRs.
   > The **fork** speculative-plan toggle is *separate* and has no clean create-time
   > attribute — confirm it's **off** in the workspace's UI → Settings → Version Control
-  > (it defaults off; the label-gated flow in [`docs/ci.md`](docs/ci.md) replaces it for forks).
+  > (it defaults off; the label-gated flow in [`docs/hcp-ci.md`](docs/hcp-ci.md#what-runs-on-a-pr) replaces it for forks).
 
   Verify:
 
@@ -278,3 +278,46 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
 > The end state of Phases 0–1 (HCP-as-clickops today) is tracked for future
 > Terraform-ification as a tracked improvement in this repo's issue tracker (see the
 > repo's open issues). Until then these steps are API calls, not `.tf` files.
+
+## Import-resources
+
+Generate imports with a short-lived discovery token, then use the workspace's speculative
+plan with persistent credentials supplied by workspace variables. Review and commit HCL
+before accepting check evidence. Require imports without creates, destroys or forgotten
+resources. Obtain read-only run evidence with [service status](hcp-status.md); the plan's
+success alone does not prove that its imports have applied. Wait for a HUMAN-confirmed
+apply before [pruning](docs/hcp-prune.md).
+
+## Get-plan
+
+For add, import or prune, select the leaf from the request and validated config: bootstrap
+`cloudflare` and `github` use their existing cloud blocks; additional providers use the
+entry's committed workspace binding. Never substitute another workspace or supply provider
+secrets locally. The plan-only credential from config authenticates the CLI; workspace
+variables supply provider authentication remotely.
+
+Commit reviewed leaf/shared/config/tool changes before accepting evidence. From the
+repository root, with `LEAF` set to the validated leaf name, run:
+
+```sh
+(
+  : "${LEAF:?Select the target leaf from config first}"
+  dirty=$(git --no-optional-locks status --porcelain -- "terraform/$LEAF" \
+    terraform/modules .infra-copilot/config.md mise.toml mise.lock) || exit 2
+  [ -z "$dirty" ] || { echo 'Commit relevant inputs before obtaining plan evidence' >&2; exit 1; }
+  cd "terraform/$LEAF" || exit 1
+  terraform init -input=false || exit 1
+  terraform plan -input=false -no-color
+)
+```
+
+This is an action operation: initialization writes `.terraform/` and can refresh the lock
+file. It is never a status check. If initialization changes a tracked lock, review and
+commit it, then repeat the plan so its inputs match the commit. Inspect the speculative
+plan's output/run URL: expected creates for add, imports without creates/destroys for
+import, and `No changes.` for prune. Never apply from this CLI workflow.
+
+For read-only status, use [HCP run evidence](hcp-status.md) and the
+[API lookup](docs/hcp-api.md) for the newest commit affecting the leaf, shared modules,
+config and mise pins. Judge the newest run for that revision; an older success cannot
+hide a newer failure. A dirty checkout, absent run or unreadable response is unknown.

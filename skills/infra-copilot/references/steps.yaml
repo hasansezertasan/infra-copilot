@@ -8,6 +8,9 @@
 #
 # Field contract
 #   id        stable slug, referenced by SKILL.md
+#   operation backend-neutral contract slug; see operations.md
+#   implementation hcp | object-storage | both (shared implementation)
+#   not_applicable explicit reason; report N/A, never treat as proved safety
 #   phase     0..6, matches SKILL.md phases
 #   provider  hcp | cloudflare | github | gcp | repo
 #   actor     AGENT  -> agent executes directly
@@ -19,6 +22,8 @@
 #             HUMAN steps: the human_action text (browser instructions)
 #   when      optional shell condition. If present and evaluates false, skip this step.
 #             Use for backend-specific steps: '[ "$BACKEND" = "hcp" ]'
+#   refresh_credentials optional. Refresh selected config exports after this member
+#             passes, before checking its next member (never wait for the whole operation).
 #   tri_state optional. `true` means this check reserves exit 2 for "could not verify"
 #             (see protocol.md). Absent/false: any non-zero exit is red, which is the
 #             default because ordinary tools use 2 for their own errors — jq exits 2 on
@@ -264,6 +269,8 @@ steps:
     docs: docs/setup.md#6-local-development
 
   - id: repo-config-sync
+    operation: sync-execution-config
+    implementation: both
     phase: 0
     provider: repo
     actor: HUMAN
@@ -291,6 +298,9 @@ steps:
 
   # ── Phase 0 — HCP bootstrap (backend: hcp only) ──────────────────────────
   - id: hcp-login
+    refresh_credentials: true
+    operation: bootstrap-state
+    implementation: hcp
     phase: 0
     provider: hcp
     actor: HUMAN
@@ -360,6 +370,8 @@ steps:
     docs: docs/setup.md#1-hcp-terraform--organization
 
   - id: hcp-signup
+    operation: bootstrap-state
+    implementation: hcp
     phase: 0
     provider: hcp
     actor: HUMAN
@@ -385,6 +397,8 @@ steps:
     docs: docs/setup.md#1-hcp-terraform--organization
 
   - id: hcp-verify
+    operation: bootstrap-state
+    implementation: hcp
     phase: 0
     provider: hcp
     actor: AGENT
@@ -399,10 +413,12 @@ steps:
       curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e '.data.id'
     check: '[ "$hcp_api" = "https://app.terraform.io/api/v2" ] && curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
     produces: verified API access
-    docs: docs/state.md#api-access
+    docs: docs/hcp-state.md#api-access
 
   # ── Phase 1 — HCP workspaces (backend: hcp only) ─────────────────────────
   - id: vcs-connect
+    operation: provision-execution
+    implementation: hcp
     phase: 1
     provider: hcp
     actor: HUMAN
@@ -561,6 +577,8 @@ steps:
     docs: docs/setup.md#2-hcp-terraform--workspaces
 
   - id: workspaces-create
+    operation: provision-execution
+    implementation: hcp
     phase: 1
     provider: hcp
     actor: AGENT
@@ -588,10 +606,12 @@ steps:
     # team token. Keep it in one executable source rather than duplicating jq.
     check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh"
     produces: workspaces `cloudflare`, `github-org`
-    docs: docs/state.md#workspaces
+    docs: docs/hcp-state.md#workspaces
 
   # ── Phase 0 — Object-storage bootstrap (backend: object-storage only) ───
   - id: state-bucket
+    operation: bootstrap-state
+    implementation: object-storage
     phase: 0
     provider: repo
     actor: HUMAN
@@ -691,9 +711,11 @@ steps:
           ;;
       esac
     produces: versioned, private state bucket
-    docs: docs/state.md#object-storage-backend
+    docs: docs/object-storage-state.md#object-storage-backend
 
   - id: backend-config
+    operation: bootstrap-state
+    implementation: object-storage
     phase: 0
     provider: repo
     actor: AGENT
@@ -756,9 +778,11 @@ steps:
         fi
       done
     produces: backend blocks in each Terraform leaf
-    docs: docs/state.md#object-storage-backend
+    docs: docs/object-storage-state.md#object-storage-backend
 
   - id: backend-identity
+    operation: bootstrap-state
+    implementation: object-storage
     phase: 0
     provider: repo
     actor: HUMAN
@@ -808,10 +832,12 @@ steps:
           ;;
       esac
     produces: Cloud identity federation and GitHub secrets for backend access
-    docs: docs/state.md#authentication
+    docs: docs/object-storage-ci.md#authentication
 
   # ── Phase 1 — GitHub Actions CI (backend: object-storage only) ──────────
   - id: gha-workflows
+    operation: provision-execution
+    implementation: object-storage
     phase: 1
     provider: github
     actor: AGENT
@@ -845,9 +871,11 @@ steps:
       grep -q "apply-cloudflare" .github/workflows/terraform-apply.yml || exit 1
       grep -q "apply-github" .github/workflows/terraform-apply.yml || exit 1
     produces: GitHub Actions workflows for Terraform CI
-    docs: docs/ci.md#github-actions
+    docs: docs/object-storage-ci.md#github-actions
 
   - id: gha-environments
+    operation: provision-execution
+    implementation: object-storage
     phase: 1
     provider: github
     actor: HUMAN
@@ -863,10 +891,12 @@ steps:
       env_json=$(gh api "repos/$REPO/environments/production" 2>/dev/null) || exit 1
       printf '%s' "$env_json" | jq -e '.protection_rules[]? | select(.type == "required_reviewers")' >/dev/null
     produces: GitHub Environment with required reviewers
-    docs: docs/ci.md#github-actions
+    docs: docs/object-storage-ci.md#github-actions
 
   # ── Phase 2 — Cloudflare credentials (backend: object-storage) ──────────
   - id: cf-token-gha
+    operation: store-cloudflare-credential
+    implementation: object-storage
     phase: 2
     provider: cloudflare
     actor: HUMAN
@@ -888,6 +918,8 @@ steps:
 
   # ── Phase 3 — GitHub App credentials (backend: object-storage) ──────────
   - id: gh-app-gha
+    operation: store-github-credential
+    implementation: object-storage
     phase: 3
     provider: github
     actor: HUMAN
@@ -911,6 +943,8 @@ steps:
 
   # ── Phase 4 — First plan (backend: object-storage) ──────────────────────
   - id: plan-cloudflare-gha
+    operation: plan-cloudflare
+    implementation: object-storage
     phase: 4
     provider: cloudflare
     actor: AGENT
@@ -950,9 +984,11 @@ steps:
       gh run view "$run_id" --repo "$REPO" --json jobs \
         -q '.jobs[] | select(.name=="plan-cloudflare" and .conclusion=="success") | .name' 2>/dev/null | grep -q 'plan-cloudflare'
     produces: green plan for cloudflare in GitHub Actions
-    docs: docs/ci.md#github-actions
+    docs: docs/object-storage-ci.md#github-actions
 
   - id: plan-github-gha
+    operation: plan-github
+    implementation: object-storage
     phase: 4
     provider: github
     actor: AGENT
@@ -992,9 +1028,11 @@ steps:
       gh run view "$run_id" --repo "$REPO" --json jobs \
         -q '.jobs[] | select(.name=="plan-github" and .conclusion=="success") | .name' 2>/dev/null | grep -q 'plan-github'
     produces: green plan for github in GitHub Actions
-    docs: docs/ci.md#github-actions
+    docs: docs/object-storage-ci.md#github-actions
 
   - id: status-check-gha
+    operation: required-check-context
+    implementation: object-storage
     phase: 4
     provider: github
     actor: AGENT
@@ -1016,10 +1054,12 @@ steps:
       # PRs will merge without required checks which is immediately visible.
       # The HCL source-of-truth above ensures the Terraform run will configure it correctly.
     produces: branch protection references GitHub Actions job names
-    docs: docs/ci.md#branch-protection
+    docs: docs/object-storage-ci.md#branch-protection
 
   # ── Phase 2 — Cloudflare credentials (backend: hcp) ──────────────────────
   - id: cf-token
+    operation: store-cloudflare-credential
+    implementation: hcp
     phase: 2
     provider: cloudflare
     actor: HUMAN
@@ -1044,6 +1084,8 @@ steps:
 
   # ── Phase 3 — GitHub App credentials (backend: hcp) ──────────────────────
   - id: gh-app
+    operation: store-github-credential
+    implementation: hcp
     phase: 3
     provider: github
     actor: HUMAN
@@ -1074,6 +1116,8 @@ steps:
 
   # ── Phase 4 — First plan (backend: hcp) ──────────────────────────────────
   - id: hcp-apply-scope
+    operation: plan-access
+    implementation: hcp
     phase: 4
     provider: hcp
     actor: HUMAN
@@ -1153,7 +1197,24 @@ steps:
     produces: an agent credential with no direct apply path (not a boundary against a hostile actor — see docs/policy.md)
     docs: docs/policy.md#a-credential-that-cannot-apply
 
+  - id: gha-plan-access
+    operation: plan-access
+    implementation: object-storage
+    phase: 4
+    provider: repo
+    actor: AGENT
+    when: '[ "$BACKEND" = "object-storage" ]'
+    not_applicable: No local execution-service API token; execution is confined to protected runners, not the agent credential.
+    title: Record execution-specific non-applicability
+    why: The shared operation must account for both implementations.
+    run: Follow object-storage.md's safety contract; do not invent a local credential.
+    check: 'true'
+    produces: documented not-applicable result
+    docs: object-storage.md#plan-access
+
   - id: plan-cloudflare
+    operation: plan-cloudflare
+    implementation: hcp
     phase: 4
     provider: cloudflare
     actor: AGENT
@@ -1166,6 +1227,8 @@ steps:
     docs: docs/hcp-api.md
 
   - id: plan-github
+    operation: plan-github
+    implementation: hcp
     phase: 4
     provider: github
     actor: AGENT
@@ -1178,6 +1241,8 @@ steps:
     docs: docs/hcp-api.md
 
   - id: status-check-context
+    operation: required-check-context
+    implementation: hcp
     phase: 4
     provider: github
     actor: AGENT
@@ -1194,11 +1259,11 @@ steps:
       terraform fmt and both terraform validate checks — exactly as they are;
       dropping them would allow merges with no CI at all. The stale context
       blocks the very PR carrying this fix, so follow the break-glass sequence
-      in docs/ci.md.
+      in docs/hcp-ci.md#break-glass-the-fix-cannot-merge-through-the-normal-path.
     tri_state: true   # exit 2 = could not verify; see protocol.md
     check: sh "$INFRA_COPILOT_REFERENCES/checks/status-check-context.sh"
     produces: proof that branch protection cannot silently block every PR
-    docs: docs/ci.md#hcp-status-check-context
+    docs: docs/hcp-ci.md#hcp-status-check-context
 
   # ── Phase 5 — Migration (only if resources pre-exist) ───────────────────
   - id: migrate-discovery-token
@@ -1215,6 +1280,8 @@ steps:
     docs: docs/import.md#discovery-token
 
   - id: migrate-import
+    operation: import-resources
+    implementation: both
     phase: 5
     provider: cloudflare
     actor: AGENT
@@ -1428,6 +1495,8 @@ steps:
     docs: migration.md
 
   - id: prune-spent-imports
+    operation: prune-blocks
+    implementation: both
     phase: 5
     provider: repo
     actor: AGENT
@@ -1612,6 +1681,8 @@ steps:
   # Run the inventory once, then instantiate the remaining sequence once per
   # config.md `additional_providers` entry.
   - id: new-provider-inventory
+    operation: provider-inventory
+    implementation: both
     phase: 6
     provider: repo
     actor: HUMAN
@@ -1687,6 +1758,8 @@ steps:
     docs: config.md
 
   - id: new-provider-decision
+    operation: provider-decision
+    implementation: both
     phase: 6
     provider: repo
     actor: HUMAN
@@ -1849,6 +1922,8 @@ steps:
     docs: config.md
 
   - id: new-provider-leaf
+    operation: provider-leaf
+    implementation: both
     phase: 6
     provider: repo
     actor: AGENT
@@ -1993,7 +2068,55 @@ steps:
     produces: committed lock selections and checksums for every required provider
     docs: protocol.md#resume-protocol
 
+  - id: new-provider-workflow-gha
+    operation: provision-provider-execution
+    implementation: object-storage
+    phase: 6
+    provider: github
+    actor: AGENT
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Update GitHub Actions workflows for the new provider
+    why: The plan and apply workflows must include the new leaf.
+    run: |
+      Update .github/workflows/terraform-plan.yml and terraform-apply.yml to:
+      1. Add a path filter for terraform/$NEW_PROVIDER/** AND shared inputs:
+         - terraform/modules/**
+         - mise.toml
+         - mise.lock
+         - .infra-copilot/config.md
+      2. Add plan/apply jobs for the new leaf
+      3. Pass the required secrets from NEW_PROVIDER_SECRETS as environment variables
+      4. Add the provider-specific authentication step before terraform init (e.g., google-github-actions/auth for GCP, aws-actions/configure-aws-credentials for AWS, azure/login for Azure)
+      5. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
+      6. Add plan-$NEW_PROVIDER to the aggregate `plan` job's `needs` list
+      7. Wire up the changes job output and apply job if-condition for $NEW_PROVIDER
+      Commit the updated workflows before re-running this check.
+    check: |
+      # File existence and git tracking
+      test -f .github/workflows/terraform-plan.yml || exit 1
+      test -f .github/workflows/terraform-apply.yml || exit 1
+      git ls-files --error-unmatch \
+        .github/workflows/terraform-plan.yml \
+        .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
+      # Workflows are committed (no uncommitted changes)
+      git diff --quiet HEAD -- .github/workflows/terraform-plan.yml \
+        .github/workflows/terraform-apply.yml || exit 1
+      # YAML syntax validation skipped - workflow execution will catch malformed files
+      # Basic job existence for the new provider
+      grep -q "plan-$NEW_PROVIDER:" .github/workflows/terraform-plan.yml || exit 1
+      grep -q "apply-$NEW_PROVIDER:" .github/workflows/terraform-apply.yml || exit 1
+      # Path filter mentions the new provider (either form)
+      grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-plan.yml || exit 1
+      grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-apply.yml || exit 1
+      # Environment protection verified by gha-environments (phase 1) which checks the
+      # production environment exists with required reviewers. New provider jobs should
+      # copy the environment: production setting from apply-cloudflare/apply-github.
+    produces: GitHub Actions workflows updated for new provider
+    docs: docs/object-storage-ci.md#github-actions
+
   - id: new-provider-workspace-bootstrap
+    operation: provision-provider-execution
+    implementation: hcp
     phase: 6
     provider: hcp
     actor: HUMAN
@@ -2027,6 +2150,8 @@ steps:
     docs: docs/policy.md#a-credential-that-cannot-apply
 
   - id: new-provider-workspace
+    operation: provision-provider-execution
+    implementation: hcp
     phase: 6
     provider: hcp
     actor: HUMAN
@@ -2078,6 +2203,8 @@ steps:
     docs: hcp.md#phase-1--workspaces
 
   - id: new-provider-plan-access
+    operation: provider-plan-access
+    implementation: hcp
     phase: 6
     provider: hcp
     actor: HUMAN
@@ -2095,6 +2222,8 @@ steps:
     docs: docs/policy.md#a-credential-that-cannot-apply
 
   - id: new-provider-fork-safety
+    operation: provider-fork-safety
+    implementation: hcp
     phase: 6
     provider: hcp
     actor: HUMAN
@@ -2124,7 +2253,43 @@ steps:
     produces: durable human attestation that fork plans cannot receive provider credentials
     docs: docs/setup.md#2-hcp-terraform--workspaces
 
+  - id: new-provider-plan-access-gha
+    operation: provider-plan-access
+    implementation: object-storage
+    phase: 6
+    provider: repo
+    actor: AGENT
+    when: '[ "$BACKEND" = "object-storage" ]'
+    not_applicable: No local workspace team grant; use the protected runner and approval contract in provision-provider-execution.
+    title: Record execution-specific non-applicability
+    why: The shared operation must account for both implementations.
+    run: Follow object-storage.md's safety contract; do not invent a local credential.
+    check: 'true'
+    produces: documented not-applicable result
+    docs: object-storage.md#plan-access
+
+  - id: new-provider-fork-safety-gha
+    operation: provider-fork-safety
+    implementation: object-storage
+    phase: 6
+    provider: repo
+    actor: AGENT
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Verify fork rejection and protected apply before storing credentials
+    why: Untrusted fork code must not execute with provider or state credentials.
+    run: |
+      Provision the new provider execution first using object-storage.md, without storing
+      provider credentials. The plan job must reject forks at job scope, and the apply
+      job must use the production environment with required human reviewers.
+      Never use pull_request_target to execute changed Terraform. Commit the workflows.
+    tri_state: true
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/gha-provider-safety.sh"
+    produces: committed fork guard and approval-gated apply for this leaf
+    docs: object-storage.md#fork-safety
+
   - id: new-provider-credentials
+    operation: store-provider-credential
+    implementation: hcp
     phase: 6
     provider: hcp
     actor: HUMAN
@@ -2191,6 +2356,8 @@ steps:
     docs: docs/secrets.md
 
   - id: new-provider-gcp-wif-trust
+    operation: provider-identity-trust
+    implementation: hcp
     phase: 6
     provider: gcp
     actor: HUMAN
@@ -2233,7 +2400,28 @@ steps:
     produces: runs that use only the declared identity (a WIF trust only this workspace can use, or the sensitive key)
     docs: gcp.md#human--create-the-wif-trust
 
+  - id: new-provider-identity-trust-gha
+    operation: provider-identity-trust
+    implementation: object-storage
+    phase: 6
+    provider: repo
+    actor: HUMAN
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Review the runner identity trust before storing provider credentials
+    why: A workspace subject check does not verify the runner's cloud IAM binding.
+    run: |
+      Follow object-storage.md's provisioning trust checklist. Review the exact cloud
+      OIDC subject for this repository and branch/protected environment, the runner role
+      or service account, state key isolation and least-privilege provider permissions.
+      Never accept a wildcard repository or fork subject. Reply done after review.
+      This review is ephemeral: repeat it when resuming rather than assume IAM is unchanged.
+    check: ~
+    produces: human-reviewed runner identity trust, without exposing credentials
+    docs: object-storage.md#provision-execution
+
   - id: new-provider-plan
+    operation: plan-provider
+    implementation: hcp
     phase: 6
     provider: repo
     actor: AGENT
@@ -2263,6 +2451,8 @@ steps:
 
   # ── Phase 6 — additional providers (object-storage mode) ────────────────
   - id: new-provider-secrets-gha
+    operation: store-provider-credential
+    implementation: object-storage
     phase: 6
     provider: github
     actor: HUMAN
@@ -2294,53 +2484,11 @@ steps:
       git diff --quiet HEAD -- .infra-copilot/config.md || exit 1
       git diff --cached --quiet HEAD -- .infra-copilot/config.md
     produces: GitHub Actions secrets for provider authentication
-    docs: docs/ci.md#github-actions
-
-  - id: new-provider-workflow-gha
-    phase: 6
-    provider: github
-    actor: AGENT
-    when: '[ "$BACKEND" = "object-storage" ]'
-    title: Update GitHub Actions workflows for the new provider
-    why: The plan and apply workflows must include the new leaf.
-    run: |
-      Update .github/workflows/terraform-plan.yml and terraform-apply.yml to:
-      1. Add a path filter for terraform/$NEW_PROVIDER/** AND shared inputs:
-         - terraform/modules/**
-         - mise.toml
-         - mise.lock
-         - .infra-copilot/config.md
-      2. Add plan/apply jobs for the new leaf
-      3. Pass the required secrets from NEW_PROVIDER_SECRETS as environment variables
-      4. Add the provider-specific authentication step before terraform init (e.g., google-github-actions/auth for GCP, aws-actions/configure-aws-credentials for AWS, azure/login for Azure)
-      5. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
-      6. Add plan-$NEW_PROVIDER to the aggregate `plan` job's `needs` list
-      7. Wire up the changes job output and apply job if-condition for $NEW_PROVIDER
-      Commit the updated workflows before re-running this check.
-    check: |
-      # File existence and git tracking
-      test -f .github/workflows/terraform-plan.yml || exit 1
-      test -f .github/workflows/terraform-apply.yml || exit 1
-      git ls-files --error-unmatch \
-        .github/workflows/terraform-plan.yml \
-        .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
-      # Workflows are committed (no uncommitted changes)
-      git diff --quiet HEAD -- .github/workflows/terraform-plan.yml \
-        .github/workflows/terraform-apply.yml || exit 1
-      # YAML syntax validation skipped - workflow execution will catch malformed files
-      # Basic job existence for the new provider
-      grep -q "plan-$NEW_PROVIDER:" .github/workflows/terraform-plan.yml || exit 1
-      grep -q "apply-$NEW_PROVIDER:" .github/workflows/terraform-apply.yml || exit 1
-      # Path filter mentions the new provider (either form)
-      grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-plan.yml || exit 1
-      grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-apply.yml || exit 1
-      # Environment protection verified by gha-environments (phase 1) which checks the
-      # production environment exists with required reviewers. New provider jobs should
-      # copy the environment: production setting from apply-cloudflare/apply-github.
-    produces: GitHub Actions workflows updated for new provider
-    docs: docs/ci.md#github-actions
+    docs: docs/object-storage-ci.md#github-actions
 
   - id: new-provider-plan-gha
+    operation: plan-provider
+    implementation: object-storage
     phase: 6
     provider: repo
     actor: AGENT
@@ -2380,4 +2528,4 @@ steps:
       gh run view "$run_id" --repo "$REPO" --json jobs \
         -q ".jobs[] | select(.name==\"plan-$NEW_PROVIDER\" and .conclusion==\"success\") | .name" 2>/dev/null | grep -q "plan-$NEW_PROVIDER"
     produces: green plan for new provider leaf in GitHub Actions
-    docs: docs/state.md#object-storage-backend
+    docs: docs/object-storage-state.md#object-storage-backend

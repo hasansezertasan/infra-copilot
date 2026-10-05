@@ -5,8 +5,8 @@ description: "Greenfield bootstrap of a Terraform + Cloudflare + GitHub infra re
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6aa8c3d9f44538ca1ed32ae43e2f356987dce1ededff44844210a4c20e24478e
-Source-Hash: blake3:ead7306292e52740e8f300f0924f860f38008d24e597bcc27d226e270c01a019
+Content-Hash: blake3:251c9507df99744e33a7cd634d7e25ed7d1fc30ab7d9c401a226c6f18395581a
+Source-Hash: blake3:0701b063a68b5dc12bcd2d634e041e74cf431681c98eab86a076c7e32a5cbead
 Schema-Version: v1
 -->
 
@@ -41,11 +41,11 @@ the canonical docs under [`../infra-copilot/references/`](../infra-copilot/refer
 
 | # | Phase | Actors | Deep dive |
 |---|---|---|---|
-| 0 | **Toolchain + state bucket** — commit reviewed pins, create versioned bucket, configure `backend.tf` blocks | `HUMAN` then `AGENT` | [`../infra-copilot/references/docs/state.md#object-storage-backend`](../infra-copilot/references/docs/state.md#object-storage-backend) |
-| 1 | **GitHub Actions CI** — create plan/apply workflows, configure GitHub Environment protection | `AGENT` then `HUMAN` | [`../infra-copilot/references/docs/ci.md#github-actions`](../infra-copilot/references/docs/ci.md#github-actions) |
+| 0 | **Toolchain + state bucket** — commit reviewed pins, create versioned bucket, configure `backend.tf` blocks | `HUMAN` then `AGENT` | [`../infra-copilot/references/docs/object-storage-state.md#object-storage-backend`](../infra-copilot/references/docs/object-storage-state.md#object-storage-backend) |
+| 1 | **GitHub Actions CI** — create plan/apply workflows, configure GitHub Environment protection | `AGENT` then `HUMAN` | [`../infra-copilot/references/docs/object-storage-ci.md#github-actions`](../infra-copilot/references/docs/object-storage-ci.md#github-actions) |
 | 2 | **Cloudflare** — mint scoped token, add `CLOUDFLARE_API_TOKEN` to GitHub Actions secrets, verify | `HUMAN` mint/save, `AGENT` verify | [`../infra-copilot/references/cloudflare.md`](../infra-copilot/references/cloudflare.md) |
 | 3 | **GitHub** — create + install GitHub App, add secrets (`GH_APP_ID`, `GH_APP_INSTALLATION_ID`, `GH_APP_PEM`) to GitHub Actions | `HUMAN` create/install/save, `AGENT` verify | [`../infra-copilot/references/github.md`](../infra-copilot/references/github.md) |
-| 4 | **First plan** — verify `plan-cloudflare` and `plan-github` jobs succeed in GitHub Actions | `AGENT` | [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml), [`../infra-copilot/references/docs/ci.md#github-actions`](../infra-copilot/references/docs/ci.md#github-actions) |
+| 4 | **First plan** — verify `plan-cloudflare` and `plan-github` jobs succeed in GitHub Actions | `AGENT` | [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml), [`../infra-copilot/references/docs/object-storage-ci.md#github-actions`](../infra-copilot/references/docs/object-storage-ci.md#github-actions) |
 
 Adopting resources that already exist (a live domain, existing repos)? That's
 **infra-copilot:import** (Phase 5), run after this reaches green plans.
@@ -115,11 +115,11 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 - **Phase 0 — Toolchain + state bucket.** Tool versions are committed in `mise.toml` +
   `mise.lock`. `HUMAN` creates the versioned, private state bucket with locking configured.
   `AGENT` writes `backend.tf` blocks in each leaf pointing to the state bucket.
-  [`../infra-copilot/references/docs/state.md#object-storage-backend`](../infra-copilot/references/docs/state.md#object-storage-backend).
+  [`../infra-copilot/references/docs/object-storage-state.md#object-storage-backend`](../infra-copilot/references/docs/object-storage-state.md#object-storage-backend).
 - **Phase 1 — GitHub Actions CI.** `AGENT` creates `.github/workflows/terraform-plan.yml` and
   `terraform-apply.yml`. `HUMAN` configures the `production` GitHub Environment with required
   reviewers to gate applies.
-  [`../infra-copilot/references/docs/ci.md#github-actions`](../infra-copilot/references/docs/ci.md#github-actions).
+  [`../infra-copilot/references/docs/object-storage-ci.md#github-actions`](../infra-copilot/references/docs/object-storage-ci.md#github-actions).
 - **Phase 2 — Cloudflare.** `HUMAN` mints scoped token and adds `CLOUDFLARE_API_TOKEN` to
   GitHub Actions secrets; `AGENT` verifies.
   [`../infra-copilot/references/cloudflare.md`](../infra-copilot/references/cloudflare.md).
@@ -128,7 +128,7 @@ Adopting resources that already exist (a live domain, existing repos)? That's
   [`../infra-copilot/references/github.md`](../infra-copilot/references/github.md).
 - **Phase 4 — First plan.** Trigger or inspect GitHub Actions plan workflows for `cloudflare`
   and `github` leaves; verify both jobs succeed. Align required status check job names.
-  [`../infra-copilot/references/docs/ci.md#github-actions`](../infra-copilot/references/docs/ci.md#github-actions).
+  [`../infra-copilot/references/docs/object-storage-ci.md#github-actions`](../infra-copilot/references/docs/object-storage-ci.md#github-actions).
 
 ## Validation
 

@@ -18,7 +18,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STEPS = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
-RUNBOOK = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/docs/prune.md"
+RUNBOOK = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/docs/hcp-prune.md"
 
 
 def step(step_id: str) -> str:

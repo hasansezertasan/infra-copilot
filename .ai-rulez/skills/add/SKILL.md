@@ -34,31 +34,28 @@ Terraform's `github-org` leaf manages repos. To add one:
 
 1. **Config** — append the repo to `managed_repos` in `.infra-copilot/config.md`
    ([`../infra-copilot/references/config.md`](../infra-copilot/references/config.md)) and re-export `$REPO` if it's the first
-   entry (the VCS repo HCP watches, or target repo for CI).
+   entry (the repository used by the execution service).
 2. **GitHub App install scope** (`HUMAN` if the App is installed on selected repos) — the
    App must be able to see the new repo. If install is scoped, a human extends it in the
    org's App-install settings, then replies `done`. See
    [`../infra-copilot/references/github.md`](../infra-copilot/references/github.md).
 3. **Terraform** — add the resource/module in `terraform/github/`, then verify the plan:
-   - **HCP mode**: `terraform init` + `plan` locally
-   - **Object-storage mode**: commit the change, push the branch, trigger
-     `gh workflow run terraform-plan.yml --ref "$(git branch --show-current)"`,
-     and verify the plan job shows the expected changes in the workflow logs
+   use the [get-plan operation](../infra-copilot/references/operations.md#get-plan).
    Green plan showing the new repo as **will be created** (or **imported**, if it
    already exists on GitHub — then hand to `infra-copilot:import`).
 
 ### 2. Add a resource to an existing provider
 
 A new Cloudflare DNS record, page rule, or GitHub repo setting — the provider and its
-workspace/token already exist, so this is pure Terraform:
+execution and credentials already exist, so this is pure Terraform:
 
 1. Write the resource under the right leaf (`terraform/cloudflare/` or `terraform/github/`).
 2. If it needs a permission the current scoped token lacks (e.g. a new Cloudflare resource
    type), the token needs widening — a `HUMAN` mint/paste. Scope-widening guidance:
    [`../infra-copilot/references/cloudflare.md`](../infra-copilot/references/cloudflare.md) and
    [`../infra-copilot/references/docs/secrets.md`](../infra-copilot/references/docs/secrets.md).
-3. `plan` → green with the new resource as **will be created**. `apply` runs through HCP
-   (HCP mode) or GitHub Actions on push to main (object-storage mode) per your normal review flow.
+3. Use [get-plan](../infra-copilot/references/operations.md#get-plan) → green with the new resource as **will be created**.
+   Apply through the approved execution procedure after review.
 
 ### 3. Adopt a brand-new provider (largest — a design decision)
 
@@ -78,7 +75,7 @@ Runbook for the GCP case (keyless WIF auth, adoption hazards): [`../infra-copilo
 2. **Pick the flavor** above; run `AGENT` steps and stop + hand off on `HUMAN` steps
    (App-scope change, token mint/paste, provider decision). Full actor/handoff/resume
    contract: [`../infra-copilot/references/protocol.md`](../infra-copilot/references/protocol.md).
-3. **Verify with a plan**, then apply through your normal HCP review or GitHub Actions apply workflow.
+3. **Verify with a plan**, then follow the [read-run-status operation](../infra-copilot/references/operations.md#read-run-status) to confirm the approved apply.
 
 ## Validation
 

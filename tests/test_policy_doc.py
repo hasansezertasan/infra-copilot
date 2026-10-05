@@ -48,7 +48,7 @@ class PolicyDocTests(unittest.TestCase):
         self.assertRegex(
             manifest, r"id: new-provider-workspace-bootstrap[\s\S]*?actor: HUMAN"
         )
-        self.assertIn("post-handoff HCP authority", protocol)
+        self.assertIn("post-handoff execution authority", protocol)
         self.assertIn("| Create the `gcp` HCP workspace | **HUMAN** |", gcp)
 
     def test_no_deployable_profile_ships(self) -> None:

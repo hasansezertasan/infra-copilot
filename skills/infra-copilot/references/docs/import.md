@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:4ba2b860a50fc3dd274f55981bd9bc65924c5a6244ff20ca4bffd09a8400f8d9
-Source-Hash: blake3:ead7306292e52740e8f300f0924f860f38008d24e597bcc27d226e270c01a019
+Content-Hash: blake3:86dfd743bd885f16b71c6a85392f144b21dee4231e27e030a0e557562106a4f2
+Source-Hash: blake3:0701b063a68b5dc12bcd2d634e041e74cf431681c98eab86a076c7e32a5cbead
 Schema-Version: v1
 -->
 
@@ -14,7 +14,7 @@ Why not a custom script: cf-terraforming is maintained by Cloudflare alongside t
 
 ## Discovery token
 
-Before you run cf-terraforming, generate a separate, short-lived Cloudflare token with **Read** scopes on every resource type you're discovering. Don't reuse the HCP token (which has Edit scopes — broader than discovery needs).
+Before you run cf-terraforming, generate a separate, short-lived Cloudflare token with **Read** scopes on every resource type you're discovering. Don't reuse the persistent execution token (which has Edit scopes — broader than discovery needs).
 
 1. <https://dash.cloudflare.com/profile/api-tokens> → **Create Token** → **Custom token**.
 2. Permissions: pick **Read** on each resource type you're about to discover. Examples:
@@ -150,14 +150,15 @@ mise exec -- cf-terraforming import \
 ```sh
 terraform fmt generated.tf
 terraform validate
-terraform plan      # expect: every existing resource shown as "will import", nothing as "will create"
+# Obtain the plan through the get-plan operation: imports, never creates.
 ```
 
-`terraform plan` from the CLI is allowed against a VCS-connected HCP workspace (it runs as a speculative plan in HCP); `terraform apply` from the CLI is intentionally blocked. The plan output streams back to your terminal with a link to the HCP run.
-
-Commit the reviewed HCL once this plan looks right: the `migrate-import` step refuses a dirty leaf, since a local plan reads your working tree while the run applies the commit. Committing does not apply anything.
-
-If `plan` shows any `create` for a resource that already exists, the resource name or import ID in `generated.tf` is wrong — fix before opening a PR. The real apply happens when the PR merges and a maintainer confirms in HCP (or scripts the confirm via `POST /api/v2/runs/<id>/actions/apply`).
+Use [import-resources](../operations.md#import-resources) and
+[get-plan](../operations.md#get-plan) for execution and evidence. Commit the reviewed HCL
+before accepting plan evidence; a local working tree is not evidence for the committed revision.
+A create for an existing object means its address or import ID is wrong. Fix it before
+opening a PR. Confirm the approved apply with
+[read-run-status](../operations.md#read-run-status) before removing any import blocks.
 
 ## When to re-run
 
