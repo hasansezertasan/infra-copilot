@@ -14,5 +14,5 @@ State may contain credentials and sensitive resource attributes. Keep it out of 
 public logs. Protect state access and locking, and verify migration before removing its
 previous storage. Human approval remains required before any apply.
 
-Execution installs committed mise pins and lock through `jdx/mise-action`; preserve
-parity with the local toolchain when updating pins.
+The selected execution implementation configures its toolchain from committed pins.
+Preserve parity with the local toolchain when updating them.

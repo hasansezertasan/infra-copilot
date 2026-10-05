@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:944ef4f99f279f8290cb4f5541f19987bd96bf1a4383f348747a409d8e965940
-Source-Hash: blake3:c9f2ea75fea5a68af83110818ebd2c862f0a97488346426b1173d85860ee8b73
+Content-Hash: blake3:7e31a670f136a46634d8f1cc5947ef151c271d4fae2f2fdb67650139bbe83f35
+Source-Hash: blake3:0701b063a68b5dc12bcd2d634e041e74cf431681c98eab86a076c7e32a5cbead
 Schema-Version: v1
 -->
 
@@ -21,5 +21,5 @@ State may contain credentials and sensitive resource attributes. Keep it out of 
 public logs. Protect state access and locking, and verify migration before removing its
 previous storage. Human approval remains required before any apply.
 
-Execution installs committed mise pins and lock through `jdx/mise-action`; preserve
-parity with the local toolchain when updating pins.
+The selected execution implementation configures its toolchain from committed pins.
+Preserve parity with the local toolchain when updating them.
