@@ -18,7 +18,7 @@
 #   run       AGENT steps: the command(s) the agent runs
 #             HUMAN steps: the human_action text (browser instructions)
 #   when      optional shell condition. If present and evaluates false, skip this step.
-#             Use for backend-specific steps: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+#             Use for backend-specific steps: '[ "$BACKEND" = "hcp" ]'
 #   tri_state optional. `true` means this check reserves exit 2 for "could not verify"
 #             (see protocol.md). Absent/false: any non-zero exit is red, which is the
 #             default because ordinary tools use 2 for their own errors — jq exits 2 on
@@ -35,7 +35,7 @@
 # repo and export the vars every command below actually references.
 #
 # Common vars (both modes):
-#     export BACKEND=<backend>  # hcp | object-storage (default: hcp if missing)
+#     export BACKEND=<backend>  # required: hcp | object-storage
 #     export GITHUB_ORG=<github_org>
 #     export DOMAIN=<apex_domain>
 #     export CF_ACCOUNT_ID=<cloudflare_account_id>
@@ -45,7 +45,7 @@
 #     export ADDITIONAL_PROVIDER_MISE_TOOLS='<all entry.mise_tools flattened as compact JSON>'
 #     export INFRA_COPILOT_REFERENCES=<absolute path to references/ directory>
 #
-# HCP mode (backend: hcp or missing):
+# HCP mode (backend: hcp):
 #     export ORG=<hcp_org>
 #     export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
 #     export ADDITIONAL_PROVIDER_WORKSPACES='<additional_providers workspaces as compact JSON>'
@@ -60,6 +60,8 @@
 #     export STATE_REGION=<state_region>  # for S3/azurerm
 #     export ADDITIONAL_PROVIDER_SECRETS='<additional_providers credential_secrets as compact JSON>'
 #
+# Step 0 must stop and hand off if backend is missing, empty, or invalid, before
+# preflight or any when/check/run. Never infer a mode from an empty BACKEND.
 # Steps with `when` conditions are skipped when the condition evaluates false.
 #
 # Phase 6 runs its inventory once, then instantiates the remaining steps per entry.
@@ -279,7 +281,7 @@ steps:
       git ls-files --error-unmatch .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf >/dev/null 2>&1 &&
       git diff --quiet HEAD -- .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf &&
       git diff --cached --quiet HEAD -- .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf &&
-      if [ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]; then
+      if [ "$BACKEND" = "hcp" ]; then
         for config_file in terraform/cloudflare/versions.tf terraform/github/versions.tf; do
           test -f "$config_file" && grep -Eq "^[[:space:]]*organization[[:space:]]*=[[:space:]]*\"$ORG\"[[:space:]]*$" "$config_file" || exit 1;
         done
@@ -292,7 +294,7 @@ steps:
     phase: 0
     provider: hcp
     actor: HUMAN
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Sign up and terraform login (mint the pivot HCP token)
     why: This browser login yields the API token needed to verify the organization and drive every later API step.
     run: |
@@ -361,7 +363,7 @@ steps:
     phase: 0
     provider: hcp
     actor: HUMAN
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Create HCP Terraform org and project
     why: HCP holds all state and secrets; nothing plans without it.
     run: |
@@ -386,7 +388,7 @@ steps:
     phase: 0
     provider: hcp
     actor: AGENT
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Confirm HCP API reachable
     why: Gate — the rest of this skill is HCP API calls.
     run: |
@@ -404,7 +406,7 @@ steps:
     phase: 1
     provider: hcp
     actor: HUMAN
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Connect GitHub to HCP via OAuth or the GitHub App
     why: Workspaces need a VCS provider to run speculative plans on PRs.
     run: |
@@ -562,7 +564,7 @@ steps:
     phase: 1
     provider: hcp
     actor: AGENT
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Create cloudflare + github-org workspaces
     why: One workspace per leaf; carries working dir, path filter, safety toggles.
     run: |
@@ -1021,7 +1023,7 @@ steps:
     phase: 2
     provider: cloudflare
     actor: HUMAN
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Mint Cloudflare token and paste into HCP
     why: The cloudflare workspace authenticates to Cloudflare with this token.
     run: |
@@ -1045,7 +1047,7 @@ steps:
     phase: 3
     provider: github
     actor: HUMAN
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Create + install GitHub App, paste creds into HCP
     why: The github-org workspace authenticates as a GitHub App (not a PAT).
     run: |
@@ -1075,7 +1077,7 @@ steps:
     phase: 4
     provider: hcp
     actor: HUMAN
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: The HCP credential this repo uses cannot apply
     why: >-
       docs/policy.md works through every host-level permission control and finds
@@ -1155,7 +1157,7 @@ steps:
     phase: 4
     provider: cloudflare
     actor: AGENT
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: init + speculative plan (terraform/cloudflare)
     why: Proves the Cloudflare token end-to-end.
     run: "cd terraform/cloudflare && terraform init && terraform plan"
@@ -1167,7 +1169,7 @@ steps:
     phase: 4
     provider: github
     actor: AGENT
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: init + speculative plan (terraform/github)
     why: Proves the GitHub App credentials end-to-end.
     run: "cd terraform/github && terraform init && terraform plan"
@@ -1179,7 +1181,7 @@ steps:
     phase: 4
     provider: github
     actor: AGENT
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Required status check context matches what HCP publishes
     why: >-
       A required context HCP no longer posts blocks every PR on
@@ -1629,7 +1631,7 @@ steps:
           and index("github") == null
           and index("modules") == null' >/dev/null || exit 1
       # HCP mode: also validate workspaces
-      if [ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]; then
+      if [ "$BACKEND" = "hcp" ]; then
         jq -ne --argjson names "$ADDITIONAL_PROVIDER_NAMES" \
           --argjson workspaces "$ADDITIONAL_PROVIDER_WORKSPACES" '
             ($workspaces | type == "array"
@@ -1864,7 +1866,7 @@ steps:
       `.terraform.lock.hcl` by `terraform init -backend=false`, before re-running this check.
     check: |
       test -d "terraform/$NEW_PROVIDER" || exit 1
-      if [ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]; then
+      if [ "$BACKEND" = "hcp" ]; then
         # HCP mode: verify cloud block
         settings=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" \
           "terraform/$NEW_PROVIDER" all)
@@ -1995,7 +1997,7 @@ steps:
     phase: 6
     provider: hcp
     actor: HUMAN
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Create the workspace and make it visible to the plan-only team
     why: A missing or invisible workspace is expected setup work, not an unverifiable terminal state.
     run: |
@@ -2028,7 +2030,7 @@ steps:
     phase: 6
     provider: hcp
     actor: HUMAN
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Create and safely configure the new HCP workspace
     why: The leaf needs a remote, VCS-backed workspace with path-scoped plans and auto-apply disabled.
     run: |
@@ -2079,7 +2081,7 @@ steps:
     phase: 6
     provider: hcp
     actor: HUMAN
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Verify the plan-only team has Plan access and nothing stronger
     why: Workspace visibility alone does not prove that the credential can plan without applying or reconfiguring workspaces.
     run: |
@@ -2096,7 +2098,7 @@ steps:
     phase: 6
     provider: hcp
     actor: HUMAN
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Confirm fork speculative plans are disabled before adding credentials
     why: The fork-specific UI toggle can expose sensitive workspace variables to untrusted fork code.
     run: |
@@ -2126,7 +2128,7 @@ steps:
     phase: 6
     provider: hcp
     actor: HUMAN
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Put the provider credential configuration in HCP
     why: The first plan must authenticate without exposing credential values to the agent or repository.
     run: |
@@ -2197,7 +2199,7 @@ steps:
     # provably a list with no Google-family key, the entry does not pin gcloud, and no
     # locked WIF row exists; an unreadable inventory runs the check.
     when: >-
-      { [ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]; } &&
+      [ "$BACKEND" = "hcp" ] &&
       { ! printf '%s' "$NEW_PROVIDER_CREDENTIALS" |
         jq -e 'type == "array" and all(.[]; .key | test("^(TFC_GCP_|GOOGLE_|GCLOUD_|CLOUDSDK_)"; "i") | not)' >/dev/null 2>&1 ||
         printf '%s' "${NEW_PROVIDER_MISE_TOOLS:-[]}" | jq -e 'index("gcloud") != null' >/dev/null 2>&1 ||
@@ -2235,7 +2237,7 @@ steps:
     phase: 6
     provider: repo
     actor: AGENT
-    when: '[ "$BACKEND" = "hcp" ] || [ -z "$BACKEND" ]'
+    when: '[ "$BACKEND" = "hcp" ]'
     title: Run the first plan on the new leaf
     why: This proves the leaf, workspace access, and provider credentials end to end.
     run: |

@@ -5,8 +5,8 @@ description: "Greenfield bootstrap of a Terraform + Cloudflare + GitHub infra re
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:4151e8bc9ca5274e79f1a006526dca517db2c9fb89a1b9379b829f33bcab0f5e
-Source-Hash: blake3:1853ee0fac069a2846485eb016032ac840e1a7f04c3b3f3232d4f6396be91573
+Content-Hash: blake3:57cb2528eab6adf461aea61cc145fd7dd12c51f63e48e4c2d3877f9e8bd67352
+Source-Hash: blake3:100eece06432108d29522a0911ee3459c19c36be3bc4f3a70f733c7d9bedb0be
 Schema-Version: v1
 -->
 
@@ -62,6 +62,11 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 1. **Read config first** (shared protocol, Step 0). Load `.infra-copilot/config.md`, or
    use `.claude/infra-copilot.local.md` as the migration fallback, and export the org
    vars. If both are missing → handoff, offer to scaffold, wait.
+   For a new setup, recommend **object-storage** first; explain HCP's managed runs and
+   UI with a paid plan above 500 managed resources. Ask for the choice using the shared
+   protocol, then always write `backend: object-storage` or `backend: hcp` explicitly.
+   Existing configs without `backend` stop for the migration handoff; existing `cloud {}`
+   blocks prompt an offer to record `backend: hcp`, never an automatic mode switch.
    See [`../infra-copilot/references/config.md`](../infra-copilot/references/config.md).
 2. **Bootstrap preflight**, then **resume scan** over phases 0–4 of
    [`../infra-copilot/references/steps.yaml`](../infra-copilot/references/steps.yaml). On a cold repo, check that `mise` itself
@@ -126,6 +131,8 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 ## Validation
 
 Setup is complete when you can report:
+
+- ✓ `.infra-copilot/config.md` explicitly records the chosen `backend`.
 
 **For HCP mode (`backend: hcp`):**
 

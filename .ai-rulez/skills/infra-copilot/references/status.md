@@ -256,7 +256,8 @@ preflight — is in
    `BACKEND`, `REPO` and `INFRA_COPILOT_REFERENCES` exported
    ([`config.md`](config.md)), through `sh` as the manifest's checks are:
    `sh "$INFRA_COPILOT_REFERENCES/checks/gha-latest-runs.sh"`. It anchors itself at the repository root, and prints `not applicable` unless
-   the backend is `object-storage` (a missing backend is `hcp`). It prints two lines: the
+   the explicit backend is `hcp`. A missing, empty, or invalid backend returns
+   `CANNOT VERIFY` without querying Actions. In object-storage mode it prints two lines: the
    latest `terraform-plan.yml` run on the current branch (a PR's head branch, or a
    `workflow_dispatch`), and the latest `terraform-apply.yml` run on `main`. Each carries
    the run's outcome — `✓` passed, `✗` failed, `⏳` in progress, `?` ended without a

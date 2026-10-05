@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1f62fb4abcf9b0bfdd53a0b45752f22556ab122fdc43c0129d2202cfb80ed466
-Source-Hash: blake3:1853ee0fac069a2846485eb016032ac840e1a7f04c3b3f3232d4f6396be91573
+Content-Hash: blake3:56c0ad501407fea3f85b12059bdb005b1e384e5413d2fad56625ce2d6cfacff2
+Source-Hash: blake3:100eece06432108d29522a0911ee3459c19c36be3bc4f3a70f733c7d9bedb0be
 Schema-Version: v1
 -->
 
@@ -25,11 +25,53 @@ infra-copilot supports two execution modes:
 
 | Mode | State backend | CI | Secrets | Plan visibility |
 |------|---------------|-----|---------|-----------------|
-| `hcp` (default) | HCP Terraform `cloud {}` | HCP VCS integration | HCP workspace variables | HCP UI (auth required) |
-| `object-storage` | Cloud storage bucket (gcs/s3/azurerm) | GitHub Actions | GitHub Actions secrets | PR comment (repo access) |
+| `object-storage` (recommended) | Cloud storage bucket (gcs/s3/azurerm) | GitHub Actions | GitHub Actions secrets | PR comment (repo access) |
+| `hcp` | HCP Terraform `cloud {}` | HCP VCS integration | HCP workspace variables | HCP UI (auth required) |
 
-The `backend` field selects the mode. Omit it or set `hcp` for the current behavior.
-Set `object-storage` to use a cloud storage bucket + GitHub Actions CI.
+The `backend` field is required and selects the mode; there is no implicit default.
+For a new setup, recommend `object-storage`: cloud storage state + GitHub Actions CI
+puts plan output in the PR. HCP Terraform offers managed runs and a UI, but requires a
+paid plan above its free tier's 500 managed resources
+([subscription plans](https://developer.hashicorp.com/terraform/cloud-docs/overview)).
+Present HCP as a deliberate choice. Ask using the shared protocol's decision mechanism,
+put object-storage first and mark it recommended, then write `backend:` explicitly into
+`.infra-copilot/config.md` for whichever mode the user chooses before any step runs.
+
+### Migration: existing configs without backend
+
+**Breaking change:** configs that omit `backend:` now stop at startup instead of
+silently selecting HCP. This applies to all five action skills, including `status`, and
+to the legacy `.claude/infra-copilot.local.md` fallback. Adding the field records the
+existing mode; it does not move state or change how Terraform runs.
+
+When `backend` is missing, empty, or invalid, emit a handoff explaining both values and
+stop before preflight, any `when` evaluation, check, or run. Inspect existing Terraform
+leaves for HCP `cloud {}` blocks, for example:
+
+```sh
+grep -lE '(^|[[:space:]])cloud[[:space:]]*\{' terraform/*/*.tf 2>/dev/null
+```
+
+If found, show the paths and offer to write `backend: hcp` to preserve the existing HCP
+workflow. The match is a hint for the user's decision, never permission to choose a
+backend automatically. Without that evidence, ask which mode the repo uses; absence of
+a match is not evidence for object-storage. Wait for an explicit choice before writing,
+then re-read config, validate the field, and export vars before resuming.
+Add or correct only `backend:`; preserve the other fields and customization markers.
+Do not re-scaffold an existing file to perform this migration.
+`status` reports the missing/invalid field and the suggested migration but never writes
+config; direct the user to add the field or run `setup` to record their choice.
+
+```text
+┌─ HUMAN ACTION NEEDED ─────────────────────────────
+│ Step:   config-backend — record an explicit backend
+│ Why:    Checks require the repo's state and CI mode; there is no default.
+│ Do this:
+│   1. Choose backend: hcp (managed runs/UI) or backend: object-storage (bucket/Actions).
+│   2. Record the existing mode in .infra-copilot/config.md and commit it.
+│ When done, reply "done" and I'll verify.
+└───────────────────────────────────────────────────
+```
 
 ## Schema
 
@@ -37,7 +79,7 @@ Set `object-storage` to use a cloud storage bucket + GitHub Actions CI.
 
 ```yaml
 ---
-backend: hcp                   # hcp | object-storage (default: hcp)
+backend: object-storage        # required: hcp | object-storage; recommended for new repos
 github_org: <string>           # GitHub org slug
 apex_domain: <string>          # e.g. example.dev
 cloudflare_account_id: <hex>   # Cloudflare account ID
@@ -173,13 +215,14 @@ Before running ANY step's `check` or `run`, the agent MUST:
    [`config.md.example`](config.md.example), and wait. Never guess values.
    If the file is **present**, a re-scaffold must respect its customization markers —
    see [Re-scaffolding an existing config](#re-scaffolding-an-existing-config).
-4. If present, validate `backend` is either `hcp` or `object-storage`. If `backend` is missing,
-   default it to `hcp`. If `backend` is set to any other value, pause and handoff: emit the
-   handoff block explaining that `backend` must be `hcp` or `object-storage`. Never guess values.
-   Then export the shell vars the checks reference. First, common vars for both modes:
+4. If present, validate `backend` is explicitly either `hcp` or `object-storage`.
+   If missing, empty, or any other value, stop and emit the handoff described in
+   [Migration: existing configs without backend](#migration-existing-configs-without-backend).
+   Never guess a mode or reuse a prior shell's `BACKEND`. Only after validation,
+   export the shell vars the checks reference. First, common vars for both modes:
 
    ```sh
-   export BACKEND=<backend>  # hcp | object-storage (default: hcp if missing)
+   export BACKEND=<backend>  # required: hcp | object-storage
    export GITHUB_ORG=<github_org>
    export DOMAIN=<apex_domain>
    export CF_ACCOUNT_ID=<cloudflare_account_id>
@@ -192,7 +235,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
 
    Then, mode-specific vars:
 
-   **HCP mode** (`backend: hcp` or missing):
+   **HCP mode** (`backend: hcp`):
 
    ```sh
    export ORG=<hcp_org>

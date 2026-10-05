@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:776baadec4ead71bd1abc68d25724a301ddcaa94454616c567b711ba3b559c39
-Source-Hash: blake3:1853ee0fac069a2846485eb016032ac840e1a7f04c3b3f3232d4f6396be91573
+Content-Hash: blake3:cb57b891b78ec511e8a26cf5181bb3393b639db02d314055a60750e0ff61126c
+Source-Hash: blake3:100eece06432108d29522a0911ee3459c19c36be3bc4f3a70f733c7d9bedb0be
 Schema-Version: v1
 -->
 
@@ -263,7 +263,8 @@ preflight — is in
    `BACKEND`, `REPO` and `INFRA_COPILOT_REFERENCES` exported
    ([`config.md`](config.md)), through `sh` as the manifest's checks are:
    `sh "$INFRA_COPILOT_REFERENCES/checks/gha-latest-runs.sh"`. It anchors itself at the repository root, and prints `not applicable` unless
-   the backend is `object-storage` (a missing backend is `hcp`). It prints two lines: the
+   the explicit backend is `hcp`. A missing, empty, or invalid backend returns
+   `CANNOT VERIFY` without querying Actions. In object-storage mode it prints two lines: the
    latest `terraform-plan.yml` run on the current branch (a PR's head branch, or a
    `workflow_dispatch`), and the latest `terraform-apply.yml` run on `main`. Each carries
    the run's outcome — `✓` passed, `✗` failed, `⏳` in progress, `?` ended without a
