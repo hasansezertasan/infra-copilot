@@ -5,12 +5,27 @@ Per-host capabilities — question tool, slash-command support — live in
 
 ## Install
 
-```text
-/plugin marketplace add hasansezertasan/infra-copilot
-/plugin install infra-copilot
+```sh
+claude plugin marketplace add hasansezertasan/infra-copilot --scope project
+claude plugin install infra-copilot --scope project
 ```
 
 Two steps: the first registers the marketplace, the second installs the plugin from it.
+Project scope records the plugin in `.claude/settings.json`; commit that file to share the
+project-scoped enablement with teammates. It does not pin the plugin version. For a
+personal install across repositories, omit `--scope project` (the default is user scope).
+
+If the install reports **"This plugin is disabled in your settings"**, check the
+diagnostic for the settings file that disables it. Enable the plugin at that scope, or
+remove the disabling entry there; a more-specific `local` setting overrides `project`.
+For example, if the diagnostic names project settings:
+
+```sh
+claude plugin enable infra-copilot@infra-copilot --scope project
+```
+
+If it names `.claude/settings.local.json`, use `--scope local` instead, or remove the
+disabling entry from that file.
 
 ## Update
 

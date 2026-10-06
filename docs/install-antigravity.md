@@ -8,6 +8,9 @@ straight from the Git URL, so no host-specific manifest is generated for it.
 
 ## Install
 
+Antigravity's plugin installer currently has no project-scope option; this installs the
+plugin into Antigravity's user plugin registry, so it is available across repositories.
+
 ```sh
 agy plugin install https://github.com/hasansezertasan/infra-copilot
 ```

@@ -6,6 +6,11 @@ covers install only.
 
 ## Install
 
+Codex CLI currently has no project-scope option for plugin marketplaces or installs;
+plugins are installed in the user's Codex configuration and are available across repos.
+If you need an install limited to one repository, Codex does not currently provide that
+through its plugin installer.
+
 Three separate things, and skipping any one leaves the plugin invisible:
 
 ```sh
