@@ -942,6 +942,11 @@ steps:
     why: The Terraform workflow authenticates to GitHub with these App credentials.
     run: |
       1. GitHub Org -> Settings -> Developer settings -> GitHub Apps -> New GitHub App.
+         Permissions: Repository Administration (R/W), Actions (R), Contents (R), Metadata (R),
+         Pull requests (R/W); Organization Members (R/W), Administration (R/W).
+         Actions (R) reads environments and deployment branch policies on refresh. Members (R/W)
+         is required when Terraform manages organization or team membership; read-only access only
+         lets the provider inspect memberships.
       2. Note the App ID. Generate a private key (.pem).
       3. Install on your org scoped to the repos in managed_repos (see config.md);
          note the Installation ID from the install URL.
@@ -1108,8 +1113,10 @@ steps:
     why: The github-org workspace authenticates as a GitHub App (not a PAT).
     run: |
       1. Create the App under your org: https://github.com/organizations/<your-org>/settings/apps/new
-         Permissions: Repo Administration(RW), Contents(R), Metadata(R), Pull requests(RW);
-         Org Members(R), Administration(RW). Install: only on this account.
+         Permissions: Repo Administration(RW), Actions(R), Contents(R), Metadata(R), Pull requests(RW);
+         Actions(R) reads environments and deployment branch policies on refresh.
+         Org Members(RW), Administration(RW). Members(RW) is needed when Terraform manages org or team
+         membership; Members(R) only lets the provider inspect memberships. Install: only on this account.
       2. Note the App ID. Generate a private key (.pem).
       3. Install on your org scoped to the repos in managed_repos (see config.md);
          note the Installation ID from the install URL.

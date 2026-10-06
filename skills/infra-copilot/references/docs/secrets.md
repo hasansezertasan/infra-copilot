@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1d167d6ce7717bea44529953a0c574384ca4547fb7aba2092f5097568e70d5f6
-Source-Hash: blake3:c8de3f19640caf6200f5e3333a906880119fcbc129b56fa2f75989e2a109ab25
+Content-Hash: blake3:38be874b425b5a35edb60aa51f64afad913dcdafb650e1b28de254fe122f2e80
+Source-Hash: blake3:3437c8021985fde0d012440ff680b556bdb5cb2d5225aef09511ba92b91f4f6e
 Schema-Version: v1
 -->
 
@@ -40,11 +40,13 @@ specific account/zone and resource types, then revoke it when discovery finishes
 ## GitHub App setup
 
 Create an App under the managed organization and install it only on the managed
-repositories. Grant Repository Administration (read/write), Contents (read), Metadata
-(read), Pull requests (read/write), and Organization Members (read), Administration
-(read/write) for the existing management scope. Adjust scope deliberately when managed
-resource types change. Record the App ID and installation ID, generate a private key,
-and store the full PEM and IDs with
+repositories. Grant Repository Administration (read/write), Actions (read), Contents
+(read), Metadata (read), and Pull requests (read/write); Actions read is required to read
+environments and deployment branch policies on refresh. Grant Organization Members
+(read/write) and Administration (read/write). Members write is required when Terraform
+manages organization or team membership; read-only access only lets the provider inspect
+memberships. Adjust scope deliberately when managed resource types change. Record the App
+ID and installation ID, generate a private key, and store the full PEM and IDs with
 [store-provider-credential](../operations.md#store-provider-credential).
 The PEM includes its BEGIN/END delimiters and newlines; never commit it.
 

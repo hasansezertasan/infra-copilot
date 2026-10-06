@@ -33,11 +33,13 @@ specific account/zone and resource types, then revoke it when discovery finishes
 ## GitHub App setup
 
 Create an App under the managed organization and install it only on the managed
-repositories. Grant Repository Administration (read/write), Contents (read), Metadata
-(read), Pull requests (read/write), and Organization Members (read), Administration
-(read/write) for the existing management scope. Adjust scope deliberately when managed
-resource types change. Record the App ID and installation ID, generate a private key,
-and store the full PEM and IDs with
+repositories. Grant Repository Administration (read/write), Actions (read), Contents
+(read), Metadata (read), and Pull requests (read/write); Actions read is required to read
+environments and deployment branch policies on refresh. Grant Organization Members
+(read/write) and Administration (read/write). Members write is required when Terraform
+manages organization or team membership; read-only access only lets the provider inspect
+memberships. Adjust scope deliberately when managed resource types change. Record the App
+ID and installation ID, generate a private key, and store the full PEM and IDs with
 [store-provider-credential](../operations.md#store-provider-credential).
 The PEM includes its BEGIN/END delimiters and newlines; never commit it.
 

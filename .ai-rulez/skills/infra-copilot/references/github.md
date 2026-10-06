@@ -33,8 +33,11 @@ is a locked decision — see this repo's `.infra-copilot/decisions.md`.
 
 1. Create the App: `https://github.com/organizations/<your-org>/settings/apps/new`
    (substitute your GitHub org slug — `$GITHUB_ORG`). Permissions — start narrow:
-   - **Repository**: Administration (R/W), Contents (R), Metadata (R), Pull requests (R/W).
-   - **Organization**: Members (R), Administration (R/W).
+   - **Repository**: Administration (R/W), Actions (R), Contents (R), Metadata (R), Pull requests (R/W).
+     Actions (R) reads environments and deployment branch policies on refresh.
+   - **Organization**: Members (R/W), Administration (R/W).
+     Members (R/W) is required when Terraform manages organization or team membership; read-only access
+     only lets the provider inspect memberships.
    - "Where can this app be installed": **Only on this account**.
 2. Create → note the **App ID**. Generate a **private key** (`.pem` downloads — treat like
    a password; include the full `-----BEGIN/END RSA PRIVATE KEY-----` lines when pasting).

@@ -34,7 +34,11 @@ If/when we add more resource types, add scope before declaring the resource. For
 The GitHub provider authenticates as a GitHub App, not a PAT. Apps are not tied to a user, support fine-grained permissions, and rotate cleanly.
 
 1. Create the app under the `<your-org>` org (Settings → Developer settings → GitHub Apps → New).
-2. Permissions: Repository — Administration (read/write), Contents (read), Metadata (read), Pull requests (read/write). Organization — Members (read), Administration (read/write).
+2. Permissions: Repository — Administration (read/write), Actions (read), Contents (read),
+   Metadata (read), Pull requests (read/write). Actions read is required to read environments
+   and deployment branch policies on refresh. Organization — Members (read/write),
+   Administration (read/write). Members write is required when Terraform manages organization
+   or team membership; read-only access only lets the provider inspect memberships.
 3. Install the app on the org, scoped to the repos Terraform manages (the `managed_repos` list in [`../config.md`](../config.md), currently e.g. `<owner/repo>`).
 4. Generate a private key, store the **App ID**, **installation ID**, and **PEM** in the `github-org` HCP workspace as three sensitive variables (`github_app_id`, `github_app_installation_id`, `github_app_pem`).
 5. The PEM must include the full `-----BEGIN/END RSA PRIVATE KEY-----` lines. Pasting just the base64 body works for the first request, then breaks on key rotation.

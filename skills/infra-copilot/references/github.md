@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:88d78e1dc738dcd6b8304fabc837d8f2f165a480435ad5898480b8474becb6fb
-Source-Hash: blake3:c8de3f19640caf6200f5e3333a906880119fcbc129b56fa2f75989e2a109ab25
+Content-Hash: blake3:cbb42daefd0c06f3b3ef4ac029a4d8e5bc974563b87c558308622d15e88336df
+Source-Hash: blake3:3437c8021985fde0d012440ff680b556bdb5cb2d5225aef09511ba92b91f4f6e
 Schema-Version: v1
 -->
 
@@ -40,8 +40,11 @@ is a locked decision — see this repo's `.infra-copilot/decisions.md`.
 
 1. Create the App: `https://github.com/organizations/<your-org>/settings/apps/new`
    (substitute your GitHub org slug — `$GITHUB_ORG`). Permissions — start narrow:
-   - **Repository**: Administration (R/W), Contents (R), Metadata (R), Pull requests (R/W).
-   - **Organization**: Members (R), Administration (R/W).
+   - **Repository**: Administration (R/W), Actions (R), Contents (R), Metadata (R), Pull requests (R/W).
+     Actions (R) reads environments and deployment branch policies on refresh.
+   - **Organization**: Members (R/W), Administration (R/W).
+     Members (R/W) is required when Terraform manages organization or team membership; read-only access
+     only lets the provider inspect memberships.
    - "Where can this app be installed": **Only on this account**.
 2. Create → note the **App ID**. Generate a **private key** (`.pem` downloads — treat like
    a password; include the full `-----BEGIN/END RSA PRIVATE KEY-----` lines when pasting).
