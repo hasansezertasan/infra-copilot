@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:ac895c3c87c46aac2350fd776d288bb8f8f8d27d40f81a8b508254454b25d774
-Source-Hash: blake3:fc2f698bcd4d19a84e7bd20a7e65907c430210ac04b05774a9c4f021cc8c5f10
+Content-Hash: blake3:352d8e8920d3b42b2cd89ec3787885c646f9aad817e8795e57a02929764a8e82
+Source-Hash: blake3:bed01d58abdfde537c450230cafe60975b8bbd14f946391448c3607fd7f5520a
 Schema-Version: v1
 -->
 
@@ -259,6 +259,12 @@ PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectN
 POOL="gha-infra"
 REPO_ID=$(gh api repos/<owner>/<repo> -q '.id')
 OWNER_ID=$(gh api repos/<owner>/<repo> -q '.owner.id')
+
+# Enable required Google Cloud services
+gcloud services enable \
+  cloudresourcemanager.googleapis.com iam.googleapis.com \
+  iamcredentials.googleapis.com sts.googleapis.com serviceusage.googleapis.com \
+  --project="$PROJECT_ID"
 
 # Create a dedicated pool
 gcloud iam workload-identity-pools create "$POOL" \

@@ -253,6 +253,12 @@ POOL="gha-infra"
 REPO_ID=$(gh api repos/<owner>/<repo> -q '.id')
 OWNER_ID=$(gh api repos/<owner>/<repo> -q '.owner.id')
 
+# Enable required Google Cloud services
+gcloud services enable \
+  cloudresourcemanager.googleapis.com iam.googleapis.com \
+  iamcredentials.googleapis.com sts.googleapis.com serviceusage.googleapis.com \
+  --project="$PROJECT_ID"
+
 # Create a dedicated pool
 gcloud iam workload-identity-pools create "$POOL" \
   --project="$PROJECT_ID" \
