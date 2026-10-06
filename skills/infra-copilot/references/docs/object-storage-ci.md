@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2373a937a3ca65e6038e9b654e6892f04332aba7deb3161b891b0bb5ea18306e
-Source-Hash: blake3:fb5beb0a9759c696b17c8aecfa7ab0cd33aa81da9f98cae5d68c844fe904d041
+Content-Hash: blake3:e8575d21cbc9ce9801becc500b9bc39354de2ba7821cf6a6931ec9bb637c80f1
+Source-Hash: blake3:d41afa667f7417a1e3d090fbc07cef2eaa873ff4c44cccd04fd76c77156fffaa
 Schema-Version: v1
 -->
 
@@ -133,7 +133,7 @@ severe vulnerabilities:
 
 - **Split plan and apply providers:**
   - **Apply provider (`apply`):** Constrained to `assertion.ref == 'refs/heads/main'`,
-    `assertion.job_workflow_ref` pinned to the apply workflow on `main`, and
+    `assertion.workflow_ref` pinned to the apply workflow on `main` (or `assertion.job_workflow_ref` if invoked as a reusable workflow), and
     `has(assertion.environment) && assertion.environment == 'production'`.
   - **Plan provider (`plan`):** Allowed only on safe plan events (`assertion.event_name in ['pull_request', 'push', 'workflow_dispatch']`)
     and explicitly requires `!has(assertion.environment)`, ensuring plan tokens can never pass as apply tokens

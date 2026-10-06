@@ -126,7 +126,7 @@ severe vulnerabilities:
 
 - **Split plan and apply providers:**
   - **Apply provider (`apply`):** Constrained to `assertion.ref == 'refs/heads/main'`,
-    `assertion.job_workflow_ref` pinned to the apply workflow on `main`, and
+    `assertion.workflow_ref` pinned to the apply workflow on `main` (or `assertion.job_workflow_ref` if invoked as a reusable workflow), and
     `has(assertion.environment) && assertion.environment == 'production'`.
   - **Plan provider (`plan`):** Allowed only on safe plan events (`assertion.event_name in ['pull_request', 'push', 'workflow_dispatch']`)
     and explicitly requires `!has(assertion.environment)`, ensuring plan tokens can never pass as apply tokens
