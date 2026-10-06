@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e3c58237d6b8212cb2ddd3902b6740d704d5294afc7346fc5459f596ce8110fb
-Source-Hash: blake3:dd6bc476d5161553c461bfd223aa44250d8dfef3013e62b0d462dbd9445475a5
+Content-Hash: blake3:ac895c3c87c46aac2350fd776d288bb8f8f8d27d40f81a8b508254454b25d774
+Source-Hash: blake3:fc2f698bcd4d19a84e7bd20a7e65907c430210ac04b05774a9c4f021cc8c5f10
 Schema-Version: v1
 -->
 
@@ -138,6 +138,13 @@ severe vulnerabilities:
   - **Plan provider (`plan`):** Allowed only on safe plan events (`assertion.event_name in ['pull_request', 'push', 'workflow_dispatch']`)
     and explicitly requires `!has(assertion.environment)`, ensuring plan tokens can never pass as apply tokens
     and target events are refused.
+- **Plan workflow provenance:** Direct workflows on pull requests carry a dynamic ref suffix
+  (such as `@refs/pull/<pr>/merge`), so checking `startsWith('<owner>/<repo>/.github/workflows/terraform-plan.yml@')`
+  restricts tokens to the plan workflow file while admitting branch PR runs. To protect against
+  branch authors altering the plan workflow on feature branches to misuse state locking permissions,
+  delegate plan execution to a reusable workflow pinned to `main` (for example,
+  `<owner>/<repo>/.github/workflows/reusable-plan.yml@refs/heads/main`) and condition on the exact
+  `assertion.job_workflow_ref == '<owner>/<repo>/.github/workflows/reusable-plan.yml@refs/heads/main'`.
 - **Differentiate service account bindings:** Because both providers feed the same pool, do not use the
   pool-wide `/*` principal set. Bind the apply service account to the specific principal attribute that only
   apply tokens carry (for example, `principalSet://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/attribute.environment/production`),
@@ -191,6 +198,9 @@ resource "google_iam_workload_identity_pool_provider" "plan" {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
   attribute_mapping = local.gha_mapping
+  # For direct workflows: startsWith admits PR merge refs while pinning the workflow path.
+  # For reusable workflows: replace startsWith with exact pinning to refs/heads/main:
+  #   "assertion.job_workflow_ref == '<owner>/<repo>/.github/workflows/reusable-plan.yml@refs/heads/main'"
   attribute_condition = join(" && ", [
     local.repo_pin,
     "assertion.event_name in ['pull_request', 'push', 'workflow_dispatch']",

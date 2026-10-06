@@ -131,6 +131,13 @@ severe vulnerabilities:
   - **Plan provider (`plan`):** Allowed only on safe plan events (`assertion.event_name in ['pull_request', 'push', 'workflow_dispatch']`)
     and explicitly requires `!has(assertion.environment)`, ensuring plan tokens can never pass as apply tokens
     and target events are refused.
+- **Plan workflow provenance:** Direct workflows on pull requests carry a dynamic ref suffix
+  (such as `@refs/pull/<pr>/merge`), so checking `startsWith('<owner>/<repo>/.github/workflows/terraform-plan.yml@')`
+  restricts tokens to the plan workflow file while admitting branch PR runs. To protect against
+  branch authors altering the plan workflow on feature branches to misuse state locking permissions,
+  delegate plan execution to a reusable workflow pinned to `main` (for example,
+  `<owner>/<repo>/.github/workflows/reusable-plan.yml@refs/heads/main`) and condition on the exact
+  `assertion.job_workflow_ref == '<owner>/<repo>/.github/workflows/reusable-plan.yml@refs/heads/main'`.
 - **Differentiate service account bindings:** Because both providers feed the same pool, do not use the
   pool-wide `/*` principal set. Bind the apply service account to the specific principal attribute that only
   apply tokens carry (for example, `principalSet://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/attribute.environment/production`),
@@ -184,6 +191,9 @@ resource "google_iam_workload_identity_pool_provider" "plan" {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
   attribute_mapping = local.gha_mapping
+  # For direct workflows: startsWith admits PR merge refs while pinning the workflow path.
+  # For reusable workflows: replace startsWith with exact pinning to refs/heads/main:
+  #   "assertion.job_workflow_ref == '<owner>/<repo>/.github/workflows/reusable-plan.yml@refs/heads/main'"
   attribute_condition = join(" && ", [
     local.repo_pin,
     "assertion.event_name in ['pull_request', 'push', 'workflow_dispatch']",
