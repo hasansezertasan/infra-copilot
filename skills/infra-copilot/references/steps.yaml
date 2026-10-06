@@ -799,7 +799,7 @@ steps:
          (see docs/object-storage-ci.md#gcp-workload-identity-federation for HCL, trust conditions, and ID retrieval)
       3. Grant the service account storage.objectAdmin on the state bucket
       4. Create GitHub secrets:
-         - GCP_WORKLOAD_IDENTITY_PROVIDER: projects/<id>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
+         - GCP_WORKLOAD_IDENTITY_PROVIDER: projects/<project-number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
          - GCP_SERVICE_ACCOUNT: <sa>@<project>.iam.gserviceaccount.com
 
       **S3 (OIDC assume-role):**

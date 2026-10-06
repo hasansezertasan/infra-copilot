@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2291134b8e67e06d33235c048b85642dad036c7175877e0cd87c657ae5d6b746
-Source-Hash: blake3:19423c3542aa93fc17e8a7ce8c0226adf24095a53a578b8ea5938ccf1526a03e
+Content-Hash: blake3:2cbfb9c996de8cd0e5ef3524196e56564b2bcd3230c65c92e2c478b00ef8ab74
+Source-Hash: blake3:0ab1fbf85c0abb58a04cd5f7e5516a4be830af581887d59936412f72e5a6c635
 Schema-Version: v1
 -->
 
@@ -194,7 +194,9 @@ resource "google_iam_workload_identity_pool_provider" "plan" {
   ])
 }
 
-# Service account for plan runs (read-only state access)
+data "google_project" "current" {}
+
+# Service account for plan runs (state locking and reading)
 resource "google_service_account" "plan" {
   account_id   = "tf-plan"
   display_name = "Terraform Plan runner"
@@ -203,16 +205,17 @@ resource "google_service_account" "plan" {
 resource "google_service_account_iam_member" "plan_wif" {
   service_account_id = google_service_account.plan.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.infra.name}/attribute.repository_id/<repo-id>"
+  member             = "principalSet://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.infra.workload_identity_pool_id}/attribute.repository_id/<repo-id>"
 }
 
+# Note: GCS backend acquires a state lock during plan, requiring objectAdmin to create and release .tflock objects
 resource "google_storage_bucket_iam_member" "plan_state" {
   bucket = "<state-bucket>"
-  role   = "roles/storage.objectViewer"
+  role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.plan.email}"
 }
 
-# Service account for apply runs (objectAdmin on state bucket, plus infra permissions)
+# Service account for apply runs (state bucket access plus infrastructure permissions)
 resource "google_service_account" "apply" {
   account_id   = "tf-apply"
   display_name = "Terraform Apply runner"
@@ -221,7 +224,7 @@ resource "google_service_account" "apply" {
 resource "google_service_account_iam_member" "apply_wif" {
   service_account_id = google_service_account.apply.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principal://iam.googleapis.com/${google_iam_workload_identity_pool.infra.name}/subject/repo:<owner>/<repo>:environment:production"
+  member             = "principal://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.infra.workload_identity_pool_id}/subject/repo:<owner>/<repo>:environment:production"
 }
 
 resource "google_storage_bucket_iam_member" "apply_state" {
@@ -283,14 +286,14 @@ gcloud iam service-accounts add-iam-policy-binding "tf-plan@$PROJECT_ID.iam.gser
   --role="roles/iam.workloadIdentityUser" \
   --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL/attribute.repository_id/$REPO_ID"
 
-# Grant storage permissions on the state bucket
+# Grant storage permissions on the state bucket (objectAdmin needed for state locking)
 gcloud storage buckets add-iam-policy-binding "gs://<state-bucket>" \
   --member="serviceAccount:tf-apply@$PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/storage.objectAdmin"
 
 gcloud storage buckets add-iam-policy-binding "gs://<state-bucket>" \
   --member="serviceAccount:tf-plan@$PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/storage.objectViewer"
+  --role="roles/storage.objectAdmin"
 ```
 
 #### GitHub secrets and workflow usage
