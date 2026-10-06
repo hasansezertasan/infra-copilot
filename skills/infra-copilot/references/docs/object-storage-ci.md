@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2cbfb9c996de8cd0e5ef3524196e56564b2bcd3230c65c92e2c478b00ef8ab74
-Source-Hash: blake3:0ab1fbf85c0abb58a04cd5f7e5516a4be830af581887d59936412f72e5a6c635
+Content-Hash: blake3:e3c58237d6b8212cb2ddd3902b6740d704d5294afc7346fc5459f596ce8110fb
+Source-Hash: blake3:dd6bc476d5161553c461bfd223aa44250d8dfef3013e62b0d462dbd9445475a5
 Schema-Version: v1
 -->
 
@@ -139,9 +139,11 @@ severe vulnerabilities:
     and explicitly requires `!has(assertion.environment)`, ensuring plan tokens can never pass as apply tokens
     and target events are refused.
 - **Differentiate service account bindings:** Because both providers feed the same pool, do not use the
-  pool-wide `/*` principal set. Bind the apply service account to the specific principal that only apply tokens
-  carry (for example, `principal://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/subject/repo:<owner>/<repo>:environment:production`),
+  pool-wide `/*` principal set. Bind the apply service account to the specific principal attribute that only
+  apply tokens carry (for example, `principalSet://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/attribute.environment/production`),
   and bind the plan service account to `principalSet://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/attribute.repository_id/<repo-id>`.
+  Because the pool is dedicated to this repository and only the apply provider admits `assertion.environment == 'production'`,
+  binding to `attribute.environment/production` avoids depending on mutable or format-changing subject (`sub`) claims.
 
 #### Terraform HCL configuration
 
@@ -158,7 +160,9 @@ locals {
     "attribute.repository_owner_id" = "assertion.repository_owner_id"
     "attribute.ref"                 = "assertion.ref"
     "attribute.event_name"          = "assertion.event_name"
+    "attribute.workflow_ref"        = "assertion.workflow_ref"
     "attribute.job_workflow_ref"    = "assertion.job_workflow_ref"
+    "attribute.environment"         = "assertion.environment"
   }
   repo_pin = "assertion.repository_id == '<repo-id>' && assertion.repository_owner_id == '<owner-id>'"
 }
@@ -174,7 +178,7 @@ resource "google_iam_workload_identity_pool_provider" "apply" {
   attribute_condition = join(" && ", [
     local.repo_pin,
     "assertion.ref == 'refs/heads/main'",
-    "assertion.job_workflow_ref == '<owner>/<repo>/.github/workflows/terraform-apply.yml@refs/heads/main'",
+    "(assertion.workflow_ref == '<owner>/<repo>/.github/workflows/terraform-apply.yml@refs/heads/main' || assertion.job_workflow_ref == '<owner>/<repo>/.github/workflows/terraform-apply.yml@refs/heads/main')",
     "has(assertion.environment) && assertion.environment == 'production'",
   ])
 }
@@ -190,6 +194,7 @@ resource "google_iam_workload_identity_pool_provider" "plan" {
   attribute_condition = join(" && ", [
     local.repo_pin,
     "assertion.event_name in ['pull_request', 'push', 'workflow_dispatch']",
+    "(assertion.workflow_ref.startsWith('<owner>/<repo>/.github/workflows/terraform-plan.yml@') || assertion.job_workflow_ref.startsWith('<owner>/<repo>/.github/workflows/terraform-plan.yml@'))",
     "!has(assertion.environment)",
   ])
 }
@@ -224,7 +229,7 @@ resource "google_service_account" "apply" {
 resource "google_service_account_iam_member" "apply_wif" {
   service_account_id = google_service_account.apply.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principal://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.infra.workload_identity_pool_id}/subject/repo:<owner>/<repo>:environment:production"
+  member             = "principalSet://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.infra.workload_identity_pool_id}/attribute.environment/production"
 }
 
 resource "google_storage_bucket_iam_member" "apply_state" {
@@ -251,7 +256,7 @@ gcloud iam workload-identity-pools create "$POOL" \
   --location=global \
   --display-name="GitHub Actions ($POOL)"
 
-MAPPING="google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id,attribute.ref=assertion.ref,attribute.event_name=assertion.event_name,attribute.job_workflow_ref=assertion.job_workflow_ref"
+MAPPING="google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id,attribute.ref=assertion.ref,attribute.event_name=assertion.event_name,attribute.workflow_ref=assertion.workflow_ref,attribute.job_workflow_ref=assertion.job_workflow_ref,attribute.environment=assertion.environment"
 REPO_PIN="assertion.repository_id == '$REPO_ID' && assertion.repository_owner_id == '$OWNER_ID'"
 
 # Create the apply provider
@@ -261,16 +266,16 @@ gcloud iam workload-identity-pools providers create-oidc "apply" \
   --workload-identity-pool="$POOL" \
   --issuer-uri="https://token.actions.githubusercontent.com" \
   --attribute-mapping="$MAPPING" \
-  --attribute-condition="$REPO_PIN && assertion.ref == 'refs/heads/main' && assertion.job_workflow_ref == '<owner>/<repo>/.github/workflows/terraform-apply.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'production'"
+  --attribute-condition="$REPO_PIN && assertion.ref == 'refs/heads/main' && (assertion.workflow_ref == '<owner>/<repo>/.github/workflows/terraform-apply.yml@refs/heads/main' || assertion.job_workflow_ref == '<owner>/<repo>/.github/workflows/terraform-apply.yml@refs/heads/main') && has(assertion.environment) && assertion.environment == 'production'"
 
-# Create the plan provider
+# Create the plan provider (constrained to plan workflow)
 gcloud iam workload-identity-pools providers create-oidc "plan" \
   --project="$PROJECT_ID" \
   --location=global \
   --workload-identity-pool="$POOL" \
   --issuer-uri="https://token.actions.githubusercontent.com" \
   --attribute-mapping="$MAPPING" \
-  --attribute-condition="$REPO_PIN && assertion.event_name in ['pull_request', 'push', 'workflow_dispatch'] && !has(assertion.environment)"
+  --attribute-condition="$REPO_PIN && assertion.event_name in ['pull_request', 'push', 'workflow_dispatch'] && (assertion.workflow_ref.startsWith('<owner>/<repo>/.github/workflows/terraform-plan.yml@') || assertion.job_workflow_ref.startsWith('<owner>/<repo>/.github/workflows/terraform-plan.yml@')) && !has(assertion.environment)"
 
 # Create service accounts and bind IAM
 gcloud iam service-accounts create tf-apply --project="$PROJECT_ID" --display-name="Terraform Apply"
@@ -279,7 +284,7 @@ gcloud iam service-accounts create tf-plan --project="$PROJECT_ID" --display-nam
 gcloud iam service-accounts add-iam-policy-binding "tf-apply@$PROJECT_ID.iam.gserviceaccount.com" \
   --project="$PROJECT_ID" \
   --role="roles/iam.workloadIdentityUser" \
-  --member="principal://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL/subject/repo:<owner>/<repo>:environment:production"
+  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL/attribute.environment/production"
 
 gcloud iam service-accounts add-iam-policy-binding "tf-plan@$PROJECT_ID.iam.gserviceaccount.com" \
   --project="$PROJECT_ID" \
