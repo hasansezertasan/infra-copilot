@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:d303f16ebab8a270422c6ffb66ae85ed086aaf879ddde542e3057a66c094684d
-Source-Hash: blake3:c8de3f19640caf6200f5e3333a906880119fcbc129b56fa2f75989e2a109ab25
+Content-Hash: blake3:7ec4ae96e3fabf666ff23ed870c5540d12e44705942f39fc4a2c54551d0111c1
+Source-Hash: blake3:3437c8021985fde0d012440ff680b556bdb5cb2d5225aef09511ba92b91f4f6e
 Schema-Version: v1
 -->
 
@@ -41,7 +41,11 @@ If/when we add more resource types, add scope before declaring the resource. For
 The GitHub provider authenticates as a GitHub App, not a PAT. Apps are not tied to a user, support fine-grained permissions, and rotate cleanly.
 
 1. Create the app under the `<your-org>` org (Settings → Developer settings → GitHub Apps → New).
-2. Permissions: Repository — Administration (read/write), Contents (read), Metadata (read), Pull requests (read/write). Organization — Members (read), Administration (read/write).
+2. Permissions: Repository — Administration (read/write), Actions (read), Contents (read),
+   Metadata (read), Pull requests (read/write). Actions read is required to read environments
+   and deployment branch policies on refresh. Organization — Members (read/write),
+   Administration (read/write). Members write is required when Terraform manages organization
+   or team membership; read-only access only lets the provider inspect memberships.
 3. Install the app on the org, scoped to the repos Terraform manages (the `managed_repos` list in [`../config.md`](../config.md), currently e.g. `<owner/repo>`).
 4. Generate a private key, store the **App ID**, **installation ID**, and **PEM** in the `github-org` HCP workspace as three sensitive variables (`github_app_id`, `github_app_installation_id`, `github_app_pem`).
 5. The PEM must include the full `-----BEGIN/END RSA PRIVATE KEY-----` lines. Pasting just the base64 body works for the first request, then breaks on key rotation.

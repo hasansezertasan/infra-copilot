@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7ac483bd596ad99caff8f57c21c9f49af980a7ddeca02ea5cb2d60da259a20ce
-Source-Hash: blake3:c8de3f19640caf6200f5e3333a906880119fcbc129b56fa2f75989e2a109ab25
+Content-Hash: blake3:76f2c18034852207b793b6fd59d83142d32112b675cd9bc2dddb193abb8e7523
+Source-Hash: blake3:3437c8021985fde0d012440ff680b556bdb5cb2d5225aef09511ba92b91f4f6e
 Schema-Version: v1
 -->
 
@@ -78,8 +78,11 @@ The `github-org` workspace authenticates as a GitHub App, not a PAT.
 
 1. Go to `https://github.com/organizations/<your-org>/settings/apps/new`.
 2. Permissions (start narrow, widen on demand):
-   - Repository: Administration (R/W), Contents (R), Metadata (R), Pull requests (R/W).
-   - Organization: Members (R), Administration (R/W).
+   - Repository: Administration (R/W), Actions (R), Contents (R), Metadata (R), Pull requests (R/W).
+     Actions (R) reads environments and deployment branch policies on refresh.
+   - Organization: Members (R/W), Administration (R/W).
+     Members (R/W) is required when Terraform manages organization or team membership; read-only access
+     only lets the provider inspect memberships.
 3. Where can this app be installed: **Only on this account**.
 4. Create. Note the **App ID**.
 5. Generate a **private key** (downloads as a `.pem`). Treat it like a password.
