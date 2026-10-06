@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:352d8e8920d3b42b2cd89ec3787885c646f9aad817e8795e57a02929764a8e82
-Source-Hash: blake3:bed01d58abdfde537c450230cafe60975b8bbd14f946391448c3607fd7f5520a
+Content-Hash: blake3:2373a937a3ca65e6038e9b654e6892f04332aba7deb3161b891b0bb5ea18306e
+Source-Hash: blake3:fb5beb0a9759c696b17c8aecfa7ab0cd33aa81da9f98cae5d68c844fe904d041
 Schema-Version: v1
 -->
 
@@ -145,6 +145,12 @@ severe vulnerabilities:
   delegate plan execution to a reusable workflow pinned to `main` (for example,
   `<owner>/<repo>/.github/workflows/reusable-plan.yml@refs/heads/main`) and condition on the exact
   `assertion.job_workflow_ref == '<owner>/<repo>/.github/workflows/reusable-plan.yml@refs/heads/main'`.
+- **Avoid mapping claims omitted by workflows:** GitHub only supplies `environment` to jobs bound
+  to an environment, and only supplies `job_workflow_ref` to jobs invoked as reusable workflows. Because
+  Google evaluates every attribute-mapping CEL expression during token exchange, referencing absent claims
+  causes token exchange to fail before attribute conditions run. Define separate attribute mappings: the
+  `plan` provider maps claims present in plan runs (`sub`, `repository_id`, `repository_owner_id`, `ref`,
+  `event_name`, `workflow_ref`), while the `apply` provider additionally maps `environment`.
 - **Differentiate service account bindings:** Because both providers feed the same pool, do not use the
   pool-wide `/*` principal set. Bind the apply service account to the specific principal attribute that only
   apply tokens carry (for example, `principalSet://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/attribute.environment/production`),
@@ -161,14 +167,21 @@ resource "google_iam_workload_identity_pool" "infra" {
 }
 
 locals {
-  gha_mapping = {
+  gha_mapping_plan = {
     "google.subject"                = "assertion.sub"
     "attribute.repository_id"       = "assertion.repository_id"
     "attribute.repository_owner_id" = "assertion.repository_owner_id"
     "attribute.ref"                 = "assertion.ref"
     "attribute.event_name"          = "assertion.event_name"
     "attribute.workflow_ref"        = "assertion.workflow_ref"
-    "attribute.job_workflow_ref"    = "assertion.job_workflow_ref"
+  }
+  gha_mapping_apply = {
+    "google.subject"                = "assertion.sub"
+    "attribute.repository_id"       = "assertion.repository_id"
+    "attribute.repository_owner_id" = "assertion.repository_owner_id"
+    "attribute.ref"                 = "assertion.ref"
+    "attribute.event_name"          = "assertion.event_name"
+    "attribute.workflow_ref"        = "assertion.workflow_ref"
     "attribute.environment"         = "assertion.environment"
   }
   repo_pin = "assertion.repository_id == '<repo-id>' && assertion.repository_owner_id == '<owner-id>'"
@@ -181,11 +194,11 @@ resource "google_iam_workload_identity_pool_provider" "apply" {
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
-  attribute_mapping = local.gha_mapping
+  attribute_mapping = local.gha_mapping_apply
   attribute_condition = join(" && ", [
     local.repo_pin,
     "assertion.ref == 'refs/heads/main'",
-    "(assertion.workflow_ref == '<owner>/<repo>/.github/workflows/terraform-apply.yml@refs/heads/main' || assertion.job_workflow_ref == '<owner>/<repo>/.github/workflows/terraform-apply.yml@refs/heads/main')",
+    "assertion.workflow_ref == '<owner>/<repo>/.github/workflows/terraform-apply.yml@refs/heads/main'",
     "has(assertion.environment) && assertion.environment == 'production'",
   ])
 }
@@ -197,14 +210,14 @@ resource "google_iam_workload_identity_pool_provider" "plan" {
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
-  attribute_mapping = local.gha_mapping
+  attribute_mapping = local.gha_mapping_plan
   # For direct workflows: startsWith admits PR merge refs while pinning the workflow path.
   # For reusable workflows: replace startsWith with exact pinning to refs/heads/main:
-  #   "assertion.job_workflow_ref == '<owner>/<repo>/.github/workflows/reusable-plan.yml@refs/heads/main'"
+  #   "has(assertion.job_workflow_ref) && assertion.job_workflow_ref == '<owner>/<repo>/.github/workflows/reusable-plan.yml@refs/heads/main'"
   attribute_condition = join(" && ", [
     local.repo_pin,
     "assertion.event_name in ['pull_request', 'push', 'workflow_dispatch']",
-    "(assertion.workflow_ref.startsWith('<owner>/<repo>/.github/workflows/terraform-plan.yml@') || assertion.job_workflow_ref.startsWith('<owner>/<repo>/.github/workflows/terraform-plan.yml@'))",
+    "assertion.workflow_ref.startsWith('<owner>/<repo>/.github/workflows/terraform-plan.yml@')",
     "!has(assertion.environment)",
   ])
 }
@@ -272,7 +285,8 @@ gcloud iam workload-identity-pools create "$POOL" \
   --location=global \
   --display-name="GitHub Actions ($POOL)"
 
-MAPPING="google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id,attribute.ref=assertion.ref,attribute.event_name=assertion.event_name,attribute.workflow_ref=assertion.workflow_ref,attribute.job_workflow_ref=assertion.job_workflow_ref,attribute.environment=assertion.environment"
+MAPPING_PLAN="google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id,attribute.ref=assertion.ref,attribute.event_name=assertion.event_name,attribute.workflow_ref=assertion.workflow_ref"
+MAPPING_APPLY="google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id,attribute.ref=assertion.ref,attribute.event_name=assertion.event_name,attribute.workflow_ref=assertion.workflow_ref,attribute.environment=assertion.environment"
 REPO_PIN="assertion.repository_id == '$REPO_ID' && assertion.repository_owner_id == '$OWNER_ID'"
 
 # Create the apply provider
@@ -281,8 +295,8 @@ gcloud iam workload-identity-pools providers create-oidc "apply" \
   --location=global \
   --workload-identity-pool="$POOL" \
   --issuer-uri="https://token.actions.githubusercontent.com" \
-  --attribute-mapping="$MAPPING" \
-  --attribute-condition="$REPO_PIN && assertion.ref == 'refs/heads/main' && (assertion.workflow_ref == '<owner>/<repo>/.github/workflows/terraform-apply.yml@refs/heads/main' || assertion.job_workflow_ref == '<owner>/<repo>/.github/workflows/terraform-apply.yml@refs/heads/main') && has(assertion.environment) && assertion.environment == 'production'"
+  --attribute-mapping="$MAPPING_APPLY" \
+  --attribute-condition="$REPO_PIN && assertion.ref == 'refs/heads/main' && assertion.workflow_ref == '<owner>/<repo>/.github/workflows/terraform-apply.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'production'"
 
 # Create the plan provider (constrained to plan workflow)
 gcloud iam workload-identity-pools providers create-oidc "plan" \
@@ -290,8 +304,8 @@ gcloud iam workload-identity-pools providers create-oidc "plan" \
   --location=global \
   --workload-identity-pool="$POOL" \
   --issuer-uri="https://token.actions.githubusercontent.com" \
-  --attribute-mapping="$MAPPING" \
-  --attribute-condition="$REPO_PIN && assertion.event_name in ['pull_request', 'push', 'workflow_dispatch'] && (assertion.workflow_ref.startsWith('<owner>/<repo>/.github/workflows/terraform-plan.yml@') || assertion.job_workflow_ref.startsWith('<owner>/<repo>/.github/workflows/terraform-plan.yml@')) && !has(assertion.environment)"
+  --attribute-mapping="$MAPPING_PLAN" \
+  --attribute-condition="$REPO_PIN && assertion.event_name in ['pull_request', 'push', 'workflow_dispatch'] && assertion.workflow_ref.startsWith('<owner>/<repo>/.github/workflows/terraform-plan.yml@') && !has(assertion.environment)"
 
 # Create service accounts and bind IAM
 gcloud iam service-accounts create tf-apply --project="$PROJECT_ID" --display-name="Terraform Apply"

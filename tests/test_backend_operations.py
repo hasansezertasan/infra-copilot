@@ -102,9 +102,12 @@ class BackendOperationTests(unittest.TestCase):
         self.assertIn("assertion.environment == 'production'", doc)
         self.assertIn('!has(assertion.environment)', doc)
         self.assertIn('One dedicated pool per repository', doc)
+        self.assertIn('gha_mapping_plan = {', doc)
+        self.assertIn('gha_mapping_apply = {', doc)
 
         manifest = self.manifest.read_text(encoding='utf-8')
         self.assertIn('docs: docs/object-storage-ci.md#gcp-workload-identity-federation', manifest)
+        self.assertIn('--env production', manifest)
 
         gcp_doc = (self.root / '.ai-rulez/skills/infra-copilot/references/gcp.md').read_text(encoding='utf-8')
         self.assertIn('docs/object-storage-ci.md#gcp-workload-identity-federation', gcp_doc)

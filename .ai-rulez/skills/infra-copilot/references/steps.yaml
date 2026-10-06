@@ -797,10 +797,14 @@ steps:
       1. Create a dedicated Workload Identity Pool for this repo (never share pools across repos)
       2. Create plan and apply providers pinning repository_id, repository_owner_id, workflows, and environment
          (see docs/object-storage-ci.md#gcp-workload-identity-federation for HCL, trust conditions, and ID retrieval)
-      3. Grant the service account storage.objectAdmin on the state bucket
+      3. Grant both service accounts (tf-plan and tf-apply) storage.objectAdmin on the state bucket
       4. Create GitHub secrets:
-         - GCP_WORKLOAD_IDENTITY_PROVIDER: projects/<project-number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
-         - GCP_SERVICE_ACCOUNT: <sa>@<project>.iam.gserviceaccount.com
+         - Repository secrets (for plan runs):
+           - GCP_WORKLOAD_IDENTITY_PROVIDER: projects/<project-number>/locations/global/workloadIdentityPools/<pool>/providers/plan
+           - GCP_SERVICE_ACCOUNT: tf-plan@<project>.iam.gserviceaccount.com
+         - Environment secrets under "production" (for apply runs; create the "production" environment under Settings -> Environments first if needed):
+           - GCP_WORKLOAD_IDENTITY_PROVIDER: projects/<project-number>/locations/global/workloadIdentityPools/<pool>/providers/apply
+           - GCP_SERVICE_ACCOUNT: tf-apply@<project>.iam.gserviceaccount.com
 
       **S3 (OIDC assume-role):**
       1. Create an IAM OIDC provider for GitHub Actions
@@ -818,19 +822,22 @@ steps:
       Reply `done` after installing the secrets.
     check: |
       # Verify secrets exist in the repo (exact name match)
-      secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
+      repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
       case "$STATE_BACKEND" in
         gcs)
-          printf '%s\n' "$secrets" | grep -Fxq "GCP_WORKLOAD_IDENTITY_PROVIDER" || exit 1
-          printf '%s\n' "$secrets" | grep -Fxq "GCP_SERVICE_ACCOUNT" || exit 1
+          printf '%s\n' "$repo_secrets" | grep -Fxq "GCP_WORKLOAD_IDENTITY_PROVIDER" || exit 1
+          printf '%s\n' "$repo_secrets" | grep -Fxq "GCP_SERVICE_ACCOUNT" || exit 1
+          env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 1
+          printf '%s\n' "$env_secrets" | grep -Fxq "GCP_WORKLOAD_IDENTITY_PROVIDER" || exit 1
+          printf '%s\n' "$env_secrets" | grep -Fxq "GCP_SERVICE_ACCOUNT" || exit 1
           ;;
         s3)
-          printf '%s\n' "$secrets" | grep -Fxq "AWS_ROLE_ARN" || exit 1
+          printf '%s\n' "$repo_secrets" | grep -Fxq "AWS_ROLE_ARN" || exit 1
           ;;
         azurerm)
-          printf '%s\n' "$secrets" | grep -Fxq "AZURE_CLIENT_ID" || exit 1
-          printf '%s\n' "$secrets" | grep -Fxq "AZURE_TENANT_ID" || exit 1
-          printf '%s\n' "$secrets" | grep -Fxq "AZURE_SUBSCRIPTION_ID" || exit 1
+          printf '%s\n' "$repo_secrets" | grep -Fxq "AZURE_CLIENT_ID" || exit 1
+          printf '%s\n' "$repo_secrets" | grep -Fxq "AZURE_TENANT_ID" || exit 1
+          printf '%s\n' "$repo_secrets" | grep -Fxq "AZURE_SUBSCRIPTION_ID" || exit 1
           ;;
       esac
     produces: Cloud identity federation and GitHub secrets for backend access
