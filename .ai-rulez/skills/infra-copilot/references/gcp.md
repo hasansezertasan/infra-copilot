@@ -160,7 +160,10 @@ privileged one for `TFC_GCP_APPLY_SERVICE_ACCOUNT_EMAIL`. Then narrow each
 
 A speculative plan — including one a pull request triggers — then cannot mint
 apply-grade credentials, even if the workspace variables were edited. Keep one active
-provider per pool: a second provider (for GitHub Actions, say) belongs in its own pool.
+provider per pool: a second provider for GitHub Actions belongs in its own dedicated pool.
+See [GCP Workload Identity Federation for GitHub Actions](docs/object-storage-ci.md#gcp-workload-identity-federation)
+for the dedicated pool architecture, immutable repo ID pins, plan/apply provider separation,
+and complete Terraform HCL.
 
 ### AGENT — verify the trust (read-only)
 

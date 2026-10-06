@@ -93,6 +93,22 @@ class BackendOperationTests(unittest.TestCase):
         self.manifest.write_text(text, encoding='utf-8')
         self.assertTrue(any('backend-specific reason' in e for e in validate_backend_operations(self.root)))
 
+    def test_gha_wif_guidance_and_trust_conditions(self) -> None:
+        doc = (self.root / '.ai-rulez/skills/infra-copilot/references/docs/object-storage-ci.md').read_text(encoding='utf-8')
+        self.assertIn('### GCP Workload Identity Federation', doc)
+        self.assertIn('assertion.repository_id', doc)
+        self.assertIn('assertion.repository_owner_id', doc)
+        self.assertIn("assertion.ref == 'refs/heads/main'", doc)
+        self.assertIn("assertion.environment == 'production'", doc)
+        self.assertIn('!has(assertion.environment)', doc)
+        self.assertIn('One dedicated pool per repository', doc)
+
+        manifest = self.manifest.read_text(encoding='utf-8')
+        self.assertIn('docs: docs/object-storage-ci.md#gcp-workload-identity-federation', manifest)
+
+        gcp_doc = (self.root / '.ai-rulez/skills/infra-copilot/references/gcp.md').read_text(encoding='utf-8')
+        self.assertIn('docs/object-storage-ci.md#gcp-workload-identity-federation', gcp_doc)
+
 
 if __name__ == '__main__':
     unittest.main()
