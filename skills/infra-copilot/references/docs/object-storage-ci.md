@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e8575d21cbc9ce9801becc500b9bc39354de2ba7821cf6a6931ec9bb637c80f1
-Source-Hash: blake3:d41afa667f7417a1e3d090fbc07cef2eaa873ff4c44cccd04fd76c77156fffaa
+Content-Hash: blake3:b879f8520267508d23499d22e155390f5813078a3760c166360bfa4c9deff085
+Source-Hash: blake3:c8de3f19640caf6200f5e3333a906880119fcbc129b56fa2f75989e2a109ab25
 Schema-Version: v1
 -->
 
@@ -151,6 +151,10 @@ severe vulnerabilities:
   causes token exchange to fail before attribute conditions run. Define separate attribute mappings: the
   `plan` provider maps claims present in plan runs (`sub`, `repository_id`, `repository_owner_id`, `ref`,
   `event_name`, `workflow_ref`), while the `apply` provider additionally maps `environment`.
+- **Map a bounded WIF subject:** Google STS limits `google.subject` to 127 bytes. GitHub's
+  default `assertion.sub` can exceed this limit on repositories with long names or ref paths (producing
+  >127 bytes), failing token exchange before conditions run. Map `google.subject` to the compact,
+  immutable `assertion.repository_id` instead.
 - **Differentiate service account bindings:** Because both providers feed the same pool, do not use the
   pool-wide `/*` principal set. Bind the apply service account to the specific principal attribute that only
   apply tokens carry (for example, `principalSet://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/attribute.environment/production`),
@@ -168,7 +172,7 @@ resource "google_iam_workload_identity_pool" "infra" {
 
 locals {
   gha_mapping_plan = {
-    "google.subject"                = "assertion.sub"
+    "google.subject"                = "assertion.repository_id"
     "attribute.repository_id"       = "assertion.repository_id"
     "attribute.repository_owner_id" = "assertion.repository_owner_id"
     "attribute.ref"                 = "assertion.ref"
@@ -176,7 +180,7 @@ locals {
     "attribute.workflow_ref"        = "assertion.workflow_ref"
   }
   gha_mapping_apply = {
-    "google.subject"                = "assertion.sub"
+    "google.subject"                = "assertion.repository_id"
     "attribute.repository_id"       = "assertion.repository_id"
     "attribute.repository_owner_id" = "assertion.repository_owner_id"
     "attribute.ref"                 = "assertion.ref"
@@ -285,8 +289,8 @@ gcloud iam workload-identity-pools create "$POOL" \
   --location=global \
   --display-name="GitHub Actions ($POOL)"
 
-MAPPING_PLAN="google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id,attribute.ref=assertion.ref,attribute.event_name=assertion.event_name,attribute.workflow_ref=assertion.workflow_ref"
-MAPPING_APPLY="google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id,attribute.ref=assertion.ref,attribute.event_name=assertion.event_name,attribute.workflow_ref=assertion.workflow_ref,attribute.environment=assertion.environment"
+MAPPING_PLAN="google.subject=assertion.repository_id,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id,attribute.ref=assertion.ref,attribute.event_name=assertion.event_name,attribute.workflow_ref=assertion.workflow_ref"
+MAPPING_APPLY="google.subject=assertion.repository_id,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id,attribute.ref=assertion.ref,attribute.event_name=assertion.event_name,attribute.workflow_ref=assertion.workflow_ref,attribute.environment=assertion.environment"
 REPO_PIN="assertion.repository_id == '$REPO_ID' && assertion.repository_owner_id == '$OWNER_ID'"
 
 # Create the apply provider

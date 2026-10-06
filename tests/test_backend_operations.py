@@ -104,6 +104,7 @@ class BackendOperationTests(unittest.TestCase):
         self.assertIn('One dedicated pool per repository', doc)
         self.assertIn('gha_mapping_plan = {', doc)
         self.assertIn('gha_mapping_apply = {', doc)
+        self.assertIn('"google.subject"                = "assertion.repository_id"', doc)
 
         manifest = self.manifest.read_text(encoding='utf-8')
         self.assertIn('docs: docs/object-storage-ci.md#gcp-workload-identity-federation', manifest)

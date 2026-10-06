@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:d41afa667f7417a1e3d090fbc07cef2eaa873ff4c44cccd04fd76c77156fffaa",
+  "source_hash": "blake3:c8de3f19640caf6200f5e3333a906880119fcbc129b56fa2f75989e2a109ab25",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -102,7 +102,7 @@
       "content_hash": "blake3:86dfd743bd885f16b71c6a85392f144b21dee4231e27e030a0e557562106a4f2"
     },
     "skills/infra-copilot/references/docs/object-storage-ci.md": {
-      "content_hash": "blake3:e8575d21cbc9ce9801becc500b9bc39354de2ba7821cf6a6931ec9bb637c80f1"
+      "content_hash": "blake3:b879f8520267508d23499d22e155390f5813078a3760c166360bfa4c9deff085"
     },
     "skills/infra-copilot/references/docs/object-storage-state.md": {
       "content_hash": "blake3:06dff340173158b4053cfbd28360dd384dd93bf7fdef519faed9c89b9b9da1b4"
