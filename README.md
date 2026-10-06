@@ -14,9 +14,9 @@ plans, and imports over each provider's API, pausing for the human steps.
 
 | Host | Install | Update | Invoke |
 |---|---|---|---|
-| [Claude Code](docs/install-claude-code.md) | `/plugin marketplace add hasansezertasan/infra-copilot`, then `/plugin install infra-copilot` | `/plugin update infra-copilot`, then restart | `/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add`, `/infra-status` |
-| [Codex CLI](docs/install-codex.md) | `codex plugin marketplace add hasansezertasan/infra-copilot`, then enable it from `/plugins` and start a new session | `codex plugin marketplace upgrade infra-copilot`, then `codex plugin add infra-copilot@infra-copilot` and restart | Ask to use infra-copilot for setup, import, prune, add, or status; plugin-defined slash commands are not exposed |
-| [Antigravity](docs/install-antigravity.md) | `agy plugin install https://github.com/hasansezertasan/infra-copilot` | Reinstall the plugin, then restart | `/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add`, `/infra-status`, or natural language |
+| [Claude Code](docs/install-claude-code.md) | `claude plugin marketplace add hasansezertasan/infra-copilot --scope project`, then `claude plugin install infra-copilot --scope project` | `/plugin update infra-copilot`, then restart | `/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add`, `/infra-status` |
+| [Codex CLI](docs/install-codex.md) | User-scope only: `codex plugin marketplace add hasansezertasan/infra-copilot`, then enable it from `/plugins` and start a new session | `codex plugin marketplace upgrade infra-copilot`, then `codex plugin add infra-copilot@infra-copilot` and restart | Ask to use infra-copilot for setup, import, prune, add, or status; plugin-defined slash commands are not exposed |
+| [Antigravity](docs/install-antigravity.md) | User-scope only: `agy plugin install https://github.com/hasansezertasan/infra-copilot` | Reinstall the plugin, then restart | `/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add`, `/infra-status`, or natural language |
 | [OpenCode](docs/install-opencode.md) | `npx skills add hasansezertasan/infra-copilot --agent opencode --skill '*' -y` in the consuming repo, then restart | `npx skills update -p`, then restart | Ask OpenCode to use `infra-copilot`, `setup`, `import`, `prune`, `add`, or `status`; skills load on demand through the native `skill` tool |
 
 On the three marketplace/plugin hosts, refresh the host marketplace or plugin after an

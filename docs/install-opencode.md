@@ -10,7 +10,9 @@ difference drives everything below.
 
 ## Install
 
-Run this **in the infra repo you are bootstrapping**, not in a global location:
+Run this **in the infra repo you are bootstrapping**, not in a global location. `skills
+add` installs into the project by default; `-g` selects global scope. (The `-p` flag is
+for `skills update`, not `skills add`.)
 
 ```sh
 npx skills add hasansezertasan/infra-copilot --agent opencode --skill '*' -y
