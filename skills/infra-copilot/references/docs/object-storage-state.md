@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:82f1dd442d1a977b23ac868030a7efc872e98f2515609cd0fc9e654b3e93c807
-Source-Hash: blake3:fb04982dd14bab48a654df3108e7c40b77124972f7bcf7b4441c2bc0365fbe26
+Content-Hash: blake3:06dff340173158b4053cfbd28360dd384dd93bf7fdef519faed9c89b9b9da1b4
+Source-Hash: blake3:c8de3f19640caf6200f5e3333a906880119fcbc129b56fa2f75989e2a109ab25
 Schema-Version: v1
 -->
 
@@ -119,7 +119,7 @@ In object-storage mode, secrets live in **GitHub Actions secrets** instead of HC
 | `GH_APP_INSTALLATION_ID` | GitHub App installation ID |
 | `GH_APP_PEM` | GitHub App private key |
 
-For cloud provider auth (GCS, S3, Azure), use Workload Identity Federation where possible — no long-lived credentials to store.
+For cloud provider auth (GCS, S3, Azure), use Workload Identity Federation where possible — no long-lived credentials to store. See [GCP Workload Identity Federation](./object-storage-ci.md#gcp-workload-identity-federation) for the dedicated pool requirement, immutable ID pins, plan/apply provider separation, and Terraform HCL.
 
 ## Access control
 
