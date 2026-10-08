@@ -80,3 +80,11 @@ Keep the two `infra-copilot:customization` comments. Everything between them is
 yours; a re-scaffold preserves it verbatim and rewrites only the rest. Delete or
 unbalance them and a re-scaffold has no way to tell your values from the
 template, so it stops and hands off instead of guessing.
+
+## Staged backend migration
+
+`backend` is repo-wide; per-leaf overrides are not supported.
+Keep `backend: hcp` until the last leaf moves, then switch to `object-storage` in its cutover PR.
+During the mixed window, the global `when` gates and `status` checks cannot certify both modes: migrated leaves may report red under HCP checks, while the object-storage steps are skipped.
+Use the hub skill's packaged `references/docs/object-storage-state.md` ("Mixed-backend window") for per-leaf evidence.
+Do not run setup to rewrite every leaf or interpret skipped checks as migration success.

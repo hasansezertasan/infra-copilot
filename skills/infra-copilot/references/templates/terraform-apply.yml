@@ -43,6 +43,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         with:
@@ -70,8 +71,12 @@ jobs:
     if: needs.changes.outputs.cloudflare == 'true'
     runs-on: ubuntu-latest
     environment: production
+    # Increase for leaves with long provider operations (for example Cloud SQL/GKE).
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
 
@@ -101,6 +106,23 @@ jobs:
         working-directory: terraform/cloudflare
         run: terraform init
 
+      - name: Refuse empty state
+        working-directory: terraform/cloudflare
+        env:
+          # Set this production environment variable to true only for a new leaf's first apply.
+          ALLOW_EMPTY_STATE: ${{ vars.TF_ALLOW_EMPTY_STATE_CLOUDFLARE }}
+        run: |
+          # First creation may have no state file at all (notably on S3).
+          if [ "$ALLOW_EMPTY_STATE" = "true" ]; then
+            echo "::notice::state guard bypassed for explicitly authorized first creation"
+          else
+            state=$(terraform state list) || { echo "::error::cannot read state; refusing to apply"; exit 1; }
+            if [ -z "$state" ]; then
+              echo "::error::empty state; refusing to apply"
+              exit 1
+            fi
+          fi
+
       - name: Terraform Apply
         working-directory: terraform/cloudflare
         env:
@@ -117,8 +139,12 @@ jobs:
     if: needs.changes.outputs.github == 'true'
     runs-on: ubuntu-latest
     environment: production
+    # Increase for leaves with long provider operations (for example Cloud SQL/GKE).
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
 
@@ -148,6 +174,23 @@ jobs:
       - name: Terraform Init
         working-directory: terraform/github
         run: terraform init
+
+      - name: Refuse empty state
+        working-directory: terraform/github
+        env:
+          # Set this production environment variable to true only for a new leaf's first apply.
+          ALLOW_EMPTY_STATE: ${{ vars.TF_ALLOW_EMPTY_STATE_GITHUB }}
+        run: |
+          # First creation may have no state file at all (notably on S3).
+          if [ "$ALLOW_EMPTY_STATE" = "true" ]; then
+            echo "::notice::state guard bypassed for explicitly authorized first creation"
+          else
+            state=$(terraform state list) || { echo "::error::cannot read state; refusing to apply"; exit 1; }
+            if [ -z "$state" ]; then
+              echo "::error::empty state; refusing to apply"
+              exit 1
+            fi
+          fi
 
       - name: Terraform Apply
         working-directory: terraform/github

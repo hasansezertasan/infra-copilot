@@ -364,3 +364,10 @@ consuming repository. Copy [`decisions.md.example`](decisions.md.example) there 
 each durable choice, its status, and its rationale. If only a legacy `CLAUDE.md`
 locked-decisions table exists, honor it and offer to migrate the relevant entries. This
 keeps canonical workflows independent of the active coding agent.
+
+## Staged backend migration
+
+`backend` is repo-wide; per-leaf overrides are not supported.
+Keep `backend: hcp` until the last leaf moves, then switch to `object-storage` in its cutover PR.
+During the mixed window, the global `when` gates and `status` checks cannot certify both modes: migrated leaves may report red under HCP checks, while the object-storage steps are skipped.
+Use the per-leaf evidence in [the cutover guide](docs/object-storage-state.md#mixed-backend-window) and do not run setup to rewrite every leaf or interpret skipped checks as migration success.

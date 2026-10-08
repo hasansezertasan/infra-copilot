@@ -75,6 +75,23 @@ The `gha-environments` check (`checks/gha-apply-gate.sh`) verifies the main-only
 policy, then either live required reviewers or, where GitHub cannot offer them, the locked
 decision.
 
+## Apply state guard and timeouts
+
+The apply template reads `terraform state list` after initialization and refuses empty state or any read error before applying, unless first creation is explicitly authorized.
+For a truly new leaf's first creation only, set its production environment variable `TF_ALLOW_EMPTY_STATE_CLOUDFLARE` or `TF_ALLOW_EMPTY_STATE_GITHUB` to the exact string `true`, review the expected creates, then remove it after the first successful apply.
+Keep the guard and use a separate variable for each additional leaf.
+The opt-out bypasses the state-list guard because a new S3 leaf can have no state file at all; Terraform apply must still authenticate to and read its backend successfully.
+Never enable this opt-out to fix a migration or authentication failure.
+
+The template sets `timeout-minutes: 120` on apply jobs; size it for the leaf's longest provider operation plus the rest of the apply. [Cloud SQL instance operations](https://github.com/hashicorp/terraform-provider-google/blob/main/website/docs/r/sql_database_instance.html.markdown#timeouts) have a default provider timeout of 90 minutes, and GKE node-pool updates can also exceed 30 minutes.
+Adjust provider `timeouts` and job timeouts together for larger leaves.
+A killed apply can leave a lock held and omit the final state write.
+
+If an apply times out, first confirm its runner/process and provider operation have stopped and no other writer is active.
+Inspect live resources and the latest state before retrying; do not assume the timeout rolled changes back.
+Using authorized backend credentials in the correct leaf/backend, a human may run `terraform force-unlock <LOCK_ID>` only for the abandoned lock reported by Terraform. [Force-unlock](https://developer.hashicorp.com/terraform/cli/commands/force-unlock) removes the lock; it does not repair state or undo infrastructure changes.
+Reconcile any missing state/resources and review a fresh plan before the next apply.
+
 ## Authentication
 
 ### Cloud provider (GCS/S3/Azure)
@@ -373,6 +390,8 @@ env:
 
 ## Branch protection
 
+Require the aggregate `plan` job: it runs even when no leaf changed and includes validation plus every applicable leaf plan.
+Path-filtered per-leaf required checks can be skipped without reporting, leaving unrelated PRs waiting forever.
 Required status checks reference GitHub Actions job names, not HCP contexts:
 
 ```hcl
@@ -386,7 +405,12 @@ required_status_checks {
 }
 ```
 
-The `status-check-gha` step in [`../steps.yaml`](../steps.yaml) verifies this alignment.
+Replace the migrated leaf's HCP context in the backend cutover PR, after uploading and verifying its state and obtaining a successful Actions leaf plan.
+For Terraform-managed protection, the merge's apply installs the new checks; for manually managed protection, coordinate the settings update with the merge.
+While HCP is locked its speculative plan can still satisfy the old context on the cutover PR; verify this before merge.
+If it does not report, a maintainer must coordinate the context transition without leaving subsequent PRs waiting for a disconnected workspace.
+Keep HCP contexts for leaves still using it; see [the staged cutover](object-storage-state.md#mixed-backend-window).
+The `status-check-gha` step in [`../steps.yaml`](../steps.yaml) verifies a successful Actions context; also inspect the live branch-protection settings.
 
 ## Fork PRs
 

@@ -724,14 +724,16 @@ steps:
     why: Each leaf needs a backend block pointing to the state bucket with a unique key.
     run: |
       For each terraform/<leaf>:
-      1. If migrating from HCP:
-         a. Backup existing state to a protected tempfile (state may contain secrets):
-            `(umask 077 && terraform state pull > "$(mktemp -d)/terraform.tfstate.backup")`
-         b. Remove the `cloud {}` block from versions.tf (Terraform rejects both cloud and backend)
-         c. Create the backend.tf (step 2 below)
-         d. Run `terraform init -migrate-state` to copy state from HCP to the bucket
-         e. Verify state transfer: `terraform state list` should match before/after
-         f. Delete the backup file after verification (never commit state backups)
+      1. If migrating from HCP, follow docs/object-storage-state.md#migrating-from-hcp.
+         This is a HUMAN cutover: the agent prepares the PR; the human locks HCP before
+         pulling state, scans for secrets, uploads without overwriting and verifies bytes,
+         serial, lineage and resource membership BEFORE merging the backend PR.
+         Include CI and required-check changes in that PR. After merge, disconnect HCP,
+         retire nonterminal runs using advertised discard/cancel actions, verify Actions
+         applies, then retire old credentials.
+         During a staged migration keep backend: hcp until the last leaf moves; the
+         global step checks cannot certify mixed backends. Do not run this step across
+         still-HCP leaves or treat a mixed-backend status scan as proof of cutover.
       2. Create a backend.tf with:
         terraform {
           backend "<state_backend>" {
