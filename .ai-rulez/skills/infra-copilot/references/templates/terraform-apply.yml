@@ -1,16 +1,11 @@
 # Terraform Apply workflow for object-storage backend mode
 # Copy to .github/workflows/terraform-apply.yml and customize for your setup
 #
-# IMPORTANT: This workflow runs `terraform apply -auto-approve` which computes a fresh plan.
-# If state or the base branch changed after the PR plan was reviewed, the apply may differ
-# from what was reviewed. The "production" environment approval gate occurs BEFORE the
-# fresh plan, not after.
-#
-# For stricter plan-apply binding:
-# 1. Save the plan as an artifact in terraform-plan.yml (terraform plan -out=tfplan)
-# 2. Download and apply that exact plan here (terraform apply tfplan)
-# 3. Verify the plan commit SHA matches the merge commit
-# This is left to the user to implement based on their risk tolerance.
+# Copy terraform-destroy.cjs to .github/scripts/terraform-destroy.cjs too.
+# Each apply computes a fresh saved plan, inspects it, then applies that exact plan.
+# The environment gate still precedes planning; drift may differ from the PR plan.
+# Deletes/replacements require allow-destroy on the producing merged PR. The label
+# records intent, not authorization, and opts into all deletes in the refreshed plan.
 # Apply every leaf on each push, so superseded or failed runs are caught up.
 # To retry, dispatch this workflow on main; stale re-runs are refused.
 name: Terraform Apply
@@ -35,7 +30,7 @@ jobs:
   apply-cloudflare:
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: read
       id-token: write
     runs-on: ubuntu-latest
     environment: production
@@ -91,6 +86,20 @@ jobs:
             fi
           fi
 
+      - name: Terraform Plan
+        working-directory: terraform/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: terraform plan -no-color -out=tfplan
+
+      - name: Refuse destructive apply without opt-in
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const { enforce } = require('./.github/scripts/terraform-destroy.cjs');
+            await enforce({ github, context, core, leaf: 'cloudflare' });
+
       - name: Refuse to apply a commit that is not main's tip
         env:
           GH_TOKEN: ${{ github.token }}
@@ -106,12 +115,12 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: terraform apply -auto-approve
+        run: terraform apply -no-color tfplan
 
   apply-github:
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: read
       id-token: write
     runs-on: ubuntu-latest
     environment: production
@@ -168,6 +177,25 @@ jobs:
             fi
           fi
 
+      - name: Terraform Plan
+        working-directory: terraform/github
+        env:
+          GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
+          GITHUB_APP_INSTALLATION_ID: ${{ secrets.GH_APP_INSTALLATION_ID }}
+          GITHUB_APP_PEM_FILE: ${{ secrets.GH_APP_PEM }}
+          TF_VAR_github_app_id: ${{ secrets.GH_APP_ID }}
+          TF_VAR_github_app_installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+          TF_VAR_github_app_pem: ${{ secrets.GH_APP_PEM }}
+          TF_VAR_github_owner: ${{ vars.TF_GITHUB_OWNER || github.repository_owner }}
+        run: terraform plan -no-color -out=tfplan
+
+      - name: Refuse destructive apply without opt-in
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const { enforce } = require('./.github/scripts/terraform-destroy.cjs');
+            await enforce({ github, context, core, leaf: 'github' });
+
       - name: Refuse to apply a commit that is not main's tip
         env:
           GH_TOKEN: ${{ github.token }}
@@ -187,5 +215,5 @@ jobs:
           TF_VAR_github_app_id: ${{ secrets.GH_APP_ID }}
           TF_VAR_github_app_installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
           TF_VAR_github_app_pem: ${{ secrets.GH_APP_PEM }}
-          TF_VAR_github_owner: ${{ vars.GITHUB_ORG || github.repository_owner }}
-        run: terraform apply -auto-approve
+          TF_VAR_github_owner: ${{ vars.TF_GITHUB_OWNER || github.repository_owner }}
+        run: terraform apply -no-color tfplan

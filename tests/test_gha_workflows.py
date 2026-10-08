@@ -29,6 +29,9 @@ class WorkflowSetupTests(unittest.TestCase):
         self.apply = self.workflows / 'terraform-apply.yml'
         self.plan.write_text((REFERENCES / 'templates/terraform-plan.yml').read_text())
         self.apply.write_text((REFERENCES / 'templates/terraform-apply.yml').read_text())
+        self.helper = self.root / '.github/scripts/terraform-destroy.cjs'
+        self.helper.parent.mkdir()
+        self.helper.write_text((REFERENCES / 'templates/terraform-destroy.cjs').read_text())
         self.commit()
 
     def git(self, *args: str) -> None:
@@ -104,6 +107,8 @@ class WorkflowSetupTests(unittest.TestCase):
             original.replace("github.event_name == 'workflow_dispatch' && 'true' || ", ''),
             original.replace("    if: needs.changes.outputs.cloudflare == 'true'", '    if: false && needs.changes.outputs.cloudflare'),
             original.replace('      cloudflare:', '      cloudflare: false\n      cloudflare:', 1),
+            original.replace("              - '.github/scripts/terraform-destroy.cjs'\n", '', 1),
+            original.replace("              - '.github/workflows/terraform-*.yml'\n", '', 1),
         ):
             with self.subTest(broken=broken):
                 self.plan.write_text(broken)
@@ -137,6 +142,75 @@ class WorkflowSetupTests(unittest.TestCase):
     def test_missing_references_are_unknown(self) -> None:
         self.assertEqual(self.check(references=False).returncode, 2)
 
+    def test_missing_dirty_and_outdated_helpers_cannot_skip_setup(self) -> None:
+        original = self.helper.read_text()
+        self.helper.unlink()
+        self.commit()
+        self.assertEqual(self.check().returncode, 1)
+        self.helper.write_text(original)
+        self.commit()
+        self.helper.write_text(original + '// dirty\n')
+        self.assertEqual(self.check().returncode, 1)
+        self.commit()
+        self.assertEqual(self.check().returncode, 1)
+
+    def test_saved_plan_and_destructive_guard_cannot_be_bypassed(self) -> None:
+        original = self.apply.read_text()
+        start = original.index('      - name: Refuse destructive apply without opt-in')
+        end = original.index("      - name: Refuse to apply a commit that is not main's tip", start)
+        destroy = original[start:end]
+        for broken in (
+            original.replace(destroy, '', 1),
+            original.replace(destroy, '', 1) + destroy,
+            original.replace('await enforce(', '// await enforce(', 1),
+            original.replace('      - name: Refuse destructive apply without opt-in',
+                             '      - name: Refuse destructive apply without opt-in\n        continue-on-error: true', 1),
+            original.replace('terraform apply -no-color tfplan', 'terraform apply -auto-approve', 1),
+            original.replace('terraform plan -no-color -out=tfplan', 'terraform plan -no-color', 1),
+            original.replace('run: terraform apply -no-color tfplan',
+                             'run: terraform apply -no-color tfplan\n          && terraform apply -destroy -auto-approve', 1),
+            original.replace('run: terraform plan -no-color -out=tfplan',
+                             'run: terraform plan -no-color -out=tfplan\n          && terraform apply -auto-approve', 1),
+            original.replace('      pull-requests: read', '      pull-requests: none', 1),
+            original.replace('      - name: Terraform Apply',
+                             '      - name: Replan\n        run: terraform plan -out=tfplan\n\n      - name: Terraform Apply', 1),
+            original.replace("      - name: Refuse to apply a commit that is not main's tip",
+                             "      - run: terraform plan -out=tfplan\n\n      - name: Refuse to apply a commit that is not main's tip", 1),
+        ):
+            with self.subTest(broken=broken):
+                self.apply.write_text(broken)
+                self.commit()
+                self.assertEqual(self.check().returncode, 1)
+
+    def test_commented_or_misplaced_plan_inspection_is_rejected(self) -> None:
+        original = self.plan.read_text()
+        command = 'terraform show -json tfplan | node "$GITHUB_WORKSPACE/.github/scripts/terraform-destroy.cjs" > destroys.json'
+        for broken in (
+            original.replace(command, '# ' + command, 1),
+            original.replace('            ' + command, '            true\n      # ' + command, 1),
+            original.replace('        id: plan', '        id: other', 1),
+            original.replace('        if: steps.plan.outputs.exitcode',
+                             "        if: github.event_name == 'pull_request' && steps.plan.outputs.exitcode", 1),
+        ):
+            with self.subTest(broken=broken):
+                self.plan.write_text(broken)
+                self.commit()
+                self.assertEqual(self.check().returncode, 1)
+
+    def test_summary_must_precede_reporting_and_status_must_propagate_failure(self) -> None:
+        original = self.plan.read_text()
+        start = original.index('      - name: Summarize Destructive Changes')
+        end = original.index('      - name: Post Plan to PR', start)
+        inventory = original[start:end]
+        reordered = original.replace(inventory, '', 1).replace(
+            '      - name: Check Plan Status', inventory + '      - name: Check Plan Status', 1)
+        for broken in (reordered,
+                       original.replace("        if: steps.plan.outputs.exitcode != '0'", '        if: false', 1)):
+            with self.subTest(broken=broken):
+                self.plan.write_text(broken)
+                self.commit()
+                self.assertEqual(self.check().returncode, 1)
+
     def new_provider_check(self, provider: str = 'aws') -> subprocess.CompletedProcess[str]:
         manifest = (REFERENCES / 'steps.yaml').read_text()
         body = manifest.split('  - id: new-provider-workflow-gha\n', 1)[1].split('\n  - id:', 1)[0]
@@ -165,6 +239,11 @@ class WorkflowSetupTests(unittest.TestCase):
         # Job output is mandatory for dispatch as well as PR filtering.
         self.plan.write_text(self.plan.read_text().replace('    outputs:\n',
             "    outputs:\n      aws: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.aws }}\n", 1))
+        self.plan.write_text(self.plan.read_text().replace('          filters: |\n',
+            "          filters: |\n            aws:\n"
+            "              - 'terraform/aws/**'\n"
+            "              - '.github/workflows/terraform-*.yml'\n"
+            "              - '.github/scripts/terraform-destroy.cjs'\n", 1))
         self.commit()
         self.assertEqual(self.new_provider_check().returncode, 0)
         plan_original = self.plan.read_text()

@@ -860,7 +860,7 @@ steps:
         - Triggers on pull_request and workflow_dispatch
         - Uses path filtering only for pull_request; runs init + plan for changed PR leaves and every leaf on manual dispatch
         - Configures state-backend authentication for $STATE_BACKEND (GCS Workload Identity, AWS assume-role, or Azure login)
-        - Posts plan output as PR comment
+        - Posts plan output as PR comment, with deletes/replacements above the collapsed plan
         - Emits aggregate plan check
 
       Create .github/workflows/terraform-apply.yml:
@@ -869,12 +869,45 @@ steps:
         - Serializes workflow runs by ref with cancel-in-progress: false
         - Applies every leaf on every run, without a changes job or leaf-change conditions
         - Refuses non-main refs and commits that are not main's tip immediately before each apply
+        - Saves a fresh tfplan, inspects it for deletes/replacements using the shared helper, then applies that same tfplan
+        - Requires allow-destroy on the producing merged PR for any action containing delete; forget-only removals stay allowed
         - Retry failed applies by dispatching the workflow on main
-      Commit both workflows before re-running this check.
+      Copy templates/terraform-destroy.cjs to .github/scripts/terraform-destroy.cjs alongside both workflow templates.
+      Include that helper and .github/workflows/terraform-*.yml in every leaf's plan path filter.
+      Re-scaffolding must update the helper and workflows together, preserving recorded decisions.
+      Commit both workflows and the helper before re-running this check.
     tri_state: true
     check: sh "$INFRA_COPILOT_REFERENCES/checks/gha-workflows.sh"
     produces: GitHub Actions workflows for Terraform CI
     docs: docs/object-storage-ci.md#github-actions
+
+  - id: gha-destroy-label
+    operation: provision-execution
+    implementation: object-storage
+    phase: 1
+    provider: github
+    actor: HUMAN
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Create the destructive apply intent label
+    why: Deletes and replacements require explicit intent on the producing merged PR.
+    run: |
+      Explain that allow-destroy is an intent marker, not authorization: any writer can add it,
+      and it opts into all deletes in the refreshed apply plan, including drift.
+      Obtain explicit approval before creating the label in $REPO:
+        gh label create allow-destroy --repo "$REPO" --color B60205 --description "Explicit opt-in to Terraform deletes and replacements"
+      Do not overwrite an existing label. Record a locked "Destructive apply" decision with
+      choice "allow-destroy" and the intent-marker limitations in .infra-copilot/decisions.md.
+    tri_state: true
+    check: |
+      labels=$(gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name') || exit 2
+      printf '%s\n' "$labels" | grep -Fxq 'allow-destroy' || exit 1
+      awk -F '|' '
+        function clean(v) { gsub(/^[[:space:]`]+|[[:space:]`]+$/, "", v); return tolower(v) }
+        clean($2) == "destructive apply" && clean($3) == "allow-destroy" && clean($4) == "locked" {found=1}
+        END {exit !found}
+      ' .infra-copilot/decisions.md 2>/dev/null
+    produces: allow-destroy label and a locked destructive apply decision
+    docs: docs/object-storage-ci.md#destructive-apply-opt-in
 
   - id: gha-environments
     operation: provision-execution
@@ -2099,6 +2132,8 @@ steps:
          - mise.toml
          - mise.lock
          - .infra-copilot/config.md
+         - .github/workflows/terraform-*.yml
+         - .github/scripts/terraform-destroy.cjs
       2. Add plan/apply jobs for the new leaf
       3. Pass the required secrets from NEW_PROVIDER_SECRETS as environment variables
       4. Add the provider-specific authentication step before terraform init (e.g., google-github-actions/auth for GCP, aws-actions/configure-aws-credentials for AWS, azure/login for Azure)
@@ -2106,6 +2141,9 @@ steps:
       6. Add plan-$NEW_PROVIDER to the aggregate `plan` job's `needs` list
       7. Wire up the plan workflow changes job output and plan job if-condition for $NEW_PROVIDER; manual dispatch must plan every leaf
       8. Keep the apply workflow unfiltered: every run applies every leaf, with the main-tip guard before each apply
+      9. Copy the saved-plan destructive guard and its read-only PR permission to the new apply job;
+         inspect that same tfplan and apply it, never compute another plan after the guard
+      10. Copy destructive JSON extraction and prominent plan-comment reporting to the new plan job
       Commit the updated workflows before re-running this check.
     tri_state: true
     check: |
