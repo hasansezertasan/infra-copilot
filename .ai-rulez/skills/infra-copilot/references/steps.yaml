@@ -861,6 +861,29 @@ steps:
     produces: Cloud identity federation and GitHub secrets for backend access
     docs: docs/object-storage-ci.md#gcp-workload-identity-federation
 
+  - id: backend-identity-trust
+    operation: bootstrap-state
+    implementation: object-storage
+    phase: 0
+    provider: repo
+    actor: HUMAN
+    when: '[ "$BACKEND" = "object-storage" ]'
+    title: Review effective backend IAM and initialize fresh state
+    why: Secret names cannot prove read-only IAM, especially when resuming a legacy installation.
+    run: |
+      Review both backend identities and all effective/inherited grants on every resume.
+      Plan can only read state and must not write locks, resources, or impersonate apply.
+      Remove old GCS plan objectAdmin grants; verify equivalent S3/Azure read-only permissions.
+      Verify separate plan/apply trust paths and the exact-main production deployment policy.
+      For a genuinely new empty leaf, follow docs/object-storage-state.md#fresh-leaf-bootstrap
+      to initialize empty state before the first branch plan. Never create empty state for a
+      migration or a leaf with existing resources. Verify the actual state object exists.
+      Reply done after reviewing IAM and state readiness; never return credential values.
+      This review is ephemeral: repeat it on resume; matching secret names is not evidence.
+    check: ~
+    produces: HUMAN-verified read-only backend plan identity and initialized leaf state
+    docs: docs/object-storage-state.md#fresh-leaf-bootstrap
+
   # ── Phase 1 — GitHub Actions CI (backend: object-storage only) ──────────
   - id: gha-workflows
     operation: provision-execution
@@ -943,8 +966,15 @@ steps:
       sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh" || exit $?
       repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
       env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 1
+      owner_type=$(gh api "repos/$REPO" --jq '.owner.type' 2>/dev/null) || exit 2
+      case "$owner_type" in
+        Organization) org_secrets=$(gh api --paginate "repos/$REPO/actions/organization-secrets" --jq '.secrets[].name' 2>/dev/null) || exit 2 ;;
+        User) org_secrets='' ;; # personal repositories cannot inherit organization secrets
+        *) exit 2 ;;
+      esac
       printf '%s\n' "$repo_secrets" | grep -Fxq CLOUDFLARE_API_TOKEN_READ || exit 1
       if printf '%s\n' "$repo_secrets" | grep -Fxq CLOUDFLARE_API_TOKEN; then exit 1; fi
+      if printf '%s\n' "$org_secrets" | grep -Fxq CLOUDFLARE_API_TOKEN; then exit 1; fi
       printf '%s\n' "$env_secrets" | grep -Fxq CLOUDFLARE_API_TOKEN
     produces: read-only repository token and production-only edit token
     docs: cloudflare.md
@@ -962,11 +992,13 @@ steps:
     why: The Terraform workflow authenticates to GitHub with these App credentials.
     run: |
       1. GitHub Org -> Settings -> Developer settings -> GitHub Apps -> New GitHub App.
-         Permissions: Repository Administration (R/W), Actions (R), Contents (R), Metadata (R),
+         Permissions: Repository Administration (R/W), Actions (R), Contents (R/W), Metadata (R),
          Pull requests (R/W); Organization Members (R/W), Administration (R/W).
          Actions (R) reads environments and deployment branch policies on refresh. Members (R/W)
          is required when Terraform manages organization or team membership; read-only access only
          lets the provider inspect memberships.
+         Contents (R/W) is required to read repository merge settings accurately on apply refresh.
+         This permission belongs only to the protected apply App, never to the read-only plan App.
       2. Note the App ID. Generate a private key (.pem).
       3. Install on your org scoped to the repos in managed_repos (see config.md);
          note the Installation ID from the install URL.
@@ -985,11 +1017,18 @@ steps:
       sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh" || exit $?
       repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
       env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 1
+      owner_type=$(gh api "repos/$REPO" --jq '.owner.type' 2>/dev/null) || exit 2
+      case "$owner_type" in
+        Organization) org_secrets=$(gh api --paginate "repos/$REPO/actions/organization-secrets" --jq '.secrets[].name' 2>/dev/null) || exit 2 ;;
+        User) org_secrets='' ;;
+        *) exit 2 ;;
+      esac
       for name in GH_APP_READ_ID GH_APP_READ_INSTALLATION_ID GH_APP_READ_PEM; do
         printf '%s\n' "$repo_secrets" | grep -Fxq "$name" || exit 1
       done
       for name in GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PEM; do
         if printf '%s\n' "$repo_secrets" | grep -Fxq "$name"; then exit 1; fi
+        if printf '%s\n' "$org_secrets" | grep -Fxq "$name"; then exit 1; fi
         printf '%s\n' "$env_secrets" | grep -Fxq "$name" || exit 1
       done
     produces: GitHub Actions secrets for GitHub App authentication
@@ -1849,8 +1888,8 @@ steps:
          For backend: object-storage:
          Add an `additional_providers` entry to .infra-copilot/config.md with its
          lowercase name, provider mise tools (or `[]`), and `credential_secrets` list
-          with `name`, `required`, and `scope` (plan or apply) for every GitHub Actions secret.
-          Plan names are read-only repository secrets; apply names are distinct and production-only.
+         with `name`, `required`, and `scope` (plan or apply) for every GitHub Actions secret.
+         Plan names are read-only repository secrets; apply names are distinct and production-only.
          Set `mise_config_blob: ""` and `mise_lock_blob: ""`.
          Set `credentials_verified_at: ""` until the secret handoff is complete.
       4. Reply `done`:
@@ -2476,6 +2515,8 @@ steps:
       Require separate read-only plan and write apply identities. Verify plan cannot write
       state/locks/resources, read secret values, or impersonate apply; cloud refresh needs
       narrow service-specific viewer permissions. Verify the exact-main production gate.
+      For a genuinely fresh leaf, initialize empty backend state using the HUMAN procedure
+      in docs/object-storage-state.md#fresh-leaf-bootstrap before requiring its first plan.
       Never accept a wildcard repository or fork subject. Reply done after review.
       This review is ephemeral: repeat it when resuming rather than assume IAM is unchanged.
     check: ~
@@ -2521,6 +2562,7 @@ steps:
     actor: HUMAN
     when: '[ "$BACKEND" = "object-storage" ]'
     title: Verify the provider authentication handoff for GitHub Actions
+    tri_state: true
     why: The workflow must authenticate to the provider without exposing credentials.
     run: |
       If NEW_PROVIDER_SECRETS is not empty, mint separate credentials: read-only plan
@@ -2528,8 +2570,8 @@ steps:
       names and delete repository copies of all apply names. Verify the main-only production
       gate before installing write credentials. Never store write keys in organization secrets
       accessible to this repo. Verify effective permissions; secret-name checks cannot prove them.
-      For an empty
-      inventory, verify separate read-only plan and write apply keyless identities and trust instead; public identity
+      For an empty inventory, verify separate read-only plan and write apply keyless
+      identities and trust instead; public identity
       identifiers do not belong in the secret inventory. After the handoff is complete,
       record the current UTC time as `credentials_verified_at` in config.md using strict
       `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and reply `done`.
@@ -2542,10 +2584,17 @@ steps:
       if [ "$(printf '%s' "$NEW_PROVIDER_SECRETS" | jq 'length')" -gt 0 ]; then
         repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
         env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 1
+        owner_type=$(gh api "repos/$REPO" --jq '.owner.type' 2>/dev/null) || exit 2
+        case "$owner_type" in
+          Organization) org_secrets=$(gh api --paginate "repos/$REPO/actions/organization-secrets" --jq '.secrets[].name' 2>/dev/null) || exit 2 ;;
+          User) org_secrets='' ;;
+          *) exit 2 ;;
+        esac
         printf '%s' "$NEW_PROVIDER_SECRETS" | jq -r '.[] | [.name | ascii_upcase] + [.scope, (.required | tostring)] | @tsv' |
           while read -r name scope required; do
             if [ "$scope" = apply ]; then
               if printf '%s\n' "$repo_secrets" | grep -Fxq "$name"; then exit 1; fi
+              if printf '%s\n' "$org_secrets" | grep -Fxq "$name"; then exit 1; fi
               secrets=$env_secrets
             else
               secrets=$repo_secrets

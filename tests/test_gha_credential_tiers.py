@@ -18,7 +18,8 @@ REFERENCES = Path(__file__).resolve().parents[1] / '.ai-rulez/skills/infra-copil
 class CredentialTierTests(unittest.TestCase):
     def run_check(self, step_id: str, repo_names: list[str], env_names: list[str],
                   inventory: list[dict[str, object]] | None = None,
-                  gate_status: int = 0) -> subprocess.CompletedProcess[str]:
+                  gate_status: int = 0, org_names: list[str] | None = None,
+                  org_status: int = 0, owner_type: str = 'Organization') -> subprocess.CompletedProcess[str]:
         manifest = (REFERENCES / 'steps.yaml').read_text()
         block = manifest.split(f'  - id: {step_id}\n', 1)[1].split('\n  - id:', 1)[0]
         match = re.search(r'^    check: \|\n((?:      .*\n|\n)+)', block, re.M)
@@ -31,6 +32,8 @@ class CredentialTierTests(unittest.TestCase):
             (root / 'checks/gha-apply-gate.sh').write_text(f'exit {gate_status}\n')
             stub = root / 'bin/gh'
             stub.write_text('#!/bin/sh\ncase "$*" in\n'
+                            '  *"organization-secrets"*) printf "%s\\n" "$ORG_NAMES"; exit "$ORG_STATUS" ;;\n'
+                            '  *".owner.type"*) printf "%s\\n" "$OWNER_TYPE" ;;\n'
                             '  *"--env production"*) printf "%s\\n" "$ENV_NAMES" ;;\n'
                             '  *) printf "%s\\n" "$REPO_NAMES" ;;\nesac\n')
             stub.chmod(0o755)
@@ -44,6 +47,8 @@ class CredentialTierTests(unittest.TestCase):
                                   env={**os.environ, 'PATH': f'{root / "bin"}{os.pathsep}{os.environ["PATH"]}',
                                        'INFRA_COPILOT_REFERENCES': str(root), 'REPO': 'owner/repo',
                                        'REPO_NAMES': '\n'.join(repo_names), 'ENV_NAMES': '\n'.join(env_names),
+                                       'ORG_NAMES': '\n'.join(org_names or []), 'ORG_STATUS': str(org_status),
+                                       'OWNER_TYPE': owner_type,
                                        'NEW_PROVIDER_SECRETS': json.dumps(inventory or []),
                                        'NEW_PROVIDER_CREDENTIALS_VERIFIED_AT': datetime.datetime.now(
                                            datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')})
@@ -59,11 +64,18 @@ class CredentialTierTests(unittest.TestCase):
                 self.assertEqual(self.run_check(step_id, read_names, write_names).returncode, 0)
                 for leaked in write_names:
                     self.assertEqual(self.run_check(step_id, read_names + [leaked], write_names).returncode, 1)
+                    self.assertEqual(self.run_check(step_id, read_names, write_names,
+                                                    org_names=[leaked]).returncode, 1)
                 for missing in read_names:
                     self.assertEqual(self.run_check(step_id, [n for n in read_names if n != missing],
                                                     write_names).returncode, 1)
                 self.assertEqual(self.run_check(step_id, read_names, []).returncode, 1)
                 self.assertEqual(self.run_check(step_id, read_names, write_names, gate_status=2).returncode, 2)
+                self.assertEqual(self.run_check(step_id, read_names, write_names, org_status=1).returncode, 2)
+                self.assertEqual(self.run_check(step_id, read_names, write_names,
+                                                org_status=1, owner_type='User').returncode, 0)
+                self.assertEqual(self.run_check(step_id, read_names, write_names,
+                                                owner_type='').returncode, 2)
 
     def test_additional_provider_scopes_and_optional_write_leaks(self) -> None:
         inventory = [{'name': 'READ_TOKEN', 'required': True, 'scope': 'plan'},
@@ -71,6 +83,11 @@ class CredentialTierTests(unittest.TestCase):
                      {'name': 'OPTIONAL_WRITE', 'required': False, 'scope': 'apply'}]
         self.assertEqual(self.run_check('new-provider-secrets-gha', ['READ_TOKEN'], ['WRITE_TOKEN'],
                                         inventory).returncode, 0)
+        for leaked in ('WRITE_TOKEN', 'OPTIONAL_WRITE'):
+            self.assertEqual(self.run_check('new-provider-secrets-gha', ['READ_TOKEN'], ['WRITE_TOKEN'],
+                                            inventory, org_names=[leaked]).returncode, 1)
+        self.assertEqual(self.run_check('new-provider-secrets-gha', ['READ_TOKEN'], ['WRITE_TOKEN'],
+                                        inventory, org_status=1).returncode, 2)
         for repo_names, env_names in ((['READ_TOKEN', 'WRITE_TOKEN'], ['WRITE_TOKEN']),
                                        (['READ_TOKEN', 'OPTIONAL_WRITE'], ['WRITE_TOKEN']),
                                        (['READ_TOKEN'], []), ([], ['READ_TOKEN', 'WRITE_TOKEN'])):
@@ -82,6 +99,16 @@ class CredentialTierTests(unittest.TestCase):
                         inventory + [{'name': 'read_token', 'required': True, 'scope': 'apply'}]):
             self.assertEqual(self.run_check('new-provider-secrets-gha', ['READ_TOKEN'], ['WRITE_TOKEN'],
                                             invalid).returncode, 1)
+
+    def test_backend_iam_review_cannot_be_skipped_by_legacy_secret_names(self) -> None:
+        manifest = (REFERENCES / 'steps.yaml').read_text()
+        block = manifest.split('  - id: backend-identity-trust\n', 1)[1].split('\n  - id:', 1)[0]
+        self.assertIn('    actor: HUMAN\n', block)
+        self.assertIn('    check: ~\n', block)
+        self.assertIn('Remove old GCS plan objectAdmin grants', block)
+        self.assertIn('fresh-leaf-bootstrap', block)
+        self.assertLess(manifest.index('  - id: backend-identity-trust\n'),
+                        manifest.index('  - id: plan-cloudflare-gha\n'))
 
 
 if __name__ == '__main__':

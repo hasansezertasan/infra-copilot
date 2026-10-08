@@ -181,8 +181,37 @@ If an earlier job already initialized the destination, stop and investigate that
 A read-only GCS plan identity (`roles/storage.objectViewer`, with `-lock=false` for plans) may fail its first `terraform init` before state exists: initialization tries to create `default.tflock` and receives a `403 storage.objects.create` error.
 That is an expected pre-transfer failure, not a reason to merge or grant the plan identity write access.
 Upload state, then re-run the PR plan.
-Do not grant plan objectAdmin to fix initialization. Fresh leaves need a HUMAN-reviewed
-first creation through production apply before read-only plans can consume existing state.
+Do not grant plan objectAdmin to fix initialization. Fresh leaves use the separate
+[HUMAN bootstrap procedure](#fresh-leaf-bootstrap) before their first read-only plan.
+
+### Fresh leaf bootstrap
+
+For a genuinely new leaf with no managed resources and no previous state, a HUMAN
+initializes empty backend state before requiring its first PR plan. This avoids the
+GCS first-plan/first-apply deadlock while preserving branch read-only IAM and main protection.
+Never use this procedure for migrations, existing resources, or an unreadable destination.
+
+1. Review the exact leaf backend, bucket/container, key/prefix and workspace. Verify
+   with authorized backend access that the state object is genuinely absent, not hidden
+   by a permission error, and that no writer or lock is active.
+2. In a temporary directory controlled by the HUMAN, copy only the reviewed backend
+   configuration and Terraform version requirement. No resources, modules, data sources,
+   provider credentials in HCL, or import blocks. Use a separately authorized bootstrap
+   identity with narrowly scoped state/lock write access; do not grant writes to plan or
+   loosen the apply identity's OIDC trust to authorize a branch.
+3. The HUMAN runs the pinned `terraform init` for that backend and workspace. For GCS,
+   this creates the initial empty state and releases its initialization lock. Verify the
+   destination object exists and `terraform state pull` shows empty resources, a lineage
+   and valid state version. If that backend does not persist state on init, stop and
+   follow its reviewed state-initialization procedure rather than assume readiness.
+4. Remove temporary bootstrap access, then run the branch's read-only plan. It should
+   show the reviewed first creates. The agent never performs this credentialed bootstrap.
+5. For the first production resource creation, the HUMAN sets that leaf's
+   `TF_ALLOW_EMPTY_STATE_<LEAF>` environment variable to `true`, reviews the planned
+   creates, merges through the normal gate and verifies apply. Remove the opt-out afterward.
+
+The bootstrap `backend-identity-trust` and additional-provider identity handoffs require
+this state-readiness review before the first plan; repeat IAM review on resume.
 
 ### Freeze and pull from HCP
 

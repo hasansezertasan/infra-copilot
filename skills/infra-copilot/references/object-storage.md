@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:efa54554fd16af093d65128f0312116e7eb1202a2f351340ece66f67ddbe0c66
-Source-Hash: blake3:e4fb66e379afe94b7cc1566779804e5711ef442e5cc011a3a6758aa150e5e7bb
+Content-Hash: blake3:764d2bfaa1fddb0c9397507718b01a9cf7ef0f70a342c77e7a6ff024f1bc61a5
+Source-Hash: blake3:52553605c926b932ee9da91352ff259f57d4b633c26f5dbea0a54056ad95cca5
 Schema-Version: v1
 -->
 
@@ -84,10 +84,12 @@ repository merge settings or ruleset bypass actors. Compare configuration to las
 state; production apply refreshes live drift. Imports and data sources can still call APIs.
 Unlocked plans may race an apply and must not be applied as saved plans. Apply replans with locking.
 
-Rotate with overlap: mint the replacement, replace the secret out of band, obtain a no-op
-plan on a trusted branch, then revoke the old value. Retain the old value until verification
-succeeds; restore it on failure. GitHub Apps allow overlapping keys: store the full new
-PEM, verify, then delete the old key. Rotate exposed cloud identities by updating their IAM
+Rotate each tier with overlap: mint the replacement and replace its secret out of band.
+Verify plan credentials with a branch plan; verify apply credentials with a HUMAN-authorized
+production run using that identity. A branch plan never validates the write token/App.
+Retain the old value until that tier's verification succeeds; restore it on failure.
+GitHub Apps allow overlapping keys: store the full new PEM, verify the matching tier,
+then delete its old key. Rotate exposed cloud identities by updating their IAM
 trust and reviewing current deployments, not by storing long-lived keys in the repository.
 
 ## Get-plan

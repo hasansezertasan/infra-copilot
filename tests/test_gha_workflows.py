@@ -117,6 +117,8 @@ class WorkflowSetupTests(unittest.TestCase):
             original.replace('-refresh=false ', ''),
             original.replace('secrets.CLOUDFLARE_API_TOKEN_READ', 'secrets.CLOUDFLARE_API_TOKEN'),
             original.replace('secrets.GH_APP_READ_PEM', 'secrets.GH_APP_PEM'),
+            original.replace('secrets.CLOUDFLARE_API_TOKEN_READ', 'secrets["CLOUDFLARE_API_TOKEN"]'),
+            original.replace('secrets.GH_APP_READ_PEM', "secrets['GH_APP_PEM']"),
             original.replace('  plan-cloudflare:\n', '  plan-cloudflare:\n    environment: production\n'),
         ):
             with self.subTest(broken=broken):

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:4fa1a5daa23f899ca66c028045538b85ec197a5adb97501f611f18df7844f18b
-Source-Hash: blake3:e4fb66e379afe94b7cc1566779804e5711ef442e5cc011a3a6758aa150e5e7bb
+Content-Hash: blake3:76b9eaf8c62b642869dfe733d79a803765d1fd927eba714d96ca37f10ada1eeb
+Source-Hash: blake3:52553605c926b932ee9da91352ff259f57d4b633c26f5dbea0a54056ad95cca5
 Schema-Version: v1
 -->
 
@@ -476,7 +476,8 @@ env:
 
 Create two Cloudflare tokens: plan has Zone DNS/Zone Settings Read, apply has Edit,
 both restricted to the managed account/zones. Create two GitHub Apps: plan has only
-Read permissions; apply uses the write permissions in [GitHub](../github.md).
+Read permissions; apply uses the write permissions in [GitHub](../github.md), including
+Contents R/W specifically to refresh repository merge settings accurately.
 Install each on the managed repositories; never reuse the write App PEM for plan.
 GitHub hides merge settings and ruleset `bypass_actors` from read-only callers, so the
 GitHub plan uses `-refresh=false` to compare against last-applied state without phantom
@@ -491,6 +492,9 @@ policy first, then delete repository copies with `gh secret delete <name> --repo
 Rotate previously branch-accessible write keys and revoke old values after validating
 the protected apply. `gh secret list --repo <owner>/<repo>` must show read names and no
 write names; `gh secret list --repo <owner>/<repo> --env production` must show write names.
+Placement checks also inspect accessible organization secrets using
+`gh api --paginate repos/<owner>/<repo>/actions/organization-secrets`; a write-name match
+is incomplete, and an unreadable inventory is `CANNOT VERIFY`, not proof of absence.
 Secret checks prove placement, not permissions or identity separation; a HUMAN verifies both.
 Additional-provider `credential_secrets` entries declare `scope: plan` or `scope: apply`
 with distinct names; an empty inventory still requires separate read/write keyless identities.

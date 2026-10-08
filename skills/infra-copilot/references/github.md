@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:4ec5168b8174058eb7889049fb95b1940576dab959fb307f7adc573600545f16
-Source-Hash: blake3:e4fb66e379afe94b7cc1566779804e5711ef442e5cc011a3a6758aa150e5e7bb
+Content-Hash: blake3:8365f671eb635701ee379921a498f8d4e292f76e86a5d947eb2b171a08bfa925
+Source-Hash: blake3:52553605c926b932ee9da91352ff259f57d4b633c26f5dbea0a54056ad95cca5
 Schema-Version: v1
 -->
 
@@ -107,6 +107,8 @@ For object-storage/GitHub Actions, create a second App with only Read permission
 plan and store `GH_APP_READ_ID`, `GH_APP_READ_INSTALLATION_ID`, `GH_APP_READ_PEM` at
 repository scope. The write App's `GH_APP_ID`, `GH_APP_INSTALLATION_ID`, `GH_APP_PEM`
 belong only in the exact-main `production` environment. Remove repository copies.
+For this apply App, upgrade Contents to R/W: GitHub requires it to return merge settings
+on refresh. Keep the separate plan App's Contents permission Read only.
 GitHub plans use `-lock=false -refresh=false`: read-only callers cannot accurately read
 merge settings or ruleset bypass actors; production apply refreshes last-applied state.
 See [the credential tiers and migration](docs/object-storage-ci.md#terraform-providers).

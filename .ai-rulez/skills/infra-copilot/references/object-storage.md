@@ -77,10 +77,12 @@ repository merge settings or ruleset bypass actors. Compare configuration to las
 state; production apply refreshes live drift. Imports and data sources can still call APIs.
 Unlocked plans may race an apply and must not be applied as saved plans. Apply replans with locking.
 
-Rotate with overlap: mint the replacement, replace the secret out of band, obtain a no-op
-plan on a trusted branch, then revoke the old value. Retain the old value until verification
-succeeds; restore it on failure. GitHub Apps allow overlapping keys: store the full new
-PEM, verify, then delete the old key. Rotate exposed cloud identities by updating their IAM
+Rotate each tier with overlap: mint the replacement and replace its secret out of band.
+Verify plan credentials with a branch plan; verify apply credentials with a HUMAN-authorized
+production run using that identity. A branch plan never validates the write token/App.
+Retain the old value until that tier's verification succeeds; restore it on failure.
+GitHub Apps allow overlapping keys: store the full new PEM, verify the matching tier,
+then delete its old key. Rotate exposed cloud identities by updating their IAM
 trust and reviewing current deployments, not by storing long-lived keys in the repository.
 
 ## Get-plan

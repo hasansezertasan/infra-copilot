@@ -6,11 +6,10 @@
 # from what was reviewed. The "production" environment approval gate occurs BEFORE the
 # fresh plan, not after.
 #
-# For stricter plan-apply binding:
-# 1. Save the plan as an artifact in terraform-plan.yml (terraform plan -out=tfplan)
-# 2. Download and apply that exact plan here (terraform apply tfplan)
-# 3. Verify the plan commit SHA matches the merge commit
-# This is left to the user to implement based on their risk tolerance.
+# Never download/apply a branch's saved tfplan: it is unlocked, may skip refresh,
+# and may embed read-only provider input credentials. Production recomputes with write credentials.
+# For stricter binding, generate a refreshed, locked plan using the production identity
+# on main, approve that production plan, and apply it with commit/state provenance checks.
 # Apply every leaf on each push, so superseded or failed runs are caught up.
 # To retry, dispatch this workflow on main; stale re-runs are refused.
 name: Terraform Apply

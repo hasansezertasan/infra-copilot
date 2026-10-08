@@ -123,6 +123,10 @@ for name in $names; do
   [ -n "$plan_job" ] || exit 1
   # Only read-only credentials may reach branch plans. No environment is allowed.
   printf '%s\n' "$plan_job" | grep -Eq '^    environment:' && exit 1
+  # Only dot-form secret access is supported; bracket/whole-context forms are ambiguous.
+  printf '%s\n' "$plan_job" | grep -E '(^|[^A-Za-z0-9_])secrets([^A-Za-z0-9_]|$)' |
+    grep -Ev 'secrets\.[A-Za-z_][A-Za-z0-9_]*' && exit 1
+  printf '%s\n' "$plan_job" | grep -Eq 'secrets[[:space:]]*\[' && exit 1
   printf '%s\n' "$plan_job" | grep -Eq 'secrets\.(CLOUDFLARE_API_TOKEN|GH_APP_ID|GH_APP_INSTALLATION_ID|GH_APP_PEM)([^A-Za-z0-9_]|$)' && exit 1
   plan_step=$(printf '%s\n' "$plan_job" | step 'Terraform Plan')
   flags='-lock=false'
@@ -139,4 +143,4 @@ for name in $names; do
   printf '%s\n' "$changes" | grep -Fxq "$output" || exit 1
   [ "$(printf '%s\n' "$changes" | grep -c "^      $leaf:" || true)" = 1 ] || exit 1
 done
-echo 'READY: committed workflows use read-only unlocked plans, converge every leaf and support dispatch'
+echo 'READY: committed workflows support read-tier unlocked plans, converge every leaf and support dispatch; HUMAN IAM review is still required'
