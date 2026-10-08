@@ -287,10 +287,19 @@ class WorkflowSetupTests(unittest.TestCase):
         self.assertEqual(self.new_provider_check().returncode, 1)
         for replacement in ("''", "'' # use secrets.WRITE_TOKEN here",
                             "'' # ${{ secrets.WRITE_TOKEN }}",
-                            'secrets.WRITE_TOKEN', "''\n          # ${{ secrets.WRITE_TOKEN }}"):
+                            'secrets.WRITE_TOKEN', "''\n          # ${{ secrets.WRITE_TOKEN }}",
+                            "${{ format('token={0}', secrets.READ_TOKEN) }}",
+                            "${{ format('token={0}', secrets.WRITE_TOKEN) }}",
+                            "${{ secrets.WRITE_TOKEN || secrets.READ_TOKEN }}"):
             self.apply.write_text(apply_original.replace('${{ secrets.WRITE_TOKEN }}', replacement))
             self.commit()
             self.assertEqual(self.new_provider_check().returncode, 1)
+        # A remaining valid required reference must not mask a wrapped wrong-tier one.
+        wrapped = apply_original.replace('${{ secrets.WRITE_TOKEN }}',
+            "${{ format('token={0}', secrets.READ_TOKEN) }}", 1)
+        self.apply.write_text(wrapped)
+        self.commit()
+        self.assertEqual(self.new_provider_check().returncode, 1)
         # A hash inside a quoted active expression value is not a YAML comment.
         self.apply.write_text(apply_original.replace('${{ secrets.WRITE_TOKEN }}',
                                                     "'${{ secrets.WRITE_TOKEN }} # retained'"))

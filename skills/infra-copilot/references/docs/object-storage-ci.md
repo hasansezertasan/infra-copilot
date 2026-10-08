@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:f45b6c98889bf3ebf7c8351cdd7bd7a1e94098b6c197005cf541735607177f3f
-Source-Hash: blake3:a04c69027e2b6160238442a37a2a324446e49f438fb8c0c4dca283cbeeeb8411
+Content-Hash: blake3:b948b4cc79bb07e340e721859b2e040c5eaed8654c4b6e24754fa23811b8e208
+Source-Hash: blake3:3a9697a49dfbe82ce6e776a6cb9df377de2454c7b960f3fb5a5526b3b2b7c1ab
 Schema-Version: v1
 -->
 
@@ -44,7 +44,9 @@ Missing, dirty or outdated helpers and missing destructive guards also make setu
 A locked dispatch-only Apply gate is supported; it must omit the push trigger.
 Keep the templates' guard and expression layout when customizing provider authentication.
 The workflow check verifies credential scope in both directions: each reference belongs
-to its job's tier and every required credential is referenced there. Preserve explicit
+to its job's tier and every required credential is referenced there. Credential expressions
+must be direct `${{ secrets.NAME }}` references; wrappers such as `format()` or fallbacks
+are unsupported and rejected rather than partially interpreted. Preserve explicit
 `-lock=true -refresh=true` on production planning and `-lock=true` on application of that
 production-generated saved plan. The supported workflow shape rejects
 `TF_CLI_ARGS*` overrides at workflow, job or step scope, including writes to `GITHUB_ENV`;

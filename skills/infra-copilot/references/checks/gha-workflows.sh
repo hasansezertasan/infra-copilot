@@ -227,10 +227,12 @@ for name in $names; do
     and length == (map(.name | ascii_upcase) | unique | length)' >/dev/null || exit 1
   for tier in plan apply; do
     tier_job=$(job "$([ "$tier" = plan ] && printf '%s' "$plan" || printf '%s' "$apply")" "$tier-$leaf" | active_yaml)
-    printf '%s\n' "$tier_job" | sed -E 's/secrets\.[A-Za-z_][A-Za-z0-9_]*//g' |
+    # Credential expressions must be direct references, as in the shipped templates.
+    # Reject wrappers/fallbacks rather than partially parse format strings or nested braces.
+    printf '%s\n' "$tier_job" | sed -E 's/\$\{\{[[:space:]]*secrets\.[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\}\}//g' |
       grep -Eq '(^|[^A-Za-z0-9_])secrets([^A-Za-z0-9_]|$)' && exit 1
-    references=$(printf '%s\n' "$tier_job" | grep -Eo '\$\{\{[^}]*\}\}' |
-      grep -Eo 'secrets\.[A-Za-z_][A-Za-z0-9_]*' | cut -d . -f 2 | tr '[:lower:]' '[:upper:]' || true)
+    references=$(printf '%s\n' "$tier_job" | grep -Eo 'secrets\.[A-Za-z_][A-Za-z0-9_]*' |
+      cut -d . -f 2 | tr '[:lower:]' '[:upper:]' || true)
     printf '%s\n' "$references" | while IFS= read -r secret; do
       [ -n "$secret" ] || continue
       case "$secret" in

@@ -37,7 +37,9 @@ Missing, dirty or outdated helpers and missing destructive guards also make setu
 A locked dispatch-only Apply gate is supported; it must omit the push trigger.
 Keep the templates' guard and expression layout when customizing provider authentication.
 The workflow check verifies credential scope in both directions: each reference belongs
-to its job's tier and every required credential is referenced there. Preserve explicit
+to its job's tier and every required credential is referenced there. Credential expressions
+must be direct `${{ secrets.NAME }}` references; wrappers such as `format()` or fallbacks
+are unsupported and rejected rather than partially interpreted. Preserve explicit
 `-lock=true -refresh=true` on production planning and `-lock=true` on application of that
 production-generated saved plan. The supported workflow shape rejects
 `TF_CLI_ARGS*` overrides at workflow, job or step scope, including writes to `GITHUB_ENV`;
