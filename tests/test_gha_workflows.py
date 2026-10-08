@@ -85,6 +85,8 @@ class WorkflowSetupTests(unittest.TestCase):
             original.replace('            exit 1', '            exit 0'),
             original.replace('          if [ "$GITHUB_REF" != "refs/heads/main" ] ||', '          if'),
             original.replace(guard, '', 1) + guard,
+            original.replace(guard, '', 1).replace('      - name: Terraform Init',
+                                                   guard + '      - name: Terraform Init', 1),
             original.replace('      - name: Terraform Apply', '      - name: Terraform Apply\n        if: false', 1),
             original.replace('      - name: Terraform Apply', '      - name: Terraform Apply\n        continue-on-error: true', 1),
         ):
@@ -138,6 +140,13 @@ class WorkflowSetupTests(unittest.TestCase):
 
     def test_missing_references_are_unknown(self) -> None:
         self.assertEqual(self.check(references=False).returncode, 2)
+
+    def test_crlf_workflows_preserve_convergence_evidence(self) -> None:
+        for workflow_path in (self.plan, self.apply):
+            workflow_path.write_bytes(workflow_path.read_bytes().replace(b'\n', b'\r\n'))
+        self.commit()
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def new_provider_check(self, provider: str = 'aws') -> subprocess.CompletedProcess[str]:
         manifest = (REFERENCES / 'steps.yaml').read_text()

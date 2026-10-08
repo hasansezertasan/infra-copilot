@@ -37,6 +37,7 @@ for file in "$plan" "$apply"; do
 done
 section() {
   awk -v key="$2" '
+    {sub(/\r$/, "")}
     /^[^[:space:]#]/ {inside=($0 == key ":")}
     inside && $0 !~ /^[[:space:]]*#/ {print}
   ' "$1"
@@ -123,8 +124,11 @@ for name in $names; do
   guard=$(printf '%s\n' "$block" | step "Refuse to apply a commit that is not main's tip")
   [ "$guard" = "$expected_guard" ] || exit 1
   printf '%s\n' "$block" | awk '
-    /      - name: Refuse to apply a commit that is not main/ {guard=1}
-    /      - name: Terraform Apply/ {if (!guard) exit 1}
+    /^      - / {
+      if ($0 == "      - name: Terraform Apply" &&
+          previous != "      - name: Refuse to apply a commit that is not main\047s tip") exit 1
+      previous=$0
+    }
   ' || exit 1
   plan_job=$(job "$plan" "plan-$leaf")
   [ -n "$plan_job" ] || exit 1
