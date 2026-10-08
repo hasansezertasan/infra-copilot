@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:363bc9a7ae64ed6b8697fc2da1cc514aa225fcdd91eb99eb02a03af58194032d",
+  "source_hash": "blake3:cae914499d83dd778323c3e9fdf78384fdc04e71fdcbeac819d016c356c36f96",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -48,7 +48,7 @@
       "content_hash": "blake3:441053d401b1167695eb4bc32905aa6e918b32286f1f66c08ef0c574c96724d7"
     },
     "skills/infra-copilot/references/checks/gha-workflows.sh": {
-      "content_hash": "blake3:fd9c306e3fef0303910d122cc93a359f6a888d2fb5ae0808d11d0b468c77f584"
+      "content_hash": "blake3:c6c620431c0c12712ac69d614c6b887735acd818cdcb7e35ead8b20c6121c3b5"
     },
     "skills/infra-copilot/references/checks/hcp-apply-scope.sh": {
       "content_hash": "blake3:d616cc61873f309fe04237213e26100c37f970dedbf30d91b0961a682aed6a51"
@@ -105,7 +105,7 @@
       "content_hash": "blake3:86dfd743bd885f16b71c6a85392f144b21dee4231e27e030a0e557562106a4f2"
     },
     "skills/infra-copilot/references/docs/object-storage-ci.md": {
-      "content_hash": "blake3:76b9eaf8c62b642869dfe733d79a803765d1fd927eba714d96ca37f10ada1eeb"
+      "content_hash": "blake3:809de16a616da6efebe8c0fe6e80e3a9e0237bea8b9fc8badd56dbc8f489b9cc"
     },
     "skills/infra-copilot/references/docs/object-storage-state.md": {
       "content_hash": "blake3:5cc147ac16ae6d7fa6f4bf56ef99bb3f4bc8280344181240d185274568d5e61c"
@@ -156,7 +156,7 @@
       "content_hash": "blake3:7b75aa33bbb14c55aca3f944d74ee9423264cbb55611f26a834f2ed5c7439f0c"
     },
     "skills/infra-copilot/references/templates/terraform-apply.yml": {
-      "content_hash": "blake3:732f0e10963ec6f3be0c19d5e0148eaefdde6a5e66b6c7bddf27ab1f54a00971"
+      "content_hash": "blake3:3e7ae3a266b3c40df0ede44319ae7775cb8751f77fc3729025bb5f8f254771d1"
     },
     "skills/infra-copilot/references/templates/terraform-plan.yml": {
       "content_hash": "blake3:1326e35e2ccf6f6d9735df66c950edf3b4ab2ac588ab1736ecfae5d3c533f622"

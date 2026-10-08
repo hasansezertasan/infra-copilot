@@ -34,6 +34,11 @@ Setup checks committed workflows against the supported template layout before sk
 Legacy filters, conditional applies, missing dispatch support, or missing main-tip guards make the step incomplete.
 A locked dispatch-only Apply gate is supported; it must omit the push trigger.
 Keep the templates' guard and expression layout when customizing provider authentication.
+The workflow check verifies credential scope in both directions: each reference belongs
+to its job's tier and every required credential is referenced there. Preserve explicit
+`-lock=true -refresh=true` on production apply. The supported workflow shape rejects
+`TF_CLI_ARGS*` overrides at workflow, job or step scope, including writes to `GITHUB_ENV`;
+do not inject command behavior through Terraform's argument environment variables.
 The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
 
 ## GitHub Environments

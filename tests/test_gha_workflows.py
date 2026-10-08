@@ -40,7 +40,7 @@ class WorkflowSetupTests(unittest.TestCase):
 
     def check(self, *, references: bool = True) -> subprocess.CompletedProcess[str]:
         env = {**os.environ, 'INFRA_COPILOT_REFERENCES': str(REFERENCES) if references else '',
-               'ADDITIONAL_PROVIDER_SECRETS': '[{"name":"aws","credential_secrets":[{"name":"READ_TOKEN","scope":"plan"},{"name":"WRITE_TOKEN","scope":"apply"}]}]'}
+               'ADDITIONAL_PROVIDER_SECRETS': '[{"name":"aws","credential_secrets":[{"name":"READ_TOKEN","scope":"plan","required":true},{"name":"WRITE_TOKEN","scope":"apply","required":true}]}]'}
         return subprocess.run(['sh', str(SCRIPT)], cwd=self.root, env=env,
                               capture_output=True, text=True)
 
@@ -89,6 +89,9 @@ class WorkflowSetupTests(unittest.TestCase):
             original.replace('run: terraform apply -auto-approve', 'run: terraform apply -lock=false -auto-approve', 1),
             original.replace('run: terraform apply -auto-approve', 'run: terraform apply -refresh=false -auto-approve', 1),
             original.replace('secrets.GH_APP_PEM', 'secrets.GH_APP_READ_PEM'),
+            original.replace('      - name: Terraform Apply', '      - name: Terraform Apply\n        env:\n          TF_CLI_ARGS_apply: -lock=false', 1),
+            original.replace('    runs-on:', '    env:\n      TF_CLI_ARGS_apply: -refresh=false\n    runs-on:', 1),
+            original.replace('env:\n', 'env:\n  TF_CLI_ARGS: -refresh=false\n', 1),
         ):
             with self.subTest(broken=broken):
                 self.apply.write_text(broken)
@@ -167,7 +170,7 @@ class WorkflowSetupTests(unittest.TestCase):
         return subprocess.run(['sh', '-c', script], cwd=self.root,
                                env={**os.environ, 'INFRA_COPILOT_REFERENCES': str(REFERENCES),
                                     'NEW_PROVIDER': provider,
-                                    'NEW_PROVIDER_SECRETS': '[{"name":"READ_TOKEN","scope":"plan"},{"name":"WRITE_TOKEN","scope":"apply"}]'}, capture_output=True, text=True)
+                                    'NEW_PROVIDER_SECRETS': '[{"name":"READ_TOKEN","scope":"plan","required":true},{"name":"WRITE_TOKEN","scope":"apply","required":true}]'}, capture_output=True, text=True)
 
     def test_requested_provider_must_exist_as_actual_jobs(self) -> None:
         # Comments can satisfy the old name/path grep, but are not provider jobs.
@@ -197,12 +200,16 @@ class WorkflowSetupTests(unittest.TestCase):
         self.apply.write_text(apply_original.replace('secrets.WRITE_TOKEN', 'secrets.READ_TOKEN'))
         self.commit()
         self.assertEqual(self.new_provider_check().returncode, 1)
+        self.apply.write_text(apply_original.replace('${{ secrets.WRITE_TOKEN }}', "''"))
+        self.commit()
+        self.assertEqual(self.new_provider_check().returncode, 1)
         self.apply.write_text(apply_original)
         self.commit()
         self.assertEqual(self.check().returncode, 0)
         plan_original = self.plan.read_text()
         for broken in (plan_original.replace('secrets.READ_TOKEN', 'secrets.WRITE_TOKEN'),
-                       plan_original.replace('secrets.READ_TOKEN', 'secrets.UNDECLARED_TOKEN')):
+                       plan_original.replace('secrets.READ_TOKEN', 'secrets.UNDECLARED_TOKEN'),
+                       plan_original.replace('${{ secrets.READ_TOKEN }}', "''")):
             self.plan.write_text(broken)
             self.commit()
             self.assertEqual(self.new_provider_check().returncode, 1)

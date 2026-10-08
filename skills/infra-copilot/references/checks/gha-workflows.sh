@@ -28,6 +28,7 @@ for file in "$plan" "$apply"; do
   # cannot borrow evidence from an inactive declaration.
   awk '
     /^[[:space:]]*#/ {next}
+    /TF_CLI_ARGS/ {exit 1}
     /(^|[[:space:]:,{\[])[&*][^[:space:]&*]/ {exit 1}
     /^[^[:space:]#]/ {key=$0; sub(/:.*/, "", key); if (++seen[key] > 1) exit 1}
   ' "$file" || exit 1
@@ -153,10 +154,13 @@ for name in $names; do
       fi
       ;;
   esac
+  case "$leaf" in
+    cloudflare|github) inventory=$(printf '%s' "$inventory" | jq -c 'map(. + {required: true})') || exit 2 ;;
+  esac
   printf '%s' "$inventory" | jq -e '
     type == "array" and all(.[];
       (.name | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$"))
-      and (.scope == "plan" or .scope == "apply"))
+      and (.scope == "plan" or .scope == "apply") and (.required | type == "boolean"))
     and length == (map(.name | ascii_upcase) | unique | length)' >/dev/null || exit 1
   for tier in plan apply; do
     tier_job=$(job "$([ "$tier" = plan ] && printf '%s' "$plan" || printf '%s' "$apply")" "$tier-$leaf")
@@ -171,6 +175,11 @@ for name in $names; do
       printf '%s' "$inventory" | jq -e --arg name "$secret" --arg tier "$tier" '
         any(.[]; (.name | ascii_upcase) == $name and .scope == $tier)' >/dev/null || exit 1
     done || exit 1
+    printf '%s' "$inventory" | jq -r --arg tier "$tier" '
+      .[] | select(.scope == $tier and .required == true) | .name | ascii_upcase' |
+      while IFS= read -r secret; do
+        printf '%s\n' "$references" | grep -Fxq "$secret" || exit 1
+      done || exit 1
   done
   [ "$(printf '%s\n' "$plan_job" | grep -c '^    needs:' || true)" = 1 ] || exit 1
   printf '%s\n' "$plan_job" | grep -Fxq '    needs: changes' || exit 1
