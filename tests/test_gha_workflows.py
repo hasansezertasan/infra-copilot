@@ -285,9 +285,17 @@ class WorkflowSetupTests(unittest.TestCase):
         self.apply.write_text(apply_original.replace('secrets.WRITE_TOKEN', 'secrets.READ_TOKEN'))
         self.commit()
         self.assertEqual(self.new_provider_check().returncode, 1)
-        self.apply.write_text(apply_original.replace('${{ secrets.WRITE_TOKEN }}', "''"))
+        for replacement in ("''", "'' # use secrets.WRITE_TOKEN here",
+                            "'' # ${{ secrets.WRITE_TOKEN }}",
+                            'secrets.WRITE_TOKEN', "''\n          # ${{ secrets.WRITE_TOKEN }}"):
+            self.apply.write_text(apply_original.replace('${{ secrets.WRITE_TOKEN }}', replacement))
+            self.commit()
+            self.assertEqual(self.new_provider_check().returncode, 1)
+        # A hash inside a quoted active expression value is not a YAML comment.
+        self.apply.write_text(apply_original.replace('${{ secrets.WRITE_TOKEN }}',
+                                                    "'${{ secrets.WRITE_TOKEN }} # retained'"))
         self.commit()
-        self.assertEqual(self.new_provider_check().returncode, 1)
+        self.assertEqual(self.new_provider_check().returncode, 0)
         self.apply.write_text(apply_original)
         self.commit()
         self.assertEqual(self.check().returncode, 0)

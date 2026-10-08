@@ -66,6 +66,29 @@ run_body() {
     inside {print}
   '
 }
+active_yaml() {
+  # Supported single-line scalars: retain hashes in quoted values, omit inline comments.
+  awk '
+    /^[[:space:]]*#/ {next}
+    {
+      single=0; double=0; escaped=0
+      for (i=1; i<=length($0); i++) {
+        char=substr($0, i, 1)
+        if (double && escaped) {escaped=0; continue}
+        if (double && char == "\\") {escaped=1; continue}
+        if (!double && char == "\047") {
+          if (single && substr($0, i+1, 1) == "\047") {i++; continue}
+          single=!single; continue
+        }
+        if (!single && char == "\"") {double=!double; continue}
+        if (!single && !double && char == "#" && (i == 1 || substr($0, i-1, 1) ~ /[[:space:]]/)) {
+          $0=substr($0, 1, i-1); break
+        }
+      }
+      print
+    }
+  '
+}
 apply_events=$(section "$apply" on)
 dispatch_gate=false
 if awk -F '|' '
@@ -203,10 +226,11 @@ for name in $names; do
       and (.scope == "plan" or .scope == "apply") and (.required | type == "boolean"))
     and length == (map(.name | ascii_upcase) | unique | length)' >/dev/null || exit 1
   for tier in plan apply; do
-    tier_job=$(job "$([ "$tier" = plan ] && printf '%s' "$plan" || printf '%s' "$apply")" "$tier-$leaf")
+    tier_job=$(job "$([ "$tier" = plan ] && printf '%s' "$plan" || printf '%s' "$apply")" "$tier-$leaf" | active_yaml)
     printf '%s\n' "$tier_job" | sed -E 's/secrets\.[A-Za-z_][A-Za-z0-9_]*//g' |
       grep -Eq '(^|[^A-Za-z0-9_])secrets([^A-Za-z0-9_]|$)' && exit 1
-    references=$(printf '%s\n' "$tier_job" | grep -Eo 'secrets\.[A-Za-z_][A-Za-z0-9_]*' | cut -d . -f 2 | tr '[:lower:]' '[:upper:]' || true)
+    references=$(printf '%s\n' "$tier_job" | grep -Eo '\$\{\{[^}]*\}\}' |
+      grep -Eo 'secrets\.[A-Za-z_][A-Za-z0-9_]*' | cut -d . -f 2 | tr '[:lower:]' '[:upper:]' || true)
     printf '%s\n' "$references" | while IFS= read -r secret; do
       [ -n "$secret" ] || continue
       case "$secret" in
