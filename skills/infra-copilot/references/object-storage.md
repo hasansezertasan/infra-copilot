@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:764d2bfaa1fddb0c9397507718b01a9cf7ef0f70a342c77e7a6ff024f1bc61a5
-Source-Hash: blake3:00524d8a331e26426c33c394bafc085701d3575580040d0c306b50ee12a86c38
+Content-Hash: blake3:1ae668481631ce327fbcffc99b20d259c4ac13e4cb8de0a97ded77d4b328b1b9
+Source-Hash: blake3:20e899a63436a6db03783785af4506c5546b2acab99c898a64d40a7905979f01
 Schema-Version: v1
 -->
 
@@ -16,10 +16,15 @@ State provisioning, IAM and migration commands are in
 ## Provision-execution
 
 Install [plan](templates/terraform-plan.yml) and [apply](templates/terraform-apply.yml)
-workflows, with one leaf job and isolated state key per provider. Include the leaf,
+workflows and [the shared destroy helper](templates/terraform-destroy.cjs), copied to
+`.github/scripts/terraform-destroy.cjs`, with one leaf job and isolated state key per provider. Include the leaf,
 `terraform/modules/**`, `.infra-copilot/config.md`, `mise.toml` and `mise.lock` in the
 path filter. Add the leaf to validation, the changes output, the aggregate plan's `needs`,
-and an unconditional production apply job. Use the committed mise lock via `jdx/mise-action`.
+and keep every production apply job unconditional. Include the workflow files and shared helper in
+each plan path filter. Use the committed mise lock via `jdx/mise-action`.
+Update the workflows and helper together when re-scaffolding; setup rejects missing,
+dirty or outdated helpers and missing destructive guards. A HUMAN approves creation of
+`allow-destroy` and records its intent-marker limitations as a locked decision.
 
 Provision execution before adding provider secrets. The new leaf's apply job must set
 `environment: production`. A HUMAN restricts that environment to `main` and adds required reviewers or records an apply gate ([GitHub Environments](docs/object-storage-ci.md#github-environments)).

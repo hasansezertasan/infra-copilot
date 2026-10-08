@@ -1,5 +1,6 @@
 # Terraform Plan workflow for object-storage backend mode
 # Copy to .github/workflows/terraform-plan.yml and customize for your setup
+# Copy terraform-destroy.cjs to .github/scripts/terraform-destroy.cjs too.
 name: Terraform Plan
 
 on:
@@ -39,12 +40,16 @@ jobs:
               - 'mise.toml'
               - 'mise.lock'
               - '.infra-copilot/config.md'
+              - '.github/workflows/terraform-*.yml'
+              - '.github/scripts/terraform-destroy.cjs'
             github:
               - 'terraform/github/**'
               - 'terraform/modules/**'
               - 'mise.toml'
               - 'mise.lock'
               - '.infra-copilot/config.md'
+              - '.github/workflows/terraform-*.yml'
+              - '.github/scripts/terraform-destroy.cjs'
 
   plan-cloudflare:
     permissions:
@@ -95,13 +100,34 @@ jobs:
           TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN_READ }}
         run: |
           # The plan identity can read state but cannot create a lock.
+          set +e
           terraform plan -lock=false -no-color -out=tfplan 2>&1 | tee plan.txt
-          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
-        continue-on-error: true
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            terraform show -json tfplan | node "$GITHUB_WORKSPACE/.github/scripts/terraform-destroy.cjs" > destroys.json
+          fi
+
+      - name: Summarize Destructive Changes
+        id: inventory
+        if: steps.plan.outputs.exitcode == '0' && steps.plan.outcome == 'success'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { summaryWarning } = require('./.github/scripts/terraform-destroy.cjs');
+            const changes = JSON.parse(fs.readFileSync('terraform/cloudflare/destroys.json', 'utf8'));
+            const notice = summaryWarning(changes);
+            if (notice) await core.summary.addRaw(notice).write();
 
       - name: Post Plan to PR
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        if: github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request'
+        env:
+          EXITCODE: ${{ steps.plan.outputs.exitcode }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          INVENTORY_OUTCOME: ${{ steps.inventory.outcome }}
         with:
           script: |
             const { data: pull } = await github.rest.pulls.get({
@@ -113,26 +139,16 @@ jobs:
               return;
             }
             const fs = require('fs');
-            const plan = fs.readFileSync('terraform/cloudflare/plan.txt', 'utf8');
-            const maxLength = 65000;
-            const truncated = plan.length > maxLength
-              ? plan.substring(0, maxLength) + '\n\n... (truncated)'
-              : plan;
-
-            const body = `### Terraform Plan: \`cloudflare\`
-
-            PR head: \`${context.payload.pull_request.head.sha}\`
-            Planned commit: \`${context.sha}\`
-
-            <details>
-            <summary>Show Plan</summary>
-
-            \`\`\`
-            ${truncated}
-            \`\`\`
-            </details>`;
-
+            let plan = fs.existsSync('terraform/cloudflare/plan.txt')
+              ? fs.readFileSync('terraform/cloudflare/plan.txt', 'utf8') : 'Terraform plan did not complete; see run logs.';
             const marker = '<!-- infra-copilot-plan:cloudflare -->';
+            const { commentBody } = require('./.github/scripts/terraform-destroy.cjs');
+            const failed = process.env.EXITCODE !== '0' || process.env.PLAN_OUTCOME !== 'success' || process.env.INVENTORY_OUTCOME !== 'success';
+            if (failed) plan = 'Plan or destructive inspection failed; see run logs.\n\n' + plan;
+            const changes = failed ? [] : JSON.parse(fs.readFileSync('terraform/cloudflare/destroys.json', 'utf8'));
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = commentBody({ marker, leaf: 'cloudflare', head: context.payload.pull_request.head.sha,
+              sha: context.sha, run, plan, changes, failed });
             const comments = await github.paginate(github.rest.issues.listComments, {
               ...context.repo,
               issue_number: context.issue.number,
@@ -140,7 +156,7 @@ jobs:
             });
             const previous = comments.find(comment =>
               comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker));
-            const args = { ...context.repo, body: `${marker}\n${body}` };
+            const args = { ...context.repo, body };
             if (previous) {
               await github.rest.issues.updateComment({ ...args, comment_id: previous.id });
             } else {
@@ -203,17 +219,38 @@ jobs:
           TF_VAR_github_app_id: ${{ secrets.GH_APP_READ_ID }}
           TF_VAR_github_app_installation_id: ${{ secrets.GH_APP_READ_INSTALLATION_ID }}
           TF_VAR_github_app_pem: ${{ secrets.GH_APP_READ_PEM }}
-          TF_VAR_github_owner: ${{ vars.GITHUB_ORG || github.repository_owner }}
+          TF_VAR_github_owner: ${{ vars.TF_GITHUB_OWNER || github.repository_owner }}
         run: |
           # Read-only Apps cannot read merge settings or ruleset bypass actors accurately.
           # Compare config to last-applied state; merge-time apply still refreshes live drift.
+          set +e
           terraform plan -lock=false -refresh=false -no-color -out=tfplan 2>&1 | tee plan.txt
-          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
-        continue-on-error: true
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            terraform show -json tfplan | node "$GITHUB_WORKSPACE/.github/scripts/terraform-destroy.cjs" > destroys.json
+          fi
+
+      - name: Summarize Destructive Changes
+        id: inventory
+        if: steps.plan.outputs.exitcode == '0' && steps.plan.outcome == 'success'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { summaryWarning } = require('./.github/scripts/terraform-destroy.cjs');
+            const changes = JSON.parse(fs.readFileSync('terraform/github/destroys.json', 'utf8'));
+            const notice = summaryWarning(changes);
+            if (notice) await core.summary.addRaw(notice).write();
 
       - name: Post Plan to PR
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        if: github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request'
+        env:
+          EXITCODE: ${{ steps.plan.outputs.exitcode }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          INVENTORY_OUTCOME: ${{ steps.inventory.outcome }}
         with:
           script: |
             const { data: pull } = await github.rest.pulls.get({
@@ -225,26 +262,16 @@ jobs:
               return;
             }
             const fs = require('fs');
-            const plan = fs.readFileSync('terraform/github/plan.txt', 'utf8');
-            const maxLength = 65000;
-            const truncated = plan.length > maxLength
-              ? plan.substring(0, maxLength) + '\n\n... (truncated)'
-              : plan;
-
-            const body = `### Terraform Plan: \`github\`
-
-            PR head: \`${context.payload.pull_request.head.sha}\`
-            Planned commit: \`${context.sha}\`
-
-            <details>
-            <summary>Show Plan</summary>
-
-            \`\`\`
-            ${truncated}
-            \`\`\`
-            </details>`;
-
+            let plan = fs.existsSync('terraform/github/plan.txt')
+              ? fs.readFileSync('terraform/github/plan.txt', 'utf8') : 'Terraform plan did not complete; see run logs.';
             const marker = '<!-- infra-copilot-plan:github -->';
+            const { commentBody } = require('./.github/scripts/terraform-destroy.cjs');
+            const failed = process.env.EXITCODE !== '0' || process.env.PLAN_OUTCOME !== 'success' || process.env.INVENTORY_OUTCOME !== 'success';
+            if (failed) plan = 'Plan or destructive inspection failed; see run logs.\n\n' + plan;
+            const changes = failed ? [] : JSON.parse(fs.readFileSync('terraform/github/destroys.json', 'utf8'));
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = commentBody({ marker, leaf: 'github', head: context.payload.pull_request.head.sha,
+              sha: context.sha, run, plan, changes, failed });
             const comments = await github.paginate(github.rest.issues.listComments, {
               ...context.repo,
               issue_number: context.issue.number,
@@ -252,7 +279,7 @@ jobs:
             });
             const previous = comments.find(comment =>
               comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker));
-            const args = { ...context.repo, body: `${marker}\n${body}` };
+            const args = { ...context.repo, body };
             if (previous) {
               await github.rest.issues.updateComment({ ...args, comment_id: previous.id });
             } else {

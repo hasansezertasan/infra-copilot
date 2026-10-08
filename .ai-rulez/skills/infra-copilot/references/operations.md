@@ -33,7 +33,7 @@ is separate from operation completion and cannot move the first-red verdict.
 | Operation | `hcp` members | `object-storage` members |
 |---|---|---|
 | `bootstrap-state` | `hcp-login`, `hcp-signup`, `hcp-verify` | `state-bucket`, `backend-config`, `backend-identity`, `backend-identity-trust` |
-| `provision-execution` | `vcs-connect`, `workspaces-create` | `gha-workflows`, `gha-environments` |
+| `provision-execution` | `vcs-connect`, `workspaces-create` | `gha-workflows`, `gha-destroy-label`, `gha-environments` |
 | `store-cloudflare-credential` | `cf-token` | `cf-token-gha` |
 | `store-github-credential` | `gh-app` | `gh-app-gha` |
 | `plan-cloudflare` | `plan-cloudflare` | `plan-cloudflare-gha` |
