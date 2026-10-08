@@ -107,6 +107,19 @@ class GitHubAppPermissionTests(unittest.TestCase):
                 rejected = subprocess.run(['sh', '-c', app_check], cwd=checkout,
                                           env={**environment, **invalid_review}, capture_output=True, text=True)
                 self.assertEqual(rejected.returncode, 1, rejected.stderr)
+            plan_path = checkout / '.github/apps/terraform-plan.json'
+            committed_plan = plan_path.read_bytes()
+            plan_with_write = json.loads(committed_plan)
+            plan_with_write['default_permissions']['contents'] = 'write'
+            plan_path.write_text(json.dumps(plan_with_write))
+            subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                            'commit', '-qam', 'plan App gains a write'], cwd=checkout, check=True)
+            write_blob = subprocess.run(['git', 'hash-object', str(plan_path)], cwd=checkout,
+                                        check=True, capture_output=True, text=True).stdout.strip()
+            write_plan = subprocess.run(['sh', '-c', app_check], cwd=checkout,
+                                        env={**environment, 'GH_PLAN_MANIFEST_BLOB': write_blob},
+                                        capture_output=True, text=True)
+            self.assertEqual(write_plan.returncode, 1, write_plan.stderr)
             (checkout / '.github/apps/terraform-plan.json').unlink()
             missing_manifest = subprocess.run(['sh', '-c', app_check], cwd=checkout, env=environment,
                                               capture_output=True, text=True)

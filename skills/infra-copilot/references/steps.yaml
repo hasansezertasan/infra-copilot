@@ -996,6 +996,12 @@ steps:
         esac
         jq -e '.name | type == "string" and length > 0' "$manifest" >/dev/null || exit 1
       done
+      # The committed plan App must stay read-only and distinct from the write-capable apply App.
+      jq -en --slurpfile plan .github/apps/terraform-plan.json \
+        --slurpfile apply .github/apps/terraform-apply.json '
+        ($plan[0].default_permissions | type == "object" and length > 0)
+        and all($plan[0].default_permissions[]; . == "read")
+        and $plan[0].name != $apply[0].name' >/dev/null || exit 1
       for scope in repository production; do
         if [ "$scope" = repository ]; then
           secrets=$(gh secret list --repo "$REPO" --json name,updatedAt) || exit 1
