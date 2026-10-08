@@ -11,19 +11,17 @@
 # 2. Download and apply that exact plan here (terraform apply tfplan)
 # 3. Verify the plan commit SHA matches the merge commit
 # This is left to the user to implement based on their risk tolerance.
+# Apply every leaf on each push, so superseded or failed runs are caught up.
+# To retry, dispatch this workflow on main; stale re-runs are refused.
 name: Terraform Apply
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'terraform/**'
-      - 'mise.toml'
-      - 'mise.lock'
-      - '.infra-copilot/config.md'
+  workflow_dispatch:
 
 concurrency:
-  group: terraform-apply
+  group: terraform-apply-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -34,41 +32,11 @@ env:
   TF_INPUT: false
 
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      cloudflare: ${{ steps.filter.outputs.cloudflare }}
-      github: ${{ steps.filter.outputs.github }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
-        id: filter
-        with:
-          base: ${{ github.event.before }}
-          filters: |
-            cloudflare:
-              - 'terraform/cloudflare/**'
-              - 'terraform/modules/**'
-              - 'mise.toml'
-              - 'mise.lock'
-              - '.infra-copilot/config.md'
-            github:
-              - 'terraform/github/**'
-              - 'terraform/modules/**'
-              - 'mise.toml'
-              - 'mise.lock'
-              - '.infra-copilot/config.md'
-
   apply-cloudflare:
     permissions:
       contents: read
       pull-requests: write
       id-token: write
-    needs: changes
-    if: needs.changes.outputs.cloudflare == 'true'
     runs-on: ubuntu-latest
     environment: production
     # Increase for leaves with long provider operations (for example Cloud SQL/GKE).
@@ -123,6 +91,16 @@ jobs:
             fi
           fi
 
+      - name: Refuse to apply a commit that is not main's tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tip=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$tip" != "$GITHUB_SHA" ]; then
+            echo "::error::This run is for $GITHUB_REF at $GITHUB_SHA but main is at $tip. Run the workflow on main instead."
+            exit 1
+          fi
+
       - name: Terraform Apply
         working-directory: terraform/cloudflare
         env:
@@ -135,8 +113,6 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    needs: changes
-    if: needs.changes.outputs.github == 'true'
     runs-on: ubuntu-latest
     environment: production
     # Increase for leaves with long provider operations (for example Cloud SQL/GKE).
@@ -190,6 +166,16 @@ jobs:
               echo "::error::empty state; refusing to apply"
               exit 1
             fi
+          fi
+
+      - name: Refuse to apply a commit that is not main's tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tip=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$tip" != "$GITHUB_SHA" ]; then
+            echo "::error::This run is for $GITHUB_REF at $GITHUB_SHA but main is at $tip. Run the workflow on main instead."
+            exit 1
           fi
 
       - name: Terraform Apply

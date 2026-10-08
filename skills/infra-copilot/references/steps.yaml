@@ -2102,7 +2102,7 @@ steps:
     why: The plan and apply workflows must include the new leaf.
     run: |
       Update .github/workflows/terraform-plan.yml and terraform-apply.yml to:
-      1. Add a path filter for terraform/$NEW_PROVIDER/** AND shared inputs:
+      1. In terraform-plan.yml only, add a path filter for terraform/$NEW_PROVIDER/** AND shared inputs:
          - terraform/modules/**
          - mise.toml
          - mise.lock
@@ -2112,7 +2112,8 @@ steps:
       4. Add the provider-specific authentication step before terraform init (e.g., google-github-actions/auth for GCP, aws-actions/configure-aws-credentials for AWS, azure/login for Azure)
       5. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
       6. Add plan-$NEW_PROVIDER to the aggregate `plan` job's `needs` list
-      7. Wire up the changes job output and apply job if-condition for $NEW_PROVIDER
+      7. Wire up the plan workflow changes job output and plan job if-condition for $NEW_PROVIDER; manual dispatch must plan every leaf
+      8. Keep the apply workflow unfiltered: every run applies every leaf, with the main-tip guard before each apply
       Commit the updated workflows before re-running this check.
     check: |
       # File existence and git tracking

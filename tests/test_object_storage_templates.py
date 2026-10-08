@@ -44,6 +44,88 @@ class ApplyGuardTests(unittest.TestCase):
                     self.assertEqual(result.returncode, expected, result.stderr)
 
 
+class WorkflowConvergenceTests(unittest.TestCase):
+    def test_every_apply_run_includes_every_leaf(self) -> None:
+        template = (REFERENCES / 'templates/terraform-apply.yml').read_text()
+        triggers = template.split('on:\n', 1)[1].split('\nconcurrency:', 1)[0]
+        self.assertIn('branches: [main]', triggers)
+        self.assertIn('  workflow_dispatch:', triggers)
+        self.assertNotIn('paths:', triggers)
+        self.assertNotIn('paths-ignore:', triggers)
+        self.assertIn('group: terraform-apply-${{ github.ref }}', template)
+        self.assertIn('cancel-in-progress: false', template)
+        jobs = template.split('\njobs:\n', 1)[1]
+        self.assertNotIn('  changes:', jobs)
+        for leaf in ('cloudflare', 'github'):
+            job = jobs.split(f'  apply-{leaf}:\n', 1)[1].split('\n  apply-', 1)[0]
+            header, steps = job.split('    steps:\n', 1)
+            self.assertNotIn('    needs:', header)
+            self.assertNotIn('    if:', header)
+            self.assertIn('environment: production', header)
+            self.assertLess(steps.index("Refuse to apply a commit that is not main's tip"),
+                            steps.index('name: Terraform Apply'))
+
+    def test_dispatch_plans_all_leaves_and_prs_keep_filter_and_fork_gate(self) -> None:
+        template = (REFERENCES / 'templates/terraform-plan.yml').read_text()
+        filter_step = template.split('        id: filter\n', 1)[1].split('        with:', 1)[0]
+        self.assertIn("if: github.event_name == 'pull_request'", filter_step)
+        for leaf in ('cloudflare', 'github'):
+            output = re.search(rf"^      {leaf}: \$\{{\{{ (.*?) \}}\}}$", template, re.M).group(1)
+            job = template.split(f'  plan-{leaf}:\n', 1)[1].split('    steps:', 1)[0]
+            condition = re.search(r'    if: (.*)', job).group(1)
+            harness = """
+const assert = require('node:assert/strict');
+for (const [event, changed, sameRepo, expected] of [
+  ['workflow_dispatch', undefined, true, true],
+  ['pull_request', 'true', true, true],
+  ['pull_request', 'false', true, false],
+  ['pull_request', 'true', false, false],
+]) {
+  const github = { event_name: event, repository: 'owner/repo', event: event === 'workflow_dispatch' ? {} : {
+    pull_request: { head: { repo: { full_name: sameRepo ? 'owner/repo' : 'fork/repo' } } }
+  } };
+  const steps = { filter: { outputs: { [LEAF]: changed } } };
+  const selected = OUTPUT;
+  const needs = { changes: { outputs: { [LEAF]: selected } } };
+  assert.equal(CONDITION, expected, event + ':' + changed + ':' + sameRepo);
+  if (event === 'workflow_dispatch') assert.equal(selected, 'true');
+}
+""".replace('LEAF', json.dumps(leaf)).replace('OUTPUT', output).replace('CONDITION', condition)
+            result = subprocess.run(['node', '-e', harness], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+
+@unittest.skipUnless(os.name == 'posix', 'main-tip guard requires POSIX shell')
+class ApplyMainTipTests(unittest.TestCase):
+    def test_only_main_tip_can_apply_and_api_errors_fail_closed(self) -> None:
+        template = (REFERENCES / 'templates/terraform-apply.yml').read_text()
+        scripts = re.findall(r"      - name: Refuse to apply a commit that is not main's tip\n"
+                             r".*?        run: \|\n(.*?)(?=\n      - name:)", template, re.S)
+        self.assertEqual(len(scripts), 2)
+        for script in scripts:
+            for ref, sha, tip, status, expected in (
+                ('refs/heads/main', 'current', 'current', 0, 0),
+                ('refs/heads/main', 'old', 'current', 0, 1),
+                ('refs/heads/feature', 'current', 'current', 0, 1),
+                ('refs/tags/main', 'current', 'current', 0, 1),
+                ('refs/heads/main', 'current', '', 1, 1),
+                ('refs/heads/main', 'current', '', 0, 1),
+                ('refs/heads/main', 'current', 'current', 1, 1),
+            ):
+                with self.subTest(ref=ref, sha=sha, tip=tip, status=status):
+                    result = subprocess.run(
+                        ['bash', '-eu', '-o', 'pipefail', '-c',
+                         'gh() { test "$*" = "api repos/owner/repo/commits/main --jq .sha" || return 99; '
+                         'printf "%s" "$TEST_TIP"; return "$TEST_STATUS"; }\n'
+                         + textwrap.dedent(script)],
+                        env={**os.environ, 'GITHUB_REPOSITORY': 'owner/repo',
+                             'GITHUB_REF': ref, 'GITHUB_SHA': sha,
+                             'TEST_TIP': tip, 'TEST_STATUS': str(status)},
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode, expected, result.stderr)
+
+
 class PlanCommentTests(unittest.TestCase):
     def test_create_then_update_only_owned_leaf_comment(self) -> None:
         template = (REFERENCES / 'templates/terraform-plan.yml').read_text()
