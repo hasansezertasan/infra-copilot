@@ -148,17 +148,15 @@ additional_providers:
       - gcloud
     mise_config_blob: ""      # HUMAN-reviewed `git hash-object mise.toml`
     mise_lock_blob: ""        # HUMAN-reviewed `git hash-object mise.lock`
-    credentials_verified_at: ""  # HUMAN records UTC after installing the declared secrets
-    credential_secrets:       # GitHub Actions secrets inventory (names only, never values)
-      - name: GCP_WORKLOAD_IDENTITY_PROVIDER
-        required: true
-      - name: GCP_SERVICE_ACCOUNT
-        required: true
+    credentials_verified_at: ""  # HUMAN records UTC after verifying the authentication handoff
+    credential_secrets: []      # WIF identifiers are public; configure them in the workflow
 ```
 
 In object-storage mode, `workspace`, `fork_speculative_plans_*`, and `credential_variables`
 are not applicable — GitHub Actions handles CI and secrets. The `credential_secrets` field
 replaces `credential_variables` and lists the GitHub Actions secret names the workflow needs.
+It may be empty for keyless authentication such as Workload Identity Federation; public
+provider and service-account identifiers belong in workflow configuration, not secrets.
 
 In HCP mode, workspace names must be unique across this list and must not be `cloudflare` or
 `github-org`; resume must never repoint an existing bootstrap workspace. Record every

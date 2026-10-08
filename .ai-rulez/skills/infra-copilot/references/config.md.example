@@ -56,11 +56,7 @@ additional_providers: []
 #     mise_config_blob: ""
 #     mise_lock_blob: ""
 #     credentials_verified_at: ""
-#     credential_secrets:
-#       - name: GCP_WORKLOAD_IDENTITY_PROVIDER
-#         required: true
-#       - name: GCP_SERVICE_ACCOUNT
-#         required: true
+#     credential_secrets: []  # WIF identifiers are public; configure them in the workflow
 # infra-copilot:customization end
 ---
 

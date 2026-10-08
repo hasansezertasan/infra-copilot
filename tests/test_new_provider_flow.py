@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import os
 import re
 import subprocess
@@ -87,6 +88,44 @@ class NewProviderFlowTests(unittest.TestCase):
             with self.subTest(step=name):
                 self.assertIn("    phase: 6\n", step)
                 self.assertIn("    check:", step)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_keyless_provider_credentials_skip_secret_listing(self) -> None:
+        step = self.steps["new-provider-secrets-gha"]
+        check = literal_check(step)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".infra-copilot").mkdir()
+            (root / ".infra-copilot/config.md").write_text("additional_providers: []\n")
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            gh = bin_dir / "gh"
+            gh.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+            gh.chmod(0o755)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "-qm", "fixture"],
+                cwd=root,
+                check=True,
+            )
+            verified_at = datetime.datetime.now(datetime.timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+            result = subprocess.run(
+                ["/bin/sh", "-c", check],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                    "NEW_PROVIDER_SECRETS": "[]",
+                    "NEW_PROVIDER_CREDENTIALS_VERIFIED_AT": verified_at,
+                },
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
     def test_inventory_is_a_manifest_check_not_router_prose(self) -> None:
