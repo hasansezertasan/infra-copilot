@@ -121,6 +121,13 @@ for name in $names; do
   ' || exit 1
   plan_job=$(job "$plan" "plan-$leaf")
   [ -n "$plan_job" ] || exit 1
+  # Only read-only credentials may reach branch plans. No environment is allowed.
+  printf '%s\n' "$plan_job" | grep -Eq '^    environment:' && exit 1
+  printf '%s\n' "$plan_job" | grep -Eq 'secrets\.(CLOUDFLARE_API_TOKEN|GH_APP_ID|GH_APP_INSTALLATION_ID|GH_APP_PEM)([^A-Za-z0-9_]|$)' && exit 1
+  plan_step=$(printf '%s\n' "$plan_job" | step 'Terraform Plan')
+  flags='-lock=false'
+  [ "$leaf" != github ] || flags='-lock=false -refresh=false'
+  printf '%s\n' "$plan_step" | grep -Fxq "          terraform plan $flags -no-color -out=tfplan 2>&1 | tee plan.txt" || exit 1
   [ "$(printf '%s\n' "$plan_job" | grep -c '^    needs:' || true)" = 1 ] || exit 1
   printf '%s\n' "$plan_job" | grep -Fxq '    needs: changes' || exit 1
   condition="    if: needs.changes.outputs.$leaf == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"
@@ -132,4 +139,4 @@ for name in $names; do
   printf '%s\n' "$changes" | grep -Fxq "$output" || exit 1
   [ "$(printf '%s\n' "$changes" | grep -c "^      $leaf:" || true)" = 1 ] || exit 1
 done
-echo 'READY: committed workflows converge every leaf and support dispatch'
+echo 'READY: committed workflows use read-only unlocked plans, converge every leaf and support dispatch'

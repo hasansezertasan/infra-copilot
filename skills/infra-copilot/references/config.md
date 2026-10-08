@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1ca6e723013910909e73a04531102872d8e9272627df7bb2b816028d2370b8b3
-Source-Hash: blake3:9aa2aa8744d0a9dd2de18163ff29e580322896aae85e0670e4e00e321ff80c3b
+Content-Hash: blake3:942efadea156dc0428d36165bad7eb35561d4b1fd565ce2cfc6e04376f812dea
+Source-Hash: blake3:e4fb66e379afe94b7cc1566779804e5711ef442e5cc011a3a6758aa150e5e7bb
 Schema-Version: v1
 -->
 
@@ -161,7 +161,12 @@ additional_providers:
 
 In object-storage mode, `workspace`, `fork_speculative_plans_*`, and `credential_variables`
 are not applicable — GitHub Actions handles CI and secrets. The `credential_secrets` field
-replaces `credential_variables` and lists the GitHub Actions secret names the workflow needs.
+replaces `credential_variables`. Each entry has `name`, boolean `required`, and `scope`:
+`plan` for read-only repository secrets, `apply` for distinct production-only write secrets.
+Names must be unique ignoring case. Existing entries without scope must be migrated; never
+infer that an old repository credential is read-only. Remove repository copies of apply names.
+For example: `[{name: GCP_READ_TOKEN, required: true, scope: plan},
+{name: GCP_WRITE_TOKEN, required: true, scope: apply}]`.
 It may be empty for keyless authentication such as Workload Identity Federation; public
 provider and service-account identifiers belong in workflow configuration, not secrets.
 

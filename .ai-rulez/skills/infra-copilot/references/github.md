@@ -96,6 +96,14 @@ cd terraform/github && terraform init && terraform plan   # green = App auth wor
 
 ## Rotation
 
+For object-storage/GitHub Actions, create a second App with only Read permissions for
+plan and store `GH_APP_READ_ID`, `GH_APP_READ_INSTALLATION_ID`, `GH_APP_READ_PEM` at
+repository scope. The write App's `GH_APP_ID`, `GH_APP_INSTALLATION_ID`, `GH_APP_PEM`
+belong only in the exact-main `production` environment. Remove repository copies.
+GitHub plans use `-lock=false -refresh=false`: read-only callers cannot accurately read
+merge settings or ruleset bypass actors; production apply refreshes last-applied state.
+See [the credential tiers and migration](docs/object-storage-ci.md#terraform-providers).
+
 GitHub Apps support multiple active keys, so rotation is overlap-then-cutover: human
 generates a new key + pastes it, agent proves it with a no-op `plan`, then human deletes
 the old key. Steps in [`secrets.md`](docs/secrets.md#github-app-private-key).

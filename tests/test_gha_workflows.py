@@ -110,6 +110,20 @@ class WorkflowSetupTests(unittest.TestCase):
                 self.commit()
                 self.assertEqual(self.check().returncode, 1)
 
+    def test_writable_or_refreshing_github_plans_are_rejected(self) -> None:
+        original = self.plan.read_text()
+        for broken in (
+            original.replace('-lock=false ', '', 1),
+            original.replace('-refresh=false ', ''),
+            original.replace('secrets.CLOUDFLARE_API_TOKEN_READ', 'secrets.CLOUDFLARE_API_TOKEN'),
+            original.replace('secrets.GH_APP_READ_PEM', 'secrets.GH_APP_PEM'),
+            original.replace('  plan-cloudflare:\n', '  plan-cloudflare:\n    environment: production\n'),
+        ):
+            with self.subTest(broken=broken):
+                self.plan.write_text(broken)
+                self.commit()
+                self.assertEqual(self.check().returncode, 1)
+
     def test_dispatch_gate_requires_a_locked_decision_and_no_auto_apply(self) -> None:
         original = self.apply.read_text()
         dispatch_only = original.replace('  push:\n    branches: [main]\n', '')

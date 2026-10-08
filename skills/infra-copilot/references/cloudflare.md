@@ -1,12 +1,18 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:8cd6e4db30b29a45c56e5c7c358bf073ce10df926acd0968e90ad6e4c2886777
-Source-Hash: blake3:9aa2aa8744d0a9dd2de18163ff29e580322896aae85e0670e4e00e321ff80c3b
+Content-Hash: blake3:5d2734068d7b7d3ac3274b910d536869fe9914b129735a549a2c0bb3ad87708c
+Source-Hash: blake3:e4fb66e379afe94b7cc1566779804e5711ef442e5cc011a3a6758aa150e5e7bb
 Schema-Version: v1
 -->
 
 
 # Provider: Cloudflare (agent-first)
+
+For object-storage/GitHub Actions, use two scoped tokens: repository
+`CLOUDFLARE_API_TOKEN_READ` with DNS/Zone Settings Read for plan, and
+`CLOUDFLARE_API_TOKEN` with Edit only in the exact-main `production` environment for apply.
+Remove repository copies of the edit token; never reuse it for branch plans.
+See [the credential tiers and migration](docs/object-storage-ci.md#terraform-providers).
 
 Deep dive for [Phase 2](../../setup/SKILL.md) of the infra-copilot:setup skill. What the
 agent does, what the human must do, and how to prove it. Canonical bootstrap detail:

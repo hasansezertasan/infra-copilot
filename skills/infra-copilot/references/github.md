@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:cbb42daefd0c06f3b3ef4ac029a4d8e5bc974563b87c558308622d15e88336df
-Source-Hash: blake3:9aa2aa8744d0a9dd2de18163ff29e580322896aae85e0670e4e00e321ff80c3b
+Content-Hash: blake3:4ec5168b8174058eb7889049fb95b1940576dab959fb307f7adc573600545f16
+Source-Hash: blake3:e4fb66e379afe94b7cc1566779804e5711ef442e5cc011a3a6758aa150e5e7bb
 Schema-Version: v1
 -->
 
@@ -102,6 +102,14 @@ cd terraform/github && terraform init && terraform plan   # green = App auth wor
   re-adding the custom domain via `gh api` — see [`setup.md`](docs/setup.md#github-pages-cert-stuck-at-null).
 
 ## Rotation
+
+For object-storage/GitHub Actions, create a second App with only Read permissions for
+plan and store `GH_APP_READ_ID`, `GH_APP_READ_INSTALLATION_ID`, `GH_APP_READ_PEM` at
+repository scope. The write App's `GH_APP_ID`, `GH_APP_INSTALLATION_ID`, `GH_APP_PEM`
+belong only in the exact-main `production` environment. Remove repository copies.
+GitHub plans use `-lock=false -refresh=false`: read-only callers cannot accurately read
+merge settings or ruleset bypass actors; production apply refreshes last-applied state.
+See [the credential tiers and migration](docs/object-storage-ci.md#terraform-providers).
 
 GitHub Apps support multiple active keys, so rotation is overlap-then-cutover: human
 generates a new key + pastes it, agent proves it with a no-op `plan`, then human deletes

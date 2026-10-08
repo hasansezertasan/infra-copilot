@@ -1,6 +1,12 @@
 
 # Provider: Cloudflare (agent-first)
 
+For object-storage/GitHub Actions, use two scoped tokens: repository
+`CLOUDFLARE_API_TOKEN_READ` with DNS/Zone Settings Read for plan, and
+`CLOUDFLARE_API_TOKEN` with Edit only in the exact-main `production` environment for apply.
+Remove repository copies of the edit token; never reuse it for branch plans.
+See [the credential tiers and migration](docs/object-storage-ci.md#terraform-providers).
+
 Deep dive for [Phase 2](../../setup/SKILL.md) of the infra-copilot:setup skill. What the
 agent does, what the human must do, and how to prove it. Canonical bootstrap detail:
 [`setup.md#3`](docs/setup.md#3-cloudflare-api-token). Token scopes + rotation:

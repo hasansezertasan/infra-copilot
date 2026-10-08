@@ -76,6 +76,8 @@ for file in .github/workflows/terraform-plan.yml .github/workflows/terraform-app
     if printf '%s\n' "$active" | grep -Eq 'id-token|(^|[^a-zA-Z0-9_])secrets([^a-zA-Z0-9_]|$)'; then
       case "$file:$name" in
         *terraform-plan.yml:plan-*)
+          printf '%s\n' "$active" | grep -Eq '^    environment:' && exit 1
+          printf '%s\n' "$active" | grep -Eq 'secrets\.(CLOUDFLARE_API_TOKEN|GH_APP_ID|GH_APP_INSTALLATION_ID|GH_APP_PEM)([^A-Za-z0-9_]|$)' && exit 1
           provider=${name#plan-}
           guard=$(printf '%s\n' "$block" | sed -n 's/^    if: //p')
           dot="needs.changes.outputs.$provider == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"

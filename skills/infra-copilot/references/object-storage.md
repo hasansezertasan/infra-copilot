@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e621e64698d3d0f3e2e733562f88d83f952ed92c2b2aecab31dd4e2b7c573afe
-Source-Hash: blake3:9aa2aa8744d0a9dd2de18163ff29e580322896aae85e0670e4e00e321ff80c3b
+Content-Hash: blake3:efa54554fd16af093d65128f0312116e7eb1202a2f351340ece66f67ddbe0c66
+Source-Hash: blake3:e4fb66e379afe94b7cc1566779804e5711ef442e5cc011a3a6758aa150e5e7bb
 Schema-Version: v1
 -->
 
@@ -19,7 +19,7 @@ Install [plan](templates/terraform-plan.yml) and [apply](templates/terraform-app
 workflows, with one leaf job and isolated state key per provider. Include the leaf,
 `terraform/modules/**`, `.infra-copilot/config.md`, `mise.toml` and `mise.lock` in the
 path filter. Add the leaf to validation, the changes output, the aggregate plan's `needs`,
-and the apply job condition. Use the committed mise lock via `jdx/mise-action`.
+and an unconditional production apply job. Use the committed mise lock via `jdx/mise-action`.
 
 Provision execution before adding provider secrets. The new leaf's apply job must set
 `environment: production`. A HUMAN restricts that environment to `main` and adds required reviewers or records an apply gate ([GitHub Environments](docs/object-storage-ci.md#github-environments)).
@@ -35,13 +35,15 @@ There is no HCP workspace team grant or local Terraform Cloud API token here. Th
 manifest records that specific grant check as `not_applicable`; it does not assert that
 a runner's cloud identity is incapable of applying. GitHub's token does not itself grant
 state/provider permissions: runner OIDC and provider secrets do. A HUMAN must review those
-grants during execution provisioning. Use a distinct restricted plan identity where the
-provider supports it, and protect the apply identity with production approval.
+grants during execution provisioning. Require distinct read-only plan and write apply identities.
+Protect the apply identity with the exact-main production gate. Plans use `-lock=false`;
+the plan identity cannot write state, locks, resources, or impersonate apply.
+For cloud refresh use narrow per-service viewer roles, never broad project Viewer or secret-value access.
 
 The agent may dispatch `terraform-plan.yml` on its branch, inspect run logs and query
 metadata. It must never dispatch an apply, approve an environment deployment, weaken
 reviewers, or run credential-bearing Terraform locally to bypass approval. Existing
-same-repository branches execute trusted code; review workflow and Terraform changes
+same-repository branches can read plan credentials and state; review workflow and Terraform changes
 before allowing credentials to run. Fork exclusion is not a sandbox for malicious code
 already admitted into the repository.
 
@@ -64,15 +66,23 @@ textual occurrence elsewhere protects the job. IAM trust is a separate HUMAN rev
 
 ## Store-provider-credential
 
-A HUMAN stores Cloudflare's token as `CLOUDFLARE_API_TOKEN`, and the GitHub App ID,
-installation ID and full PEM as `GH_APP_ID`, `GH_APP_INSTALLATION_ID` and
-`GH_APP_PEM` repository secrets. See the template's variable mapping; the App
+A HUMAN stores the read-only Cloudflare token as `CLOUDFLARE_API_TOKEN_READ` and a separate
+read-only GitHub App as `GH_APP_READ_ID`, `GH_APP_READ_INSTALLATION_ID`, `GH_APP_READ_PEM`
+repository secrets. Write credentials `CLOUDFLARE_API_TOKEN`, `GH_APP_ID`,
+`GH_APP_INSTALLATION_ID`, `GH_APP_PEM` exist only in production, with no repository or
+accessible organization copies. See the template's variable mapping; the App
 PEM is a multiline value, including its BEGIN/END delimiters. Never echo or return secret
 values to the agent. For additional providers, use `credential_secrets` from their config
-entry; the manifest checks required names and the committed `credentials_verified_at`
+entry with scope=plan/apply; the manifest checks placement, required names and the committed `credentials_verified_at`
 attestation. A secret-list read proves names only: obtain a successful provider plan to
 prove the installed credential authenticates. State credentials use the separate cloud
-OIDC identity, not the Cloudflare discovery token.
+OIDC identity, not the Cloudflare discovery token. HUMAN verification must establish read-only
+permissions and distinct identities; successful plans and secret listings do not prove this.
+
+GitHub PR and dispatch plans use `-refresh=false`: read-only Apps cannot accurately read
+repository merge settings or ruleset bypass actors. Compare configuration to last-applied
+state; production apply refreshes live drift. Imports and data sources can still call APIs.
+Unlocked plans may race an apply and must not be applied as saved plans. Apply replans with locking.
 
 Rotate with overlap: mint the replacement, replace the secret out of band, obtain a no-op
 plan on a trusted branch, then revoke the old value. Retain the old value until verification

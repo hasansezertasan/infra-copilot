@@ -799,7 +799,9 @@ steps:
       1. Create a dedicated Workload Identity Pool for this repo (never share pools across repos)
       2. Create plan and apply providers pinning repository_id, repository_owner_id, workflows, and environment
          (see docs/object-storage-ci.md#gcp-workload-identity-federation for HCL, trust conditions, and ID retrieval)
-      3. Grant both service accounts (tf-plan and tf-apply) storage.objectAdmin on the state bucket
+      3. Grant tf-plan roles/storage.objectViewer on the state bucket; grant only tf-apply
+         roles/storage.objectAdmin. Remove any old plan objectAdmin grants, including inherited ones.
+         Plans run -lock=false; applies retain locking. Review effective IAM, not just secret names.
       4. Create GitHub secrets:
          - Repository secrets (for plan runs):
            - GCP_WORKLOAD_IDENTITY_PROVIDER: projects/<project-number>/locations/global/workloadIdentityPools/<pool>/providers/plan
@@ -810,21 +812,31 @@ steps:
 
       **S3 (OIDC assume-role):**
       1. Create an IAM OIDC provider for GitHub Actions
-      2. Create an IAM role with S3 and DynamoDB permissions, trust policy for your repo
+      2. Create separate plan and apply IAM roles with distinct trust policies (see docs/object-storage-ci.md).
+         Plan can ListBucket/GetObject for state, never PutObject/DeleteObject or lock writes.
+         Apply can read/write state and acquire/release the configured S3 or DynamoDB lock.
       3. Create GitHub secrets:
-         - AWS_ROLE_ARN: arn:aws:iam::<account>:role/<role>
+         - Repository AWS_ROLE_ARN: arn:aws:iam::<account>:role/<plan-role>
+         - Production environment AWS_ROLE_ARN: arn:aws:iam::<account>:role/<apply-role>
          - AWS_REGION (optional, defaults to state_region)
 
       **Azure (Federated credentials):**
-      1. Create an App Registration with federated credentials for GitHub
-      2. Grant the service principal Storage Blob Data Contributor on the container
+      1. Create separate plan/apply App Registrations and service principals with separate federated credentials
+      2. Grant plan Storage Blob Data Reader and apply Storage Blob Data Contributor on the state container
       3. Create GitHub secrets:
-         - AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+         - Repository AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID for plan
+         - Production environment copies for the separate apply identity
+
+      The production environment must allow exactly main before installing apply credentials.
+      For cloud resource leaves, also grant narrow per-service refresh roles to plan, never
+      broad roles/viewer, secret-value access, resource writes, or apply impersonation.
+      Follow docs/object-storage-ci.md for the GCP viewer set and AWS/Azure trust rules.
 
       Reply `done` after installing the secrets.
     check: |
       # Verify secrets exist in the repo (exact name match)
       repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
+      env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 1
       case "$STATE_BACKEND" in
         gcs)
           printf '%s\n' "$repo_secrets" | grep -Fxq "GCP_WORKLOAD_IDENTITY_PROVIDER" || exit 1
@@ -835,11 +847,15 @@ steps:
           ;;
         s3)
           printf '%s\n' "$repo_secrets" | grep -Fxq "AWS_ROLE_ARN" || exit 1
+          printf '%s\n' "$env_secrets" | grep -Fxq "AWS_ROLE_ARN" || exit 1
           ;;
         azurerm)
           printf '%s\n' "$repo_secrets" | grep -Fxq "AZURE_CLIENT_ID" || exit 1
           printf '%s\n' "$repo_secrets" | grep -Fxq "AZURE_TENANT_ID" || exit 1
           printf '%s\n' "$repo_secrets" | grep -Fxq "AZURE_SUBSCRIPTION_ID" || exit 1
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            printf '%s\n' "$env_secrets" | grep -Fxq "$name" || exit 1
+          done
           ;;
       esac
     produces: Cloud identity federation and GitHub secrets for backend access
@@ -908,20 +924,29 @@ steps:
     phase: 2
     provider: cloudflare
     actor: HUMAN
+    tri_state: true
     when: '[ "$BACKEND" = "object-storage" ]'
     title: Mint Cloudflare token and add as GitHub Actions secret
     why: The Terraform workflow authenticates to Cloudflare with this token.
     run: |
+      First verify the production main-only gate from gha-environments.
       1. https://dash.cloudflare.com/profile/api-tokens -> Create Token -> Custom token.
-      2. Permissions: Zone·DNS·Edit, Zone·Zone Settings·Edit  (add more as resources grow).
-      3. Account Resources: your account. Zone Resources: Specific zone -> <apex-domain>.
-      4. Copy the token (shown once).
-      5. Repo Settings -> Secrets and variables -> Actions -> New repository secret:
-         CLOUDFLARE_API_TOKEN, paste value.
+      2. Mint a plan token with Zone·DNS·Read, Zone·Zone Settings·Read; add only resource-specific
+         Read permissions as the leaf grows. Scope to your account and specific zone <apex-domain>.
+      3. Store it as repository secret CLOUDFLARE_API_TOKEN_READ.
+      4. Mint a separate apply token with Zone·DNS·Edit, Zone·Zone Settings·Edit (add resource-specific
+         permissions as needed), scoped to the same account/zone.
+      5. Store CLOUDFLARE_API_TOKEN only in production: gh secret set CLOUDFLARE_API_TOKEN --repo "$REPO" --env production.
+      6. Delete any repository-level CLOUDFLARE_API_TOKEN after installing the environment copy.
+         Never return token values to the agent. Verify plan is read-only in the token UI.
     check: |
-      gh secret list --json name -q '.[].name' 2>/dev/null \
-        | grep -Fxq 'CLOUDFLARE_API_TOKEN'
-    produces: CLOUDFLARE_API_TOKEN secret in GitHub Actions
+      sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh" || exit $?
+      repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
+      env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 1
+      printf '%s\n' "$repo_secrets" | grep -Fxq CLOUDFLARE_API_TOKEN_READ || exit 1
+      if printf '%s\n' "$repo_secrets" | grep -Fxq CLOUDFLARE_API_TOKEN; then exit 1; fi
+      printf '%s\n' "$env_secrets" | grep -Fxq CLOUDFLARE_API_TOKEN
+    produces: read-only repository token and production-only edit token
     docs: cloudflare.md
 
   # ── Phase 3 — GitHub App credentials (backend: object-storage) ──────────
@@ -931,6 +956,7 @@ steps:
     phase: 3
     provider: github
     actor: HUMAN
+    tri_state: true
     when: '[ "$BACKEND" = "object-storage" ]'
     title: Configure GitHub App credentials in GitHub Actions secrets
     why: The Terraform workflow authenticates to GitHub with these App credentials.
@@ -946,11 +972,26 @@ steps:
          note the Installation ID from the install URL.
       4. Repo Settings -> Secrets and variables -> Actions, add secrets:
          GH_APP_ID, GH_APP_INSTALLATION_ID, GH_APP_PEM (full PEM incl. BEGIN/END lines)
+         only in the production environment, after verifying its exact-main deployment policy.
+         Use gh secret set <name> --repo "$REPO" --env production; delete repository copies.
+      5. Create and install a second App scoped to the same managed repos, with only Read
+         permissions: Repository Administration, Actions, Contents, Metadata, Pull requests;
+         Organization Members and Administration. Never reuse the write App's PEM for plan.
+         Store GH_APP_READ_ID, GH_APP_READ_INSTALLATION_ID, GH_APP_READ_PEM as repository secrets.
+      6. Verify the read App's effective permissions and separate installation. GitHub plans
+         use -refresh=false because read-only callers cannot accurately read merge settings
+         or ruleset bypass_actors; production apply still refreshes. No live-drift claim for PR plans.
     check: |
-      secrets=$(gh secret list --json name -q '.[].name' 2>/dev/null)
-      echo "$secrets" | grep -Fxq 'GH_APP_ID' || exit 1
-      echo "$secrets" | grep -Fxq 'GH_APP_INSTALLATION_ID' || exit 1
-      echo "$secrets" | grep -Fxq 'GH_APP_PEM'
+      sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh" || exit $?
+      repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
+      env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 1
+      for name in GH_APP_READ_ID GH_APP_READ_INSTALLATION_ID GH_APP_READ_PEM; do
+        printf '%s\n' "$repo_secrets" | grep -Fxq "$name" || exit 1
+      done
+      for name in GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PEM; do
+        if printf '%s\n' "$repo_secrets" | grep -Fxq "$name"; then exit 1; fi
+        printf '%s\n' "$env_secrets" | grep -Fxq "$name" || exit 1
+      done
     produces: GitHub Actions secrets for GitHub App authentication
     docs: github.md
 
@@ -1808,7 +1849,8 @@ steps:
          For backend: object-storage:
          Add an `additional_providers` entry to .infra-copilot/config.md with its
          lowercase name, provider mise tools (or `[]`), and `credential_secrets` list
-         with `name` and `required` for each required GitHub Actions secret.
+          with `name`, `required`, and `scope` (plan or apply) for every GitHub Actions secret.
+          Plan names are read-only repository secrets; apply names are distinct and production-only.
          Set `mise_config_blob: ""` and `mise_lock_blob: ""`.
          Set `credentials_verified_at: ""` until the secret handoff is complete.
       4. Reply `done`:
@@ -1845,8 +1887,9 @@ steps:
           type == "array"
           and all(.[];
             (.name | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$"))
-            and (.required | type == "boolean"))
-          and length == (map(.name) | unique | length)' \
+            and (.required | type == "boolean")
+            and (.scope == "plan" or .scope == "apply"))
+          and length == (map(.name | ascii_upcase) | unique | length)' \
           >/dev/null || exit 1
       else
         printf '%s' "$NEW_PROVIDER_WORKSPACE" | grep -Eq '^[a-z0-9][a-z0-9-]*$' || exit 1
@@ -2100,7 +2143,9 @@ steps:
          - mise.lock
          - .infra-copilot/config.md
       2. Add plan/apply jobs for the new leaf
-      3. Pass the required secrets from NEW_PROVIDER_SECRETS as environment variables
+      3. Pass only scope=plan secrets from NEW_PROVIDER_SECRETS to plan and scope=apply
+         secrets to apply as environment variables. Use -lock=false on every plan;
+         keep locking and refresh enabled on apply. Use separate keyless identities too.
       4. Add the provider-specific authentication step before terraform init (e.g., google-github-actions/auth for GCP, aws-actions/configure-aws-credentials for AWS, azure/login for Azure)
       5. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
       6. Add plan-$NEW_PROVIDER to the aggregate `plan` job's `needs` list
@@ -2428,6 +2473,9 @@ steps:
       Follow object-storage.md's provisioning trust checklist. Review the exact cloud
       OIDC subject for this repository and branch/protected environment, the runner role
       or service account, state key isolation and least-privilege provider permissions.
+      Require separate read-only plan and write apply identities. Verify plan cannot write
+      state/locks/resources, read secret values, or impersonate apply; cloud refresh needs
+      narrow service-specific viewer permissions. Verify the exact-main production gate.
       Never accept a wildcard repository or fork subject. Reply done after review.
       This review is ephemeral: repeat it when resuming rather than assume IAM is unchanged.
     check: ~
@@ -2475,21 +2523,36 @@ steps:
     title: Verify the provider authentication handoff for GitHub Actions
     why: The workflow must authenticate to the provider without exposing credentials.
     run: |
-      If NEW_PROVIDER_SECRETS is not empty, mint or configure the provider's
-      least-privilege credential as its runbook requires. Go to repo Settings -> Secrets
-      and variables -> Actions and add each secret from the inventory. For an empty
-      inventory, verify the provider's keyless identity wiring instead; public identity
+      If NEW_PROVIDER_SECRETS is not empty, mint separate credentials: read-only plan
+      secrets at repository scope and write apply secrets only in production. Use distinct
+      names and delete repository copies of all apply names. Verify the main-only production
+      gate before installing write credentials. Never store write keys in organization secrets
+      accessible to this repo. Verify effective permissions; secret-name checks cannot prove them.
+      For an empty
+      inventory, verify separate read-only plan and write apply keyless identities and trust instead; public identity
       identifiers do not belong in the secret inventory. After the handoff is complete,
       record the current UTC time as `credentials_verified_at` in config.md using strict
       `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and reply `done`.
     check: |
-      printf '%s' "$NEW_PROVIDER_SECRETS" | jq -e 'type == "array"' >/dev/null || exit 1
+      printf '%s' "$NEW_PROVIDER_SECRETS" | jq -e '
+        type == "array" and all(.[];
+          (.name | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$"))
+          and (.required | type == "boolean") and (.scope == "plan" or .scope == "apply"))
+        and length == (map(.name | ascii_upcase) | unique | length)' >/dev/null || exit 1
       if [ "$(printf '%s' "$NEW_PROVIDER_SECRETS" | jq 'length')" -gt 0 ]; then
-        secrets=$(gh secret list --json name -q '.[].name' 2>/dev/null) || exit 1
-        printf '%s' "$NEW_PROVIDER_SECRETS" | jq -r '.[] | select(.required == true) | .name' |
-          while IFS= read -r name; do
-            test -z "$name" && continue
-            echo "$secrets" | grep -Fxq "$name" || exit 1
+        repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
+        env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 1
+        printf '%s' "$NEW_PROVIDER_SECRETS" | jq -r '.[] | [.name | ascii_upcase] + [.scope, (.required | tostring)] | @tsv' |
+          while read -r name scope required; do
+            if [ "$scope" = apply ]; then
+              if printf '%s\n' "$repo_secrets" | grep -Fxq "$name"; then exit 1; fi
+              secrets=$env_secrets
+            else
+              secrets=$repo_secrets
+            fi
+            if [ "$required" = true ]; then
+              printf '%s\n' "$secrets" | grep -Fxq "$name" || exit 1
+            fi
           done || exit 1
       fi
       printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \

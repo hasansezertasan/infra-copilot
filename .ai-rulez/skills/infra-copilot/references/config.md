@@ -154,7 +154,12 @@ additional_providers:
 
 In object-storage mode, `workspace`, `fork_speculative_plans_*`, and `credential_variables`
 are not applicable — GitHub Actions handles CI and secrets. The `credential_secrets` field
-replaces `credential_variables` and lists the GitHub Actions secret names the workflow needs.
+replaces `credential_variables`. Each entry has `name`, boolean `required`, and `scope`:
+`plan` for read-only repository secrets, `apply` for distinct production-only write secrets.
+Names must be unique ignoring case. Existing entries without scope must be migrated; never
+infer that an old repository credential is read-only. Remove repository copies of apply names.
+For example: `[{name: GCP_READ_TOKEN, required: true, scope: plan},
+{name: GCP_WRITE_TOKEN, required: true, scope: apply}]`.
 It may be empty for keyless authentication such as Workload Identity Federation; public
 provider and service-account identifiers belong in workflow configuration, not secrets.
 

@@ -132,12 +132,17 @@ terraform {
 
 In object-storage mode, secrets live in **GitHub Actions secrets** instead of HCP workspace variables:
 
-| Secret | Purpose |
-|--------|---------|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare provider auth |
-| `GH_APP_ID` | GitHub App ID |
-| `GH_APP_INSTALLATION_ID` | GitHub App installation ID |
-| `GH_APP_PEM` | GitHub App private key |
+| Secret | Purpose | Scope |
+|--------|---------|-------|
+| `CLOUDFLARE_API_TOKEN_READ` | Cloudflare Read token | Repository, plan only |
+| `GH_APP_READ_ID`, `GH_APP_READ_INSTALLATION_ID`, `GH_APP_READ_PEM` | Separate read-only GitHub App | Repository, plan only |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare Edit token | Production environment only |
+| `GH_APP_ID`, `GH_APP_INSTALLATION_ID`, `GH_APP_PEM` | Write GitHub App | Production environment only |
+
+Verify the production environment allows exactly `main` before installing write secrets.
+Delete repository copies and rotate old write credentials previously exposed to branches.
+Plan identities read state only and run `-lock=false`; apply identities write state and locks.
+GitHub plans additionally use `-refresh=false`; apply refreshes live state on merge.
 
 For cloud provider auth (GCS, S3, Azure), use Workload Identity Federation where possible — no long-lived credentials to store. See [GCP Workload Identity Federation](./object-storage-ci.md#gcp-workload-identity-federation) for the dedicated pool requirement, immutable ID pins, plan/apply provider separation, and Terraform HCL.
 
@@ -166,7 +171,9 @@ Keep resource changes out of the backend PR so the first bucket-backed plan is a
 Set a suitable apply timeout and retain the empty-state guard for every migrated leaf.
 
 Prepare these changes on a branch, but **do not start credentialed plan jobs or initialize the destination before the upload** if their identity can write state.
-The shipped plan example grants objectAdmin: opening a PR or dispatching its workflow can make GCS `terraform init` create an empty `default.tfstate`, preventing the later no-clobber upload.
+Legacy plan identities with objectAdmin can make GCS `terraform init` create an empty
+`default.tfstate`, preventing the later no-clobber upload. The shipped plan identity now
+has objectViewer only; remove old write grants before starting its jobs.
 Upload first, then open the PR/run its plans, or explicitly hold those jobs until transfer.
 A draft PR alone does not suppress workflows.
 If an earlier job already initialized the destination, stop and investigate that object and any lock before proceeding; never overwrite or delete an unverified destination.
@@ -174,7 +181,8 @@ If an earlier job already initialized the destination, stop and investigate that
 A read-only GCS plan identity (`roles/storage.objectViewer`, with `-lock=false` for plans) may fail its first `terraform init` before state exists: initialization tries to create `default.tflock` and receives a `403 storage.objects.create` error.
 That is an expected pre-transfer failure, not a reason to merge or grant the plan identity write access.
 Upload state, then re-run the PR plan.
-The shipped authentication example currently grants plan objectAdmin for locking; a read-only plan identity requires adapting that workflow as well.
+Do not grant plan objectAdmin to fix initialization. Fresh leaves need a HUMAN-reviewed
+first creation through production apply before read-only plans can consume existing state.
 
 ### Freeze and pull from HCP
 
