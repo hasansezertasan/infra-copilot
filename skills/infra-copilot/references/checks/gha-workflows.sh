@@ -20,6 +20,12 @@ root=$(git --no-optional-locks rev-parse --show-toplevel) || exit 2
 cd "$root"
 plan=.github/workflows/terraform-plan.yml
 apply=.github/workflows/terraform-apply.yml
+helper=.github/scripts/terraform-destroy.cjs
+[ -r "$INFRA_COPILOT_REFERENCES/templates/terraform-destroy.cjs" ] || exit 2
+git cat-file -e "HEAD:$helper" 2>/dev/null || exit 1
+dirty=$(git --no-optional-locks status --porcelain -- "$helper") || exit 2
+[ -z "$dirty" ] || exit 1
+cmp -s "$helper" "$INFRA_COPILOT_REFERENCES/templates/terraform-destroy.cjs" || exit 1
 for file in "$plan" "$apply"; do
   git cat-file -e "HEAD:$file" 2>/dev/null || exit 1
   dirty=$(git --no-optional-locks status --porcelain -- "$file") || exit 2
@@ -99,6 +105,12 @@ printf '%s\n' "$filter" | grep -Fxq "        if: github.event_name == 'pull_requ
 expected_guard=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
   step "Refuse to apply a commit that is not main's tip")
 [ -n "$expected_guard" ] || exit 2
+expected_destroy=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
+  step 'Refuse destructive apply without opt-in')
+[ -n "$expected_destroy" ] || exit 2
+expected_apply_run=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
+  step 'Terraform Apply' | grep '^        run:')
+[ -n "$expected_apply_run" ] || exit 2
 section "$apply" jobs | awk '
   /^  [^[:space:]]/ {key=$0; sub(/:.*/, "", key); if (++seen[key] > 1) exit 1}
 ' || exit 1
@@ -115,9 +127,23 @@ for name in $names; do
   [ "$(printf '%s\n' "$block" | grep -Fc '      - name: Terraform Apply')" = 1 ] || exit 1
   guard=$(printf '%s\n' "$block" | step "Refuse to apply a commit that is not main's tip")
   [ "$guard" = "$expected_guard" ] || exit 1
+  destroy=$(printf '%s\n' "$block" | step 'Refuse destructive apply without opt-in')
+  wanted_destroy=$(printf '%s\n' "$expected_destroy" | sed "s/leaf: 'cloudflare'/leaf: '$leaf'/")
+  [ "$destroy" = "$wanted_destroy" ] || exit 1
+  saved_plan=$(printf '%s\n' "$block" | step 'Terraform Plan')
+  printf '%s\n' "$saved_plan" | grep -Fxq "        working-directory: terraform/$leaf" || exit 1
+  printf '%s\n' "$saved_plan" | grep -Fxq '        run: terraform plan -no-color -out=tfplan' || exit 1
+  printf '%s\n' "$saved_plan" | grep -Eq '^        (if|continue-on-error):' && exit 1
+  printf '%s\n' "$apply_step" | grep -Fxq "        working-directory: terraform/$leaf" || exit 1
+  actual_apply_run=$(printf '%s\n' "$apply_step" | grep '^        run:')
+  [ "$actual_apply_run" = "$expected_apply_run" ] || exit 1
+  printf '%s\n' "$block" | grep -Fxq '      pull-requests: read' || exit 1
   printf '%s\n' "$block" | awk '
-    /      - name: Refuse to apply a commit that is not main/ {guard=1}
-    /      - name: Terraform Apply/ {if (!guard) exit 1}
+    /      - name: Refuse to apply a commit that is not main/ {if (++guard != 1) exit 1}
+    /      - name: Terraform Plan/ {if (!guard || ++plan != 1 || destroy) exit 1}
+    /      - name: Refuse destructive apply without opt-in/ {if (!plan || ++destroy != 1) exit 1}
+    /      - name: Terraform Apply/ {if (!destroy) exit 1}
+    END {if (guard != 1 || plan != 1 || destroy != 1) exit 1}
   ' || exit 1
   plan_job=$(job "$plan" "plan-$leaf")
   [ -n "$plan_job" ] || exit 1
@@ -131,5 +157,16 @@ for name in $names; do
   output="      $leaf: \${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.$leaf }}"
   printf '%s\n' "$changes" | grep -Fxq "$output" || exit 1
   [ "$(printf '%s\n' "$changes" | grep -c "^      $leaf:" || true)" = 1 ] || exit 1
+  leaf_filter=$(printf '%s\n' "$filter" | awk -v name="$leaf" '
+    /^            [^[:space:]]/ {inside=($0 == "            " name ":")}
+    inside {print}
+  ')
+  printf '%s\n' "$leaf_filter" | grep -Fxq "              - '.github/workflows/terraform-*.yml'" || exit 1
+  printf '%s\n' "$leaf_filter" | grep -Fxq "              - '.github/scripts/terraform-destroy.cjs'" || exit 1
+  printf '%s\n' "$plan_job" | grep -Fq 'terraform show -json tfplan | node "$GITHUB_WORKSPACE/.github/scripts/terraform-destroy.cjs" > destroys.json' || exit 1
+  report=$(printf '%s\n' "$plan_job" | step 'Post Plan to PR')
+  expected_report=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-plan.yml" plan-cloudflare |
+    step 'Post Plan to PR' | sed "s/cloudflare/$leaf/g")
+  [ "$report" = "$expected_report" ] || exit 1
 done
-echo 'READY: committed workflows converge every leaf and support dispatch'
+echo 'READY: committed workflows and helper converge every leaf with destructive opt-in'

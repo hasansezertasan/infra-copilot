@@ -138,6 +138,10 @@ class PlanCommentTests(unittest.TestCase):
                 plan = root / 'terraform' / leaf / 'plan.txt'
                 plan.parent.mkdir(parents=True)
                 plan.write_text('No changes.')
+                (plan.parent / 'destroys.json').write_text('[]')
+                helper = root / '.github/scripts/terraform-destroy.cjs'
+                helper.parent.mkdir(parents=True)
+                shutil.copyfile(REFERENCES / 'templates/terraform-destroy.cjs', helper)
                 # paginate supplies comments beyond page one; spoofed markers and other
                 # leaves must not be selected. Reject dropped await calls too.
                 harness = '''
@@ -200,6 +204,7 @@ SCRIPT
 })().catch(error => { console.error(error); process.exitCode = 1; });
 '''.replace('LEAF', json.dumps(leaf)).replace('SCRIPT', script)
                 result = subprocess.run(['node', '-e', harness], cwd=root,
+                                        env={**os.environ, 'EXITCODE': '0'},
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
 
