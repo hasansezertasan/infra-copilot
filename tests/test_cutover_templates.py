@@ -51,6 +51,7 @@ class CutoverTemplateTests(unittest.TestCase):
             self.assertEqual(job_text.count("timeout-minutes: 120"), 1)
             self.assertIn(f"ALLOW_EMPTY_STATE: ${{{{ vars.TF_ALLOW_EMPTY_STATE_{leaf_name.upper()} }}}}", job_text)
 
+    @unittest.skipUnless(os.name == "posix", "workflow scripts require POSIX shell")
     def test_reviewed_state_guard_requires_state_unless_first_creation_is_authorized(self) -> None:
         scenarios = [
             (1, "", "false", False),
@@ -90,6 +91,7 @@ class CutoverTemplateTests(unittest.TestCase):
         self.assertIn("group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}", workflow)
         self.assertIn("cancel-in-progress: true", workflow)
 
+    @unittest.skipUnless(os.name == "posix", "workflow scripts require POSIX shell")
     def test_mixed_backend_routing_executes_only_changed_object_storage_leaves(self) -> None:
         for operation in ("plan", "apply"):
             workflow = read_template(operation)
@@ -121,7 +123,7 @@ class CutoverTemplateTests(unittest.TestCase):
                                 self.assertEqual(outputs[leaf_name],
                                                   str(backend == "object-storage" and (operation == "apply" or change == "true")).lower())
 
-    @unittest.skipUnless(shutil.which("jq"), "aggregate script requires jq")
+    @unittest.skipUnless(os.name == "posix" and shutil.which("jq"), "aggregate script requires POSIX shell and jq")
     def test_aggregate_accepts_hcp_only_changes_but_requires_object_storage_plans(self) -> None:
         aggregate_job = extract_job(read_template("plan"), "plan")
         for leaf_name in LEAVES:
