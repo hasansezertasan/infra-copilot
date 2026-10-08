@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:942efadea156dc0428d36165bad7eb35561d4b1fd565ce2cfc6e04376f812dea
-Source-Hash: blake3:53f3e51d0368c9434f9af423a3be4b03d4046ebe2839fd457ec8da1f7d900d47
+Content-Hash: blake3:d2466e12ac4953a75a0e296024eccc4c61d86ff84c521a4c2d28aba573f5fb0d
+Source-Hash: blake3:363bc9a7ae64ed6b8697fc2da1cc514aa225fcdd91eb99eb02a03af58194032d
 Schema-Version: v1
 -->
 
@@ -267,7 +267,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export STATE_REGION=<state_region>        # for S3 and azurerm; empty for GCS
    export AZURE_STORAGE_ACCOUNT=<azure_storage_account>  # for azurerm
    export AZURE_RESOURCE_GROUP=<azure_resource_group>    # for azurerm
-   export ADDITIONAL_PROVIDER_SECRETS='<additional_providers credential_secrets as compact JSON>'
+    export ADDITIONAL_PROVIDER_SECRETS='<[{name: entry.name, credential_secrets: entry.credential_secrets}, ...] as compact JSON>'
    ```
 
    If `additional_providers` is absent (legacy config), default it to `[]`. If the key is

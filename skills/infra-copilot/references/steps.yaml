@@ -63,7 +63,7 @@
 #     export STATE_PREFIX=<state_prefix>
 #     export STATE_LOCK_TABLE=<state_lock_table>  # for S3
 #     export STATE_REGION=<state_region>  # for S3/azurerm
-#     export ADDITIONAL_PROVIDER_SECRETS='<additional_providers credential_secrets as compact JSON>'
+#     export ADDITIONAL_PROVIDER_SECRETS='<[{name: entry.name, credential_secrets: entry.credential_secrets}, ...] as compact JSON>'
 #
 # Step 0 must stop and hand off if backend is missing, empty, or invalid, before
 # preflight or any when/check/run. Never infer a mode from an empty BACKEND.

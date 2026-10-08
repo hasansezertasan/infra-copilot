@@ -99,6 +99,9 @@ printf '%s\n' "$filter" | grep -Fxq "        if: github.event_name == 'pull_requ
 expected_guard=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
   step "Refuse to apply a commit that is not main's tip")
 [ -n "$expected_guard" ] || exit 2
+expected_apply=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
+  step 'Terraform Apply' | sed -n '/^        run:/p')
+[ -n "$expected_apply" ] || exit 2
 section "$apply" jobs | awk '
   /^  [^[:space:]]/ {key=$0; sub(/:.*/, "", key); if (++seen[key] > 1) exit 1}
 ' || exit 1
@@ -110,6 +113,8 @@ for name in $names; do
   leaf=${name#apply-}
   block=$(job "$apply" "$name")
   apply_step=$(printf '%s\n' "$block" | step 'Terraform Apply')
+  # The supported apply always recomputes with default refresh and locking.
+  [ "$(printf '%s\n' "$apply_step" | sed -n '/^        run:/p')" = "$expected_apply" ] || exit 1
   printf '%s\n' "$block" | grep -Eq '^    (if|needs|continue-on-error):' && exit 1
   printf '%s\n' "$apply_step" | grep -Eq '^        (if|continue-on-error):' && exit 1
   [ "$(printf '%s\n' "$block" | grep -Fc '      - name: Terraform Apply')" = 1 ] || exit 1
@@ -132,6 +137,41 @@ for name in $names; do
   flags='-lock=false'
   [ "$leaf" != github ] || flags='-lock=false -refresh=false'
   printf '%s\n' "$plan_step" | grep -Fxq "          terraform plan $flags -no-color -out=tfplan 2>&1 | tee plan.txt" || exit 1
+  # Cross-check provider credentials against their tier. Public backend coordinates
+  # intentionally use environment overrides; effective IAM/trust is reviewed by HUMAN.
+  case "$leaf" in
+    cloudflare) inventory='[{"name":"CLOUDFLARE_API_TOKEN_READ","scope":"plan"},{"name":"CLOUDFLARE_API_TOKEN","scope":"apply"}]' ;;
+    github) inventory='[{"name":"GH_APP_READ_ID","scope":"plan"},{"name":"GH_APP_READ_INSTALLATION_ID","scope":"plan"},{"name":"GH_APP_READ_PEM","scope":"plan"},{"name":"GH_APP_ID","scope":"apply"},{"name":"GH_APP_INSTALLATION_ID","scope":"apply"},{"name":"GH_APP_PEM","scope":"apply"}]' ;;
+    *)
+      if [ "${NEW_PROVIDER:-}" = "$leaf" ] && [ -n "${NEW_PROVIDER_SECRETS:-}" ]; then
+        inventory=$NEW_PROVIDER_SECRETS
+      else
+        inventory=$(printf '%s' "${ADDITIONAL_PROVIDER_SECRETS:-[]}" | jq -ce --arg leaf "$leaf" '
+          [.[] | select(.name == $leaf)] | select(length == 1) | .[0].credential_secrets') || {
+          echo "CANNOT VERIFY: missing credential inventory for $leaf" >&2; exit 2;
+        }
+      fi
+      ;;
+  esac
+  printf '%s' "$inventory" | jq -e '
+    type == "array" and all(.[];
+      (.name | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$"))
+      and (.scope == "plan" or .scope == "apply"))
+    and length == (map(.name | ascii_upcase) | unique | length)' >/dev/null || exit 1
+  for tier in plan apply; do
+    tier_job=$(job "$([ "$tier" = plan ] && printf '%s' "$plan" || printf '%s' "$apply")" "$tier-$leaf")
+    printf '%s\n' "$tier_job" | sed -E 's/secrets\.[A-Za-z_][A-Za-z0-9_]*//g' |
+      grep -Eq '(^|[^A-Za-z0-9_])secrets([^A-Za-z0-9_]|$)' && exit 1
+    references=$(printf '%s\n' "$tier_job" | grep -Eo 'secrets\.[A-Za-z_][A-Za-z0-9_]*' | cut -d . -f 2 | tr '[:lower:]' '[:upper:]' || true)
+    printf '%s\n' "$references" | while IFS= read -r secret; do
+      [ -n "$secret" ] || continue
+      case "$secret" in
+        GCP_WORKLOAD_IDENTITY_PROVIDER|GCP_SERVICE_ACCOUNT|AWS_ROLE_ARN|AZURE_CLIENT_ID|AZURE_TENANT_ID|AZURE_SUBSCRIPTION_ID) continue ;;
+      esac
+      printf '%s' "$inventory" | jq -e --arg name "$secret" --arg tier "$tier" '
+        any(.[]; (.name | ascii_upcase) == $name and .scope == $tier)' >/dev/null || exit 1
+    done || exit 1
+  done
   [ "$(printf '%s\n' "$plan_job" | grep -c '^    needs:' || true)" = 1 ] || exit 1
   printf '%s\n' "$plan_job" | grep -Fxq '    needs: changes' || exit 1
   condition="    if: needs.changes.outputs.$leaf == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"

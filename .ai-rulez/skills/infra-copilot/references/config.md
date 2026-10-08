@@ -260,7 +260,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export STATE_REGION=<state_region>        # for S3 and azurerm; empty for GCS
    export AZURE_STORAGE_ACCOUNT=<azure_storage_account>  # for azurerm
    export AZURE_RESOURCE_GROUP=<azure_resource_group>    # for azurerm
-   export ADDITIONAL_PROVIDER_SECRETS='<additional_providers credential_secrets as compact JSON>'
+    export ADDITIONAL_PROVIDER_SECRETS='<[{name: entry.name, credential_secrets: entry.credential_secrets}, ...] as compact JSON>'
    ```
 
    If `additional_providers` is absent (legacy config), default it to `[]`. If the key is
