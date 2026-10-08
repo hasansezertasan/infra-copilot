@@ -34,6 +34,7 @@ jobs:
           persist-credentials: false
       - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
+        if: github.event_name == 'pull_request'
         with:
           filters: |
             cloudflare:
@@ -56,8 +57,8 @@ jobs:
       - name: Route object-storage leaves
         id: route
         env:
-          CLOUDFLARE_CHANGED: ${{ steps.filter.outputs.cloudflare }}
-          GITHUB_CHANGED: ${{ steps.filter.outputs.github }}
+          CLOUDFLARE_CHANGED: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.cloudflare }}
+          GITHUB_CHANGED: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.github }}
         run: |
           cloudflare=false
           github=false

@@ -44,12 +44,16 @@ for file do
     ' "$file" || fail "$file uses unsupported environment syntax"
     changes=$(job_block changes)
     [ -n "$changes" ] || broken "$source_file lacks changes job"
+    printf '%s\n' "$changes" | grep -Eq '^    (if|needs|continue-on-error):' &&
+        broken "$source_file backend routing must run unconditionally"
     route=$(printf '%s\n' "$changes" | awk '
         /^      - / {if (found) print block; block=""; found=0}
         {block=block $0 "\n"}
         /^        id: route[[:space:]]*$/ {found=1; count++}
         END {if (found) printf "%s", block; if (count != 1) exit 1}
     ') || broken "$source_file needs one route step in changes"
+    printf '%s\n' "$route" | grep -Eq '^        (if|continue-on-error):' &&
+        broken "$source_file route step must run unconditionally"
     initializers=''; decisions=''; emissions=''
     for pair in $pairs; do
         leaf=${pair%%:*}; key=${pair#*:}
@@ -96,11 +100,16 @@ for file do
         guard=$(job_block "$prefix-$leaf" | awk '/^    if:/ {sub(/^    if: /, ""); print}')
         [ -n "$guard" ] || broken "$source_file is missing $prefix-$leaf guard"
         [ "$guard" = "needs.changes.outputs$accessor == 'true'$suffix" ] ||
-            fail "$file $prefix-$leaf does not use the supported routed job guard"
+            broken "$source_file $prefix-$leaf does not use the supported routed job guard"
         slug=$(printf '%s' "$leaf" | tr '-' '_')
         case "$leaf" in cloudflare|github) variable=$slug ;; *) variable=leaf_$slug ;; esac
         changed=${key%_BACKEND}_CHANGED
-        printf '%s\n' "$route" | grep -Fxq "          $changed: \${{ steps.filter.outputs$accessor }}" ||
+        if [ "$prefix" = apply ]; then
+            change_input="          $changed: 'true'"
+        else
+            change_input="          $changed: \${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs$accessor }}"
+        fi
+        printf '%s\n' "$route" | grep -Fxq "$change_input" ||
             broken "$source_file route lacks $changed input"
         if [ "$prefix" = plan ] && [ "$expected" = object-storage ]; then
             aggregate=$(job_block plan)

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:cfd928cf26e92aede1a03cf4e1766e83471f17241a7295a20f1379d0a3c20e3e
-Source-Hash: blake3:32f7dce0599e20d977e1729bc06070c5d860879122160c4344fb587594c2bea9
+Content-Hash: blake3:6408b02e3df54385ecafdc4f86cc394f9aa01431d76c5c4f4c1212924d173098
+Source-Hash: blake3:3a1aea29fb156f444383777bac370c3608f8b1160ee22ebb2fb1feceecee7e6d
 Schema-Version: v1
 -->
 
@@ -340,9 +340,10 @@ Record leaf names, backend destinations, HCP lock/disconnect state, upload verif
 Resume never reconnects a migrated leaf to HCP; do not treat green setup/status as migration completion.
 
 Set static `CLOUDFLARE_BACKEND` and `GITHUB_BACKEND` literals in both workflow `env` blocks
-to their effective config values. The changes jobs filter credentialed outputs to
-object-storage leaves, so HCP-only changes skip Actions plans/applies without failing
-the Actions aggregate. Validation stays backend-neutral. For additional providers, add
+to their effective config values. Plans filter credentialed outputs to changed object-storage
+leaves (all such leaves on dispatch); applies select every object-storage leaf on every
+run without path filters. HCP leaves never run credentialed Actions jobs. Validation
+stays backend-neutral. For additional providers, add
 their `<LEAF>_BACKEND` literals, jobs, filters and aggregate checks following the same pattern.
 Additional-provider literals use a shell-safe `LEAF_` prefix, such as
 `LEAF_GCP_BACKEND` or `LEAF_1PASSWORD_BACKEND`; bootstrap literals keep their shipped names.

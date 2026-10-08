@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:32f7dce0599e20d977e1729bc06070c5d860879122160c4344fb587594c2bea9",
+  "source_hash": "blake3:3a1aea29fb156f444383777bac370c3608f8b1160ee22ebb2fb1feceecee7e6d",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -47,6 +47,9 @@
     "skills/infra-copilot/references/checks/gha-provider-safety.sh": {
       "content_hash": "blake3:bece0296513c59ad45cffb2c2be1bc15cbed4b5139e2f101e7d36f7ccc5edc22"
     },
+    "skills/infra-copilot/references/checks/gha-workflows.sh": {
+      "content_hash": "blake3:e7c3668a94d13809737ec702b8fdab03e3677dae915b87cdfe8d98a4ac21a990"
+    },
     "skills/infra-copilot/references/checks/hcp-apply-scope.sh": {
       "content_hash": "blake3:2db93e5bcd148586aee379fcfdb6c588358ecf1a7a9d477e1838ab3a2bf0ecc6"
     },
@@ -72,7 +75,7 @@
       "content_hash": "blake3:7b43a11dc33a9af654fac6bf546ea73c9b4ff7d312cef74cd15f2591948de7be"
     },
     "skills/infra-copilot/references/checks/workflow-routing.sh": {
-      "content_hash": "blake3:66fce94fd28028854dc81fcb1ffde530ebeac810a8b3a268cb0dc7fa0d9af4dc"
+      "content_hash": "blake3:633cb77a70105a88485d14be11b2c9c17034caf7d762898d840f6f7020962721"
     },
     "skills/infra-copilot/references/cloudflare.md": {
       "content_hash": "blake3:edc5fa8a699251091b8daeb6fb11cfb63d55221404f36e1e795d8880130d690a"
@@ -108,10 +111,10 @@
       "content_hash": "blake3:86dfd743bd885f16b71c6a85392f144b21dee4231e27e030a0e557562106a4f2"
     },
     "skills/infra-copilot/references/docs/object-storage-ci.md": {
-      "content_hash": "blake3:5218a39add44987537623361eecb8ae2bd5a631009121989918df2d1b63ed485"
+      "content_hash": "blake3:b3bbfafb83ef9320e258a892523984be35209d0a2e7fb65a1f284ce8e54508cd"
     },
     "skills/infra-copilot/references/docs/object-storage-state.md": {
-      "content_hash": "blake3:cfd928cf26e92aede1a03cf4e1766e83471f17241a7295a20f1379d0a3c20e3e"
+      "content_hash": "blake3:6408b02e3df54385ecafdc4f86cc394f9aa01431d76c5c4f4c1212924d173098"
     },
     "skills/infra-copilot/references/docs/prune.md": {
       "content_hash": "blake3:45addcf9253c687839a6528c7fc41272ed8504d60f7178dc34f48a89e67b2d21"
@@ -144,7 +147,7 @@
       "content_hash": "blake3:64b4ab9e46f080339c006330c4ee87f6116c7473d6f2d345f4eedd6288f03da6"
     },
     "skills/infra-copilot/references/object-storage.md": {
-      "content_hash": "blake3:c6c28e4bad71160facb019fad116acbd6f6bdc947c8e3bc4c8cdaf08204d5f3d"
+      "content_hash": "blake3:385fe9fe867118f1d5a55ac1f53ca0d2a00091a303ff03bac259c3e146bfe914"
     },
     "skills/infra-copilot/references/operations.md": {
       "content_hash": "blake3:9324955f3e5e3b8045f8b1f34bae5b809f75c15a002df03b7d184616216b477d"
@@ -156,7 +159,7 @@
       "content_hash": "blake3:dcda4d6452fee1c0dec29d08bcb9263720147d21080cd2f7119e231fc31cab82"
     },
     "skills/infra-copilot/references/steps.yaml": {
-      "content_hash": "blake3:8f9f6921f19db0c5a1e2340e9167897dc00a3436428c7090dc7ed2b44147d8c5"
+      "content_hash": "blake3:3014617073aaf23ffa938238cc95c0c4de40ec788adba3c69900836ab36a9862"
     },
     "skills/infra-copilot/references/templates/apps/terraform-apply.json": {
       "content_hash": "blake3:e8291668fd04512587210f86ac63960fcf57eddbea919c0c350841e9077be097"
@@ -165,10 +168,10 @@
       "content_hash": "blake3:9bb9763b72da3d63bbb9fb0661afb936a03571af7d8be736cd6b08dad9ea0486"
     },
     "skills/infra-copilot/references/templates/terraform-apply.yml": {
-      "content_hash": "blake3:467e4ee506e23a470384ffa7919a1dbd08a0022a0c8acfa67fe18ed2d2ccff17"
+      "content_hash": "blake3:f11d74e059da1dfcf3dbc922ecd9fb1b651841f07d40bfb0a993440133f62ee0"
     },
     "skills/infra-copilot/references/templates/terraform-plan.yml": {
-      "content_hash": "blake3:45e46c52ab75fd58a63bf377b9c4b33a083f1bd6a1badc479e6c8f8139a7dd3c"
+      "content_hash": "blake3:e6ee6799eb66abd5d86b317cec82807e47d89a8225254cf699dfc94cea89114a"
     },
     "skills/prune/SKILL.md": {
       "content_hash": "blake3:65c44127ac48a406b0e0125831aee62f46992e7390d65fd9f947a5d5201899e3"

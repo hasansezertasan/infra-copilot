@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:5218a39add44987537623361eecb8ae2bd5a631009121989918df2d1b63ed485
-Source-Hash: blake3:32f7dce0599e20d977e1729bc06070c5d860879122160c4344fb587594c2bea9
+Content-Hash: blake3:b3bbfafb83ef9320e258a892523984be35209d0a2e7fb65a1f284ce8e54508cd
+Source-Hash: blake3:3a1aea29fb156f444383777bac370c3608f8b1160ee22ebb2fb1feceecee7e6d
 Schema-Version: v1
 -->
 
@@ -26,9 +26,17 @@ Unlike HCP mode, plan output appears directly in PR comments. Mark all sensitive
 Two workflows handle the Terraform lifecycle. See the templates for full implementations:
 
 - [`../templates/terraform-plan.yml`](../templates/terraform-plan.yml) — runs on every PR that touches `terraform/**`
-- [`../templates/terraform-apply.yml`](../templates/terraform-apply.yml) — runs on merge to `main` in the `main`-only `production` environment
+- [`../templates/terraform-apply.yml`](../templates/terraform-apply.yml) — runs on every push to `main` or manual dispatch in the `main`-only `production` environment
 
-The plan workflow uses `dorny/paths-filter` to detect which leaves changed, runs `terraform plan` for each, and posts the output as a PR comment. The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
+The plan workflow uses `dorny/paths-filter` to detect changed object-storage leaves, runs `terraform plan` for each, and posts the output as a PR comment. Manual plan dispatch skips the PR path filter and plans every object-storage leaf.
+The apply workflow applies every object-storage leaf on each push, including unchanged leaves, so a newer run catches up changes from superseded or failed runs. Its routing job selects by backend only, never by changed paths; HCP leaves remain excluded.
+To retry an apply, dispatch the workflow on `main`; each apply job refuses a ref other than `main` or a commit that is no longer its tip.
+Concurrency is scoped by ref so a dispatch from another branch cannot replace a pending `main` run.
+Setup checks committed workflows against the supported template layout before skipping creation.
+Legacy filters, conditional applies, missing dispatch support, or missing main-tip guards make the step incomplete.
+A locked dispatch-only Apply gate is supported; it must omit the push trigger.
+Keep the templates' guard and expression layout when customizing provider authentication.
+The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
 
 Set the static `<LEAF>_BACKEND` literals in both workflows to each leaf's effective config
 backend; credentialed plan/apply outputs exclude HCP leaves. Update these literals in the

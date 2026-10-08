@@ -112,14 +112,14 @@ class CutoverTemplateTests(unittest.TestCase):
                             environment = os.environ | {"GITHUB_OUTPUT": str(output_path)}
                             for leaf_name, backend, change in zip(LEAVES, backends, changed):
                                 environment[f"{leaf_name.upper()}_BACKEND"] = backend
-                                environment[f"{leaf_name.upper()}_CHANGED"] = change
+                                environment[f"{leaf_name.upper()}_CHANGED"] = "true" if operation == "apply" else change
                             result = subprocess.run(["bash", "-eu", "-c", route_script], env=environment,
                                                     text=True, capture_output=True)
                             self.assertEqual(result.returncode, 0, result.stderr)
                             outputs = dict(line.split("=", 1) for line in output_path.read_text().splitlines())
                             for leaf_name, backend, change in zip(LEAVES, backends, changed):
                                 self.assertEqual(outputs[leaf_name],
-                                                 str(backend == "object-storage" and change == "true").lower())
+                                                  str(backend == "object-storage" and (operation == "apply" or change == "true")).lower())
 
     @unittest.skipUnless(shutil.which("jq"), "aggregate script requires jq")
     def test_aggregate_accepts_hcp_only_changes_but_requires_object_storage_plans(self) -> None:
@@ -145,12 +145,15 @@ class CutoverTemplateTests(unittest.TestCase):
                                         env=os.environ | {"CLOUDFLARE_CHANGED": cloudflare, "GITHUB_CHANGED": github})
                 self.assertEqual(result.returncode == 0, expected, result.stdout + result.stderr)
 
-    def test_apply_workflow_only_change_triggers_and_filters_both_leaves(self) -> None:
+    def test_apply_has_no_path_filters_and_converges_all_active_backends(self) -> None:
         workflow = read_template("apply")
         trigger = workflow.split("concurrency:", 1)[0]
-        self.assertIn("- '.github/workflows/terraform-apply.yml'", trigger)
+        self.assertNotIn('paths:', trigger)
+        self.assertIn('workflow_dispatch:', trigger)
         changes_job = extract_job(workflow, "changes")
-        self.assertEqual(changes_job.count("- '.github/workflows/terraform-apply.yml'"), 2)
+        self.assertNotIn('paths-filter', changes_job)
+        for leaf_name in LEAVES:
+            self.assertIn(f"{leaf_name.upper()}_CHANGED: 'true'", changes_job)
 
     @unittest.skipUnless(shutil.which("node"), "comment script requires Node.js")
     def test_comments_paginate_match_only_owned_leaf_marker_and_await_writes(self) -> None:

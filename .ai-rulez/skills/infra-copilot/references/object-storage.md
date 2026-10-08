@@ -26,10 +26,12 @@ by `_BACKEND` (e.g. `LEAF_GCP_PROD_BACKEND`). Use corresponding `LEAF_<SLUG>_CHA
 inputs and `leaf_<slug_with_underscores>` shell variables. Preserve the supported route
 script grouping: all false initializers, guarded true decisions, then output writes,
 bootstrap leaves first and additional leaves in lexical order. Include both workflow
-paths in plan/apply filters and every Actions provider in the aggregate's dependencies
+paths in plan filters and every Actions provider in the aggregate's dependencies
 and changed-leaf success predicates. Run the workflow agreement check with `ROUTING_PROVIDER` set to
 `NEW_PROVIDER` for that entry to verify both workflows against effective config.
 The Phase 6 workflow and plan checks enforce this.
+Apply routing uses static true change inputs, converging all object-storage leaves on
+every main push/dispatch; plan routing combines dispatch with PR-filter outputs.
 An override to HCP must disable that provider's runner auth/init/plan/apply path.
 In mixed mode retain both Actions and HCP protection contexts regardless of which
 service manages the GitHub leaf itself. Never reconnect migrated HCP workspaces.

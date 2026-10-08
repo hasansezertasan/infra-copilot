@@ -333,9 +333,10 @@ Record leaf names, backend destinations, HCP lock/disconnect state, upload verif
 Resume never reconnects a migrated leaf to HCP; do not treat green setup/status as migration completion.
 
 Set static `CLOUDFLARE_BACKEND` and `GITHUB_BACKEND` literals in both workflow `env` blocks
-to their effective config values. The changes jobs filter credentialed outputs to
-object-storage leaves, so HCP-only changes skip Actions plans/applies without failing
-the Actions aggregate. Validation stays backend-neutral. For additional providers, add
+to their effective config values. Plans filter credentialed outputs to changed object-storage
+leaves (all such leaves on dispatch); applies select every object-storage leaf on every
+run without path filters. HCP leaves never run credentialed Actions jobs. Validation
+stays backend-neutral. For additional providers, add
 their `<LEAF>_BACKEND` literals, jobs, filters and aggregate checks following the same pattern.
 Additional-provider literals use a shell-safe `LEAF_` prefix, such as
 `LEAF_GCP_BACKEND` or `LEAF_1PASSWORD_BACKEND`; bootstrap literals keep their shipped names.

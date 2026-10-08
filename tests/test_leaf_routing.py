@@ -195,6 +195,9 @@ class LeafRoutingTests(unittest.TestCase):
         self.write_workflows()
         for workflow_name in ('terraform-plan.yml', 'terraform-apply.yml'):
             workflow_path = self.checkout / '.github/workflows' / workflow_name
+            prefix = 'plan' if workflow_name == 'terraform-plan.yml' else 'apply'
+            changed_expression = "${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.gcp-prod }}" if prefix == 'plan' else "'true'"
+            github_expression = "${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.github }}" if prefix == 'plan' else "'true'"
             workflow_text = workflow_path.read_text().replace(
                 'jobs:', '  LEAF_GCP_PROD_BACKEND: object-storage\njobs:')
             workflow_text = workflow_text.replace(
@@ -202,9 +205,9 @@ class LeafRoutingTests(unittest.TestCase):
                 '      github: ${{ steps.route.outputs.github }}\n'
                 '      gcp-prod: ${{ steps.route.outputs.gcp-prod }}')
             workflow_text = workflow_text.replace(
-                '          GITHUB_CHANGED: ${{ steps.filter.outputs.github }}',
-                '          GITHUB_CHANGED: ${{ steps.filter.outputs.github }}\n'
-                '          LEAF_GCP_PROD_CHANGED: ${{ steps.filter.outputs.gcp-prod }}')
+                f'          GITHUB_CHANGED: {github_expression}',
+                f'          GITHUB_CHANGED: {github_expression}\n'
+                f'          LEAF_GCP_PROD_CHANGED: {changed_expression}')
             workflow_text = workflow_text.replace('          github=false', '          github=false\n          leaf_gcp_prod=false')
             workflow_text = workflow_text.replace(
                 '          echo "cloudflare=$cloudflare"',

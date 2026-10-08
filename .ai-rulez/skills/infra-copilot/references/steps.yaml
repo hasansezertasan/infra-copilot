@@ -877,31 +877,19 @@ steps:
     why: CI replaces HCP's VCS integration — plan on PR, apply on merge.
     run: |
       Create .github/workflows/terraform-plan.yml:
-        - Triggers on pull_request (and optional workflow_dispatch)
-        - Runs init + plan for each changed leaf
+        - Triggers on pull_request and workflow_dispatch
+        - Filters only PR paths; plans changed object-storage leaves on PRs and every object-storage leaf on dispatch
         - Configures state-backend authentication for $STATE_BACKEND (GCS Workload Identity, AWS assume-role, or Azure login)
         - Posts plan output as PR comment
         - Emits aggregate plan check
 
       Create .github/workflows/terraform-apply.yml:
-        - Triggers on push to main for paths terraform/**
-        - Requires environment approval ("production")
-        - Concurrency group serialized per state
-        - Applies changes for each changed leaf
-    check: |
-      sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
-      # File existence and git tracking
-      test -f .github/workflows/terraform-plan.yml || exit 1
-      test -f .github/workflows/terraform-apply.yml || exit 1
-      git ls-files --error-unmatch \
-        .github/workflows/terraform-plan.yml \
-        .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
-      # YAML syntax validation skipped - workflow execution will catch malformed files
-      # Basic job existence - detailed validation happens in Phase 4 when workflows run
-      grep -q "plan-cloudflare" .github/workflows/terraform-plan.yml || exit 1
-      grep -q "plan-github" .github/workflows/terraform-plan.yml || exit 1
-      grep -q "apply-cloudflare" .github/workflows/terraform-apply.yml || exit 1
-      grep -q "apply-github" .github/workflows/terraform-apply.yml || exit 1
+        - Triggers on every main push without path filters and workflow_dispatch; omit push for a locked dispatch gate
+        - Uses the protected production environment and serializes workflow runs by ref
+        - Backend-only routing selects every object-storage leaf on every run; never use leaf-change conditions for apply
+        - Refuses non-main refs and stale commits immediately before each apply
+        - Retry by dispatching on main; commit both workflows before rechecking
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/gha-workflows.sh"
     produces: GitHub Actions workflows for Terraform CI
     docs: docs/object-storage-ci.md#github-actions
 
@@ -2174,7 +2162,7 @@ steps:
     why: The plan and apply workflows must include the new leaf.
     run: |
       Update .github/workflows/terraform-plan.yml and terraform-apply.yml to:
-      1. Add a path filter for terraform/$NEW_PROVIDER/** AND shared inputs:
+      1. In terraform-plan.yml only, add a path filter for terraform/$NEW_PROVIDER/** AND shared inputs:
          - terraform/modules/**
          - mise.toml
          - mise.lock
@@ -2184,14 +2172,17 @@ steps:
       4. Add the provider-specific authentication step before terraform init (e.g., google-github-actions/auth for GCP, aws-actions/configure-aws-credentials for AWS, azure/login for Azure)
       5. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
       6. Add plan-$NEW_PROVIDER to the aggregate `plan` job's `needs` list
-      7. Wire up the changes job output and apply job if-condition for $NEW_PROVIDER
+      7. Wire up routed outputs and job conditions for $NEW_PROVIDER in both workflows.
+         The plan route input is workflow_dispatch=true OR the PR path filter output.
+         The apply route input is static 'true': converge every object-storage leaf on
+         every run, with the main-tip guard immediately before apply. Never path-filter apply.
       8. Add a top-level static LEAF_<UPPERCASE_PROVIDER_SLUG_WITH_UNDERSCORES>_BACKEND
          literal in both workflows, equal to NEW_PROVIDER_BACKEND. Route the changes
-         output only when this literal is object-storage AND the leaf/shared paths
-         changed, just like the bootstrap outputs. Auth/init/plan/apply must consume
+         output only when this literal is object-storage AND its route input is true,
+         just like the bootstrap outputs. Auth/init/plan/apply must consume
          only that routed output; validation still covers HCP leaves. Update the literal
          together with config when cutting over an existing provider.
-         Include BOTH workflow paths in every leaf's plan and apply filters.
+         Include BOTH workflow paths in every leaf's plan filters.
          Keep the route script in the supported template shape: bootstrap leaves first,
          additional leaves in lexical order, all false initializers, then guarded true
          decisions, then output writes. Use shell-safe leaf_<slug_with_underscores>
@@ -2202,6 +2193,7 @@ steps:
     check: |
       # File existence and git tracking
       ROUTING_PROVIDER="$NEW_PROVIDER" sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
+      sh "$INFRA_COPILOT_REFERENCES/checks/gha-workflows.sh" "$NEW_PROVIDER" || exit $?
       test -f .github/workflows/terraform-plan.yml || exit 1
       test -f .github/workflows/terraform-apply.yml || exit 1
       git ls-files --error-unmatch \
