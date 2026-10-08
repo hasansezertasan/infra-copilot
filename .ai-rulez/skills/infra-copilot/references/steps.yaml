@@ -82,6 +82,7 @@
 #     export NEW_PROVIDER_MISE_CONFIG_BLOB=<entry.mise_config_blob>
 #     export NEW_PROVIDER_MISE_LOCK_BLOB=<entry.mise_lock_blob>
 #     export NEW_PROVIDER_CREDENTIALS_VERIFIED_AT=<entry.credentials_verified_at>
+#     export NEW_PROVIDER_CREDENTIALS_BACKEND=<entry.credentials_backend; hcp only when legacy field absent>
 # The once-per-phase inventory also receives every declared provider tool:
 #     export ADDITIONAL_PROVIDER_MISE_TOOLS='<all entry.mise_tools flattened as compact JSON>'
 #
@@ -355,7 +356,7 @@ steps:
       # user credential so workspaces-create can reconcile it. Both steps call
       # one shared check so their definitions of "provisioned" cannot diverge.
       HCP_TOKEN=$token \
-        sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh" \
+        sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh" --login-readiness \
         >/dev/null 2>&1 && exit 0
 
       # Cold repository: phases 0 and 1 genuinely need the user credential, and a
@@ -867,6 +868,7 @@ steps:
     phase: 1
     provider: github
     actor: AGENT
+    tri_state: true
     when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
     title: Create GitHub Actions workflows for plan and apply
     why: CI replaces HCP's VCS integration — plan on PR, apply on merge.
@@ -959,22 +961,28 @@ steps:
     title: Configure GitHub App credentials in GitHub Actions secrets
     why: The Terraform workflow authenticates to GitHub with these App credentials.
     run: |
-      1. GitHub Org -> Settings -> Developer settings -> GitHub Apps -> New GitHub App.
-         Permissions: Repository Administration (R/W), Actions (R), Contents (R), Metadata (R),
-         Pull requests (R/W); Organization Members (R/W), Administration (R/W).
-         Actions (R) reads environments and deployment branch policies on refresh. Members (R/W)
-         is required when Terraform manages organization or team membership; read-only access only
-         lets the provider inspect memberships.
-      2. Note the App ID. Generate a private key (.pem).
-      3. Install on your org scoped to the repos in managed_repos (see config.md);
-         note the Installation ID from the install URL.
-      4. Repo Settings -> Secrets and variables -> Actions, add secrets:
-         GH_APP_ID, GH_APP_INSTALLATION_ID, GH_APP_PEM (full PEM incl. BEGIN/END lines)
+      1. Copy templates/apps/terraform-plan.json and terraform-apply.json to .github/apps/.
+         Customize and review permissions using github.md#versioned-app-manifests.
+         Create separate Apps: plan has read-only repository/organization permissions;
+         apply has the writes needed for managed settings and memberships.
+         The HUMAN performs manifest submission/code conversion and keeps PEMs private.
+      2. Install each App only on managed_repos; record each App and installation ID.
+      3. Store the read-only plan App's GH_APP_ID, GH_APP_INSTALLATION_ID, GH_APP_PEM
+         in repository Actions secrets. Store the write-capable apply App's same three
+         names in the protected production environment, overriding repository secrets.
+      4. Verify both live App permission sets and secret scopes privately before replying done.
     check: |
-      secrets=$(gh secret list --json name -q '.[].name' 2>/dev/null)
-      echo "$secrets" | grep -Fxq 'GH_APP_ID' || exit 1
-      echo "$secrets" | grep -Fxq 'GH_APP_INSTALLATION_ID' || exit 1
-      echo "$secrets" | grep -Fxq 'GH_APP_PEM'
+      for scope in repository production; do
+        if [ "$scope" = repository ]; then
+          secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name') || exit 1
+        else
+          secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name') || exit 1
+        fi
+        for key in GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PEM; do
+          printf '%s\n' "$secrets" | grep -Fxq "$key" || exit 1
+        done
+      done
+      # Metadata proves custody only; the HUMAN verifies distinct live permissions.
     produces: GitHub Actions secrets for GitHub App authentication
     docs: github.md
 
@@ -985,6 +993,7 @@ steps:
     phase: 4
     provider: cloudflare
     actor: AGENT
+    tri_state: true
     when: '[ "$CLOUDFLARE_BACKEND" = "object-storage" ]'
     title: verify plan for cloudflare via GitHub Actions
     why: Proves the Cloudflare token and backend configuration end-to-end via CI.
@@ -1030,6 +1039,7 @@ steps:
     phase: 4
     provider: github
     actor: AGENT
+    tri_state: true
     when: '[ "$GITHUB_BACKEND" = "object-storage" ]'
     title: verify plan for github via GitHub Actions
     why: Proves the GitHub App credentials and backend configuration end-to-end via CI.
@@ -1075,6 +1085,7 @@ steps:
     phase: 4
     provider: github
     actor: AGENT
+    tri_state: true
     when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
     title: Required status checks match GitHub Actions job names
     why: Branch protection must reference the actual job names from the workflows.
@@ -1986,8 +1997,19 @@ steps:
       do not execute the CLI or any later runbook commands until new-provider-toolchain is green.
       Commit the completed leaf, including the provider selections written to
       `.terraform.lock.hcl` by `terraform init -backend=false`, before re-running this check.
+      Whenever HAS_OBJECT_STORAGE=true, add this leaf to the Actions backend-neutral
+      validate matrix even if its own backend is HCP; credentialed jobs remain scoped.
     check: |
       test -d "terraform/$NEW_PROVIDER" || exit 1
+      if [ "${HAS_OBJECT_STORAGE:-false}" = true ]; then
+        matrix=$(awk '
+          /^  validate:/ {inside=1; next}
+          inside && /^  [^[:space:]#]/ {exit}
+          inside && /^        leaf: \[/ {print}
+        ' .github/workflows/terraform-plan.yml) || exit 1
+        printf '%s\n' "$matrix" | sed 's/^[[:space:]]*leaf:[[:space:]]*//' |
+          grep -Eq "(^|[^a-z0-9-])$NEW_PROVIDER([^a-z0-9-]|$)" || exit 1
+      fi
       if [ "$NEW_PROVIDER_BACKEND" = "hcp" ]; then
         # HCP mode: verify cloud block
         settings=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" \
@@ -2121,6 +2143,7 @@ steps:
     phase: 6
     provider: github
     actor: AGENT
+    tri_state: true
     when: '[ "$NEW_PROVIDER_BACKEND" = "object-storage" ]'
     title: Update GitHub Actions workflows for the new provider
     why: The plan and apply workflows must include the new leaf.
@@ -2137,12 +2160,17 @@ steps:
       5. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
       6. Add plan-$NEW_PROVIDER to the aggregate `plan` job's `needs` list
       7. Wire up the changes job output and apply job if-condition for $NEW_PROVIDER
-      8. Add a top-level static <UPPERCASE_PROVIDER_SLUG_WITH_UNDERSCORES>_BACKEND
+      8. Add a top-level static LEAF_<UPPERCASE_PROVIDER_SLUG_WITH_UNDERSCORES>_BACKEND
          literal in both workflows, equal to NEW_PROVIDER_BACKEND. Route the changes
          output only when this literal is object-storage AND the leaf/shared paths
          changed, just like the bootstrap outputs. Auth/init/plan/apply must consume
          only that routed output; validation still covers HCP leaves. Update the literal
          together with config when cutting over an existing provider.
+         Include BOTH workflow paths in every leaf's plan and apply filters.
+         Keep the route script in the supported template shape: bootstrap leaves first,
+         additional leaves in lexical order, all false initializers, then guarded true
+         decisions, then output writes. Use shell-safe leaf_<slug_with_underscores>
+         variables and LEAF_<SLUG>_CHANGED inputs for additional leaves, even digit-leading names.
       Commit the updated workflows before re-running this check.
     check: |
       # File existence and git tracking
@@ -2358,9 +2386,11 @@ steps:
       first; their inherited variables cannot be proven by this workspace-local inventory.
       Paste secret values yourself; never send them to the agent. Reply `done` so
       the agent can verify metadata through the vars API. After every declared variable
-      is installed, record the current UTC time as `credentials_verified_at` in config.md
+      is installed, record `credentials_backend: hcp` and the current UTC time as
+      `credentials_verified_at` in config.md
       using strict `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and then reply `done`.
     check: |
+      [ "${NEW_PROVIDER_CREDENTIALS_BACKEND:-hcp}" = hcp ] || exit 1
       test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
       workspace_body=$(curl -sf \
         "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
@@ -2519,9 +2549,11 @@ steps:
       and variables -> Actions and add each secret from the inventory. For an empty
       inventory, verify the provider's keyless identity wiring instead; public identity
       identifiers do not belong in the secret inventory. After the handoff is complete,
-      record the current UTC time as `credentials_verified_at` in config.md using strict
+      record `credentials_backend: object-storage` and a fresh current UTC time as
+      `credentials_verified_at` in config.md using strict
       `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and reply `done`.
     check: |
+      [ "${NEW_PROVIDER_CREDENTIALS_BACKEND:-hcp}" = object-storage ] || exit 1
       printf '%s' "$NEW_PROVIDER_SECRETS" | jq -e 'type == "array"' >/dev/null || exit 1
       if [ "$(printf '%s' "$NEW_PROVIDER_SECRETS" | jq 'length')" -gt 0 ]; then
         secrets=$(gh secret list --json name -q '.[].name' 2>/dev/null) || exit 1
@@ -2551,6 +2583,7 @@ steps:
     phase: 6
     provider: repo
     actor: AGENT
+    tri_state: true
     when: '[ "$NEW_PROVIDER_BACKEND" = "object-storage" ]'
     title: Verify plan on the new leaf in GitHub Actions
     why: Proves the leaf, backend, and provider credentials end to end in CI.

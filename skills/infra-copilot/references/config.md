@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:644445146005bf5d566f99abf571ad6198a45564c68690bb763f38cdff541c90
-Source-Hash: blake3:1ecaa10bad1b907246dfd8be25b4c83c4f29a427df437b6c5fb2a8840dbb3ef8
+Content-Hash: blake3:cda90aa739a8edd61d556dec1a119a71f372f3d9c330a93d695cb069d14995a9
+Source-Hash: blake3:94e0b3a775e82d952994a3675cebe4e202872f29a91f3e614821110dc12c9d5b
 Schema-Version: v1
 -->
 
@@ -161,7 +161,7 @@ additional_providers:
 This fragment keeps Cloudflare in HCP and moves GitHub plus the declared GCP entry
 to Actions; common fields still apply. Both service export sets are active. Set workflow
 `CLOUDFLARE_BACKEND: hcp`, `GITHUB_BACKEND: object-storage`, and the Phase 6
-`GCP_BACKEND: object-storage` literal in both workflows. Validate agreement rather than
+`LEAF_GCP_BACKEND: object-storage` literal in both workflows. Validate agreement rather than
 accepting the template defaults. Complete existing-state migration through
 [the authoritative runbook](docs/object-storage-state.md#migrating-from-hcp).
 
@@ -178,6 +178,7 @@ additional_providers:
     fork_speculative_plans_disabled: false # set true only after the HUMAN verifies the UI
     fork_speculative_plans_workspace_id: "" # immutable ws-... identity for that attestation
     credentials_verified_at: ""  # HUMAN records UTC after installing the declared variables
+    credentials_backend: ""      # HUMAN records hcp with the completed handoff
     credential_variables:
       - key: TFC_GCP_PROVIDER_AUTH
         category: env         # env or terraform
@@ -194,6 +195,7 @@ additional_providers:
     mise_config_blob: ""      # HUMAN-reviewed `git hash-object mise.toml`
     mise_lock_blob: ""        # HUMAN-reviewed `git hash-object mise.lock`
     credentials_verified_at: ""  # HUMAN records UTC after verifying the authentication handoff
+    credentials_backend: ""      # HUMAN records object-storage with the completed handoff
     credential_secrets: []      # WIF identifiers are public; configure them in the workflow
 ```
 
@@ -225,6 +227,12 @@ declared workspace variable, then record that moment as a real, non-future stric
 created after the entire recorded handoff second and after the workspace's latest HCP
 update, so an older run cannot stand in for the current least-privilege credentials or
 newly reconciled execution settings.
+
+Bind that handoff to `credentials_backend: hcp | object-storage`. Clear both fields
+whenever changing execution service, then record the destination backend and a fresh
+timestamp after verifying destination custody/identity. Legacy attestations without the
+backend field are HCP-only; they never prove an Actions handoff, including a default-mode
+change with no leaf override.
 
 Record every directly defined variable in the provider workspace, including every value required to
 authenticate the provider. A flag such as
@@ -283,6 +291,11 @@ Before running ANY step's `check` or `run`, the agent MUST:
    ```
 
    Run `sh "$INFRA_COPILOT_REFERENCES/checks/leaf-routing.sh"`; exit 2 stops startup.
+   Cold-start exception: if reviewed `jq` is not installed yet, derive the same public
+   inventory directly from the validated config for the `toolchain-pin` HUMAN handoff
+   only. Do not execute service checks. After that handoff installs the reviewed toolchain,
+   execute the resolver and confirm its inventory before full preflight/resume. Read-only
+   status reports unknown until the resolver can execute; it never installs tools.
    From its public JSON, export `EFFECTIVE_LEAF_BACKENDS` (the `effective` map),
    `HCP_LEAVES`, `OBJECT_STORAGE_LEAVES`, `HCP_BOOTSTRAP_LEAVES`, and
    `OBJECT_STORAGE_BOOTSTRAP_LEAVES` (compact JSON arrays), `HAS_HCP`,
@@ -338,6 +351,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export NEW_PROVIDER_MISE_CONFIG_BLOB=<entry.mise_config_blob>
    export NEW_PROVIDER_MISE_LOCK_BLOB=<entry.mise_lock_blob>
    export NEW_PROVIDER_CREDENTIALS_VERIFIED_AT=<entry.credentials_verified_at>
+   export NEW_PROVIDER_CREDENTIALS_BACKEND=<entry.credentials_backend; hcp only for an absent legacy field>
    ```
 
    Plus entry-specific vars selected by `NEW_PROVIDER_BACKEND`, not `BACKEND`:

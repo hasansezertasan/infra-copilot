@@ -5,8 +5,15 @@
 set -eu
 
 routing=$(sh "${INFRA_COPILOT_REFERENCES:?}/checks/leaf-routing.sh") || exit 2
-leaves=$(printf '%s' "$routing" | jq -er '.hcp_bootstrap_leaves | .[]') || {
-    [ "$(printf '%s' "$routing" | jq -r '.has_hcp_bootstrap')" = false ] && exit 0
+case ${1:-} in
+    '') selection=hcp_bootstrap_leaves ;;
+    --login-readiness) selection=hcp_leaves ;;
+    *) exit 2 ;;
+esac
+leaves=$(printf '%s' "$routing" | jq -er --arg field "$selection" '.[$field] | .[]') || {
+    [ "$selection" = hcp_bootstrap_leaves ] &&
+        [ "$(printf '%s' "$routing" | jq -r '.has_hcp_bootstrap')" = false ] && exit 0
+    # No workspace evidence cannot establish service readiness for a team token.
     exit 2
 }
 
@@ -19,7 +26,16 @@ done
 
 for leaf in $leaves; do
     dir="terraform/$leaf"
-    case "$leaf" in cloudflare) ws=cloudflare ;; github) ws=github-org ;; *) exit 2 ;; esac
+    case "$leaf" in
+        cloudflare) ws=cloudflare ;;
+        github) ws=github-org ;;
+        *) ws=$(printf '%s' "$routing" | jq -er --arg leaf "$leaf" \
+              --argjson workspaces "${ADDITIONAL_PROVIDER_WORKSPACES:-[]}" '
+              [.hcp_leaves[] | select(. != "cloudflare" and . != "github")] as $names
+              | select(($names | length) == ($workspaces | length))
+              | $workspaces[$names | index($leaf)]
+              | select(type == "string" and test("^[a-z0-9][a-z0-9-]*$"))') || exit 1 ;;
+    esac
     curl -sf "$hcp_api/organizations/$ORG/workspaces/$ws" \
         -H "Authorization: Bearer $HCP_TOKEN" \
         | jq -e --arg dir "$dir" --arg repo "$REPO" \

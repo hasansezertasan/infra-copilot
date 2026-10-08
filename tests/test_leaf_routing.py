@@ -165,7 +165,9 @@ class LeafRoutingTests(unittest.TestCase):
         workflow_directory.mkdir(parents=True, exist_ok=True)
         for workflow_name in ('terraform-plan.yml', 'terraform-apply.yml'):
             (workflow_directory / workflow_name).write_text(
-                f'env:\n  CLOUDFLARE_BACKEND: {cloudflare_backend}\n  GITHUB_BACKEND: {github_backend}\njobs:\n',
+                (REFERENCES / 'templates' / workflow_name).read_text().replace(
+                    'CLOUDFLARE_BACKEND: object-storage', f'CLOUDFLARE_BACKEND: {cloudflare_backend}'
+                ).replace('GITHUB_BACKEND: object-storage', f'GITHUB_BACKEND: {github_backend}'),
                 encoding='utf-8',
             )
 
@@ -193,11 +195,104 @@ class LeafRoutingTests(unittest.TestCase):
         self.write_workflows()
         for workflow_name in ('terraform-plan.yml', 'terraform-apply.yml'):
             workflow_path = self.checkout / '.github/workflows' / workflow_name
-            workflow_path.write_text(workflow_path.read_text().replace(
-                'jobs:', '  GCP_PROD_BACKEND: object-storage\njobs:'))
+            workflow_text = workflow_path.read_text().replace(
+                'jobs:', '  LEAF_GCP_PROD_BACKEND: object-storage\njobs:')
+            workflow_text = workflow_text.replace(
+                '      github: ${{ steps.route.outputs.github }}',
+                '      github: ${{ steps.route.outputs.github }}\n'
+                '      gcp-prod: ${{ steps.route.outputs.gcp-prod }}')
+            workflow_text = workflow_text.replace(
+                '          GITHUB_CHANGED: ${{ steps.filter.outputs.github }}',
+                '          GITHUB_CHANGED: ${{ steps.filter.outputs.github }}\n'
+                '          LEAF_GCP_PROD_CHANGED: ${{ steps.filter.outputs.gcp-prod }}')
+            workflow_text = workflow_text.replace('          github=false', '          github=false\n          leaf_gcp_prod=false')
+            workflow_text = workflow_text.replace(
+                '          echo "cloudflare=$cloudflare"',
+                '          if [ "$LEAF_GCP_PROD_BACKEND" = "object-storage" ] && [ "$LEAF_GCP_PROD_CHANGED" = "true" ]; then\n'
+                '            leaf_gcp_prod=true\n          fi\n          echo "cloudflare=$cloudflare"')
+            workflow_text = workflow_text.replace(
+                '          echo "github=$github" >> "$GITHUB_OUTPUT"',
+                '          echo "github=$github" >> "$GITHUB_OUTPUT"\n'
+                '          echo "gcp-prod=$leaf_gcp_prod" >> "$GITHUB_OUTPUT"')
+            prefix = 'plan' if workflow_name == 'terraform-plan.yml' else 'apply'
+            suffix = " && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)" if prefix == 'plan' else ''
+            workflow_text += f"\n  {prefix}-gcp-prod:\n    if: needs.changes.outputs.gcp-prod == 'true'{suffix}\n"
+            workflow_path.write_text(workflow_text)
         self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 0)
         self.environment['LEAF_BACKENDS'] = '{"github":"object-storage"}'
         self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 1)
+
+    def test_repository_check_catches_retired_additional_route(self) -> None:
+        self.test_additional_provider_workflow_literal_matches_override()
+        self.environment.pop('ROUTING_PROVIDER')
+        self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 1)
+
+    def test_quoted_and_flow_environment_overrides_fail_closed(self) -> None:
+        for override in ('    env: {GITHUB_BACKEND: hcp}',
+                         '    env:\n      "GITHUB_BACKEND": hcp'):
+            with self.subTest(override=override):
+                self.write_workflows()
+                workflow_path = self.checkout / '.github/workflows/terraform-apply.yml'
+                workflow_path.write_text(workflow_path.read_text().replace(
+                    '  changes:\n', f'  changes:\n{override}\n'))
+                self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 2)
+
+    def test_decorative_literal_does_not_prove_execution_routing(self) -> None:
+        self.write_workflows()
+        workflow_path = self.checkout / '.github/workflows/terraform-apply.yml'
+        workflow_path.write_text(workflow_path.read_text().replace(
+            'steps.route.outputs.github', 'steps.filter.outputs.github'))
+        self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 1)
+
+    def test_top_level_env_comments_are_supported(self) -> None:
+        self.write_workflows()
+        for workflow_path in (self.checkout / '.github/workflows').iterdir():
+            workflow_path.write_text(workflow_path.read_text().replace('\nenv:\n', '\nenv: # reviewed routes\n'))
+        self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 0)
+
+    def test_unconditional_route_assignment_is_not_supported_evidence(self) -> None:
+        self.write_workflows()
+        workflow_path = self.checkout / '.github/workflows/terraform-apply.yml'
+        workflow_path.write_text(workflow_path.read_text().replace(
+            '          github=false', '          github=true'))
+        self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 2)
+
+    def test_empty_bootstrap_inventory_is_not_login_readiness(self) -> None:
+        self.environment.update(BACKEND='object-storage', LEAF_BACKENDS='{"gcp":"hcp"}',
+                                ADDITIONAL_PROVIDER_NAMES='["gcp"]')
+        completed = subprocess.run(
+            ['sh', str(REFERENCES / 'checks/hcp-bootstrap-workspaces.sh'), '--login-readiness'],
+            cwd=self.checkout, env=self.environment, capture_output=True, text=True,
+        )
+        self.assertNotEqual(completed.returncode, 0)
+
+    def test_additional_hcp_leaf_requires_actions_validation_when_service_active(self) -> None:
+        self.write_workflows()
+        (self.checkout / 'terraform/gcp').mkdir(parents=True)
+        self.environment.update(NEW_PROVIDER='gcp', HAS_OBJECT_STORAGE='true')
+        manifest_text = (REFERENCES / 'steps.yaml').read_text()
+        leaf_body = manifest_text.split('  - id: new-provider-leaf\n')[1].split('  - id: ')[0]
+        validation_check = leaf_body.split('    check: |\n')[1].split('      if [ "$NEW_PROVIDER_BACKEND"')[0]
+        validation_check = '\n'.join(line.removeprefix('      ') for line in validation_check.splitlines())
+        missing = subprocess.run(['sh', '-c', validation_check], cwd=self.checkout,
+                                 env=self.environment, capture_output=True, text=True)
+        self.assertEqual(missing.returncode, 1)
+        workflow_path = self.checkout / '.github/workflows/terraform-plan.yml'
+        workflow_path.write_text(workflow_path.read_text().replace('leaf: [cloudflare, github]',
+                                                                  'leaf: [cloudflare, github, gcp]'))
+        included = subprocess.run(['sh', '-c', validation_check], cwd=self.checkout,
+                                  env=self.environment, capture_output=True, text=True)
+        self.assertEqual(included.returncode, 0, included.stderr)
+
+    def test_digit_leading_provider_uses_shell_safe_prefixed_variables(self) -> None:
+        self.test_additional_provider_workflow_literal_matches_override()
+        self.environment.update(ADDITIONAL_PROVIDER_NAMES='["1password"]', ROUTING_PROVIDER='1password',
+                                LEAF_BACKENDS='{"github":"object-storage","1password":"object-storage"}')
+        for workflow_path in (self.checkout / '.github/workflows').iterdir():
+            workflow_text = workflow_path.read_text().replace('gcp-prod', '1password').replace(
+                'LEAF_GCP_PROD', 'LEAF_1PASSWORD').replace('leaf_gcp_prod', 'leaf_1password')
+            workflow_path.write_text(workflow_text)
+        self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 0)
 
     def prepare_hcp_api(self, *, legacy_permissions: dict[str, bool] | None = None) -> None:
         self.environment.update(ORG='acme', REPO='acme/infra', TERRAFORM_VERSION='1.15.0',

@@ -121,11 +121,20 @@ class NewProviderFlowTests(unittest.TestCase):
                     **os.environ,
                     "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                     "NEW_PROVIDER_SECRETS": "[]",
-                    "NEW_PROVIDER_CREDENTIALS_VERIFIED_AT": verified_at,
+                     "NEW_PROVIDER_CREDENTIALS_VERIFIED_AT": verified_at,
+                     "NEW_PROVIDER_CREDENTIALS_BACKEND": "object-storage",
                 },
                 capture_output=True,
                 text=True,
             )
+            stale_attestation = subprocess.run(
+                ["/bin/sh", "-c", check], cwd=root,
+                env={**os.environ, "NEW_PROVIDER_SECRETS": "[]",
+                     "NEW_PROVIDER_CREDENTIALS_VERIFIED_AT": verified_at,
+                     "NEW_PROVIDER_CREDENTIALS_BACKEND": "hcp"},
+                capture_output=True, text=True,
+            )
+            self.assertEqual(stale_attestation.returncode, 1)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")

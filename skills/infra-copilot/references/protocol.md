@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:d189d3368f75db9e854351c02ef793043c8a093d40f26df907ea5b2ae67bf1f9
-Source-Hash: blake3:1ecaa10bad1b907246dfd8be25b4c83c4f29a427df437b6c5fb2a8840dbb3ef8
+Content-Hash: blake3:b27833d9ee0ac16894d180409a5176a6aa61cbe54c92e1d2316c1e18ff24eb59
+Source-Hash: blake3:94e0b3a775e82d952994a3675cebe4e202872f29a91f3e614821110dc12c9d5b
 Schema-Version: v1
 -->
 
@@ -197,7 +197,11 @@ lets a later provider reach its own bootstrap handoff without weakening the glob
 negative-permission audit.
 
 The credential handoff records a real, non-future UTC `credentials_verified_at` in committed config only after
-the HUMAN installs every declared variable. `new-provider-plan` accepts or reuses only a
+the destination custody/identity is verified, together with `credentials_backend` equal
+to the effective backend. Clear both on a route change; legacy unbound attestations prove
+only HCP custody, never Actions. For the cold-start path without reviewed jq, follow
+config.md's toolchain-pin-only exception and execute the resolver before service checks.
+The HUMAN installs every declared variable before recording it. `new-provider-plan` accepts or reuses only a
 run created after the entire recorded UTC second and the workspace's latest `updated-at`,
 so a prior workspace run cannot prove the new least-privilege credential or reconciled
 execution settings work.

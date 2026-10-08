@@ -629,7 +629,7 @@ class MigrateImportCheckTests(unittest.TestCase):
             workflow_directory.mkdir(parents=True)
             for workflow_name in ('terraform-plan.yml', 'terraform-apply.yml'):
                 (workflow_directory / workflow_name).write_text(
-                    'env:\n  CLOUDFLARE_BACKEND: object-storage\n  GITHUB_BACKEND: object-storage\njobs:\n',
+                    (REPO_ROOT / '.ai-rulez/skills/infra-copilot/references/templates' / workflow_name).read_text(),
                     encoding='utf-8',
                 )
             env = {

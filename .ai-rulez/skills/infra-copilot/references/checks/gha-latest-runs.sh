@@ -81,10 +81,15 @@ report() {
         echo "$1  $2  – not installed (.github/workflows/$2 is missing)"
         return
     fi
-    if ! sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" ".github/workflows/$2"; then
-        unreadable "$prefix" 'workflow routes disagree with effective config or cannot be verified'
-        return
-    fi
+    route_status=0
+    sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" ".github/workflows/$2" || route_status=$?
+    case "$route_status" in
+        0) : ;;
+        1) echo "$prefix  ✗ broken: workflow routing disagrees with effective config"; failed=1 ;;
+        *) unreadable "$prefix" 'workflow routing cannot be verified' ;;
+    esac
+    # Historical execution outcomes are independent evidence, even when local
+    # routing is broken or unreadable. Continue reading both workflows.
     if [ -z "$3" ]; then
         echo "$1  $2  ? detached HEAD: no branch to read runs for"
         return

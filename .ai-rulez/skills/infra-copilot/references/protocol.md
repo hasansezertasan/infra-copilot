@@ -190,7 +190,11 @@ lets a later provider reach its own bootstrap handoff without weakening the glob
 negative-permission audit.
 
 The credential handoff records a real, non-future UTC `credentials_verified_at` in committed config only after
-the HUMAN installs every declared variable. `new-provider-plan` accepts or reuses only a
+the destination custody/identity is verified, together with `credentials_backend` equal
+to the effective backend. Clear both on a route change; legacy unbound attestations prove
+only HCP custody, never Actions. For the cold-start path without reviewed jq, follow
+config.md's toolchain-pin-only exception and execute the resolver before service checks.
+The HUMAN installs every declared variable before recording it. `new-provider-plan` accepts or reuses only a
 run created after the entire recorded UTC second and the workspace's latest `updated-at`,
 so a prior workspace run cannot prove the new least-privilege credential or reconciled
 execution settings work.

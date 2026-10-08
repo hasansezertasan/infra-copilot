@@ -337,6 +337,8 @@ to their effective config values. The changes jobs filter credentialed outputs t
 object-storage leaves, so HCP-only changes skip Actions plans/applies without failing
 the Actions aggregate. Validation stays backend-neutral. For additional providers, add
 their `<LEAF>_BACKEND` literals, jobs, filters and aggregate checks following the same pattern.
+Additional-provider literals use a shell-safe `LEAF_` prefix, such as
+`LEAF_GCP_BACKEND` or `LEAF_1PASSWORD_BACKEND`; bootstrap literals keep their shipped names.
 The workflow-routing check verifies literal agreement and refuses ambiguous overrides.
 Shared-module/config changes must still fan out to all migrated leaves.
 Retain HCP required contexts for leaves still on HCP; replace only the migrated leaf's context and keep `plan` required alongside the remaining HCP checks.

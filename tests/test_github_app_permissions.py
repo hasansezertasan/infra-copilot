@@ -1,6 +1,7 @@
 """Keep GitHub App permission guidance aligned across setup paths."""
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -45,10 +46,6 @@ class GitHubAppPermissionTests(unittest.TestCase):
                 'Permissions: Repo Administration(RW), Actions(R), Contents(R), Metadata(R), Pull requests(RW);',
                 'Org Members(RW), Administration(RW).',
             ),
-            'gh-app-gha': (
-                'Permissions: Repository Administration (R/W), Actions (R), Contents (R), Metadata (R),',
-                'Pull requests (R/W); Organization Members (R/W), Administration (R/W).',
-            ),
         }
         for step_id, permissions in expected.items():
             with self.subTest(step=step_id):
@@ -57,6 +54,15 @@ class GitHubAppPermissionTests(unittest.TestCase):
                     self.assertIn(permission, step)
                 self.assertIn('deployment branch policies', step)
                 self.assertIn('team membership', step)
+
+    def test_actions_apps_separate_read_and_write_permissions(self) -> None:
+        plan_manifest = json.loads((REFERENCES / 'templates/apps/terraform-plan.json').read_text())
+        apply_manifest = json.loads((REFERENCES / 'templates/apps/terraform-apply.json').read_text())
+        self.assertTrue(all(permission == 'read' for permission in plan_manifest['default_permissions'].values()))
+        for permission_name in ('administration', 'members', 'organization_administration'):
+            self.assertEqual(apply_manifest['default_permissions'][permission_name], 'write')
+        self.assertFalse(plan_manifest['hook_attributes']['active'])
+        self.assertNotEqual(plan_manifest['name'], apply_manifest['name'])
 
 
 if __name__ == '__main__':

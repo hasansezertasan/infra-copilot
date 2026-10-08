@@ -43,6 +43,7 @@ jobs:
               - 'mise.lock'
               - '.infra-copilot/config.md'
               - '.github/workflows/terraform-plan.yml'
+              - '.github/workflows/terraform-apply.yml'
             github:
               - 'terraform/github/**'
               - 'terraform/modules/**'
@@ -50,6 +51,7 @@ jobs:
               - 'mise.lock'
               - '.infra-copilot/config.md'
               - '.github/workflows/terraform-plan.yml'
+              - '.github/workflows/terraform-apply.yml'
 
       - name: Route object-storage leaves
         id: route
