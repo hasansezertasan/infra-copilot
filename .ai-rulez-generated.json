@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:0b880266cdb3a5baca735b4b05824361d57535f862a6fedc0f0011d4bacb6bf7",
+  "source_hash": "blake3:2f24b784fafb5b8019ab593df0dfa258690e7be4f24a796e658e8413d33b6ba7",
   "outputs": {
     ".claude-plugin/marketplace.json": {
       "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
@@ -72,7 +72,7 @@
       "content_hash": "blake3:baf060299fdcc955199c1276637cb565039da283684238350bd909d0cebc4430"
     },
     "skills/infra-copilot/references/checks/state-transfer.sh": {
-      "content_hash": "blake3:027c5bb2ea9a68784de163a250304718edb22a3135d9b305bd4028fc402a68e1"
+      "content_hash": "blake3:d6ded1e729308cebf7daae2bef155c832927afd6ab655e60da8854bb768de44b"
     },
     "skills/infra-copilot/references/checks/status-check-context.sh": {
       "content_hash": "blake3:7b43a11dc33a9af654fac6bf546ea73c9b4ff7d312cef74cd15f2591948de7be"
@@ -117,7 +117,7 @@
       "content_hash": "blake3:b3bbfafb83ef9320e258a892523984be35209d0a2e7fb65a1f284ce8e54508cd"
     },
     "skills/infra-copilot/references/docs/object-storage-state.md": {
-      "content_hash": "blake3:c76f30ade052ee7cd4561a0fd5d0fc07074be07cfcb6c15829886756544fb965"
+      "content_hash": "blake3:5438698d1528abad0607d35671995b7b866535ff033c9ade59072440ad845ccf"
     },
     "skills/infra-copilot/references/docs/prune.md": {
       "content_hash": "blake3:45addcf9253c687839a6528c7fc41272ed8504d60f7178dc34f48a89e67b2d21"

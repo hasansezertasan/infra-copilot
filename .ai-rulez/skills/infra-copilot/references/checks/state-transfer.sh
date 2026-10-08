@@ -14,6 +14,26 @@ if [ -z "$history" ]; then
   exit 0
 fi
 backend_file="terraform/$leaf/backend.tf"
+# Supported cutovers keep the complete, single backend declaration in the file
+# the HUMAN reviewed. Do not borrow bucket/prefix text from unrelated leaf files.
+for source_file in "terraform/$leaf/"*.tf; do
+  [ -f "$source_file" ] || continue
+  declarations=$(awk '{text=text " " $0} END {print text}' "$source_file" |
+    grep -oE '(^|[[:space:]{}])backend[[:space:]]*"[^"]+"[[:space:]]*\{' | wc -l | tr -d '[:space:]')
+  if [ "$source_file" = "$backend_file" ]; then
+    [ "$declarations" = 1 ] || incomplete 'put the single effective backend block in backend.tf'
+  else
+    [ "$declarations" = 0 ] || incomplete "backend declaration outside reviewed backend.tf: $source_file"
+  fi
+done
+for source_file in "terraform/$leaf/"*.tf.json; do
+  [ -f "$source_file" ] || continue
+  json_backend=$(jq -er '[(.terraform // {}) | .. | objects | has("backend")] | any' "$source_file") || {
+    # jq -e returns 1 for the legitimate false result, not a read/parse failure.
+    [ "$json_backend" = false ] || cannot_verify "cannot inspect $source_file"
+  }
+  [ "$json_backend" = false ] || incomplete "backend declaration outside reviewed backend.tf: $source_file"
+done
 git ls-files --error-unmatch "$backend_file" .infra-copilot/config.md >/dev/null 2>&1 ||
   incomplete 'commit the destination backend and config'
 git diff --quiet HEAD -- "$backend_file" .infra-copilot/config.md || exit 1

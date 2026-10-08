@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:c76f30ade052ee7cd4561a0fd5d0fc07074be07cfcb6c15829886756544fb965
-Source-Hash: blake3:0b880266cdb3a5baca735b4b05824361d57535f862a6fedc0f0011d4bacb6bf7
+Content-Hash: blake3:5438698d1528abad0607d35671995b7b866535ff033c9ade59072440ad845ccf
+Source-Hash: blake3:2f24b784fafb5b8019ab593df0dfa258690e7be4f24a796e658e8413d33b6ba7
 Schema-Version: v1
 -->
 
@@ -307,7 +307,10 @@ The read-only transfer check detects committed HCP backend history and refuses a
 backend-only cutover without this evidence. A shallow checkout must fetch complete
 history before certifying a genuinely new leaf. The attestation binds the destination
 backend file; changing that destination requires a renewed transfer review. Keep the
-original transfer evidence after subsequent legitimate applies advance state. Never
+complete, single backend block in that reviewed `backend.tf`, with no backend
+declarations in other `.tf` or `.tf.json` files. The transfer check rejects layouts
+that could change the effective destination without changing the reviewed file.
+Preserve the original transfer evidence after subsequent legitimate applies advance state. Never
 record credential values or state contents in this public record.
 
 ### Disconnect HCP and retire credentials

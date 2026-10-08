@@ -75,3 +75,28 @@ class StateTransferTests(unittest.TestCase):
         self.backend.write_text('terraform { backend "gcs" { bucket = "another-destination" } }\n')
         self.commit_files()
         self.assertEqual(self.check_transfer().returncode, 1)
+
+    def test_backend_in_an_unhashed_file_cannot_use_an_unchanged_attestation(self) -> None:
+        transfer = self.prepare_migration()
+        (self.checkout / 'terraform/github/versions.tf').write_text(self.backend.read_text())
+        self.backend.write_text('# backend moved elsewhere\n')
+        self.commit_files()
+        transfer['backend_blob'] = self.execute_git('hash-object', str(self.backend))
+        self.environment['STATE_TRANSFERS'] = json.dumps({'github': transfer})
+        self.assertEqual(self.check_transfer().returncode, 1)
+
+    def test_json_backend_outside_the_reviewed_file_is_rejected(self) -> None:
+        transfer = self.prepare_migration()
+        (self.checkout / 'terraform/github/override.tf.json').write_text(json.dumps({
+            'terraform': {'backend': {'gcs': {'bucket': 'another-destination'}}}}))
+        self.commit_files()
+        self.environment['STATE_TRANSFERS'] = json.dumps({'github': transfer})
+        self.assertEqual(self.check_transfer().returncode, 1)
+
+    def test_resource_json_does_not_invalidate_the_reviewed_backend(self) -> None:
+        transfer = self.prepare_migration()
+        (self.checkout / 'terraform/github/resources.tf.json').write_text(json.dumps({
+            'resource': {'null_resource': {'example': {}}}}))
+        self.commit_files()
+        self.environment['STATE_TRANSFERS'] = json.dumps({'github': transfer})
+        self.assertEqual(self.check_transfer().returncode, 0)
