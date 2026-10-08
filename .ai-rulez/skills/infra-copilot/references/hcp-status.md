@@ -36,12 +36,16 @@ preflight — is in
    back to `.claude/infra-copilot.local.md` for migration. If both files are missing,
    report it and stop without offering to scaffold or edit (that belongs to `setup`).
    For a loaded config, before exporting vars or evaluating any `when` or check,
-   validate the HCP selection per config loading. If missing, empty, or invalid, display the
+    validate the default and per-leaf selections per config loading. If missing, empty, or invalid, display the
    [backend migration handoff](config.md#migration-existing-configs-without-backend)
    and stop. Report any detected `cloud {}` blocks as evidence for adding `backend: hcp`,
    but never write config. If other required config is
    incomplete, report it and stop; do **not** offer to scaffold or edit (that belongs
-   to `setup`). Only after validation, export the vars per [`config.md`](config.md).
+    to `setup`). Only after validation, export the vars per [`config.md`](config.md).
+    This implementation reads only `HCP_LEAVES`, including HCP-routed additional
+    providers. Object-storage leaves use the sibling Actions status implementation;
+    never fall back to their retained HCP workspaces, even if a legacy run is green.
+    Repository-wide HCP permission/protection checks still run when any HCP leaf remains.
 2. **Preflight** — first load the provider inventory. If a provider toolchain trust gate
    is pending, evaluate and report that Phase 6 gate before running the full mise check;
    do not misroute its expected HUMAN re-trust handoff as a generic phase-0 failure.

@@ -3,6 +3,13 @@
 Setup selects execution and remote state. Shared workflows use the contracts in
 [operations](../operations.md).
 
+Selection is per leaf, with both execution services active in mixed repositories.
+Synchronize plan/apply workflow `CLOUDFLARE_BACKEND` and `GITHUB_BACKEND` literals with
+effective config in the cutover PR; verify agreement before accepting runner evidence.
+Keep HCP-routed leaves out of authenticated Actions jobs and preserve both services'
+required contexts while both have active leaves. Additional provider routes follow their
+own effective backend, not the default or the GitHub management leaf's backend.
+
 - [Provision-execution](../operations.md#provision-execution): isolated state per leaf,
   path-scoped execution, approved applies and a pinned toolchain.
 - [Get-plan](../operations.md#get-plan): revision-correlated plan evidence for review.

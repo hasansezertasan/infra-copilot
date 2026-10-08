@@ -1,0 +1,17 @@
+{
+  "name": "your-org-terraform-plan",
+  "url": "https://example.com/infra",
+  "redirect_url": "http://localhost:3000/github-app/callback",
+  "public": false,
+  "hook_attributes": {"active": false},
+  "default_permissions": {
+    "administration": "read",
+    "actions": "read",
+    "contents": "read",
+    "metadata": "read",
+    "pull_requests": "read",
+    "members": "read",
+    "organization_administration": "read"
+  },
+  "default_events": []
+}

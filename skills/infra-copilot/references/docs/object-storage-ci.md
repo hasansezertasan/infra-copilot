@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:c41ecc19299f6e3ce9200964cdc0a84db6391e0daf897ca071436e5b6d7e3637
-Source-Hash: blake3:ef3ec4caf8a83e866d54a34d78c6fd5c5ca2466132f14aca7b9b7771dd047a4e
+Content-Hash: blake3:5218a39add44987537623361eecb8ae2bd5a631009121989918df2d1b63ed485
+Source-Hash: blake3:1ecaa10bad1b907246dfd8be25b4c83c4f29a427df437b6c5fb2a8840dbb3ef8
 Schema-Version: v1
 -->
 
@@ -9,7 +9,7 @@ Schema-Version: v1
 
 ## GitHub Actions
 
-When `backend: object-storage` is set in [`../config.md`](../config.md), CI runs entirely in GitHub Actions instead of HCP's VCS integration. This section documents that mode.
+For leaves whose effective backend is `object-storage` in [`../config.md`](../config.md), CI runs in GitHub Actions instead of HCP's VCS integration. Other leaves can continue using HCP during a staged cutover.
 
 ## Trust boundary (object-storage mode)
 
@@ -29,6 +29,11 @@ Two workflows handle the Terraform lifecycle. See the templates for full impleme
 - [`../templates/terraform-apply.yml`](../templates/terraform-apply.yml) — runs on merge to `main` in the `main`-only `production` environment
 
 The plan workflow uses `dorny/paths-filter` to detect which leaves changed, runs `terraform plan` for each, and posts the output as a PR comment. The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
+
+Set the static `<LEAF>_BACKEND` literals in both workflows to each leaf's effective config
+backend; credentialed plan/apply outputs exclude HCP leaves. Update these literals in the
+same PR as `leaf_backends`. Plan comments carry a per-leaf hidden marker and update the
+existing Actions-bot comment, including when the PR already has many comments.
 
 ## GitHub Environments
 
@@ -385,6 +390,19 @@ For the production apply job in `terraform-apply.yml`, configure environment sec
 
 ### Terraform providers
 
+Use separate read-only plan and write-capable apply GitHub Apps when managing GitHub
+resources. Copy the reviewed manifest templates
+[`terraform-plan.json`](../templates/apps/terraform-plan.json) and
+[`terraform-apply.json`](../templates/apps/terraform-apply.json) to
+`.github/apps/` in the consuming repository. Set unique names and real homepage/callback
+URLs, trim permissions for the resources actually managed, and review manifest changes
+alongside live App settings. The manifests describe provider identities, not the built-in
+Actions token that writes plan comments. See [the manifest flow](../github.md#versioned-app-manifests).
+Install only on managed repositories. Keep the plan App credentials in repository secrets
+and the apply App credentials in the `production` environment under the same secret names
+so the apply job receives its environment-specific write identity. JSON contains no keys;
+App creation, code exchange, and key storage remain HUMAN actions.
+
 Set secrets as environment variables:
 
 ```yaml
@@ -418,6 +436,14 @@ While HCP is locked its speculative plan can still satisfy the old context on th
 If it does not report, a maintainer must coordinate the context transition without leaving subsequent PRs waiting for a disconnected workspace.
 Keep HCP contexts for leaves still using it; see [the staged cutover](object-storage-state.md#mixed-backend-window).
 The `status-check-gha` step in [`../steps.yaml`](../steps.yaml) verifies a successful Actions context; also inspect the live branch-protection settings.
+
+Require the aggregate `plan` rather than a path-filtered per-leaf plan: skipped leaf jobs
+do not emit their required context, leaving unrelated PRs waiting forever. The aggregate
+runs on every PR and checks changed Actions leaves plus validation. In a mixed repository,
+also retain the HCP context(s) covering unmigrated leaves. In each cutover PR, update the
+managed branch-protection configuration to replace only retiring contexts; never leave
+a disconnected HCP context required on later PRs. See the
+[ordered migration runbook](object-storage-state.md#migrating-from-hcp).
 
 ## Fork PRs
 

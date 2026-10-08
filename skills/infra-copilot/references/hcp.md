@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:d2c26d231d4af10c0b1295d226bb04fedb15e14b64eeba1547f5c7dc56ce3974
-Source-Hash: blake3:ef3ec4caf8a83e866d54a34d78c6fd5c5ca2466132f14aca7b9b7771dd047a4e
+Content-Hash: blake3:70e885fc801d66cfeaa34e09957501a1852bcbac623baf51c363648a433b1361
+Source-Hash: blake3:1ecaa10bad1b907246dfd8be25b4c83c4f29a427df437b6c5fb2a8840dbb3ef8
 Schema-Version: v1
 -->
 
@@ -37,7 +37,7 @@ The only unavoidable cold-start. Produces the HCP token that lets the agent scri
 
 ## Phase 1 — workspaces
 
-Two workspaces, one per leaf. You create them via API; a human does the one-time
+Only HCP-routed bootstrap workspaces, one per leaf. You create them via API; a human does the one-time
 GitHub↔HCP connection through OAuth or the GitHub App (browser).
 
 | Workspace | Leaf | VCS working dir | Path filter | Auto-apply |
@@ -101,7 +101,8 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
       return 0
     fi
     candidates=$(mktemp) || return 1
-    for workspace in cloudflare github-org; do
+    for leaf in $(printf '%s' "$HCP_BOOTSTRAP_LEAVES" | jq -er '.[]'); do
+      case "$leaf" in cloudflare) workspace=cloudflare ;; github) workspace=github-org ;; *) return 1 ;; esac
       body=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$workspace" \
         -H "Authorization: Bearer $HCP_TOKEN") || continue
       printf '%s' "$body" | jq -c --arg repo "$REPO" '
@@ -159,6 +160,8 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
   # so we can tell "created" (201) from "already exists" (422 name-taken) from a real error.
   create_ws () {  # $1 = workspace name   $2 = working directory
     local resp code body
+    printf '%s' "$HCP_LEAVES" | jq -e --arg leaf "${2#terraform/}" 'index($leaf) != null' >/dev/null \
+      || { echo "Refusing to create an object-storage or undeclared workspace" >&2; return 1; }
     printf '%s' "${VCS_CONNECTION:-}" | jq -e '
       type == "object" and length == 1
       and ((.["oauth-token-id"] // "" | test("^ot-[A-Za-z0-9]+$"))
@@ -192,6 +195,8 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
   # verification below after either response so a 422 resume repairs partial drift.
   set_workspace_config () { # $1 = workspace name   $2 = working directory
     local ws_id payload workspace_body existing_repo existing_directory
+    printf '%s' "$HCP_LEAVES" | jq -e --arg leaf "${2#terraform/}" 'index($leaf) != null' >/dev/null \
+      || { echo "Refusing to reconnect or reconcile a migrated or undeclared leaf" >&2; return 1; }
     workspace_body=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$1" \
       -H "Authorization: Bearer $HCP_TOKEN") || return 1
     ws_id=$(printf '%s' "$workspace_body" | jq -r '.data.id // empty') || return 1
@@ -233,8 +238,10 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
   elif ! resolve_vcs_connection; then
     echo "No unambiguous VCS connection found — finish vcs-connect or select the connection explicitly; not creating workspaces." >&2
   else
-    create_ws cloudflare terraform/cloudflare && set_workspace_config cloudflare terraform/cloudflare
-    create_ws github-org  terraform/github && set_workspace_config github-org terraform/github
+    for leaf in $(printf '%s' "$HCP_BOOTSTRAP_LEAVES" | jq -er '.[]'); do
+      case "$leaf" in cloudflare) workspace=cloudflare ;; github) workspace=github-org ;; *) break ;; esac
+      create_ws "$workspace" "terraform/$leaf" && set_workspace_config "$workspace" "terraform/$leaf" || break
+    done
   fi
   ```
 
@@ -251,8 +258,9 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
   Verify:
 
   ```sh
-  for pair in "cloudflare:terraform/cloudflare" "github-org:terraform/github"; do
-    ws=${pair%%:*}; dir=${pair#*:}
+  for leaf in $(printf '%s' "$HCP_BOOTSTRAP_LEAVES" | jq -er '.[]'); do
+    dir="terraform/$leaf"
+    case "$leaf" in cloudflare) ws=cloudflare ;; github) ws=github-org ;; *) break ;; esac
     curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/$ws" \
       -H "Authorization: Bearer $HCP_TOKEN" \
       | jq -e --arg dir "$dir" --arg repo "$REPO" --arg tf_version "$TERRAFORM_VERSION" '
@@ -302,6 +310,7 @@ repository root, with `LEAF` set to the validated leaf name, run:
 ```sh
 (
   : "${LEAF:?Select the target leaf from config first}"
+  printf '%s' "$HCP_LEAVES" | jq -e --arg leaf "$LEAF" 'index($leaf) != null' >/dev/null || exit 2
   dirty=$(git --no-optional-locks status --porcelain -- "terraform/$LEAF" \
     terraform/modules .infra-copilot/config.md mise.toml mise.lock) || exit 2
   [ -z "$dirty" ] || { echo 'Commit relevant inputs before obtaining plan evidence' >&2; exit 1; }

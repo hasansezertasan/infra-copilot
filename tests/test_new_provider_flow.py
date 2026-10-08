@@ -54,7 +54,8 @@ class NewProviderFlowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.steps = phase_six_steps()
         # Startup exports a validated backend before any manifest check.
-        self.env = {**os.environ, "BACKEND": "hcp"}
+        self.env = {**os.environ, "BACKEND": "hcp", "NEW_PROVIDER_BACKEND": "hcp",
+                    "HAS_HCP": "true", "HCP_LEAVES": '["cloudflare","github"]'}
 
     def test_phase_six_tracks_every_resumable_state_in_order(self) -> None:
         self.assertEqual(
@@ -145,6 +146,7 @@ class NewProviderFlowTests(unittest.TestCase):
             common_env = {
                 **self.env,
                 "ADDITIONAL_PROVIDER_WORKSPACES": '["gcp"]',
+                "HCP_LEAVES": '["cloudflare","github","gcp"]',
                 "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
             untracked = subprocess.run(
@@ -195,6 +197,7 @@ class NewProviderFlowTests(unittest.TestCase):
                     **base_env,
                     "ADDITIONAL_PROVIDER_NAMES": '["gcp"]',
                     "ADDITIONAL_PROVIDER_WORKSPACES": '["cloudflare"]',
+                    "HCP_LEAVES": '["cloudflare","github","gcp"]',
                 },
                 capture_output=True,
                 text=True,
@@ -1346,7 +1349,7 @@ terraform {
                 result = subprocess.run(
                     ["/bin/sh", "-c", condition],
                     cwd=empty.name,
-                    env={**self.env, "NEW_PROVIDER": name, "BACKEND": backend,
+                    env={**self.env, "NEW_PROVIDER": name, "BACKEND": backend, "NEW_PROVIDER_BACKEND": backend,
                          "NEW_PROVIDER_CREDENTIALS": credentials},
                     capture_output=True, text=True,
                 )

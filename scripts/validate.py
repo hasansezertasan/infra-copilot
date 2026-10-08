@@ -748,7 +748,8 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
             "git ls-files --error-unmatch .infra-copilot/config.md",
             "git diff --quiet HEAD -- .infra-copilot/config.md",
             "git diff --cached --quiet HEAD -- .infra-copilot/config.md",
-            "for config_file in terraform/cloudflare/versions.tf terraform/github/versions.tf; do",
+            'for name in $(printf \'%s\' "$HCP_BOOTSTRAP_LEAVES" | jq -er \'.[]\'); do',
+            'config_file="terraform/$name/versions.tf"',
             'test -f "$config_file"',
             '^[[:space:]]*organization[[:space:]]*=[[:space:]]*\\\"$ORG\\\"[[:space:]]*$',
         )
@@ -2835,7 +2836,7 @@ def validate_backend_operations(root: Path = ROOT) -> list[str]:
     """
     errors: list[str] = []
     skills = root / ".ai-rulez/skills"
-    forbidden = re.compile(r"\$\{?BACKEND\b|\bHCP\b|\bGHA\b|GitHub Actions|object-storage", re.I)
+    forbidden = re.compile(r"\$\{?(?:BACKEND|[A-Z_]+_BACKEND|HAS_HCP|HAS_OBJECT_STORAGE)\b|\bHCP\b|\bGHA\b|GitHub Actions|object-storage", re.I)
     for path in sorted(skills.glob("*/SKILL.md")):
         if path.parent.name == "setup":
             continue
@@ -2857,8 +2858,10 @@ def validate_backend_operations(root: Path = ROOT) -> list[str]:
         fields = dict(re.findall(r"^    ([a-z_]+): ([^\n]+)$", body, re.M))
         operation = fields.get("operation")
         implementation = fields.get("implementation")
+        if re.search(r"\$\{?BACKEND\b", body):
+            errors.append(f"steps.yaml: {step}: runtime routing must use effective leaf or service inventory, not BACKEND")
         if not operation:
-            if implementation or re.search(r"\$\{?BACKEND\b", body):
+            if implementation or re.search(r"\$\{?(?:BACKEND|[A-Z_]+_BACKEND|HAS_HCP|HAS_OBJECT_STORAGE)\b", body):
                 errors.append(f"steps.yaml: {step}: backend-dependent step needs an operation")
             continue
         if not re.fullmatch(r"[a-z][a-z0-9-]*", operation):
@@ -2869,12 +2872,26 @@ def validate_backend_operations(root: Path = ROOT) -> list[str]:
             errors.append(f"steps.yaml: {step}: operation needs a valid implementation")
             continue
         if implementation != "both":
-            gate = f'[ "$BACKEND" = "{implementation}" ]'
-            # A backend's implementation must not run in the other mode.
+            # Service prerequisites are inventory-wide; plans and credentials are
+            # leaf-local; Phase 6 is bound to the current adoption entry. Protection
+            # belongs to the repository even though Terraform manages it in github.
+            if fields.get("phase") == "6":
+                selector, value = "NEW_PROVIDER_BACKEND", implementation
+            elif step in {"workspaces-create", "backend-config"}:
+                selector = "HAS_HCP_BOOTSTRAP" if implementation == "hcp" else "HAS_OBJECT_STORAGE_BOOTSTRAP"
+                value = "true"
+            elif operation in {"store-cloudflare-credential", "plan-cloudflare"}:
+                selector, value = "CLOUDFLARE_BACKEND", implementation
+            elif operation in {"store-github-credential", "plan-github"}:
+                selector, value = "GITHUB_BACKEND", implementation
+            else:
+                selector = "HAS_HCP" if implementation == "hcp" else "HAS_OBJECT_STORAGE"
+                value = "true"
+            gate = f'[ "${selector}" = "{value}" ]'
             when = re.search(r"^    when: ([^\n]+)(?:\n((?:      .*\n)*))", body, re.M)
             if when is None or gate not in when.group(0):
-                errors.append(f"steps.yaml: {step}: implementation selector lacks its backend gate")
-        elif re.search(r'^    when:.*BACKEND', body, re.M):
+                errors.append(f"steps.yaml: {step}: implementation selector lacks its backend gate {gate}")
+        elif re.search(r'^    when:.*(?:BACKEND|HAS_HCP|HAS_OBJECT_STORAGE)', body, re.M):
             errors.append(f"steps.yaml: {step}: shared implementation cannot gate on backend")
         if "not_applicable" in fields:
             reason = fields["not_applicable"].strip(" '\"")

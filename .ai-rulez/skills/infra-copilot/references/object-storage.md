@@ -1,6 +1,6 @@
 # Object-storage execution
 
-The implementation selected by `backend: object-storage` uses GitHub Actions to execute
+The implementation selected by a leaf's effective `object-storage` backend uses GitHub Actions to execute
 Terraform against per-leaf GCS, S3 or Azure state. The shared contracts are in
 [operations](operations.md). The full [runner CI recipes](docs/object-storage-ci.md) document authentication and environments.
 State provisioning, IAM and migration commands are in
@@ -13,6 +13,21 @@ workflows, with one leaf job and isolated state key per provider. Include the le
 `terraform/modules/**`, `.infra-copilot/config.md`, `mise.toml` and `mise.lock` in the
 path filter. Add the leaf to validation, the changes output, the aggregate plan's `needs`,
 and the apply job condition. Use the committed mise lock via `jdx/mise-action`.
+
+Only `OBJECT_STORAGE_LEAVES` may initialize, authenticate, plan or apply in Actions.
+Keep HCP leaves in validation but out of credential-bearing runner execution. Set static
+top-level `CLOUDFLARE_BACKEND`/`GITHUB_BACKEND` in both workflows to the effective config
+values in the same reviewed cutover PR. Verify with `checks/workflow-routing.sh` before
+accepting evidence; the template's object-storage defaults do not resolve config.
+For additional providers, extend change routing, job conditions and the aggregate to
+the entry's effective backend. Add a top-level static route literal named after the
+uppercase slug with hyphens replaced by underscores, followed by `_BACKEND` (e.g.
+`GCP_PROD_BACKEND`). Run the workflow agreement check with `ROUTING_PROVIDER` set to
+`NEW_PROVIDER` for that entry to verify both workflows against effective config.
+The Phase 6 workflow and plan checks enforce this.
+An override to HCP must disable that provider's runner auth/init/plan/apply path.
+In mixed mode retain both Actions and HCP protection contexts regardless of which
+service manages the GitHub leaf itself. Never reconnect migrated HCP workspaces.
 
 Provision execution before adding provider secrets. The new leaf's apply job must set
 `environment: production`. A HUMAN restricts that environment to `main` and adds required reviewers or records an apply gate ([GitHub Environments](docs/object-storage-ci.md#github-environments)).
@@ -76,6 +91,10 @@ trust and reviewing current deployments, not by storing long-lived keys in the r
 ## Get-plan
 
 Commit relevant changes first; reject dirty leaf, shared modules, config or mise pins.
+Resolve the target in `OBJECT_STORAGE_LEAVES` and verify workflow agreement first.
+Both plan and apply workflow files are relevant committed inputs for dirty-tree and
+revision correlation. A pre-cutover green run cannot validate newer routing or identity
+changes merely because the Terraform leaf itself did not change.
 Push the branch and dispatch `terraform-plan.yml` with the explicit branch ref when no
 PR run exists. Find the newest applicable `pull_request` or `workflow_dispatch` run on
 that branch; verify its SHA includes the newest relevant input commit and has a successful

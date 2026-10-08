@@ -22,7 +22,7 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / "skills/infra-copilot/references/checks/hcp-apply-scope.sh"
+SCRIPT = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/checks/hcp-apply-scope.sh"
 
 TOKEN = "plan-only.atlasv1.xxx"
 # Real HCP returns the whole permissions block; the check requires can-update too,
@@ -191,8 +191,14 @@ class HcpApplyScopeTests(unittest.TestCase):
                     "ORG": "acme",
                     "REPO": repo,
                     "hcp_api": "https://app.terraform.io/api/v2",
+                    "BACKEND": "hcp",
+                    "LEAF_BACKENDS": "{}",
+                    "ADDITIONAL_PROVIDER_NAMES": json.dumps([
+                        Path(leaf).name for leaf in (leaves if leaves is not None else DEFAULT_LEAVES)
+                        if Path(leaf).name not in {"cloudflare", "github", "modules"}
+                    ]),
                     "INFRA_COPILOT_REFERENCES": str(
-                        REPO_ROOT / "skills/infra-copilot/references"
+                        REPO_ROOT / ".ai-rulez/skills/infra-copilot/references"
                     ),
                 }
             )

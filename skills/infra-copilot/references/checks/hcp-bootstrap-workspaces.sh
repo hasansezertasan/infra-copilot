@@ -4,6 +4,12 @@
 # workspaces-create (to decide whether reconciliation is complete).
 set -eu
 
+routing=$(sh "${INFRA_COPILOT_REFERENCES:?}/checks/leaf-routing.sh") || exit 2
+leaves=$(printf '%s' "$routing" | jq -er '.hcp_bootstrap_leaves | .[]') || {
+    [ "$(printf '%s' "$routing" | jq -r '.has_hcp_bootstrap')" = false ] && exit 0
+    exit 2
+}
+
 for required in hcp_api ORG REPO TERRAFORM_VERSION HCP_TOKEN; do
     eval "value=\${$required:-}"
     [ -n "$value" ] || exit 1
@@ -11,8 +17,9 @@ done
 
 [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || exit 1
 
-for pair in "cloudflare:terraform/cloudflare" "github-org:terraform/github"; do
-    ws=${pair%%:*}; dir=${pair#*:}
+for leaf in $leaves; do
+    dir="terraform/$leaf"
+    case "$leaf" in cloudflare) ws=cloudflare ;; github) ws=github-org ;; *) exit 2 ;; esac
     curl -sf "$hcp_api/organizations/$ORG/workspaces/$ws" \
         -H "Authorization: Bearer $HCP_TOKEN" \
         | jq -e --arg dir "$dir" --arg repo "$REPO" \

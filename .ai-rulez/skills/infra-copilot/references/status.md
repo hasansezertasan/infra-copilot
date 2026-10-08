@@ -15,6 +15,11 @@ validation and migration contract without editing its choice.
 
 1. Load validated config per [config](config.md), including the legacy fallback, and
    resolve operation implementations. No missing choice may become an all-skipped scan.
+   Include every effective leaf and both service implementations in mixed repositories.
+   Print the default and effective routes, so an override is visible in the report.
+   Select plan/run evidence per leaf; never read a migrated leaf's legacy HCP run as its
+   current result. Verify static workflow agreement with `checks/workflow-routing.sh`
+   before accepting Actions evidence. Run both protection checks in mixed mode.
 2. Preflight: read provider inventory first. If that HUMAN trust gate is red, report it
    before executing any conditional provider tool. Report declared pins as matching,
    drifted or missing. Report `curl`
@@ -38,6 +43,16 @@ validation and migration contract without editing its choice.
 6. Report latest execution runs separately from completion. A failed apply is a real
    independent finding and appears before the verdict, but does not change first-red.
    Never route an unreadable permission or protection check to a repair skill.
+
+## Backend cutover evidence
+
+When auditing a backend migration, report cutover evidence separately for each migrated
+leaf using [the authoritative runbook](docs/object-storage-state.md#migrating-from-hcp).
+Effective routing, workflow agreement and green plan checks do not prove that the human
+locked HCP before transfer, verified state before merge, retired its old writers, verified
+the destination apply and retired old credentials. Missing evidence is unknown; never
+announce cutover completion or "nothing to do" from a green mixed-backend scan alone.
+Keep remaining HCP leaves' connections, credentials and plan contexts in the active scan.
 
 ## Phase 6 plan contents and durable completion
 

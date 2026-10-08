@@ -625,6 +625,13 @@ class MigrateImportCheckTests(unittest.TestCase):
             leaf = root / "terraform/cloudflare"
             leaf.mkdir(parents=True)
             (leaf / "generated.tf").write_text("# adopted\n", encoding="utf-8")
+            workflow_directory = root / '.github/workflows'
+            workflow_directory.mkdir(parents=True)
+            for workflow_name in ('terraform-plan.yml', 'terraform-apply.yml'):
+                (workflow_directory / workflow_name).write_text(
+                    'env:\n  CLOUDFLARE_BACKEND: object-storage\n  GITHUB_BACKEND: object-storage\njobs:\n',
+                    encoding='utf-8',
+                )
             env = {
                 **os.environ,
                 "PATH": f"{root / 'bin'}:{os.environ['PATH']}",
@@ -636,6 +643,10 @@ class MigrateImportCheckTests(unittest.TestCase):
                 "GIT_COMMITTER_NAME": "t",
                 "GIT_COMMITTER_EMAIL": "t@example.invalid",
                 "BACKEND": "object-storage",
+                "CLOUDFLARE_BACKEND": "object-storage",
+                "LEAF_BACKENDS": "{}",
+                "ADDITIONAL_PROVIDER_NAMES": "[]",
+                "INFRA_COPILOT_REFERENCES": str(REPO_ROOT / '.ai-rulez/skills/infra-copilot/references'),
                 "REPO": "o/r",
             }
             for cmd in (["git", "init", "-q"], ["git", "add", "-A"],

@@ -11,6 +11,12 @@ The persistent Cloudflare edit token, and GitHub App ID, installation ID and ful
 are supplied by the selected execution service. Keep discovery credentials separate,
 short-lived and read-only; revoke them when discovery finishes.
 
+Choose custody by each leaf's effective route. A mixed repository can use HCP workspace
+variables for Cloudflare and Actions secrets for GitHub, or the reverse. Validate and
+refresh both service export sets when needed, and clear the previous provider entry's
+exports before switching entries. An HCP credential attestation does not verify runner
+authentication after cutover; complete the destination handoff and a fresh plan first.
+
 ## Scope and rotation
 
 Grant only permissions required by managed resources. A new resource type may require a

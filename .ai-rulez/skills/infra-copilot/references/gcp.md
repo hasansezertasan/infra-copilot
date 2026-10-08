@@ -6,6 +6,13 @@ records the decision below. Everything here was exercised end to end on a real k
 adoption (~140 resources imported, `0 to add, 0 to change, 0 to destroy`), and the
 hazards are listed in roughly the order a first-timer meets them.
 
+Resolve the adoption entry's `NEW_PROVIDER_BACKEND` from [config.md](config.md) first.
+HCP workspace and HCP-specific WIF commands below apply only to an effective HCP leaf.
+An object-storage entry uses [runner provisioning](object-storage.md#provision-execution)
+and [Actions WIF](docs/object-storage-ci.md#gcp-workload-identity-federation), even when
+the repository default is HCP. Re-review IAM trust for the destination subject on cutover;
+HCP's subject cannot authenticate Actions, and its credential attestation is not portable.
+
 ## Prerequisite: make the decision (HUMAN + docs)
 
 The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml) stays

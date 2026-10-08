@@ -17,13 +17,17 @@ permissions:
 env:
   TF_IN_AUTOMATION: true
   TF_INPUT: false
+  # Set each literal to the resolved config.md backend (object-storage or hcp)
+  # in the same reviewed cutover PR; HCP leaves run only through HCP checks.
+  CLOUDFLARE_BACKEND: object-storage
+  GITHUB_BACKEND: object-storage
 
 jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      cloudflare: ${{ steps.filter.outputs.cloudflare }}
-      github: ${{ steps.filter.outputs.github }}
+      cloudflare: ${{ steps.route.outputs.cloudflare }}
+      github: ${{ steps.route.outputs.github }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -38,12 +42,31 @@ jobs:
               - 'mise.toml'
               - 'mise.lock'
               - '.infra-copilot/config.md'
+              - '.github/workflows/terraform-plan.yml'
             github:
               - 'terraform/github/**'
               - 'terraform/modules/**'
               - 'mise.toml'
               - 'mise.lock'
               - '.infra-copilot/config.md'
+              - '.github/workflows/terraform-plan.yml'
+
+      - name: Route object-storage leaves
+        id: route
+        env:
+          CLOUDFLARE_CHANGED: ${{ steps.filter.outputs.cloudflare }}
+          GITHUB_CHANGED: ${{ steps.filter.outputs.github }}
+        run: |
+          cloudflare=false
+          github=false
+          if [ "$CLOUDFLARE_BACKEND" = "object-storage" ] && [ "$CLOUDFLARE_CHANGED" = "true" ]; then
+            cloudflare=true
+          fi
+          if [ "$GITHUB_BACKEND" = "object-storage" ] && [ "$GITHUB_CHANGED" = "true" ]; then
+            github=true
+          fi
+          echo "cloudflare=$cloudflare" >> "$GITHUB_OUTPUT"
+          echo "github=$github" >> "$GITHUB_OUTPUT"
 
   plan-cloudflare:
     permissions:
@@ -299,8 +322,8 @@ jobs:
             echo "Prerequisite job(s) failed or cancelled: $failures"
             exit 1
           fi
-          # Ensure changed leaves have successful (not skipped) plans
-          # A skipped plan for a changed leaf means no one reviewed the changes
+          # Filtered outputs require plans only for changed object-storage leaves.
+          # HCP-only changes are covered by HCP checks, not these Actions jobs.
           plan_cloudflare_result=$(echo '${{ toJson(needs) }}' | jq -r '.["plan-cloudflare"].result // "skipped"')
           plan_github_result=$(echo '${{ toJson(needs) }}' | jq -r '.["plan-github"].result // "skipped"')
           if [ "$CLOUDFLARE_CHANGED" = "true" ] && [ "$plan_cloudflare_result" != "success" ]; then

@@ -7,8 +7,15 @@ Implementation code and reference docs own all service-specific commands.
 ## Selection and resume
 
 Every backend-dependent manifest step declares `operation` and `implementation`.
-The resolver selects `hcp`, `object-storage`, or `both` using the validated config value,
-then evaluates the selected step's `when` for any additional provider applicability.
+The agent resolves the validated per-leaf inventory in [config.md](config.md),
+then evaluates each member's `when`. This is an agent contract plus executable checks;
+there is no manifest runner that implicitly changes environment or filters loops.
+Repository service steps select every service present (`HAS_HCP`/`HAS_OBJECT_STORAGE`),
+even when it differs from the default. Bootstrap state configuration selects the bootstrap
+subset (`HAS_*_BOOTSTRAP`, with loops over its JSON array). Credential and plan steps
+select `CLOUDFLARE_BACKEND` or `GITHUB_BACKEND`. Phase 6 selects `NEW_PROVIDER_BACKEND`.
+Shared checks select the target leaf's effective backend internally.
+Never prefilter the manifest globally by `BACKEND`: mixed mode can select both implementations.
 Reject missing, empty or invalid config choices before evaluating conditions.
 
 Preserve manifest order, phase boundaries, actor handoffs, tri-state semantics and the
@@ -20,7 +27,7 @@ first red member. Group reports by `(phase, operation, provider entry)`, using t
 member's position, and keep the member ID for diagnostics. Never group across provider entries.
 An operation is green only if all applicable members are green; failed outranks unknown,
 unknown outranks pending. A null check remains human-gated. An explicit `not_applicable`
-is N/A with its reason, not green proof. Opposite implementations are not reported as
+ is N/A with its reason, not green proof. Opposite implementations for a leaf are not reported as
 unfinished operations. A member skipped by a provider condition is also N/A with its reason.
 
 For status, use the selected [read-run-status](#read-run-status) implementation for checks
@@ -56,6 +63,15 @@ is separate from operation completion and cannot move the first-red verdict.
 ## Shared configuration operations
 
 `sync-execution-config` refreshes consuming-repo literals after a reviewed config change.
+Synchronize static Actions `CLOUDFLARE_BACKEND` and `GITHUB_BACKEND` values in both plan
+and apply workflows with effective config in the same cutover PR; template defaults are
+object-storage, not a config resolver. Verify workflow agreement before accepting any
+Actions evidence or enabling apply. Additional provider workflow routes must agree too.
+Mixed protection requires both selected required-check-context implementations and all
+effective leaf plan contexts, independent of the backend of the GitHub management leaf.
+Remove obsolete HCP required contexts only for migrated leaves; preserve remaining HCP,
+Actions, fmt and validate contexts. Migrated workspaces must not be recreated, reconnected,
+or granted new plan rights; retained legacy workspaces are migration evidence only.
 `provider-inventory` enumerates declared and actual leaves/tool pins;
 `provider-decision` requires a committed, human-approved adoption record; `provider-leaf`
 writes the isolated Terraform leaf with the selected state configuration. These shared
@@ -65,6 +81,12 @@ the implementation code, never in an action router.
 ## Bootstrap-state
 
 Establish authenticated remote state, isolated per leaf, with committed tool pins.
+For an existing HCP leaf, a passing configuration check verifies its backend text and
+routing only. Complete the HUMAN-gated
+[cutover runbook](docs/object-storage-state.md#migrating-from-hcp): verified transfer before
+merge, retirement of that workspace's writers, destination apply verification, and
+credential retirement that preserves every remaining HCP leaf. A green resume scan must
+not skip these migration gates or certify them from an empty destination or a backend block.
 Implementation: [service bootstrap](hcp.md), [runner state](docs/object-storage-state.md).
 
 ## Provision-execution

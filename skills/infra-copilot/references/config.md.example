@@ -1,17 +1,18 @@
 ---
 # infra-copilot:customization start
 backend: object-storage        # required: hcp | object-storage; confirm the choice during setup
+leaf_backends: {}               # declared leaf overrides; e.g. {github: object-storage} with default hcp
 github_org: your-org
 apex_domain: example.dev
 cloudflare_account_id: 0000000000000000000000000000000
 cloudflare_zone_id: 0000000000000000000000000000000
 managed_repos:
   - your-org/infra
-# ── HCP mode fields (when backend: hcp) ──────────────────────────────────────
+# ── HCP fields (when any effective leaf is hcp, including overrides) ─────────
 # hcp_org: your-org
 # hcp_status_check_id: ""
 
-# ── Object-storage mode fields (when backend: object-storage) ────────────────
+# ── Object-storage fields (when any effective leaf is object-storage) ────────
 state_backend: gcs             # gcs | s3 | azurerm; choose your storage provider
 state_bucket: your-org-tf-state
 state_prefix: terraform/state
@@ -83,8 +84,13 @@ template, so it stops and hands off instead of guessing.
 
 ## Staged backend migration
 
-`backend` is repo-wide; per-leaf overrides are not supported.
-Keep `backend: hcp` until the last leaf moves, then switch to `object-storage` in its cutover PR.
-During the mixed window, the global `when` gates and `status` checks cannot certify both modes: migrated leaves may report red under HCP checks, while the object-storage steps are skipped.
-Use the hub skill's packaged `references/docs/object-storage-state.md` ("Mixed-backend window") for per-leaf evidence.
-Do not run setup to rewrite every leaf or interpret skipped checks as migration success.
+`backend` is the explicit default. Override only the migrating declared leaf in
+`leaf_backends`, for example `github: object-storage` while `backend: hcp` remains.
+Synchronize `GITHUB_BACKEND` in both plan and apply workflows in that leaf's cutover PR;
+keep the other leaves' routes, workspace connections, credentials and protection intact.
+Setup/status select the effective routes, including both services in mixed mode.
+Their checks verify routing and execution evidence, not the human state-transfer gates.
+Follow the hub skill's packaged `references/docs/object-storage-state.md`
+("Migrating from HCP") for each leaf's cutover. Neither skipped checks nor a green
+mixed-backend scan replaces verified state transfer, retired HCP writers and an approved
+destination apply. Review all inherited routes before changing the repository default.

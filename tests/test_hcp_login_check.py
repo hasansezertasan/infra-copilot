@@ -130,6 +130,9 @@ class HcpLoginCheckTests(unittest.TestCase):
                     "ORG": "acme",
                     "REPO": "acme/infra",
                     "TERRAFORM_VERSION": "1.14.6",
+                    "BACKEND": "hcp",
+                    "LEAF_BACKENDS": "{}",
+                    "ADDITIONAL_PROVIDER_NAMES": "[]",
                     "INFRA_COPILOT_REFERENCES": str(
                         REPO_ROOT / ".ai-rulez/skills/infra-copilot/references"
                     ),

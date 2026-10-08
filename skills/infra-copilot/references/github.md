@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:cbb42daefd0c06f3b3ef4ac029a4d8e5bc974563b87c558308622d15e88336df
-Source-Hash: blake3:ef3ec4caf8a83e866d54a34d78c6fd5c5ca2466132f14aca7b9b7771dd047a4e
+Content-Hash: blake3:ef9d1b21f540b365c8dcb2275edf79192f5fc32c1721334b50dcf2f13ac2aee5
+Source-Hash: blake3:1ecaa10bad1b907246dfd8be25b4c83c4f29a427df437b6c5fb2a8840dbb3ef8
 Schema-Version: v1
 -->
 
@@ -72,6 +72,28 @@ is a locked decision — see this repo's `.infra-copilot/decisions.md`.
 > Installation + Installation-ID capture is a browser step either way.
 
 ## AGENT — verify
+
+### Versioned App manifests
+
+For object-storage leaves, copy
+[`templates/apps/terraform-plan.json`](templates/apps/terraform-plan.json) and
+[`templates/apps/terraform-apply.json`](templates/apps/terraform-apply.json) into the
+consuming repository's `.github/apps/`. These are provider Apps: plan is read-only, apply
+can manage repository settings and organization memberships. Adapt permissions to the
+actual resources and installation scope, give each App a unique name, and replace the
+example homepage and callback URLs with human-controlled URLs. Permission edits require
+a live App-settings update and, where GitHub requires it, installation-owner approval;
+committing JSON alone does not change an installed App.
+
+The HUMAN submits each JSON as the `manifest` form field to the organization App creation
+URL described above, then exchanges the returned one-hour code and stores the resulting
+PEM privately. Never commit the conversion response or ask an agent to perform the
+exchange. Keep the committed manifest synchronized with approved live permissions so
+drift can be reviewed and the App recreated. Store plan credentials in repository secrets
+and apply credentials in the protected `production` environment; see
+[Actions provider authentication](docs/object-storage-ci.md#terraform-providers).
+
+### HCP variable verification
 
 ```sh
 HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}

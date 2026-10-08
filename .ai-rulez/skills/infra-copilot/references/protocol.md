@@ -44,6 +44,17 @@ reports this handoff read-only. Only after validation, export the shell vars eve
 depends on — including the implementation selector used by [operations](operations.md). Full schema, migration
 rules, and export block: [`config.md`](config.md).
 
+Validate declared leaves and the optional `leaf_backends` map as well. Build the effective
+inventory before preflight; export both services' configuration when both are present.
+Evaluate repository service, bootstrap subset, named leaf, and Phase 6 entry selectors
+according to [operations](operations.md#selection-and-resume), never filter all steps by
+the repository default. Reload the complete inventory after config changes; export
+`NEW_PROVIDER_BACKEND` for each entry and clear the preceding entry's credential exports.
+Status, import, add and prune select execution for their target leaf with the same map.
+Before accepting Actions evidence, run `checks/workflow-routing.sh` to verify static
+workflow literals agree with effective config. A mismatch is red; unreadable agreement
+is unknown. Neither permits a migration or an apply to proceed.
+
 Immediately after a credential-establishing member turns green, refresh config's selected
 credential exports before evaluating the next member, even if its operation is not yet green. The selected implementation
 owns export precedence; never invent an execution credential locally.
@@ -155,7 +166,10 @@ empty list means the optional phase is not applicable only when the inventory ch
 green. When `add` was explicitly invoked to adopt a provider that has no matching entry,
 retain the validated requested provider slug as `NEW_PROVIDER` and instantiate
 `new-provider-decision` once in bootstrap mode. Leave the other `NEW_PROVIDER*` values
-empty so its check stays red. After the HUMAN records the decision and config entry,
+empty so its check stays red, except `NEW_PROVIDER_BACKEND`, which initially equals the
+validated default. Ask the HUMAN to record an override together with the new declaration
+if another execution service is desired; unknown override keys cannot precede adoption.
+After the HUMAN records the decision and config entry,
 reload config and continue the normal per-entry scan. The empty-list shortcut must never
 discard an explicit adoption request.
 

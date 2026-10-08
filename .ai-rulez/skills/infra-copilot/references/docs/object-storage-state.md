@@ -2,7 +2,7 @@
 
 ## Object-storage backend
 
-When `backend: object-storage` is set in [`../config.md`](../config.md), state lives in a cloud storage bucket instead of HCP Terraform. This mode uses GitHub Actions for CI instead of HCP's VCS integration.
+For a leaf whose effective backend is `object-storage` in [`../config.md`](../config.md), state lives in a cloud storage bucket instead of HCP Terraform. That leaf uses GitHub Actions for CI; other leaves may still use HCP during a staged cutover.
 
 ## Supported backends
 
@@ -164,6 +164,8 @@ Review the actual `Terraform Cloud/<org>/<workspace>` context; do not guess its 
 If branch protection is managed outside Terraform, schedule the settings change as part of this cutover and verify it immediately after merge.
 Keep resource changes out of the backend PR so the first bucket-backed plan is a no-op.
 Set a suitable apply timeout and retain the empty-state guard for every migrated leaf.
+Set that leaf's `leaf_backends` override and matching static `<LEAF>_BACKEND` literal in
+both workflows in this same PR; see [the mixed-backend window](#mixed-backend-window).
 
 Prepare these changes on a branch, but **do not start credentialed plan jobs or initialize the destination before the upload** if their identity can write state.
 The shipped plan example grants objectAdmin: opening a PR or dispatching its workflow can make GCS `terraform init` create an empty `default.tfstate`, preventing the later no-clobber upload.
@@ -312,13 +314,30 @@ Remove only the recorded `CUTOVER_DIR` created for this cutover.
 
 ### Mixed-backend window
 
-The config has one repo-wide `backend:` and no per-leaf overrides.
-For a leaf-by-leaf migration, keep `backend: hcp` until the **last** leaf moves; change it to `object-storage` in that leaf's cutover PR.
-During the mixed window, `status` cannot certify both halves: migrated leaves may fail HCP checks and object-storage steps are skipped.
-Record leaf names, backend destinations, HCP lock/disconnect state, upload verification, plan/apply SHAs and pending cleanup in the cutover PR or repo-local migration notes, and inspect them manually.
-Do not re-run setup across all leaves or treat the global scan as migration completion.
+The required repository `backend` is the default. `leaf_backends` overrides it by leaf
+name (`github`, not HCP workspace name `github-org`), including declared additional providers:
 
-Customize workflows so Actions plans/applies target **only migrated leaves**, including changes-job outputs, path filters, job conditions, the validation matrix, and aggregate `plan` dependencies/status logic.
+```yaml
+backend: hcp
+leaf_backends:
+  github: object-storage
+```
+
+This keeps Cloudflare and non-overridden providers on HCP while routing GitHub to Actions.
+Retain required fields and credentials for both active services. Add each override in its
+cutover PR, only after frozen state transfer and verification. When the last leaf moves,
+change the default to `object-storage` and remove redundant overrides.
+`status` resolves each leaf independently and runs both service-wide protection checks;
+it does not certify the human state-transfer/secret-scan gates or authorize credential retirement.
+Record leaf names, backend destinations, HCP lock/disconnect state, upload verification, plan/apply SHAs and pending cleanup in the cutover PR or repo-local migration notes, and inspect them manually.
+Resume never reconnects a migrated leaf to HCP; do not treat green setup/status as migration completion.
+
+Set static `CLOUDFLARE_BACKEND` and `GITHUB_BACKEND` literals in both workflow `env` blocks
+to their effective config values. The changes jobs filter credentialed outputs to
+object-storage leaves, so HCP-only changes skip Actions plans/applies without failing
+the Actions aggregate. Validation stays backend-neutral. For additional providers, add
+their `<LEAF>_BACKEND` literals, jobs, filters and aggregate checks following the same pattern.
+The workflow-routing check verifies literal agreement and refuses ambiguous overrides.
 Shared-module/config changes must still fan out to all migrated leaves.
 Retain HCP required contexts for leaves still on HCP; replace only the migrated leaf's context and keep `plan` required alongside the remaining HCP checks.
 Remove each migrated workspace's VCS connection after its merge, and defer shared credential cleanup until the last dependent leaf is cut over.

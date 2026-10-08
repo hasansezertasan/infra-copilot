@@ -1,0 +1,17 @@
+{
+  "name": "your-org-terraform-apply",
+  "url": "https://example.com/infra",
+  "redirect_url": "http://localhost:3000/github-app/callback",
+  "public": false,
+  "hook_attributes": {"active": false},
+  "default_permissions": {
+    "administration": "write",
+    "actions": "read",
+    "contents": "read",
+    "metadata": "read",
+    "pull_requests": "write",
+    "members": "write",
+    "organization_administration": "write"
+  },
+  "default_events": []
+}

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:b213c7e1badc7fae1b171a17a191d635f906b8ef7ec732544ed75e3149cd0dbc
-Source-Hash: blake3:ef3ec4caf8a83e866d54a34d78c6fd5c5ca2466132f14aca7b9b7771dd047a4e
+Content-Hash: blake3:d189d3368f75db9e854351c02ef793043c8a093d40f26df907ea5b2ae67bf1f9
+Source-Hash: blake3:1ecaa10bad1b907246dfd8be25b4c83c4f29a427df437b6c5fb2a8840dbb3ef8
 Schema-Version: v1
 -->
 
@@ -50,6 +50,17 @@ blocks are migration evidence for setup, never an inferred default. `status`
 reports this handoff read-only. Only after validation, export the shell vars every check
 depends on — including the implementation selector used by [operations](operations.md). Full schema, migration
 rules, and export block: [`config.md`](config.md).
+
+Validate declared leaves and the optional `leaf_backends` map as well. Build the effective
+inventory before preflight; export both services' configuration when both are present.
+Evaluate repository service, bootstrap subset, named leaf, and Phase 6 entry selectors
+according to [operations](operations.md#selection-and-resume), never filter all steps by
+the repository default. Reload the complete inventory after config changes; export
+`NEW_PROVIDER_BACKEND` for each entry and clear the preceding entry's credential exports.
+Status, import, add and prune select execution for their target leaf with the same map.
+Before accepting Actions evidence, run `checks/workflow-routing.sh` to verify static
+workflow literals agree with effective config. A mismatch is red; unreadable agreement
+is unknown. Neither permits a migration or an apply to proceed.
 
 Immediately after a credential-establishing member turns green, refresh config's selected
 credential exports before evaluating the next member, even if its operation is not yet green. The selected implementation
@@ -162,7 +173,10 @@ empty list means the optional phase is not applicable only when the inventory ch
 green. When `add` was explicitly invoked to adopt a provider that has no matching entry,
 retain the validated requested provider slug as `NEW_PROVIDER` and instantiate
 `new-provider-decision` once in bootstrap mode. Leave the other `NEW_PROVIDER*` values
-empty so its check stays red. After the HUMAN records the decision and config entry,
+empty so its check stays red, except `NEW_PROVIDER_BACKEND`, which initially equals the
+validated default. Ask the HUMAN to record an override together with the new declaration
+if another execution service is desired; unknown override keys cannot precede adoption.
+After the HUMAN records the decision and config entry,
 reload config and continue the normal per-entry scan. The empty-list shortcut must never
 discard an explicit adoption request.
 
