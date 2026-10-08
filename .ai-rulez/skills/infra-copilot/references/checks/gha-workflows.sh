@@ -34,6 +34,7 @@ for file in "$plan" "$apply"; do
   # cannot borrow evidence from an inactive declaration.
   awk '
     /^[[:space:]]*#/ {next}
+    /^[[:space:]]*["\047].*["\047]:/ {exit 1}
     /TF_CLI_ARGS/ {exit 1}
     /(^|[[:space:]:,{\[])[&*][^[:space:]&*]/ {exit 1}
     /^[^[:space:]#]/ {key=$0; sub(/:.*/, "", key); if (++seen[key] > 1) exit 1}

@@ -137,6 +137,8 @@ class WorkflowSetupTests(unittest.TestCase):
             original.replace('secrets.CLOUDFLARE_API_TOKEN_READ',
                              'toJSON(secrets) || secrets.CLOUDFLARE_API_TOKEN_READ'),
             original.replace('  plan-cloudflare:\n', '  plan-cloudflare:\n    environment: production\n'),
+            original.replace('  plan-cloudflare:\n', '  plan-cloudflare:\n    "environment": production\n'),
+            original.replace('  plan-cloudflare:\n', "  plan-cloudflare:\n    'environment': production\n"),
         ):
             with self.subTest(broken=broken):
                 self.plan.write_text(broken)

@@ -998,8 +998,8 @@ steps:
          Never return token values to the agent. Verify plan is read-only in the token UI.
     check: |
       sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh" || exit $?
-      repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
-      env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 1
+      repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 2
+      env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 2
       owner_type=$(gh api "repos/$REPO" --jq '.owner.type' 2>/dev/null) || exit 2
       case "$owner_type" in
         Organization) org_secrets=$(gh api --paginate "repos/$REPO/actions/organization-secrets" --jq '.secrets[].name' 2>/dev/null) || exit 2 ;;
@@ -1049,8 +1049,8 @@ steps:
          or ruleset bypass_actors; production apply still refreshes. No live-drift claim for PR plans.
     check: |
       sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh" || exit $?
-      repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
-      env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 1
+      repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 2
+      env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 2
       owner_type=$(gh api "repos/$REPO" --jq '.owner.type' 2>/dev/null) || exit 2
       case "$owner_type" in
         Organization) org_secrets=$(gh api --paginate "repos/$REPO/actions/organization-secrets" --jq '.secrets[].name' 2>/dev/null) || exit 2 ;;
@@ -2621,8 +2621,8 @@ steps:
           and (.required | type == "boolean") and (.scope == "plan" or .scope == "apply"))
         and length == (map(.name | ascii_upcase) | unique | length)' >/dev/null || exit 1
       if [ "$(printf '%s' "$NEW_PROVIDER_SECRETS" | jq 'length')" -gt 0 ]; then
-        repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
-        env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 1
+        repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 2
+        env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 2
         owner_type=$(gh api "repos/$REPO" --jq '.owner.type' 2>/dev/null) || exit 2
         case "$owner_type" in
           Organization) org_secrets=$(gh api --paginate "repos/$REPO/actions/organization-secrets" --jq '.secrets[].name' 2>/dev/null) || exit 2 ;;

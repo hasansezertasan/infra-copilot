@@ -19,7 +19,8 @@ class CredentialTierTests(unittest.TestCase):
     def run_check(self, step_id: str, repo_names: list[str], env_names: list[str],
                   inventory: list[dict[str, object]] | None = None,
                   gate_status: int = 0, org_names: list[str] | None = None,
-                  org_status: int = 0, owner_type: str = 'Organization') -> subprocess.CompletedProcess[str]:
+                  org_status: int = 0, owner_type: str = 'Organization',
+                  repo_status: int = 0, env_status: int = 0) -> subprocess.CompletedProcess[str]:
         manifest = (REFERENCES / 'steps.yaml').read_text()
         block = manifest.split(f'  - id: {step_id}\n', 1)[1].split('\n  - id:', 1)[0]
         match = re.search(r'^    check: \|\n((?:      .*\n|\n)+)', block, re.M)
@@ -34,8 +35,8 @@ class CredentialTierTests(unittest.TestCase):
             stub.write_text('#!/bin/sh\ncase "$*" in\n'
                             '  *"organization-secrets"*) printf "%s\\n" "$ORG_NAMES"; exit "$ORG_STATUS" ;;\n'
                             '  *".owner.type"*) printf "%s\\n" "$OWNER_TYPE" ;;\n'
-                            '  *"--env production"*) printf "%s\\n" "$ENV_NAMES" ;;\n'
-                            '  *) printf "%s\\n" "$REPO_NAMES" ;;\nesac\n')
+                            '  *"--env production"*) printf "%s\\n" "$ENV_NAMES"; exit "$ENV_STATUS" ;;\n'
+                            '  *) printf "%s\\n" "$REPO_NAMES"; exit "$REPO_STATUS" ;;\nesac\n')
             stub.chmod(0o755)
             (root / '.infra-copilot').mkdir()
             (root / '.infra-copilot/config.md').write_text('fixture\n')
@@ -49,6 +50,7 @@ class CredentialTierTests(unittest.TestCase):
                                        'REPO_NAMES': '\n'.join(repo_names), 'ENV_NAMES': '\n'.join(env_names),
                                        'ORG_NAMES': '\n'.join(org_names or []), 'ORG_STATUS': str(org_status),
                                        'OWNER_TYPE': owner_type,
+                                       'REPO_STATUS': str(repo_status), 'ENV_STATUS': str(env_status),
                                        'NEW_PROVIDER_SECRETS': json.dumps(inventory or []),
                                        'NEW_PROVIDER_CREDENTIALS_VERIFIED_AT': datetime.datetime.now(
                                            datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')})
@@ -72,6 +74,8 @@ class CredentialTierTests(unittest.TestCase):
                 self.assertEqual(self.run_check(step_id, read_names, []).returncode, 1)
                 self.assertEqual(self.run_check(step_id, read_names, write_names, gate_status=2).returncode, 2)
                 self.assertEqual(self.run_check(step_id, read_names, write_names, org_status=1).returncode, 2)
+                self.assertEqual(self.run_check(step_id, read_names, write_names, repo_status=1).returncode, 2)
+                self.assertEqual(self.run_check(step_id, read_names, write_names, env_status=1).returncode, 2)
                 self.assertEqual(self.run_check(step_id, read_names, write_names,
                                                 org_status=1, owner_type='User').returncode, 0)
                 self.assertEqual(self.run_check(step_id, read_names, write_names,
@@ -88,6 +92,10 @@ class CredentialTierTests(unittest.TestCase):
                                             inventory, org_names=[leaked]).returncode, 1)
         self.assertEqual(self.run_check('new-provider-secrets-gha', ['READ_TOKEN'], ['WRITE_TOKEN'],
                                         inventory, org_status=1).returncode, 2)
+        self.assertEqual(self.run_check('new-provider-secrets-gha', ['READ_TOKEN'], ['WRITE_TOKEN'],
+                                        inventory, repo_status=1).returncode, 2)
+        self.assertEqual(self.run_check('new-provider-secrets-gha', ['READ_TOKEN'], ['WRITE_TOKEN'],
+                                        inventory, env_status=1).returncode, 2)
         for repo_names, env_names in ((['READ_TOKEN', 'WRITE_TOKEN'], ['WRITE_TOKEN']),
                                        (['READ_TOKEN', 'OPTIONAL_WRITE'], ['WRITE_TOKEN']),
                                        (['READ_TOKEN'], []), ([], ['READ_TOKEN', 'WRITE_TOKEN'])):
