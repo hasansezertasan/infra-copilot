@@ -857,17 +857,19 @@ steps:
     why: CI replaces HCP's VCS integration — plan on PR, apply on merge.
     run: |
       Create .github/workflows/terraform-plan.yml:
-        - Triggers on pull_request (and optional workflow_dispatch)
-        - Runs init + plan for each changed leaf
+        - Triggers on pull_request and workflow_dispatch
+        - Uses path filtering only for pull_request; runs init + plan for changed PR leaves and every leaf on manual dispatch
         - Configures state-backend authentication for $STATE_BACKEND (GCS Workload Identity, AWS assume-role, or Azure login)
         - Posts plan output as PR comment
         - Emits aggregate plan check
 
       Create .github/workflows/terraform-apply.yml:
-        - Triggers on push to main for paths terraform/**
+        - Triggers on every push to main without path filtering, and workflow_dispatch
         - Requires environment approval ("production")
-        - Concurrency group serialized per state
-        - Applies changes for each changed leaf
+        - Serializes workflow runs by ref with cancel-in-progress: false
+        - Applies every leaf on every run, without a changes job or leaf-change conditions
+        - Refuses non-main refs and commits that are not main's tip immediately before each apply
+        - Retry failed applies by dispatching the workflow on main
     check: |
       # File existence and git tracking
       test -f .github/workflows/terraform-plan.yml || exit 1
