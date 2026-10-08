@@ -113,6 +113,8 @@ done
 for name in $names; do
   leaf=${name#apply-}
   block=$(job "$apply" "$name")
+  [ "$(printf '%s\n' "$block" | grep -c '^    environment:' || true)" = 1 ] || exit 1
+  printf '%s\n' "$block" | grep -Fxq '    environment: production' || exit 1
   apply_step=$(printf '%s\n' "$block" | step 'Terraform Apply')
   # The supported apply always recomputes with default refresh and locking.
   [ "$(printf '%s\n' "$apply_step" | sed -n '/^        run:/p')" = "$expected_apply" ] || exit 1
