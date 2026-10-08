@@ -177,7 +177,8 @@ class LeafRoutingTests(unittest.TestCase):
 
     def test_static_workflows_must_agree_with_effective_not_default(self) -> None:
         self.write_workflows()
-        self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 0)
+        completed = self.execute_check('workflow-routing.sh')
+        self.assertEqual(completed.returncode, 0, completed.stderr)
         self.write_workflows(cloudflare_backend='object-storage')
         completed = self.execute_check('workflow-routing.sh')
         self.assertEqual(completed.returncode, 1)
@@ -225,6 +226,12 @@ class LeafRoutingTests(unittest.TestCase):
             suffix = " && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)" if prefix == 'plan' else ''
             workflow_text += f"\n  {prefix}-gcp-prod:\n    if: needs.changes.outputs.gcp-prod == 'true'{suffix}\n"
             if prefix == 'plan':
+                provider_filter = '            gcp-prod:\n' + ''.join(
+                    f"              - '{pattern}'\n" for pattern in (
+                        'terraform/gcp-prod/**', 'terraform/modules/**', 'mise.toml', 'mise.lock',
+                        '.infra-copilot/config.md', '.github/workflows/terraform-*.yml',
+                        '.github/scripts/terraform-destroy.cjs'))
+                workflow_text = workflow_text.replace('            github:\n', provider_filter + '            github:\n')
                 workflow_text = workflow_text.replace(
                     'needs: [changes, plan-cloudflare, plan-github, validate]',
                     'needs: [changes, plan-cloudflare, plan-github, plan-gcp-prod, validate]')
@@ -385,6 +392,19 @@ class LeafRoutingTests(unittest.TestCase):
             workflow_path.write_text(workflow_path.read_text().replace('gcp-prod', 'org-github').replace(
                 'GCP_PROD', 'ORG_GITHUB').replace('gcp_prod', 'org_github'))
         self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 0)
+
+    def test_active_leaf_requires_its_concrete_filter_and_shared_inputs(self) -> None:
+        for mutation in ('missing-leaf', 'missing-lock'):
+            with self.subTest(mutation=mutation):
+                self.write_workflows()
+                workflow_path = self.checkout / '.github/workflows/terraform-plan.yml'
+                workflow_text = workflow_path.read_text()
+                if mutation == 'missing-leaf':
+                    workflow_text = re.sub(r'^            github:\n(?:              .*\n)+', '', workflow_text, flags=re.M)
+                else:
+                    workflow_text = workflow_text.replace("              - 'mise.lock'\n", '')
+                workflow_path.write_text(workflow_text)
+                self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 1)
 
     def prepare_hcp_api(self, *, legacy_permissions: dict[str, bool] | None = None) -> None:
         self.environment.update(ORG='acme', REPO='acme/infra', TERRAFORM_VERSION='1.15.0',

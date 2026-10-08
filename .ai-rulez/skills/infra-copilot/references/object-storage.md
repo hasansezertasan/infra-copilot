@@ -9,10 +9,15 @@ State provisioning, IAM and migration commands are in
 ## Provision-execution
 
 Install [plan](templates/terraform-plan.yml) and [apply](templates/terraform-apply.yml)
-workflows, with one leaf job and isolated state key per provider. Include the leaf,
+workflows and [the shared destroy helper](templates/terraform-destroy.cjs), copied to
+`.github/scripts/terraform-destroy.cjs`, with one leaf job and isolated state key per provider. Include the leaf,
 `terraform/modules/**`, `.infra-copilot/config.md`, `mise.toml` and `mise.lock` in the
 path filter. Add the leaf to validation, the changes output, the aggregate plan's `needs`,
-and the apply job condition. Use the committed mise lock via `jdx/mise-action`.
+and keep every apply job unconditional. Include the workflow files and shared helper in
+each plan path filter. Use the committed mise lock via `jdx/mise-action`.
+Update the workflows and helper together when re-scaffolding; setup rejects missing,
+dirty or outdated helpers and missing destructive guards. A HUMAN approves creation of
+`allow-destroy` and records its intent-marker limitations as a locked decision.
 
 Only `OBJECT_STORAGE_LEAVES` may initialize, authenticate, plan or apply in Actions.
 Keep HCP leaves in validation but out of credential-bearing runner execution. Set static

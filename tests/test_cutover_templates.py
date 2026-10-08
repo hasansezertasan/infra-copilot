@@ -202,8 +202,10 @@ const github = {rest: {issues, pulls: {get: async params => {
   return comments;
 }};
 const mockedRequire = name => {
+  if (name === './.github/scripts/terraform-destroy.cjs') return require(input.helperPath);
   if (name !== 'fs') throw new Error('unexpected module');
-  return {readFileSync: (path, encoding) => {
+  return {existsSync: path => path === `terraform/${input.leaf}/plan.txt`, readFileSync: (path, encoding) => {
+    if (path === `terraform/${input.leaf}/destroys.json` && encoding === 'utf8') return '[]';
     if (path !== `terraform/${input.leaf}/plan.txt` || encoding !== 'utf8')
       throw new Error('wrong plan file');
     return input.plan;
@@ -212,7 +214,9 @@ const mockedRequire = name => {
 const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 (async () => {
   const context = {repo: {owner: 'owner', repo: 'repo'}, issue: {number: 107},
+    serverUrl: 'https://github.com', runId: 123,
     sha: 'planned-merge', payload: {pull_request: {head: {sha: 'current-head'}}}};
+  process.env.EXITCODE = '0'; process.env.PLAN_OUTCOME = 'success'; process.env.INVENTORY_OUTCOME = 'success';
   const post = new AsyncFunction('require', 'github', 'context', 'core', input.script);
   await post(mockedRequire, github, context, {notice: () => {}});
   if (!paginated || !completed) throw new Error('pagination or awaited mutation missing');
@@ -232,7 +236,7 @@ const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
                 result = subprocess.run(
                     ["node", "-e", harness], text=True, capture_output=True,
                     input=json.dumps({"leaf": leaf_name, "existing": existing, "plan": plan_text,
-                                      "script": comment_script}),
+                                      "script": comment_script, "helperPath": str(TEMPLATES / 'terraform-destroy.cjs')}),
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 mutation = json.loads(result.stdout)
@@ -245,7 +249,7 @@ const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
                 self.assertIn("Planned commit: `planned-merge`", mutation["body"])
                 self.assertLess(len(mutation["body"]), 65536)
                 if len(plan_text) > 65535:
-                    self.assertIn("... (truncated)", mutation["body"])
+                    self.assertIn("truncated", mutation["body"])
                 else:
                     self.assertIn(plan_text, mutation["body"])
 

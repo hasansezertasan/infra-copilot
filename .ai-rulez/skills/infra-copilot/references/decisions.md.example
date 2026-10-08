@@ -28,6 +28,11 @@ repositories outside GitHub Enterprise) lock an `Apply gate` row whose choice is
 `merge-approval` or `dispatch`; the `gha-environments` check reads it. See
 `references/docs/object-storage-ci.md#github-environments`.
 
+Object-storage setup also locks a `Destructive apply` row with choice `allow-destroy`.
+Its rationale must explain that the label is intent, not authorization, and opts into
+every delete in the refreshed saved plan, including drift. The producing merged PR must
+match the exact commit; older PR labels do not carry forward.
+
 Statuses:
 
 - `proposed` — under discussion; workflows must not assume it.

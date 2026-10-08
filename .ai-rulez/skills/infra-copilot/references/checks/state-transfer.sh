@@ -8,6 +8,32 @@ case "$leaf" in ''|*[!a-z0-9-]*) cannot_verify 'a declared leaf slug is required
 history=$(git --no-optional-locks log --format=%H \
   -G '(^|[[:space:]])cloud[[:space:]]*\{|backend[[:space:]]*"remote"' \
   HEAD -- "terraform/$leaf/*.tf") || cannot_verify 'cannot read backend history'
+# Terraform JSON can encode cloud/remote keys (including escaped spellings).
+# Inspect historical JSON structurally instead of assuming HCL-shaped text.
+if [ -z "$history" ]; then
+  revisions=$(git --no-optional-locks log --format=%H HEAD -- "terraform/$leaf/*.tf.json") || exit 2
+  for revision in $revisions; do
+    files=$(git --no-optional-locks ls-tree -r --name-only "$revision" -- "terraform/$leaf/") || exit 2
+    found=$(printf '%s\n' "$files" | while IFS= read -r file; do
+      case "${file#terraform/$leaf/}" in
+        (*/*) continue ;;
+        (*.tf.json) : ;;
+        (*) continue ;;
+      esac
+      snapshot=$(git --no-optional-locks show "$revision:$file") || exit 2
+      status=0
+      verdict=$(printf '%s' "$snapshot" | jq -er '
+        any((.terraform // {}) | .. | objects;
+          has("cloud") or ((.backend // {}) |
+            if type == "object" then has("remote") else false end))') || status=$?
+      if [ "$status" = 0 ] && [ "$verdict" = true ]; then
+        printf '%s\n' hcp; break
+      fi
+      [ "$status" = 1 ] && [ "$verdict" = false ] || exit 2
+    done) || cannot_verify 'cannot inspect historical Terraform JSON'
+    if [ "$found" = hcp ]; then history=$revision; break; fi
+  done
+fi
 if [ -z "$history" ]; then
   shallow=$(git --no-optional-locks rev-parse --is-shallow-repository) || exit 2
   [ "$shallow" = false ] || cannot_verify 'fetch complete history before ruling out an HCP cutover'

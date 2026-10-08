@@ -54,6 +54,19 @@ for file do
     ') || broken "$source_file needs one route step in changes"
     printf '%s\n' "$route" | grep -Eq '^        (if|continue-on-error):' &&
         broken "$source_file route step must run unconditionally"
+    case "$source_file" in
+      *terraform-plan.yml)
+        filter=$(printf '%s\n' "$changes" | awk '
+          /^      - / {inside=($0 ~ /uses: dorny\/paths-filter@/); if (inside) count++}
+          inside {print}
+          END {if (count != 1) exit 1}
+        ') || broken "$source_file needs one concrete PR path filter"
+        printf '%s\n' "$filter" | grep -Fxq '        id: filter' || broken "$source_file lacks filter output identity"
+        if printf '%s\n' "$filter" | grep -q 'predicate-quantifier:'; then
+          printf '%s\n' "$filter" | grep -Eq '^          predicate-quantifier: some[[:space:]]*$' ||
+            fail "$source_file requires any matching path, not all paths"
+        fi ;;
+    esac
     initializers=''; decisions=''; emissions=''
     for pair in $pairs; do
         leaf=${pair%%:*}; key=${pair#*:}
@@ -112,6 +125,21 @@ for file do
         printf '%s\n' "$route" | grep -Fxq "$change_input" ||
             broken "$source_file route lacks $changed input"
         if [ "$prefix" = plan ] && [ "$expected" = object-storage ]; then
+            paths=$(printf '%s\n' "$filter" | awk -v leaf="$leaf" '
+                /^            [a-zA-Z0-9_-]+:/ {inside=($0 == "            " leaf ":"); if (inside) count++}
+                inside {print}
+                END {if (count != 1) exit 1}
+            ') || broken "$source_file has no unique $leaf path filter"
+            printf '%s\n' "$paths" | awk '
+                /^[[:space:]]*#/ {next}
+                /^              [^[:space:]]/ &&
+                  $0 !~ /^              - \047[a-zA-Z0-9_.\/*?-]+\047[[:space:]]*(#.*)?$/ {exit 1}
+            ' || fail "$source_file $leaf uses unsupported filter path syntax"
+            for required_path in "terraform/$leaf/**" 'terraform/modules/**' mise.toml mise.lock \
+                .infra-copilot/config.md '.github/workflows/terraform-*.yml' .github/scripts/terraform-destroy.cjs; do
+                printf '%s\n' "$paths" | grep -Fxq "              - '$required_path'" ||
+                    broken "$source_file $leaf filter omits $required_path"
+            done
             aggregate=$(job_block plan)
             dependencies=$(printf '%s\n' "$aggregate" | sed -n 's/^    needs: //p')
             printf '%s\n' "$dependencies" | grep -Eq "(^|[^a-z0-9-])plan-$leaf([^a-z0-9-]|$)" ||

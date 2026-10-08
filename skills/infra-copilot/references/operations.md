@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9324955f3e5e3b8045f8b1f34bae5b809f75c15a002df03b7d184616216b477d
-Source-Hash: blake3:5125cdcb322d067822de5b2a7db5fa968b02b1da394c00992c77291a06dca987
+Content-Hash: blake3:018c8fdabd5beedef7f0fa20c23344668255458f2ef06ed6c4caf2b9ccb182d8
+Source-Hash: blake3:cbe7b5636d9cfe98f2765d0a6bcd5a8b31703891d01bd8c43151898e6e91f278
 Schema-Version: v1
 -->
 
@@ -47,7 +47,7 @@ is separate from operation completion and cannot move the first-red verdict.
 | Operation | `hcp` members | `object-storage` members |
 |---|---|---|
 | `bootstrap-state` | `hcp-login`, `hcp-signup`, `hcp-verify` | `state-bucket`, `backend-config`, `backend-identity` |
-| `provision-execution` | `vcs-connect`, `workspaces-create` | `gha-workflows`, `gha-environments` |
+| `provision-execution` | `vcs-connect`, `workspaces-create` | `gha-workflows`, `gha-destroy-label`, `gha-environments` |
 | `store-cloudflare-credential` | `cf-token` | `cf-token-gha` |
 | `store-github-credential` | `gh-app` | `gh-app-gha` |
 | `plan-cloudflare` | `plan-cloudflare` | `plan-cloudflare-gha` |

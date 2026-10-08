@@ -10,10 +10,10 @@ most likely way to get it wrong is to edit the wrong copy of a file.
 skill — and editing them is silently undone by the next `make generate`.
 
 Before editing any file under those paths, check `.ai-rulez-generated.json`. If the path
-is listed (61 are), edit its source under `.ai-rulez/` instead, then run `make generate`.
+is listed (62 are), edit its source under `.ai-rulez/` instead, then run `make generate`.
 
 Most generated files carry an `AI-RULEZ :: GENERATED FILE — DO NOT EDIT` header, but
-**25 of the 61 do not** — every non-Markdown output, because a Markdown comment is not
+**26 of the 62 do not** — every non-Markdown output, because a Markdown comment is not
 valid in them: the JSON manifests (`marketplace.json`, `plugin.json`),
 `config.md.example`, `decisions.md.example`, `steps.yaml`, shell checks
 (`gcp-wif-trust.sh`, `gha-apply-gate.sh`, `gha-latest-runs.sh`, `hcp-apply-scope.sh`,
@@ -22,7 +22,8 @@ valid in them: the JSON manifests (`marketplace.json`, `plugin.json`),
 `leaf-routing.sh`, `workflow-routing.sh`, `gha-workflows.sh`, `state-transfer.sh`), App manifests
 (`templates/apps/terraform-plan.json`, `templates/apps/terraform-apply.json`),
 and the YAML workflow templates
-(`terraform-apply.yml`, `terraform-plan.yml`). Absence of the header is not evidence a
+(`terraform-apply.yml`, `terraform-plan.yml`), plus their CommonJS helper
+(`terraform-destroy.cjs`). Absence of the header is not evidence a
 file is safe to edit. The manifest is the authority; the header is only a convenience.
 
 One writer is exempt: the release PR. release-please bumps the version in the three

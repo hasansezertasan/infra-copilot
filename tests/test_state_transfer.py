@@ -123,3 +123,20 @@ class StateTransferTests(unittest.TestCase):
         self.environment['STATE_TRANSFERS'] = json.dumps(
             {'github': {**transfer, 'backend_blob': self.execute_git('hash-object', str(self.backend))}})
         self.assertEqual(self.check_transfer().returncode, 1)
+
+    def prepare_json_migration(self, backend_shape: dict[str, object]) -> None:
+        json_backend = self.checkout / 'terraform/github/versions.tf.json'
+        json_backend.write_text(json.dumps({'terraform': backend_shape}).replace('"cloud"', '"\\u0063loud"'))
+        self.backend.write_text('terraform {}\n')
+        self.commit_files()
+        json_backend.unlink()
+        self.backend.write_text('terraform { backend "gcs" { bucket = "acme-state" } }\n')
+        self.commit_files()
+
+    def test_historical_json_cloud_cannot_be_treated_as_fresh(self) -> None:
+        self.prepare_json_migration({'cloud': {'organization': 'acme'}})
+        self.assertEqual(self.check_transfer().returncode, 1)
+
+    def test_historical_json_remote_cannot_be_treated_as_fresh(self) -> None:
+        self.prepare_json_migration({'backend': {'remote': {'organization': 'acme'}}})
+        self.assertEqual(self.check_transfer().returncode, 1)

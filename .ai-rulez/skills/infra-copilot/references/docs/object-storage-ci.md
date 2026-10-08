@@ -20,6 +20,7 @@ Two workflows handle the Terraform lifecycle. See the templates for full impleme
 
 - [`../templates/terraform-plan.yml`](../templates/terraform-plan.yml) — runs on every PR that touches `terraform/**`
 - [`../templates/terraform-apply.yml`](../templates/terraform-apply.yml) — runs on every push to `main` or manual dispatch in the `main`-only `production` environment
+- [`../templates/terraform-destroy.cjs`](../templates/terraform-destroy.cjs) — copy to `.github/scripts/terraform-destroy.cjs` with both workflows
 
 The plan workflow uses `dorny/paths-filter` to detect changed object-storage leaves, runs `terraform plan` for each, and posts the output as a PR comment. Manual plan dispatch skips the PR path filter and plans every object-storage leaf.
 The apply workflow applies every object-storage leaf on each push, including unchanged leaves, so a newer run catches up changes from superseded or failed runs. Its routing job selects by backend only, never by changed paths; HCP leaves remain excluded.
@@ -27,9 +28,46 @@ To retry an apply, dispatch the workflow on `main`; each apply job refuses a ref
 Concurrency is scoped by ref so a dispatch from another branch cannot replace a pending `main` run.
 Setup checks committed workflows against the supported template layout before skipping creation.
 Legacy filters, conditional applies, missing dispatch support, or missing main-tip guards make the step incomplete.
+Missing, dirty or outdated helpers and missing destructive guards also make setup incomplete.
 A locked dispatch-only Apply gate is supported; it must omit the push trigger.
 Keep the templates' guard and expression layout when customizing provider authentication.
 The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
+GitHub owner inputs default to the repository owner; override with the Actions variable
+`TF_GITHUB_OWNER`. Actions configuration variable names cannot start with `GITHUB_`.
+
+## Destructive apply opt-in
+
+Each apply job computes `terraform plan -out=tfplan`, inspects that saved plan's JSON,
+then runs `terraform apply tfplan`. It refuses any resource action containing `delete`,
+including both replacement orders, unless the merged PR producing the exact commit
+carries `allow-destroy`. An associated open PR or an older merged PR cannot authorize it.
+Direct pushes without a producing PR cannot opt in. Inspection or API errors fail closed.
+Forget-only removals (`removed { lifecycle { destroy = false } }`) remain allowed.
+
+The label is an intent marker, not authorization: any writer can add it, and a determined
+administrator can edit the guard. It opts into every delete in the refreshed apply plan,
+including drift, not just the addresses in the reviewed PR plan. The environment gate
+still occurs before planning; this guard complements that approval rather than moving it.
+
+Setup asks for explicit approval to create the label and records a locked
+`Destructive apply` / `allow-destroy` decision. Apply jobs need `pull-requests: read` for
+the exact-commit PR lookup. Keep every added leaf's saved-plan guard and the helper intact.
+
+PR comments list deletes/replacements above the collapsed plan. Only addresses/actions
+are written to `destroys.json`; full plan JSON stays in memory or a pipe and is never
+published. Complete inventories appear in the run summary, with bounded comments linking
+to it. Inspection supports JSON up to 128 MiB; inventories over 900,000 UTF-8 bytes fail
+explicitly before GitHub's 1 MiB summary limit. Split oversized destructive changes.
+
+If the guard refuses reviewed destructive changes, add the label to the producing PR
+and dispatch the workflow on `main` while that commit remains the tip. If `main` advanced,
+review the outstanding deletes and merge a new deliberately labeled PR; an older label
+does not carry forward. Do not add the label to remedy unrelated apply failures.
+
+For live acceptance, create a throwaway resource through a PR, merge its deletion without
+the label, and confirm apply refuses before deletion. Label the producing PR and dispatch
+on the same `main` tip to confirm deletion succeeds. Keep that plan limited to the
+throwaway resource, and obtain approval for every live mutation.
 
 Set the static `<LEAF>_BACKEND` literals in both workflows to each leaf's effective config
 backend; credentialed plan/apply outputs exclude HCP leaves. Update these literals in the
