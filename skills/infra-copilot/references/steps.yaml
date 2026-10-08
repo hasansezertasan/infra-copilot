@@ -857,30 +857,22 @@ steps:
     why: CI replaces HCP's VCS integration — plan on PR, apply on merge.
     run: |
       Create .github/workflows/terraform-plan.yml:
-        - Triggers on pull_request (and optional workflow_dispatch)
-        - Runs init + plan for each changed leaf
+        - Triggers on pull_request and workflow_dispatch
+        - Uses path filtering only for pull_request; runs init + plan for changed PR leaves and every leaf on manual dispatch
         - Configures state-backend authentication for $STATE_BACKEND (GCS Workload Identity, AWS assume-role, or Azure login)
         - Posts plan output as PR comment
         - Emits aggregate plan check
 
       Create .github/workflows/terraform-apply.yml:
-        - Triggers on push to main for paths terraform/**
-        - Requires environment approval ("production")
-        - Concurrency group serialized per state
-        - Applies changes for each changed leaf
-    check: |
-      # File existence and git tracking
-      test -f .github/workflows/terraform-plan.yml || exit 1
-      test -f .github/workflows/terraform-apply.yml || exit 1
-      git ls-files --error-unmatch \
-        .github/workflows/terraform-plan.yml \
-        .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
-      # YAML syntax validation skipped - workflow execution will catch malformed files
-      # Basic job existence - detailed validation happens in Phase 4 when workflows run
-      grep -q "plan-cloudflare" .github/workflows/terraform-plan.yml || exit 1
-      grep -q "plan-github" .github/workflows/terraform-plan.yml || exit 1
-      grep -q "apply-cloudflare" .github/workflows/terraform-apply.yml || exit 1
-      grep -q "apply-github" .github/workflows/terraform-apply.yml || exit 1
+        - Triggers on every push to main without path filtering, and workflow_dispatch; omit push for a locked Apply gate = dispatch decision
+        - Uses the protected production environment, with reviewers where available or the locked Apply gate described in docs/object-storage-ci.md
+        - Serializes workflow runs by ref with cancel-in-progress: false
+        - Applies every leaf on every run, without a changes job or leaf-change conditions
+        - Refuses non-main refs and commits that are not main's tip immediately before each apply
+        - Retry failed applies by dispatching the workflow on main
+      Commit both workflows before re-running this check.
+    tri_state: true
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/gha-workflows.sh"
     produces: GitHub Actions workflows for Terraform CI
     docs: docs/object-storage-ci.md#github-actions
 
@@ -2102,7 +2094,7 @@ steps:
     why: The plan and apply workflows must include the new leaf.
     run: |
       Update .github/workflows/terraform-plan.yml and terraform-apply.yml to:
-      1. Add a path filter for terraform/$NEW_PROVIDER/** AND shared inputs:
+      1. In terraform-plan.yml only, add a path filter for terraform/$NEW_PROVIDER/** AND shared inputs:
          - terraform/modules/**
          - mise.toml
          - mise.lock
@@ -2112,8 +2104,10 @@ steps:
       4. Add the provider-specific authentication step before terraform init (e.g., google-github-actions/auth for GCP, aws-actions/configure-aws-credentials for AWS, azure/login for Azure)
       5. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
       6. Add plan-$NEW_PROVIDER to the aggregate `plan` job's `needs` list
-      7. Wire up the changes job output and apply job if-condition for $NEW_PROVIDER
+      7. Wire up the plan workflow changes job output and plan job if-condition for $NEW_PROVIDER; manual dispatch must plan every leaf
+      8. Keep the apply workflow unfiltered: every run applies every leaf, with the main-tip guard before each apply
       Commit the updated workflows before re-running this check.
+    tri_state: true
     check: |
       # File existence and git tracking
       test -f .github/workflows/terraform-plan.yml || exit 1
@@ -2124,10 +2118,8 @@ steps:
       # Workflows are committed (no uncommitted changes)
       git diff --quiet HEAD -- .github/workflows/terraform-plan.yml \
         .github/workflows/terraform-apply.yml || exit 1
-      # YAML syntax validation skipped - workflow execution will catch malformed files
-      # Basic job existence for the new provider
-      grep -q "plan-$NEW_PROVIDER:" .github/workflows/terraform-plan.yml || exit 1
-      grep -q "apply-$NEW_PROVIDER:" .github/workflows/terraform-apply.yml || exit 1
+      # The requested provider must use the same convergent shape as existing leaves.
+      sh "$INFRA_COPILOT_REFERENCES/checks/gha-workflows.sh" "$NEW_PROVIDER" || exit $?
       # Path filter mentions the new provider (either form)
       grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-plan.yml || exit 1
       grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-apply.yml || exit 1

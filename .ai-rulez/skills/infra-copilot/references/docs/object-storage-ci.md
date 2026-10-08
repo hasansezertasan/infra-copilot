@@ -19,9 +19,17 @@ Unlike HCP mode, plan output appears directly in PR comments. Mark all sensitive
 Two workflows handle the Terraform lifecycle. See the templates for full implementations:
 
 - [`../templates/terraform-plan.yml`](../templates/terraform-plan.yml) — runs on every PR that touches `terraform/**`
-- [`../templates/terraform-apply.yml`](../templates/terraform-apply.yml) — runs on merge to `main` in the `main`-only `production` environment
+- [`../templates/terraform-apply.yml`](../templates/terraform-apply.yml) — runs on every push to `main` or manual dispatch in the `main`-only `production` environment
 
-The plan workflow uses `dorny/paths-filter` to detect which leaves changed, runs `terraform plan` for each, and posts the output as a PR comment. The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
+The plan workflow uses `dorny/paths-filter` to detect which leaves changed, runs `terraform plan` for each, and posts the output as a PR comment. Manual plan dispatch skips the PR path filter and plans every leaf.
+The apply workflow applies every leaf on each push, including unchanged leaves, so a newer run catches up changes from superseded or failed runs.
+To retry an apply, dispatch the workflow on `main`; each apply job refuses a ref other than `main` or a commit that is no longer its tip.
+Concurrency is scoped by ref so a dispatch from another branch cannot replace a pending `main` run.
+Setup checks committed workflows against the supported template layout before skipping creation.
+Legacy filters, conditional applies, missing dispatch support, or missing main-tip guards make the step incomplete.
+A locked dispatch-only Apply gate is supported; it must omit the push trigger.
+Keep the templates' guard and expression layout when customizing provider authentication.
+The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
 
 ## GitHub Environments
 

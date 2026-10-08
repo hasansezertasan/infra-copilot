@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:c41ecc19299f6e3ce9200964cdc0a84db6391e0daf897ca071436e5b6d7e3637
-Source-Hash: blake3:ef3ec4caf8a83e866d54a34d78c6fd5c5ca2466132f14aca7b9b7771dd047a4e
+Content-Hash: blake3:83088f423b72ae3ce7bfbf916da18f3609bc6949f864f2bd0e3f7ff404e175b7
+Source-Hash: blake3:9aa2aa8744d0a9dd2de18163ff29e580322896aae85e0670e4e00e321ff80c3b
 Schema-Version: v1
 -->
 
@@ -26,9 +26,17 @@ Unlike HCP mode, plan output appears directly in PR comments. Mark all sensitive
 Two workflows handle the Terraform lifecycle. See the templates for full implementations:
 
 - [`../templates/terraform-plan.yml`](../templates/terraform-plan.yml) — runs on every PR that touches `terraform/**`
-- [`../templates/terraform-apply.yml`](../templates/terraform-apply.yml) — runs on merge to `main` in the `main`-only `production` environment
+- [`../templates/terraform-apply.yml`](../templates/terraform-apply.yml) — runs on every push to `main` or manual dispatch in the `main`-only `production` environment
 
-The plan workflow uses `dorny/paths-filter` to detect which leaves changed, runs `terraform plan` for each, and posts the output as a PR comment. The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
+The plan workflow uses `dorny/paths-filter` to detect which leaves changed, runs `terraform plan` for each, and posts the output as a PR comment. Manual plan dispatch skips the PR path filter and plans every leaf.
+The apply workflow applies every leaf on each push, including unchanged leaves, so a newer run catches up changes from superseded or failed runs.
+To retry an apply, dispatch the workflow on `main`; each apply job refuses a ref other than `main` or a commit that is no longer its tip.
+Concurrency is scoped by ref so a dispatch from another branch cannot replace a pending `main` run.
+Setup checks committed workflows against the supported template layout before skipping creation.
+Legacy filters, conditional applies, missing dispatch support, or missing main-tip guards make the step incomplete.
+A locked dispatch-only Apply gate is supported; it must omit the push trigger.
+Keep the templates' guard and expression layout when customizing provider authentication.
+The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
 
 ## GitHub Environments
 
