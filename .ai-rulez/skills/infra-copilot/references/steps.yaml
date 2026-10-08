@@ -2107,6 +2107,7 @@ steps:
       7. Wire up the plan workflow changes job output and plan job if-condition for $NEW_PROVIDER; manual dispatch must plan every leaf
       8. Keep the apply workflow unfiltered: every run applies every leaf, with the main-tip guard before each apply
       Commit the updated workflows before re-running this check.
+    tri_state: true
     check: |
       # File existence and git tracking
       test -f .github/workflows/terraform-plan.yml || exit 1
@@ -2117,10 +2118,8 @@ steps:
       # Workflows are committed (no uncommitted changes)
       git diff --quiet HEAD -- .github/workflows/terraform-plan.yml \
         .github/workflows/terraform-apply.yml || exit 1
-      # YAML syntax validation skipped - workflow execution will catch malformed files
-      # Basic job existence for the new provider
-      grep -q "plan-$NEW_PROVIDER:" .github/workflows/terraform-plan.yml || exit 1
-      grep -q "apply-$NEW_PROVIDER:" .github/workflows/terraform-apply.yml || exit 1
+      # The requested provider must use the same convergent shape as existing leaves.
+      sh "$INFRA_COPILOT_REFERENCES/checks/gha-workflows.sh" "$NEW_PROVIDER" || exit $?
       # Path filter mentions the new provider (either form)
       grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-plan.yml || exit 1
       grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-apply.yml || exit 1

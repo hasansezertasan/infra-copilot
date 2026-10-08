@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import re
+import textwrap
 import subprocess
 import tempfile
 import unittest
@@ -135,6 +137,24 @@ class WorkflowSetupTests(unittest.TestCase):
     def test_missing_references_are_unknown(self) -> None:
         self.assertEqual(self.check(references=False).returncode, 2)
 
+    def new_provider_check(self, provider: str = 'aws') -> subprocess.CompletedProcess[str]:
+        manifest = (REFERENCES / 'steps.yaml').read_text()
+        body = manifest.split('  - id: new-provider-workflow-gha\n', 1)[1].split('\n  - id:', 1)[0]
+        match = re.search(r'^    check: \|\n((?:      .*\n|\n)+)', body, re.M)
+        script = textwrap.dedent(match.group(1))
+        return subprocess.run(['sh', '-c', script], cwd=self.root,
+                              env={**os.environ, 'INFRA_COPILOT_REFERENCES': str(REFERENCES),
+                                   'NEW_PROVIDER': provider}, capture_output=True, text=True)
+
+    def test_requested_provider_must_exist_as_actual_jobs(self) -> None:
+        # Comments can satisfy the old name/path grep, but are not provider jobs.
+        self.plan.write_text(self.plan.read_text() + '# plan-aws: terraform/aws\n')
+        self.apply.write_text(self.apply.read_text() + '# apply-aws: terraform/aws\n')
+        self.commit()
+        self.assertEqual(self.new_provider_check().returncode, 1)
+        for provider in ('', '../aws'):
+            self.assertEqual(self.new_provider_check(provider).returncode, 2)
+
     def test_every_added_leaf_requires_a_guard_and_dispatch_plan(self) -> None:
         for target in (self.plan, self.apply):
             text = target.read_text()
@@ -146,10 +166,16 @@ class WorkflowSetupTests(unittest.TestCase):
         self.plan.write_text(self.plan.read_text().replace('    outputs:\n',
             "    outputs:\n      aws: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.aws }}\n", 1))
         self.commit()
-        self.assertEqual(self.check().returncode, 0)
+        self.assertEqual(self.new_provider_check().returncode, 0)
+        plan_original = self.plan.read_text()
+        self.plan.write_text(plan_original.replace("      aws: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.aws }}",
+                                                   "      aws: ${{ steps.filter.outputs.aws }}"))
+        self.commit()
+        self.assertEqual(self.new_provider_check().returncode, 1)
+        self.plan.write_text(plan_original)
         self.apply.write_text(self.apply.read_text().replace('  apply-aws:\n', '  apply-aws:\n    if: false\n'))
         self.commit()
-        self.assertEqual(self.check().returncode, 1)
+        self.assertEqual(self.new_provider_check().returncode, 1)
 
 
 if __name__ == '__main__':

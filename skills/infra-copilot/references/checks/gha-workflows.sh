@@ -2,6 +2,15 @@
 # Verify the supported template shape before setup can skip workflow creation.
 # This is conservative textual evidence, not a general YAML/expression parser.
 set -eu
+[ "$#" -le 1 ] || exit 2
+required_leaf=${1:-}
+[ "$#" = 0 ] || [ -n "$required_leaf" ] || {
+  echo 'CANNOT VERIFY: the requested provider is empty' >&2
+  exit 2
+}
+case "$required_leaf" in
+  *[!a-z0-9-]*) echo 'CANNOT VERIFY: invalid requested provider' >&2; exit 2 ;;
+esac
 [ -n "${INFRA_COPILOT_REFERENCES:-}" ] &&
   [ -r "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" ] || {
     echo 'CANNOT VERIFY: export INFRA_COPILOT_REFERENCES per references/config.md' >&2
@@ -94,7 +103,7 @@ section "$apply" jobs | awk '
   /^  [^[:space:]]/ {key=$0; sub(/:.*/, "", key); if (++seen[key] > 1) exit 1}
 ' || exit 1
 names=$(section "$apply" jobs | sed -n 's/^  \(apply-[a-z0-9-]*\):$/\1/p')
-for leaf in cloudflare github; do
+for leaf in cloudflare github $required_leaf; do
   printf '%s\n' "$names" | grep -Fxq "apply-$leaf" || exit 1
 done
 for name in $names; do
