@@ -75,3 +75,26 @@ class StateTransferTests(unittest.TestCase):
         self.backend.write_text('terraform { backend "gcs" { bucket = "another-destination" } }\n')
         self.commit_files()
         self.assertEqual(self.check_transfer().returncode, 1)
+
+    def test_backend_declared_outside_the_hashed_file_fails(self) -> None:
+        transfer = self.prepare_migration()
+        self.environment['STATE_TRANSFERS'] = json.dumps({'github': transfer})
+        leaf = self.checkout / 'terraform/github'
+        for name, text in (
+                ('versions.tf', 'terraform {\n  backend "gcs" { bucket = "another-destination" }\n}\n'),
+                ('backend_override.tf', 'terraform {\n  backend "gcs" {\n    prefix = "elsewhere"\n  }\n}\n'),
+                ('versions.tf', 'terraform {\n  cloud {\n  }\n}\n'),
+                ('main.tf.json', '{"terraform": {"backend": {"gcs": {"bucket": "another-destination"}}}}\n')):
+            with self.subTest(file=name):
+                (leaf / name).write_text(text)
+                result = self.check_transfer()
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn(f'terraform/github/{name}', result.stderr)
+                (leaf / name).unlink()
+        (leaf / 'versions.tf').write_text('# backend "gcs" lives in backend.tf\nterraform {}\n')
+        self.assertEqual(self.check_transfer().returncode, 0)
+        self.backend.write_text('terraform {}\n')
+        self.commit_files()
+        self.environment['STATE_TRANSFERS'] = json.dumps(
+            {'github': {**transfer, 'backend_blob': self.execute_git('hash-object', str(self.backend))}})
+        self.assertEqual(self.check_transfer().returncode, 1)

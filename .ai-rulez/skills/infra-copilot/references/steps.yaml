@@ -1001,6 +1001,8 @@ steps:
         --slurpfile apply .github/apps/terraform-apply.json '
         ($plan[0].default_permissions | type == "object" and length > 0)
         and all($plan[0].default_permissions[]; . == "read")
+        and ($apply[0].default_permissions | type == "object")
+        and any($apply[0].default_permissions[]; . == "write")
         and $plan[0].name != $apply[0].name' >/dev/null || exit 1
       for scope in repository production; do
         if [ "$scope" = repository ]; then

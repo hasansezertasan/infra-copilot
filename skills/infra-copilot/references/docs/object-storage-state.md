@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:c76f30ade052ee7cd4561a0fd5d0fc07074be07cfcb6c15829886756544fb965
-Source-Hash: blake3:0b880266cdb3a5baca735b4b05824361d57535f862a6fedc0f0011d4bacb6bf7
+Content-Hash: blake3:df1cca5268950755fc1f2b5edb70bc388384b38eac16b65031d26fb2b2ae00a9
+Source-Hash: blake3:95ea7d1fcd152a0fa25701e607b15b653c443a274b72a49b4a530f44f90f8173
 Schema-Version: v1
 -->
 
@@ -306,7 +306,9 @@ state_transfers:
 The read-only transfer check detects committed HCP backend history and refuses a
 backend-only cutover without this evidence. A shallow checkout must fetch complete
 history before certifying a genuinely new leaf. The attestation binds the destination
-backend file; changing that destination requires a renewed transfer review. Keep the
+backend file, so `backend.tf` must hold the leaf's only `backend` block: a `backend`
+or `cloud` declaration in any other `.tf`, override or `.tf.json` file fails the check.
+Changing that destination requires a renewed transfer review. Keep the
 original transfer evidence after subsequent legitimate applies advance state. Never
 record credential values or state contents in this public record.
 

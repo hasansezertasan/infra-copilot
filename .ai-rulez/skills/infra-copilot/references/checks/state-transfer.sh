@@ -18,6 +18,20 @@ git ls-files --error-unmatch "$backend_file" .infra-copilot/config.md >/dev/null
   incomplete 'commit the destination backend and config'
 git diff --quiet HEAD -- "$backend_file" .infra-copilot/config.md || exit 1
 git diff --cached --quiet HEAD -- "$backend_file" .infra-copilot/config.md || exit 1
+# The attestation hashes backend.tf alone, so it must be the leaf's only backend
+# declaration; override files and JSON syntax would otherwise retarget state unseen.
+declarations() {
+  grep -Ev '^[[:space:]]*(#|//)' "$1" | grep -Eq "$2"
+}
+hcl_backend='(^|[{[:space:]])backend[[:space:]]*"'
+other_backend="$hcl_backend|(^|[{[:space:]])cloud[[:space:]]*[{]|\"(backend|cloud)\"[[:space:]]*:"
+declarations "$backend_file" "$hcl_backend" ||
+  incomplete "declare the $leaf backend in $backend_file"
+for config in "terraform/$leaf"/*.tf "terraform/$leaf"/*.tf.json; do
+  [ -f "$config" ] && [ "$config" != "$backend_file" ] || continue
+  ! declarations "$config" "$other_backend" ||
+    incomplete "move every $leaf backend declaration into $backend_file; $config also declares one"
+done
 blob=$(git hash-object "$backend_file") || exit 2
 transfers=${STATE_TRANSFERS-'{}'}
 printf '%s' "$transfers" | jq -e --arg leaf "$leaf" --arg blob "$blob" '
