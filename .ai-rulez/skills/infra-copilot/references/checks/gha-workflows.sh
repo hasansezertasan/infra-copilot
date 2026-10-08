@@ -115,7 +115,7 @@ expected_destroy=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml"
   step 'Refuse destructive apply without opt-in')
 [ -n "$expected_destroy" ] || exit 2
 expected_apply_run=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
-  step 'Terraform Apply' | grep '^        run:')
+  step 'Terraform Apply' | run_body)
 [ -n "$expected_apply_run" ] || exit 2
 section "$apply" jobs | awk '
   /^  [^[:space:]]/ {key=$0; sub(/:.*/, "", key); if (++seen[key] > 1) exit 1}
@@ -139,9 +139,13 @@ for name in $names; do
   saved_plan=$(printf '%s\n' "$block" | step 'Terraform Plan')
   printf '%s\n' "$saved_plan" | grep -Fxq "        working-directory: terraform/$leaf" || exit 1
   printf '%s\n' "$saved_plan" | grep -Fxq '        run: terraform plan -no-color -out=tfplan' || exit 1
+  expected_saved_plan=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
+    step 'Terraform Plan' | run_body)
+  actual_saved_plan=$(printf '%s\n' "$saved_plan" | run_body)
+  [ "$actual_saved_plan" = "$expected_saved_plan" ] || exit 1
   printf '%s\n' "$saved_plan" | grep -Eq '^        (if|continue-on-error):' && exit 1
   printf '%s\n' "$apply_step" | grep -Fxq "        working-directory: terraform/$leaf" || exit 1
-  actual_apply_run=$(printf '%s\n' "$apply_step" | grep '^        run:')
+  actual_apply_run=$(printf '%s\n' "$apply_step" | run_body)
   [ "$actual_apply_run" = "$expected_apply_run" ] || exit 1
   printf '%s\n' "$block" | grep -Fxq '      pull-requests: read' || exit 1
   printf '%s\n' "$block" | awk '
@@ -190,5 +194,21 @@ for name in $names; do
   expected_report=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-plan.yml" plan-cloudflare |
     step 'Post Plan to PR' | sed "s/cloudflare/$leaf/g")
   [ "$report" = "$expected_report" ] || exit 1
+  status=$(printf '%s\n' "$plan_job" | step 'Check Plan Status')
+  expected_status=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-plan.yml" plan-cloudflare |
+    step 'Check Plan Status')
+  [ "$status" = "$expected_status" ] || exit 1
+  printf '%s\n' "$plan_job" | awk '
+    /^      - / {
+      if (state == 1 && $0 != "      - name: Summarize Destructive Changes") exit 1
+      if (state == 2 && $0 != "      - name: Post Plan to PR") exit 1
+      if (state == 3 && $0 != "      - name: Check Plan Status") exit 1
+    }
+    /      - name: Terraform Plan/ {if (++plan != 1) exit 1; state=1}
+    /      - name: Summarize Destructive Changes/ {if (state != 1 || ++inventory != 1) exit 1; state=2}
+    /      - name: Post Plan to PR/ {if (state != 2 || ++report != 1) exit 1; state=3}
+    /      - name: Check Plan Status/ {if (state != 3 || ++status != 1) exit 1; state=4}
+    END {if (plan != 1 || inventory != 1 || report != 1 || status != 1 || state != 4) exit 1}
+  ' || exit 1
 done
 echo 'READY: committed workflows and helper converge every leaf with destructive opt-in'

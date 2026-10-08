@@ -167,6 +167,10 @@ class WorkflowSetupTests(unittest.TestCase):
                              '      - name: Refuse destructive apply without opt-in\n        continue-on-error: true', 1),
             original.replace('terraform apply -no-color tfplan', 'terraform apply -auto-approve', 1),
             original.replace('terraform plan -no-color -out=tfplan', 'terraform plan -no-color', 1),
+            original.replace('run: terraform apply -no-color tfplan',
+                             'run: terraform apply -no-color tfplan\n          && terraform apply -destroy -auto-approve', 1),
+            original.replace('run: terraform plan -no-color -out=tfplan',
+                             'run: terraform plan -no-color -out=tfplan\n          && terraform apply -auto-approve', 1),
             original.replace('      pull-requests: read', '      pull-requests: none', 1),
             original.replace('      - name: Terraform Apply',
                              '      - name: Replan\n        run: terraform plan -out=tfplan\n\n      - name: Terraform Apply', 1),
@@ -188,6 +192,20 @@ class WorkflowSetupTests(unittest.TestCase):
             original.replace('        if: steps.plan.outputs.exitcode',
                              "        if: github.event_name == 'pull_request' && steps.plan.outputs.exitcode", 1),
         ):
+            with self.subTest(broken=broken):
+                self.plan.write_text(broken)
+                self.commit()
+                self.assertEqual(self.check().returncode, 1)
+
+    def test_summary_must_precede_reporting_and_status_must_propagate_failure(self) -> None:
+        original = self.plan.read_text()
+        start = original.index('      - name: Summarize Destructive Changes')
+        end = original.index('      - name: Post Plan to PR', start)
+        inventory = original[start:end]
+        reordered = original.replace(inventory, '', 1).replace(
+            '      - name: Check Plan Status', inventory + '      - name: Check Plan Status', 1)
+        for broken in (reordered,
+                       original.replace("        if: steps.plan.outputs.exitcode != '0'", '        if: false', 1)):
             with self.subTest(broken=broken):
                 self.plan.write_text(broken)
                 self.commit()
