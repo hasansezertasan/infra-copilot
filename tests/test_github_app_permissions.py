@@ -46,7 +46,7 @@ class GitHubAppPermissionTests(unittest.TestCase):
                 'Org Members(RW), Administration(RW).',
             ),
             'gh-app-gha': (
-                'Permissions: Repository Administration (R/W), Actions (R), Contents (R), Metadata (R),',
+                'Permissions: Repository Administration (R/W), Actions (R), Contents (R/W), Metadata (R),',
                 'Pull requests (R/W); Organization Members (R/W), Administration (R/W).',
             ),
         }
@@ -57,6 +57,13 @@ class GitHubAppPermissionTests(unittest.TestCase):
                     self.assertIn(permission, step)
                 self.assertIn('deployment branch policies', step)
                 self.assertIn('team membership', step)
+
+    def test_write_contents_is_production_only_and_plan_is_read_only(self) -> None:
+        manifest = (REFERENCES / 'steps.yaml').read_text(encoding='utf-8')
+        step = manifest.split('  - id: gh-app-gha\n', 1)[1].split('  - id: ', 1)[0]
+        self.assertIn('only in the production environment', step)
+        self.assertIn('second App scoped to the same managed repos, with only Read', step)
+        self.assertIn('merge settings accurately on apply refresh', step)
 
 
 if __name__ == '__main__':

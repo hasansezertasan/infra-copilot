@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:38be874b425b5a35edb60aa51f64afad913dcdafb650e1b28de254fe122f2e80
-Source-Hash: blake3:32272534e321bf1cb32b42caaa2b7a08c1aeb151f537486ce9ad5985b008ea25
+Content-Hash: blake3:4f16ea004ea5a4bcbeeed3f5434202e0db7cf74d2b4683750341755c7dec3fa0
+Source-Hash: blake3:3a9697a49dfbe82ce6e776a6cb9df377de2454c7b960f3fb5a5526b3b2b7c1ab
 Schema-Version: v1
 -->
 
@@ -54,12 +54,16 @@ The PEM includes its BEGIN/END delimiters and newlines; never commit it.
 
 Mint a replacement with the existing managed-resource scopes, store it through
 [store-provider-credential](../operations.md#store-provider-credential), and obtain a
-no-op plan. Revoke the previous token only after the new token authenticates successfully.
+no-op plan for HCP or a read-only plan token. In object-storage mode, an edit-token
+replacement requires a HUMAN-authorized production run; branch plans never consume it.
+Revoke the previous token only after the matching tier authenticates successfully.
 If validation fails, restore the still-live old value and investigate.
 
 ## GitHub App private key
 
 Generate a second private key while the old one remains active. Store the full new PEM
 through [store-provider-credential](../operations.md#store-provider-credential), obtain a
-no-op plan, then delete the old App key. Correct newline/delimiter problems before revoking
+no-op plan for HCP or the read App. For the object-storage write App, verify a
+HUMAN-authorized production run instead; a successful branch plan says nothing about
+its PEM. Then delete that App's old key. Correct newline/delimiter problems before revoking
 anything. The selected credential implementation owns the storage commands.

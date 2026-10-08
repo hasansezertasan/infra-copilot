@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:cbb42daefd0c06f3b3ef4ac029a4d8e5bc974563b87c558308622d15e88336df
-Source-Hash: blake3:32272534e321bf1cb32b42caaa2b7a08c1aeb151f537486ce9ad5985b008ea25
+Content-Hash: blake3:a5be3b5f918ef922c28085fc527c9614444cd476282d3e0228bab3f6a458b88d
+Source-Hash: blake3:3a9697a49dfbe82ce6e776a6cb9df377de2454c7b960f3fb5a5526b3b2b7c1ab
 Schema-Version: v1
 -->
 
@@ -103,6 +103,19 @@ cd terraform/github && terraform init && terraform plan   # green = App auth wor
 
 ## Rotation
 
+For object-storage/GitHub Actions, create a second App with only Read permissions for
+plan and store `GH_APP_READ_ID`, `GH_APP_READ_INSTALLATION_ID`, `GH_APP_READ_PEM` at
+repository scope. The write App's `GH_APP_ID`, `GH_APP_INSTALLATION_ID`, `GH_APP_PEM`
+belong only in the exact-main `production` environment. Remove repository copies.
+For this apply App, upgrade Contents to R/W: GitHub requires it to return merge settings
+on refresh. Keep the separate plan App's Contents permission Read only.
+GitHub plans use `-lock=false -refresh=false`: read-only callers cannot accurately read
+merge settings or ruleset bypass actors; production apply refreshes last-applied state.
+See [the credential tiers and migration](docs/object-storage-ci.md#terraform-providers).
+
 GitHub Apps support multiple active keys, so rotation is overlap-then-cutover: human
-generates a new key + pastes it, agent proves it with a no-op `plan`, then human deletes
-the old key. Steps in [`secrets.md`](docs/secrets.md#github-app-private-key).
+generates a new key and pastes it, verifies the execution that uses that App, then deletes
+the old key. HCP or a read-App replacement can be verified by its no-op plan. An
+object-storage write-App replacement requires a HUMAN-authorized production run;
+a branch plan uses the separate read App and cannot validate the write key.
+Steps in [`secrets.md`](docs/secrets.md#github-app-private-key).

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6144a212599076545b96efb428627de739f5a2b2e3617da6c83452b80be7ea3f
-Source-Hash: blake3:32272534e321bf1cb32b42caaa2b7a08c1aeb151f537486ce9ad5985b008ea25
+Content-Hash: blake3:dd8a2a13ff2ad154a3b524533ff9c4b8ea748a3a3a04e25e190e8a15e34ba3c4
+Source-Hash: blake3:3a9697a49dfbe82ce6e776a6cb9df377de2454c7b960f3fb5a5526b3b2b7c1ab
 Schema-Version: v1
 -->
 
@@ -39,7 +39,7 @@ is separate from operation completion and cannot move the first-red verdict.
 
 | Operation | `hcp` members | `object-storage` members |
 |---|---|---|
-| `bootstrap-state` | `hcp-login`, `hcp-signup`, `hcp-verify` | `state-bucket`, `backend-config`, `backend-identity` |
+| `bootstrap-state` | `hcp-login`, `hcp-signup`, `hcp-verify` | `state-bucket`, `backend-config`, `backend-identity`, `backend-identity-trust` |
 | `provision-execution` | `vcs-connect`, `workspaces-create` | `gha-workflows`, `gha-destroy-label`, `gha-environments` |
 | `store-cloudflare-credential` | `cf-token` | `cf-token-gha` |
 | `store-github-credential` | `gh-app` | `gh-app-gha` |
@@ -86,8 +86,10 @@ Implementation: [service execution](hcp.md), [runner execution](object-storage.m
 A HUMAN stores the scoped credential out of band, without exposing its value to the
 agent, git, logs or plans. Verify inventory plus authentication with a plan; secret-name
 existence alone does not verify the value. The named bootstrap credential operations use
-this same contract. Rotate by storing a replacement, verifying a no-op plan, then revoking
-its predecessor. Implementation: [service custody](docs/hcp-secrets.md),
+this same contract. Rotate by storing a replacement, verifying authentication with the
+execution that actually uses that credential tier, then revoking its predecessor.
+In object-storage mode, a branch plan verifies read credentials only; apply replacements
+require a HUMAN-authorized production run. Implementation: [service custody](docs/hcp-secrets.md),
 [runner custody](object-storage.md#store-provider-credential).
 
 ## Get-plan

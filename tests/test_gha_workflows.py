@@ -42,7 +42,8 @@ class WorkflowSetupTests(unittest.TestCase):
         self.git('commit', '--allow-empty', '-qm', 'test: record workflows')
 
     def check(self, *, references: bool = True) -> subprocess.CompletedProcess[str]:
-        env = {**os.environ, 'INFRA_COPILOT_REFERENCES': str(REFERENCES) if references else ''}
+        env = {**os.environ, 'INFRA_COPILOT_REFERENCES': str(REFERENCES) if references else '',
+               'ADDITIONAL_PROVIDER_SECRETS': '[{"name":"aws","credential_secrets":[{"name":"READ_TOKEN","scope":"plan","required":true},{"name":"WRITE_TOKEN","scope":"apply","required":true}]}]'}
         return subprocess.run(['sh', str(SCRIPT)], cwd=self.root, env=env,
                               capture_output=True, text=True)
 
@@ -88,6 +89,15 @@ class WorkflowSetupTests(unittest.TestCase):
             original.replace(guard, '', 1) + guard,
             original.replace('      - name: Terraform Apply', '      - name: Terraform Apply\n        if: false', 1),
             original.replace('      - name: Terraform Apply', '      - name: Terraform Apply\n        continue-on-error: true', 1),
+            original.replace('run: terraform apply -lock=true', 'run: terraform apply -lock=false', 1),
+            original.replace('run: terraform plan -lock=true -refresh=true', 'run: terraform plan -lock=true -refresh=false', 1),
+            original.replace('secrets.GH_APP_PEM', 'secrets.GH_APP_READ_PEM'),
+            original.replace('    environment: production\n', ''),
+            original.replace('    environment: production', '    environment: staging'),
+            original.replace('    environment: production', '    environment: production\n    environment: staging'),
+            original.replace('      - name: Terraform Apply', '      - name: Terraform Apply\n        env:\n          TF_CLI_ARGS_apply: -lock=false', 1),
+            original.replace('    runs-on:', '    env:\n      TF_CLI_ARGS_apply: -refresh=false\n    runs-on:', 1),
+            original.replace('env:\n', 'env:\n  TF_CLI_ARGS: -refresh=false\n', 1),
         ):
             with self.subTest(broken=broken):
                 self.apply.write_text(broken)
@@ -109,6 +119,26 @@ class WorkflowSetupTests(unittest.TestCase):
             original.replace('      cloudflare:', '      cloudflare: false\n      cloudflare:', 1),
             original.replace("              - '.github/scripts/terraform-destroy.cjs'\n", '', 1),
             original.replace("              - '.github/workflows/terraform-*.yml'\n", '', 1),
+        ):
+            with self.subTest(broken=broken):
+                self.plan.write_text(broken)
+                self.commit()
+                self.assertEqual(self.check().returncode, 1)
+
+    def test_writable_or_refreshing_github_plans_are_rejected(self) -> None:
+        original = self.plan.read_text()
+        for broken in (
+            original.replace('-lock=false ', '', 1),
+            original.replace('-refresh=false ', ''),
+            original.replace('secrets.CLOUDFLARE_API_TOKEN_READ', 'secrets.CLOUDFLARE_API_TOKEN'),
+            original.replace('secrets.GH_APP_READ_PEM', 'secrets.GH_APP_PEM'),
+            original.replace('secrets.CLOUDFLARE_API_TOKEN_READ', 'secrets["CLOUDFLARE_API_TOKEN"]'),
+            original.replace('secrets.GH_APP_READ_PEM', "secrets['GH_APP_PEM']"),
+            original.replace('secrets.CLOUDFLARE_API_TOKEN_READ',
+                             'toJSON(secrets) || secrets.CLOUDFLARE_API_TOKEN_READ'),
+            original.replace('  plan-cloudflare:\n', '  plan-cloudflare:\n    environment: production\n'),
+            original.replace('  plan-cloudflare:\n', '  plan-cloudflare:\n    "environment": production\n'),
+            original.replace('  plan-cloudflare:\n', "  plan-cloudflare:\n    'environment': production\n"),
         ):
             with self.subTest(broken=broken):
                 self.plan.write_text(broken)
@@ -165,12 +195,12 @@ class WorkflowSetupTests(unittest.TestCase):
             original.replace('await enforce(', '// await enforce(', 1),
             original.replace('      - name: Refuse destructive apply without opt-in',
                              '      - name: Refuse destructive apply without opt-in\n        continue-on-error: true', 1),
-            original.replace('terraform apply -no-color tfplan', 'terraform apply -auto-approve', 1),
-            original.replace('terraform plan -no-color -out=tfplan', 'terraform plan -no-color', 1),
-            original.replace('run: terraform apply -no-color tfplan',
-                             'run: terraform apply -no-color tfplan\n          && terraform apply -destroy -auto-approve', 1),
-            original.replace('run: terraform plan -no-color -out=tfplan',
-                             'run: terraform plan -no-color -out=tfplan\n          && terraform apply -auto-approve', 1),
+            original.replace('terraform apply -lock=true -no-color tfplan', 'terraform apply -auto-approve', 1),
+            original.replace('terraform plan -lock=true -refresh=true -no-color -out=tfplan', 'terraform plan -no-color', 1),
+            original.replace('run: terraform apply -lock=true -no-color tfplan',
+                             'run: terraform apply -lock=true -no-color tfplan\n          && terraform apply -destroy -auto-approve', 1),
+            original.replace('run: terraform plan -lock=true -refresh=true -no-color -out=tfplan',
+                             'run: terraform plan -lock=true -refresh=true -no-color -out=tfplan\n          && terraform apply -auto-approve', 1),
             original.replace('      pull-requests: read', '      pull-requests: none', 1),
             original.replace('      - name: Terraform Apply',
                              '      - name: Replan\n        run: terraform plan -out=tfplan\n\n      - name: Terraform Apply', 1),
@@ -178,6 +208,7 @@ class WorkflowSetupTests(unittest.TestCase):
                              "      - run: terraform plan -out=tfplan\n\n      - name: Refuse to apply a commit that is not main's tip", 1),
         ):
             with self.subTest(broken=broken):
+                self.assertNotEqual(broken, original)
                 self.apply.write_text(broken)
                 self.commit()
                 self.assertEqual(self.check().returncode, 1)
@@ -217,8 +248,9 @@ class WorkflowSetupTests(unittest.TestCase):
         match = re.search(r'^    check: \|\n((?:      .*\n|\n)+)', body, re.M)
         script = textwrap.dedent(match.group(1))
         return subprocess.run(['sh', '-c', script], cwd=self.root,
-                              env={**os.environ, 'INFRA_COPILOT_REFERENCES': str(REFERENCES),
-                                   'NEW_PROVIDER': provider}, capture_output=True, text=True)
+                               env={**os.environ, 'INFRA_COPILOT_REFERENCES': str(REFERENCES),
+                                    'NEW_PROVIDER': provider,
+                                    'NEW_PROVIDER_SECRETS': '[{"name":"READ_TOKEN","scope":"plan","required":true},{"name":"WRITE_TOKEN","scope":"apply","required":true}]'}, capture_output=True, text=True)
 
     def test_requested_provider_must_exist_as_actual_jobs(self) -> None:
         # Comments can satisfy the old name/path grep, but are not provider jobs.
@@ -235,6 +267,8 @@ class WorkflowSetupTests(unittest.TestCase):
             # Append a copy of the first provider job, with provider names changed.
             prefix = 'plan' if target == self.plan else 'apply'
             first = text.split(f'  {prefix}-cloudflare:', 1)[1].split(f'\n  {prefix}-github:', 1)[0]
+            credential_name = 'READ_TOKEN' if target == self.plan else 'WRITE_TOKEN'
+            first = first.replace('CLOUDFLARE_API_TOKEN_READ', credential_name).replace('CLOUDFLARE_API_TOKEN', credential_name)
             target.write_text(text + f'\n  {prefix}-aws:' + first.replace('cloudflare', 'aws'))
         # Job output is mandatory for dispatch as well as PR filtering.
         self.plan.write_text(self.plan.read_text().replace('    outputs:\n',
@@ -246,7 +280,43 @@ class WorkflowSetupTests(unittest.TestCase):
             "              - '.github/scripts/terraform-destroy.cjs'\n", 1))
         self.commit()
         self.assertEqual(self.new_provider_check().returncode, 0)
+        # Inventory placement alone cannot catch apply incorrectly using a read secret.
+        apply_original = self.apply.read_text()
+        self.apply.write_text(apply_original.replace('secrets.WRITE_TOKEN', 'secrets.READ_TOKEN'))
+        self.commit()
+        self.assertEqual(self.new_provider_check().returncode, 1)
+        for replacement in ("''", "'' # use secrets.WRITE_TOKEN here",
+                            "'' # ${{ secrets.WRITE_TOKEN }}",
+                            'secrets.WRITE_TOKEN', "''\n          # ${{ secrets.WRITE_TOKEN }}",
+                            "${{ format('token={0}', secrets.READ_TOKEN) }}",
+                            "${{ format('token={0}', secrets.WRITE_TOKEN) }}",
+                            "${{ secrets.WRITE_TOKEN || secrets.READ_TOKEN }}"):
+            self.apply.write_text(apply_original.replace('${{ secrets.WRITE_TOKEN }}', replacement))
+            self.commit()
+            self.assertEqual(self.new_provider_check().returncode, 1)
+        # A remaining valid required reference must not mask a wrapped wrong-tier one.
+        wrapped = apply_original.replace('${{ secrets.WRITE_TOKEN }}',
+            "${{ format('token={0}', secrets.READ_TOKEN) }}", 1)
+        self.apply.write_text(wrapped)
+        self.commit()
+        self.assertEqual(self.new_provider_check().returncode, 1)
+        # A hash inside a quoted active expression value is not a YAML comment.
+        self.apply.write_text(apply_original.replace('${{ secrets.WRITE_TOKEN }}',
+                                                    "'${{ secrets.WRITE_TOKEN }} # retained'"))
+        self.commit()
+        self.assertEqual(self.new_provider_check().returncode, 0)
+        self.apply.write_text(apply_original)
+        self.commit()
+        self.assertEqual(self.check().returncode, 0)
         plan_original = self.plan.read_text()
+        for broken in (plan_original.replace('secrets.READ_TOKEN', 'secrets.WRITE_TOKEN'),
+                       plan_original.replace('secrets.READ_TOKEN', 'secrets.UNDECLARED_TOKEN'),
+                       plan_original.replace('${{ secrets.READ_TOKEN }}', "''")):
+            self.plan.write_text(broken)
+            self.commit()
+            self.assertEqual(self.new_provider_check().returncode, 1)
+        self.plan.write_text(plan_original)
+        self.commit()
         self.plan.write_text(plan_original.replace("      aws: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.aws }}",
                                                    "      aws: ${{ steps.filter.outputs.aws }}"))
         self.commit()

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:f899a2702bbf8e7a28d4c4ab26491aa4db7b088d3e0ff398c8740ab6ea1ea516
-Source-Hash: blake3:32272534e321bf1cb32b42caaa2b7a08c1aeb151f537486ce9ad5985b008ea25
+Content-Hash: blake3:5cc147ac16ae6d7fa6f4bf56ef99bb3f4bc8280344181240d185274568d5e61c
+Source-Hash: blake3:3a9697a49dfbe82ce6e776a6cb9df377de2454c7b960f3fb5a5526b3b2b7c1ab
 Schema-Version: v1
 -->
 
@@ -139,12 +139,17 @@ terraform {
 
 In object-storage mode, secrets live in **GitHub Actions secrets** instead of HCP workspace variables:
 
-| Secret | Purpose |
-|--------|---------|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare provider auth |
-| `GH_APP_ID` | GitHub App ID |
-| `GH_APP_INSTALLATION_ID` | GitHub App installation ID |
-| `GH_APP_PEM` | GitHub App private key |
+| Secret | Purpose | Scope |
+|--------|---------|-------|
+| `CLOUDFLARE_API_TOKEN_READ` | Cloudflare Read token | Repository, plan only |
+| `GH_APP_READ_ID`, `GH_APP_READ_INSTALLATION_ID`, `GH_APP_READ_PEM` | Separate read-only GitHub App | Repository, plan only |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare Edit token | Production environment only |
+| `GH_APP_ID`, `GH_APP_INSTALLATION_ID`, `GH_APP_PEM` | Write GitHub App | Production environment only |
+
+Verify the production environment allows exactly `main` before installing write secrets.
+Delete repository copies and rotate old write credentials previously exposed to branches.
+Plan identities read state only and run `-lock=false`; apply identities write state and locks.
+GitHub plans additionally use `-refresh=false`; apply refreshes live state on merge.
 
 For cloud provider auth (GCS, S3, Azure), use Workload Identity Federation where possible — no long-lived credentials to store. See [GCP Workload Identity Federation](./object-storage-ci.md#gcp-workload-identity-federation) for the dedicated pool requirement, immutable ID pins, plan/apply provider separation, and Terraform HCL.
 
@@ -173,7 +178,9 @@ Keep resource changes out of the backend PR so the first bucket-backed plan is a
 Set a suitable apply timeout and retain the empty-state guard for every migrated leaf.
 
 Prepare these changes on a branch, but **do not start credentialed plan jobs or initialize the destination before the upload** if their identity can write state.
-The shipped plan example grants objectAdmin: opening a PR or dispatching its workflow can make GCS `terraform init` create an empty `default.tfstate`, preventing the later no-clobber upload.
+Legacy plan identities with objectAdmin can make GCS `terraform init` create an empty
+`default.tfstate`, preventing the later no-clobber upload. The shipped plan identity now
+has objectViewer only; remove old write grants before starting its jobs.
 Upload first, then open the PR/run its plans, or explicitly hold those jobs until transfer.
 A draft PR alone does not suppress workflows.
 If an earlier job already initialized the destination, stop and investigate that object and any lock before proceeding; never overwrite or delete an unverified destination.
@@ -181,7 +188,42 @@ If an earlier job already initialized the destination, stop and investigate that
 A read-only GCS plan identity (`roles/storage.objectViewer`, with `-lock=false` for plans) may fail its first `terraform init` before state exists: initialization tries to create `default.tflock` and receives a `403 storage.objects.create` error.
 That is an expected pre-transfer failure, not a reason to merge or grant the plan identity write access.
 Upload state, then re-run the PR plan.
-The shipped authentication example currently grants plan objectAdmin for locking; a read-only plan identity requires adapting that workflow as well.
+Do not grant plan objectAdmin to fix initialization. Fresh leaves use the separate
+[HUMAN bootstrap procedure](#fresh-leaf-bootstrap) before their first read-only plan.
+
+### Fresh leaf bootstrap
+
+For a genuinely new state destination with no previous Terraform state, a HUMAN
+initializes empty backend state before requiring its first PR plan. This avoids the
+GCS first-plan/first-apply deadlock while preserving branch read-only IAM and main protection.
+Never use this procedure for state migrations, resources already managed in another
+state, or an unreadable destination. First adoption of existing **unmanaged** resources
+is permitted only after verifying no previous state owns them; its first plan must contain
+imports, with no unintended creates, destroys or changes.
+
+1. Review the exact leaf backend, bucket/container, key/prefix and workspace. Verify
+   with authorized backend access that the state object is genuinely absent, not hidden
+   by a permission error, and that no writer or lock is active.
+2. In a temporary directory controlled by the HUMAN, copy only the reviewed backend
+   configuration and Terraform version requirement. No resources, modules, data sources,
+   provider credentials in HCL, or import blocks. Use a separately authorized bootstrap
+   identity with narrowly scoped state/lock write access; do not grant writes to plan or
+   loosen the apply identity's OIDC trust to authorize a branch.
+3. The HUMAN runs the pinned `terraform init` for that backend and workspace. For GCS,
+   this creates the initial empty state and releases its initialization lock. Verify the
+   destination object exists and `terraform state pull` shows empty resources, a lineage
+   and valid state version. If that backend does not persist state on init, stop and
+   follow its reviewed state-initialization procedure rather than assume readiness.
+4. Remove temporary bootstrap access, then run the branch's read-only plan. It should
+   show the reviewed first creates for new resources, or imports for existing unmanaged
+   resources. The agent never performs this credentialed bootstrap.
+5. For the first production resource creation, the HUMAN sets that leaf's
+   `TF_ALLOW_EMPTY_STATE_<LEAF>` environment variable to `true`, reviews the planned
+   creates (or import-only adoption), merges through the normal gate and verifies apply.
+   Remove the opt-out afterward.
+
+The bootstrap `backend-identity-trust` and additional-provider identity handoffs require
+this state-readiness review before the first plan; repeat IAM review on resume.
 
 ### Freeze and pull from HCP
 
