@@ -91,6 +91,9 @@ class WorkflowSetupTests(unittest.TestCase):
         original = self.plan.read_text()
         for broken in (
             original.replace('  workflow_dispatch:\n', ''),
+            original.replace('  changes:\n', "  changes:\n    if: github.event_name == 'pull_request'\n"),
+            original.replace('    needs: changes', '    needs: [changes, skipped-job]', 1),
+            original.replace('    needs: changes\n', '', 1),
             original.replace("        if: github.event_name == 'pull_request'\n", ''),
             original.replace("github.event_name == 'workflow_dispatch' && 'true' || ", ''),
             original.replace("    if: needs.changes.outputs.cloudflare == 'true'", '    if: false && needs.changes.outputs.cloudflare'),
@@ -100,6 +103,26 @@ class WorkflowSetupTests(unittest.TestCase):
                 self.plan.write_text(broken)
                 self.commit()
                 self.assertEqual(self.check().returncode, 1)
+
+    def test_dispatch_gate_requires_a_locked_decision_and_no_auto_apply(self) -> None:
+        original = self.apply.read_text()
+        dispatch_only = original.replace('  push:\n    branches: [main]\n', '')
+        decisions = self.root / '.infra-copilot/decisions.md'
+        decisions.parent.mkdir()
+        for choice, status, expected in (('dispatch', 'locked', 0),
+                                          ('dispatch', 'open', 1),
+                                          ('merge-approval', 'locked', 1)):
+            with self.subTest(choice=choice, status=status):
+                decisions.write_text(f'| Apply gate | {choice} | {status} |\n')
+                self.git('add', '.infra-copilot')
+                self.apply.write_text(dispatch_only)
+                self.commit()
+                self.assertEqual(self.check().returncode, expected)
+        decisions.write_text('| Apply gate | dispatch | locked |\n')
+        self.git('add', '.infra-copilot')
+        self.apply.write_text(original)
+        self.commit()
+        self.assertEqual(self.check().returncode, 1)
 
     def test_dirty_workflows_are_not_evidence(self) -> None:
         self.apply.write_text(self.apply.read_text() + '# uncommitted\n')

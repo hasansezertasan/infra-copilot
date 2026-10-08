@@ -27,6 +27,7 @@ To retry an apply, dispatch the workflow on `main`; each apply job refuses a ref
 Concurrency is scoped by ref so a dispatch from another branch cannot replace a pending `main` run.
 Setup checks committed workflows against the supported template layout before skipping creation.
 Legacy filters, conditional applies, missing dispatch support, or missing main-tip guards make the step incomplete.
+A locked dispatch-only Apply gate is supported; it must omit the push trigger.
 Keep the templates' guard and expression layout when customizing provider authentication.
 The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
 

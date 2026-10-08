@@ -44,7 +44,20 @@ step() {
   '
 }
 apply_events=$(section "$apply" on)
-printf '%s\n' "$apply_events" | grep -q '^  push:$' || exit 1
+dispatch_gate=false
+if awk -F '|' '
+  function clean(v) { gsub(/^[[:space:]`]+|[[:space:]`]+$/, "", v); return tolower(v) }
+  clean($2) == "apply gate" && clean($3) == "dispatch" && clean($4) == "locked" {found=1}
+  END {exit !found}
+' .infra-copilot/decisions.md 2>/dev/null; then
+  dispatch_gate=true
+fi
+if [ "$dispatch_gate" = true ]; then
+  printf '%s\n' "$apply_events" | grep -q '^  push:$' && exit 1
+else
+  printf '%s\n' "$apply_events" | grep -q '^  push:$' || exit 1
+  printf '%s\n' "$apply_events" | grep -Fxq '    branches: [main]' || exit 1
+fi
 printf '%s\n' "$apply_events" | grep -q '^  workflow_dispatch:$' || exit 1
 printf '%s\n' "$apply_events" | awk '
   /^  [^[:space:]]/ && $0 != "  push:" && $0 != "  workflow_dispatch:" {exit 1}
@@ -52,7 +65,6 @@ printf '%s\n' "$apply_events" | awk '
   /^    [^[:space:]]/ && ($0 != "    branches: [main]" || event != "  push:") {exit 1}
   /^      [^[:space:]]/ {exit 1}
 ' || exit 1
-printf '%s\n' "$apply_events" | grep -Fxq '    branches: [main]' || exit 1
 concurrency=$(section "$apply" concurrency)
 printf '%s\n' "$concurrency" | grep -Fxq '  group: terraform-apply-${{ github.ref }}' || exit 1
 printf '%s\n' "$concurrency" | grep -Fxq '  cancel-in-progress: false' || exit 1
@@ -67,6 +79,8 @@ plan_events=$(section "$plan" on)
 printf '%s\n' "$plan_events" | grep -q '^  pull_request:$' || exit 1
 printf '%s\n' "$plan_events" | grep -q '^  workflow_dispatch:$' || exit 1
 changes=$(job "$plan" changes)
+changes_header=$(printf '%s\n' "$changes" | sed '/^    steps:/,$d')
+printf '%s\n' "$changes_header" | grep -Eq '^[[:space:]]+(if|needs|continue-on-error):' && exit 1
 filter=$(printf '%s\n' "$changes" | awk '
   /^      - / {inside=($0 ~ /uses: dorny\/paths-filter@/)}
   inside {print}
@@ -99,6 +113,9 @@ for name in $names; do
   ' || exit 1
   plan_job=$(job "$plan" "plan-$leaf")
   [ -n "$plan_job" ] || exit 1
+  plan_header=$(printf '%s\n' "$plan_job" | sed '/^    steps:/,$d')
+  [ "$(printf '%s\n' "$plan_header" | grep -c '^    needs:' || true)" = 1 ] || exit 1
+  printf '%s\n' "$plan_header" | grep -Fxq '    needs: changes' || exit 1
   condition="    if: needs.changes.outputs.$leaf == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"
   bracket="    if: needs.changes.outputs['$leaf'] == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"
   printf '%s\n' "$plan_job" | grep -Fxq "$condition" ||

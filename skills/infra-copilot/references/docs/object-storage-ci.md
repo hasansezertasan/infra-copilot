@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:cd85cafe43d135a0ea1d8b15ea895800b83bf5c3d7da6a9d17c0642aa21d50a4
-Source-Hash: blake3:bb6bd13c62043c9257a15979f80eb1d1dc8e3b2394dc8c700c52914cebfd7b79
+Content-Hash: blake3:83088f423b72ae3ce7bfbf916da18f3609bc6949f864f2bd0e3f7ff404e175b7
+Source-Hash: blake3:28a91738e695d04e4a6d8108fb497d8f72a1560b95d3ddbb6ce0b3664b2b09cb
 Schema-Version: v1
 -->
 
@@ -34,6 +34,7 @@ To retry an apply, dispatch the workflow on `main`; each apply job refuses a ref
 Concurrency is scoped by ref so a dispatch from another branch cannot replace a pending `main` run.
 Setup checks committed workflows against the supported template layout before skipping creation.
 Legacy filters, conditional applies, missing dispatch support, or missing main-tip guards make the step incomplete.
+A locked dispatch-only Apply gate is supported; it must omit the push trigger.
 Keep the templates' guard and expression layout when customizing provider authentication.
 The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
 

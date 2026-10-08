@@ -864,8 +864,8 @@ steps:
         - Emits aggregate plan check
 
       Create .github/workflows/terraform-apply.yml:
-        - Triggers on every push to main without path filtering, and workflow_dispatch
-        - Requires environment approval ("production")
+        - Triggers on every push to main without path filtering, and workflow_dispatch; omit push for a locked Apply gate = dispatch decision
+        - Uses the protected production environment, with reviewers where available or the locked Apply gate described in docs/object-storage-ci.md
         - Serializes workflow runs by ref with cancel-in-progress: false
         - Applies every leaf on every run, without a changes job or leaf-change conditions
         - Refuses non-main refs and commits that are not main's tip immediately before each apply
