@@ -301,7 +301,7 @@ backend-only cutover without this evidence. A shallow checkout must fetch comple
 history before certifying a genuinely new leaf. The attestation binds the destination
 backend file; changing that destination requires a renewed transfer review. Keep the
 complete, single backend block in that reviewed `backend.tf`, with no backend
-declarations in other `.tf` or `.tf.json` files. The transfer check rejects layouts
+or cloud declarations in other `.tf`, override, or `.tf.json` files. The transfer check rejects layouts
 that could change the effective destination without changing the reviewed file.
 Preserve the original transfer evidence after subsequent legitimate applies advance state. Never
 record credential values or state contents in this public record.

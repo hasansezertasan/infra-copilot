@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:5438698d1528abad0607d35671995b7b866535ff033c9ade59072440ad845ccf
-Source-Hash: blake3:2f24b784fafb5b8019ab593df0dfa258690e7be4f24a796e658e8413d33b6ba7
+Content-Hash: blake3:6647555840c464865725c3b5bbc7fbd997bca97b6c07b04cd6aeadd183a1d454
+Source-Hash: blake3:5125cdcb322d067822de5b2a7db5fa968b02b1da394c00992c77291a06dca987
 Schema-Version: v1
 -->
 
@@ -308,7 +308,7 @@ backend-only cutover without this evidence. A shallow checkout must fetch comple
 history before certifying a genuinely new leaf. The attestation binds the destination
 backend file; changing that destination requires a renewed transfer review. Keep the
 complete, single backend block in that reviewed `backend.tf`, with no backend
-declarations in other `.tf` or `.tf.json` files. The transfer check rejects layouts
+or cloud declarations in other `.tf`, override, or `.tf.json` files. The transfer check rejects layouts
 that could change the effective destination without changing the reviewed file.
 Preserve the original transfer evidence after subsequent legitimate applies advance state. Never
 record credential values or state contents in this public record.

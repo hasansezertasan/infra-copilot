@@ -120,6 +120,24 @@ class GitHubAppPermissionTests(unittest.TestCase):
                                         env={**environment, 'GH_PLAN_MANIFEST_BLOB': write_blob},
                                         capture_output=True, text=True)
             self.assertEqual(write_plan.returncode, 1, write_plan.stderr)
+            subprocess.run(['git', 'checkout', '-q', 'HEAD~1', '--', '.github/apps/terraform-plan.json'],
+                           cwd=checkout, check=True)
+            apply_path = checkout / '.github/apps/terraform-apply.json'
+            read_only_apply = json.loads(apply_path.read_text())
+            read_only_apply['default_permissions'] = {
+                permission: 'read' for permission in read_only_apply['default_permissions']}
+            apply_path.write_text(json.dumps(read_only_apply))
+            subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                            'commit', '-qam', 'apply App loses its writes'], cwd=checkout, check=True)
+            read_only_blob = subprocess.run(['git', 'hash-object', str(apply_path)], cwd=checkout,
+                                            check=True, capture_output=True, text=True).stdout.strip()
+            read_only_apply_check = subprocess.run(
+                ['sh', '-c', app_check], cwd=checkout,
+                env={**environment, 'GH_APPLY_MANIFEST_BLOB': read_only_blob}, capture_output=True, text=True)
+            self.assertEqual(read_only_apply_check.returncode, 1, read_only_apply_check.stderr)
+            restored_plan = subprocess.run(['sh', '-c', app_check], cwd=checkout, env=environment,
+                                           capture_output=True, text=True)
+            self.assertEqual(restored_plan.returncode, 1, 'the apply blob no longer matches')
             (checkout / '.github/apps/terraform-plan.json').unlink()
             missing_manifest = subprocess.run(['sh', '-c', app_check], cwd=checkout, env=environment,
                                               capture_output=True, text=True)

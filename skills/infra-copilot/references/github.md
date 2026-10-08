@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:5c8a428dc38d4a39c950b2a98fcf8810edb436ceeccd2d15861522056f412794
-Source-Hash: blake3:2f24b784fafb5b8019ab593df0dfa258690e7be4f24a796e658e8413d33b6ba7
+Content-Hash: blake3:41f2d10cc15218ba3a872dda4739eb1c5682d435da820972b1cce7460d6f9789
+Source-Hash: blake3:5125cdcb322d067822de5b2a7db5fa968b02b1da394c00992c77291a06dca987
 Schema-Version: v1
 -->
 
@@ -100,6 +100,8 @@ permissions or reveal which PEM was installed.
 Commit both customized manifest copies and record their `git hash-object` values as
 `plan_manifest_blob` and `apply_manifest_blob` in the same review record. Missing,
 uncommitted, or changed manifests invalidate the handoff until reviewed again.
+The check also requires every plan permission to be `read`, at least one `write` in the
+apply manifest, and distinct App names.
 
 ### HCP variable verification
 

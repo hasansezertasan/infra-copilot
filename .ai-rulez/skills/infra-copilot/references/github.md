@@ -93,6 +93,8 @@ permissions or reveal which PEM was installed.
 Commit both customized manifest copies and record their `git hash-object` values as
 `plan_manifest_blob` and `apply_manifest_blob` in the same review record. Missing,
 uncommitted, or changed manifests invalidate the handoff until reviewed again.
+The check also requires every plan permission to be `read`, at least one `write` in the
+apply manifest, and distinct App names.
 
 ### HCP variable verification
 
