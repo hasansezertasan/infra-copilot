@@ -157,7 +157,7 @@ class WorkflowSetupTests(unittest.TestCase):
     def test_saved_plan_and_destructive_guard_cannot_be_bypassed(self) -> None:
         original = self.apply.read_text()
         start = original.index('      - name: Refuse destructive apply without opt-in')
-        end = original.index('      - name: Terraform Apply', start)
+        end = original.index("      - name: Refuse to apply a commit that is not main's tip", start)
         destroy = original[start:end]
         for broken in (
             original.replace(destroy, '', 1),
@@ -168,9 +168,28 @@ class WorkflowSetupTests(unittest.TestCase):
             original.replace('terraform apply -no-color tfplan', 'terraform apply -auto-approve', 1),
             original.replace('terraform plan -no-color -out=tfplan', 'terraform plan -no-color', 1),
             original.replace('      pull-requests: read', '      pull-requests: none', 1),
+            original.replace('      - name: Terraform Apply',
+                             '      - name: Replan\n        run: terraform plan -out=tfplan\n\n      - name: Terraform Apply', 1),
+            original.replace("      - name: Refuse to apply a commit that is not main's tip",
+                             "      - run: terraform plan -out=tfplan\n\n      - name: Refuse to apply a commit that is not main's tip", 1),
         ):
             with self.subTest(broken=broken):
                 self.apply.write_text(broken)
+                self.commit()
+                self.assertEqual(self.check().returncode, 1)
+
+    def test_commented_or_misplaced_plan_inspection_is_rejected(self) -> None:
+        original = self.plan.read_text()
+        command = 'terraform show -json tfplan | node "$GITHUB_WORKSPACE/.github/scripts/terraform-destroy.cjs" > destroys.json'
+        for broken in (
+            original.replace(command, '# ' + command, 1),
+            original.replace('            ' + command, '            true\n      # ' + command, 1),
+            original.replace('        id: plan', '        id: other', 1),
+            original.replace('        if: steps.plan.outputs.exitcode',
+                             "        if: github.event_name == 'pull_request' && steps.plan.outputs.exitcode", 1),
+        ):
+            with self.subTest(broken=broken):
+                self.plan.write_text(broken)
                 self.commit()
                 self.assertEqual(self.check().returncode, 1)
 

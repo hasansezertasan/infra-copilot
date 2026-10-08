@@ -58,6 +58,12 @@ step() {
     inside && NF {sub(/[[:space:]]+$/, ""); print}
   '
 }
+run_body() {
+  awk '
+    /^        run:/ {inside=1}
+    inside {print}
+  '
+}
 apply_events=$(section "$apply" on)
 dispatch_gate=false
 if awk -F '|' '
@@ -139,11 +145,16 @@ for name in $names; do
   [ "$actual_apply_run" = "$expected_apply_run" ] || exit 1
   printf '%s\n' "$block" | grep -Fxq '      pull-requests: read' || exit 1
   printf '%s\n' "$block" | awk '
-    /      - name: Refuse to apply a commit that is not main/ {if (++guard != 1) exit 1}
-    /      - name: Terraform Plan/ {if (!guard || ++plan != 1 || destroy) exit 1}
-    /      - name: Refuse destructive apply without opt-in/ {if (!plan || ++destroy != 1) exit 1}
-    /      - name: Terraform Apply/ {if (!destroy) exit 1}
-    END {if (guard != 1 || plan != 1 || destroy != 1) exit 1}
+    /^      - / {
+      if (state == 1 && $0 != "      - name: Refuse destructive apply without opt-in") exit 1
+      if (state == 2 && $0 != "      - name: Refuse to apply a commit that is not main\047s tip") exit 1
+      if (state == 3 && $0 != "      - name: Terraform Apply") exit 1
+    }
+    /      - name: Terraform Plan/ {if (++plan != 1) exit 1; state=1}
+    /      - name: Refuse destructive apply without opt-in/ {if (state != 1 || ++destroy != 1) exit 1; state=2}
+    /      - name: Refuse to apply a commit that is not main/ {if (state != 2 || ++guard != 1) exit 1; state=3}
+    /      - name: Terraform Apply/ {if (state != 3) exit 1; state=4}
+    END {if (guard != 1 || plan != 1 || destroy != 1 || state != 4) exit 1}
   ' || exit 1
   plan_job=$(job "$plan" "plan-$leaf")
   [ -n "$plan_job" ] || exit 1
@@ -163,7 +174,18 @@ for name in $names; do
   ')
   printf '%s\n' "$leaf_filter" | grep -Fxq "              - '.github/workflows/terraform-*.yml'" || exit 1
   printf '%s\n' "$leaf_filter" | grep -Fxq "              - '.github/scripts/terraform-destroy.cjs'" || exit 1
-  printf '%s\n' "$plan_job" | grep -Fq 'terraform show -json tfplan | node "$GITHUB_WORKSPACE/.github/scripts/terraform-destroy.cjs" > destroys.json' || exit 1
+  pr_plan=$(printf '%s\n' "$plan_job" | step 'Terraform Plan')
+  printf '%s\n' "$pr_plan" | grep -Fxq '        id: plan' || exit 1
+  printf '%s\n' "$pr_plan" | grep -Fxq "        working-directory: terraform/$leaf" || exit 1
+  printf '%s\n' "$pr_plan" | grep -Eq '^        (if|continue-on-error):' && exit 1
+  expected_plan_body=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-plan.yml" plan-cloudflare |
+    step 'Terraform Plan' | run_body)
+  actual_plan_body=$(printf '%s\n' "$pr_plan" | run_body)
+  [ "$actual_plan_body" = "$expected_plan_body" ] || exit 1
+  inventory=$(printf '%s\n' "$plan_job" | step 'Summarize Destructive Changes')
+  expected_inventory=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-plan.yml" plan-cloudflare |
+    step 'Summarize Destructive Changes' | sed "s/cloudflare/$leaf/g")
+  [ "$inventory" = "$expected_inventory" ] || exit 1
   report=$(printf '%s\n' "$plan_job" | step 'Post Plan to PR')
   expected_report=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-plan.yml" plan-cloudflare |
     step 'Post Plan to PR' | sed "s/cloudflare/$leaf/g")

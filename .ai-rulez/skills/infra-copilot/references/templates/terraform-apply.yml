@@ -86,16 +86,6 @@ jobs:
             fi
           fi
 
-      - name: Refuse to apply a commit that is not main's tip
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tip=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
-          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$tip" != "$GITHUB_SHA" ]; then
-            echo "::error::This run is for $GITHUB_REF at $GITHUB_SHA but main is at $tip. Run the workflow on main instead."
-            exit 1
-          fi
-
       - name: Terraform Plan
         working-directory: terraform/cloudflare
         env:
@@ -109,6 +99,16 @@ jobs:
           script: |
             const { enforce } = require('./.github/scripts/terraform-destroy.cjs');
             await enforce({ github, context, core, leaf: 'cloudflare' });
+
+      - name: Refuse to apply a commit that is not main's tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tip=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$tip" != "$GITHUB_SHA" ]; then
+            echo "::error::This run is for $GITHUB_REF at $GITHUB_SHA but main is at $tip. Run the workflow on main instead."
+            exit 1
+          fi
 
       - name: Terraform Apply
         working-directory: terraform/cloudflare
@@ -177,16 +177,6 @@ jobs:
             fi
           fi
 
-      - name: Refuse to apply a commit that is not main's tip
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tip=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
-          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$tip" != "$GITHUB_SHA" ]; then
-            echo "::error::This run is for $GITHUB_REF at $GITHUB_SHA but main is at $tip. Run the workflow on main instead."
-            exit 1
-          fi
-
       - name: Terraform Plan
         working-directory: terraform/github
         env:
@@ -205,6 +195,16 @@ jobs:
           script: |
             const { enforce } = require('./.github/scripts/terraform-destroy.cjs');
             await enforce({ github, context, core, leaf: 'github' });
+
+      - name: Refuse to apply a commit that is not main's tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tip=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$tip" != "$GITHUB_SHA" ]; then
+            echo "::error::This run is for $GITHUB_REF at $GITHUB_SHA but main is at $tip. Run the workflow on main instead."
+            exit 1
+          fi
 
       - name: Terraform Apply
         working-directory: terraform/github

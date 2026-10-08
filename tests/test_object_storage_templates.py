@@ -64,6 +64,10 @@ class WorkflowConvergenceTests(unittest.TestCase):
             self.assertIn('environment: production', header)
             self.assertLess(steps.index("Refuse to apply a commit that is not main's tip"),
                             steps.index('name: Terraform Apply'))
+            self.assertLess(steps.index('name: Terraform Plan'),
+                            steps.index('name: Refuse destructive apply without opt-in'))
+            self.assertLess(steps.index('name: Refuse destructive apply without opt-in'),
+                            steps.index("Refuse to apply a commit that is not main's tip"))
 
     def test_dispatch_plans_all_leaves_and_prs_keep_filter_and_fork_gate(self) -> None:
         template = (REFERENCES / 'templates/terraform-plan.yml').read_text()
@@ -129,7 +133,7 @@ class ApplyMainTipTests(unittest.TestCase):
 class PlanCommentTests(unittest.TestCase):
     def test_create_then_update_only_owned_leaf_comment(self) -> None:
         template = (REFERENCES / 'templates/terraform-plan.yml').read_text()
-        scripts = re.findall(r'          script: \|\n(.*?)(?=\n      - name:)', template, re.S)
+        scripts = re.findall(r'      - name: Post Plan to PR\n.*?          script: \|\n(.*?)(?=\n      - name:)', template, re.S)
         self.assertEqual(len(scripts), 2)
         for leaf, script in zip(('cloudflare', 'github'), scripts):
             script = textwrap.dedent(script)
@@ -201,11 +205,56 @@ SCRIPT
   context.payload.pull_request.head.sha = 'old-head';
   await post();
   assert.equal(calls.length, 2, 'outdated plan must not replace the current comment');
+  context.payload.pull_request.head.sha = 'current-head';
+  process.env.PLAN_OUTCOME = 'failure';
+  require('fs').unlinkSync(`terraform/${leaf}/destroys.json`);
+  await post();
+  assert.equal(calls.length, 3, 'inspection failure must invalidate the previous success');
+  assert.ok(calls[2][1].body.includes('**failed**'));
+  assert.ok(calls[2][1].body.includes('Plan or destructive inspection failed'));
+  process.env.PLAN_OUTCOME = 'success';
+  process.env.INVENTORY_OUTCOME = 'failure';
+  await post();
+  assert.equal(calls.length, 4, 'summary failure must also invalidate the previous success');
+  assert.ok(calls[3][1].body.includes('**failed**'));
 })().catch(error => { console.error(error); process.exitCode = 1; });
 '''.replace('LEAF', json.dumps(leaf)).replace('SCRIPT', script)
                 result = subprocess.run(['node', '-e', harness], cwd=root,
-                                        env={**os.environ, 'EXITCODE': '0'},
+                                        env={**os.environ, 'EXITCODE': '0', 'PLAN_OUTCOME': 'success', 'INVENTORY_OUTCOME': 'success'},
                                         capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class InventorySummaryTests(unittest.TestCase):
+    def test_manual_plans_publish_inventory_without_a_pr(self) -> None:
+        template = (REFERENCES / 'templates/terraform-plan.yml').read_text()
+        blocks = re.findall(r'      - name: Summarize Destructive Changes\n(.*?)(?=\n      - name:)', template, re.S)
+        self.assertEqual(len(blocks), 2)
+        for leaf, block in zip(('cloudflare', 'github'), blocks):
+            self.assertNotIn('pull_request', block)
+            script = textwrap.dedent(block.split('          script: |\n', 1)[1])
+            with self.subTest(leaf=leaf), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                inventory = root / f'terraform/{leaf}/destroys.json'
+                inventory.parent.mkdir(parents=True)
+                inventory.write_text(json.dumps([{'address': 'example.deleted', 'actions': ['delete']}]))
+                helper = root / '.github/scripts/terraform-destroy.cjs'
+                helper.parent.mkdir(parents=True)
+                shutil.copyfile(REFERENCES / 'templates/terraform-destroy.cjs', helper)
+                harness = '''
+const assert = require('node:assert/strict');
+let notice = '', written = false;
+const core = { summary: {
+  addRaw(text) { notice = text; return this; },
+  async write() { await new Promise(resolve => setTimeout(resolve, 5)); written = true; }
+} };
+(async () => {
+SCRIPT
+assert.ok(written);
+assert.ok(notice.includes('example.deleted'));
+})().catch(error => { console.error(error); process.exitCode = 1; });
+'''.replace('SCRIPT', script)
+                result = subprocess.run(['node', '-e', harness], cwd=root, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
 
 

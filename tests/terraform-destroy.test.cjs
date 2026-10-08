@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { spawnSync } = require('node:child_process');
 const modulePath = require.resolve('../.ai-rulez/skills/infra-copilot/references/templates/terraform-destroy.cjs');
-const { destructiveChanges, warning, summaryWarning, commentBody, readPlan, enforce } = require(modulePath);
+const { destructiveChanges, warning, summaryWarning, commentBody, readPlan, readInput, enforce } = require(modulePath);
 
 const resource = (address, actions) => ({ address, change: { actions, before: { secret: 'sensitive-sentinel' } } });
 const safe = { format_version: '1.2', resource_changes: ['no-op', 'create', 'read', 'update', 'forget'].map(action => resource(action, [action])) };
@@ -98,4 +98,17 @@ test('comments and UTF-8 summaries respect GitHub limits', () => {
 test('Markdown code spans support backticks and unusually long resource keys', () => {
   assert.match(warning([{ address: 'resource["key``text"]', actions: ['delete'] }]), /``` resource\["key``text"\] ```/);
   assert.ok(warning([{ address: `resource["${'`x'.repeat(150000)}"]`, actions: ['delete'] }]).includes('`` resource['));
+});
+
+test('stdin stops consuming input at the byte limit instead of buffering an unlimited stream', async () => {
+  let consumed = 0;
+  async function* chunks() {
+    for (let index = 0; index < 3; index++) {
+      consumed++;
+      yield Buffer.alloc(10, 'x');
+    }
+  }
+  await assert.rejects(readInput(chunks(), 16), /supported size/);
+  assert.equal(consumed, 2);
+  assert.equal(await readInput(chunks(), 30), 'x'.repeat(30));
 });

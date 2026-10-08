@@ -1,5 +1,4 @@
 // Copy alongside the workflows to .github/scripts/terraform-destroy.cjs.
-const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 const JSON_LIMIT = 128 * 1024 * 1024;
 
@@ -86,15 +85,24 @@ async function enforce({ github, context, core, leaf, loadPlan = readPlan }) {
   core.info('Destructive apply explicitly opted into by the producing merged PR.');
 }
 
-module.exports = { destructiveChanges, warning, summaryWarning, commentBody, readPlan, enforce };
+async function readInput(input, limit = JSON_LIMIT) {
+  const chunks = [];
+  let length = 0;
+  for await (const chunk of input) {
+    length += chunk.length;
+    if (length > limit) throw new Error('Plan exceeds supported size');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+module.exports = { destructiveChanges, warning, summaryWarning, commentBody, readPlan, readInput, enforce };
 
 if (require.main === module) {
-  try {
-    const input = fs.readFileSync(0);
-    if (input.length > JSON_LIMIT) throw new Error('Plan exceeds supported size');
-    process.stdout.write(JSON.stringify(destructiveChanges(JSON.parse(input.toString('utf8')))));
-  } catch {
+  readInput(process.stdin).then(input => {
+    process.stdout.write(JSON.stringify(destructiveChanges(JSON.parse(input))));
+  }).catch(() => {
     process.stderr.write('Cannot inspect Terraform plan JSON (128 MiB limit).\n');
     process.exitCode = 1;
-  }
+  });
 }
