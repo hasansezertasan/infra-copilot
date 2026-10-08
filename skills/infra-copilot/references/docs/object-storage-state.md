@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6408b02e3df54385ecafdc4f86cc394f9aa01431d76c5c4f4c1212924d173098
-Source-Hash: blake3:84d9135d3ea2fc403f4f424701c906033cb8fe96cb8be86f8f782000da33a391
+Content-Hash: blake3:c76f30ade052ee7cd4561a0fd5d0fc07074be07cfcb6c15829886756544fb965
+Source-Hash: blake3:ad43e66d469ee9233069460521d0eba5996844a9124ac98be94a6ff68475da4c
 Schema-Version: v1
 -->
 
@@ -284,6 +284,31 @@ From the PR's destination backend, with appropriate backend read credentials, in
 Verify serial and lineage against HCP's still-current state version again.
 Re-run the PR's Actions plan after upload and require a successful **leaf** plan with the expected resources and no unintended changes; a green aggregate with a skipped leaf is insufficient.
 Only then may the human merge the cutover PR.
+
+Before merge, commit public transfer evidence under `state_transfers.<leaf>` in the
+consuming config. Populate this record only after locking before pull, scanning privately,
+comparing the destination bytes/serial/lineage/resources, and obtaining the leaf plan:
+
+```yaml
+state_transfers:
+  github:
+    source_backend: hcp
+    workspace_id: ws-REPLACE
+    hcp_locked_before_pull: true
+    destination_verified: true
+    serial: 42
+    lineage: "<verified source lineage>"
+    state_sha256: "<SHA-256 of the frozen snapshot; no state contents>"
+    backend_blob: "<git hash-object terraform/github/backend.tf>"
+    verified_at: "<strict current UTC YYYY-MM-DDTHH:MM:SSZ>"
+```
+
+The read-only transfer check detects committed HCP backend history and refuses a
+backend-only cutover without this evidence. A shallow checkout must fetch complete
+history before certifying a genuinely new leaf. The attestation binds the destination
+backend file; changing that destination requires a renewed transfer review. Keep the
+original transfer evidence after subsequent legitimate applies advance state. Never
+record credential values or state contents in this public record.
 
 ### Disconnect HCP and retire credentials
 

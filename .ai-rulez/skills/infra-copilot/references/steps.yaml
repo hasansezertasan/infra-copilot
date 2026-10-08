@@ -734,6 +734,7 @@ steps:
     phase: 0
     provider: repo
     actor: AGENT
+    tri_state: true
     when: '[ "$HAS_OBJECT_STORAGE_BOOTSTRAP" = "true" ]'
     title: Configure Terraform backend blocks
     why: Each leaf needs a backend block pointing to the state bucket with a unique key.
@@ -776,6 +777,7 @@ steps:
       for name in $(printf '%s' "$OBJECT_STORAGE_BOOTSTRAP_LEAVES" | jq -er '.[]'); do
         leaf="terraform/$name"
         test -d "$leaf" || exit 1
+        sh "$INFRA_COPILOT_REFERENCES/checks/state-transfer.sh" "$name" || exit $?
         grep -q "backend \"$STATE_BACKEND\"" "$leaf"/*.tf 2>/dev/null || exit 1
         # Use -F for literal string matching (bucket names may contain regex chars like .)
         grep -Fq "$STATE_BUCKET" "$leaf"/*.tf 2>/dev/null || exit 1
@@ -966,6 +968,9 @@ steps:
          and current strict UTC timestamp in github_apps.reviewed_at only after reviewing
          both live permissions and secret stores. Commit that evidence. Re-review after
          any secret update or live App permission change.
+         Record git hash-object for the two customized committed manifest files as
+         github_apps.plan_manifest_blob and github_apps.apply_manifest_blob; manifest
+         changes invalidate the permission review until reviewed again.
     check: |
       printf '%s\n' "${GH_PLAN_APP_ID:-}" | grep -Eq '^[0-9]+$' || exit 1
       printf '%s\n' "${GH_APPLY_APP_ID:-}" | grep -Eq '^[0-9]+$' || exit 1
@@ -979,6 +984,18 @@ steps:
       git ls-files --error-unmatch .infra-copilot/config.md >/dev/null 2>&1 || exit 1
       git diff --quiet HEAD -- .infra-copilot/config.md || exit 1
       git diff --cached --quiet HEAD -- .infra-copilot/config.md || exit 1
+      for kind in plan apply; do
+        manifest=".github/apps/terraform-$kind.json"
+        git ls-files --error-unmatch "$manifest" >/dev/null 2>&1 || exit 1
+        git diff --quiet HEAD -- "$manifest" || exit 1
+        git diff --cached --quiet HEAD -- "$manifest" || exit 1
+        blob=$(git hash-object "$manifest") || exit 1
+        case "$kind" in
+          plan) [ "$blob" = "${GH_PLAN_MANIFEST_BLOB:-}" ] || exit 1 ;;
+          apply) [ "$blob" = "${GH_APPLY_MANIFEST_BLOB:-}" ] || exit 1 ;;
+        esac
+        jq -e '.name | type == "string" and length > 0' "$manifest" >/dev/null || exit 1
+      done
       for scope in repository production; do
         if [ "$scope" = repository ]; then
           secrets=$(gh secret list --repo "$REPO" --json name,updatedAt) || exit 1
@@ -1994,6 +2011,7 @@ steps:
     phase: 6
     provider: repo
     actor: AGENT
+    tri_state: true
     title: Create the new Terraform leaf
     why: The backend and plan need committed provider configuration to target.
     run: |
@@ -2001,6 +2019,9 @@ steps:
       configuration. Do not create resources before new-provider-decision is green.
       - HCP mode: Its cloud block must select workspace $NEW_PROVIDER_WORKSPACE by name.
       - Object-storage mode: Its backend block must point to $STATE_BUCKET with a unique prefix.
+      If the leaf's committed history contains an HCP backend, stop for the ordered
+      HUMAN cutover in docs/object-storage-state.md#migrating-from-hcp and record its
+      checked state_transfers evidence. Never treat a missing attestation as a fresh leaf.
       If the provider runbook requires a new CLI, add `# infra-copilot:provider-cli <key>`
       immediately before its exact same-name mise pin and refresh the lock, but
       do not execute the CLI or any later runbook commands until new-provider-toolchain is green.
@@ -2034,6 +2055,7 @@ steps:
         case "$hostname" in ""|app.terraform.io) : ;; *) exit 1 ;; esac
       else
         # Object-storage mode: verify backend block with complete path validation
+        sh "$INFRA_COPILOT_REFERENCES/checks/state-transfer.sh" "$NEW_PROVIDER" || exit $?
         grep -q "backend \"$STATE_BACKEND\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
         # Use -F for literal string matching (bucket names may contain regex chars like .)
         grep -Fq "$STATE_BUCKET" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1

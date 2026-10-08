@@ -90,6 +90,9 @@ record those IDs plus strict UTC `reviewed_at` under `github_apps` in the consum
 and commit it. Missing evidence or a secret update newer than that review keeps the
 handoff incomplete. Re-review when live permissions change; metadata cannot prove
 permissions or reveal which PEM was installed.
+Commit both customized manifest copies and record their `git hash-object` values as
+`plan_manifest_blob` and `apply_manifest_blob` in the same review record. Missing,
+uncommitted, or changed manifests invalidate the handoff until reviewed again.
 
 ### HCP variable verification
 

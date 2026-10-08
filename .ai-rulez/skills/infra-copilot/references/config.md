@@ -81,10 +81,13 @@ config; direct the user to add the field or run `setup` to record their choice.
 ---
 backend: object-storage        # required: hcp | object-storage; recommended for new repos
 leaf_backends: {}               # optional map: leaf name -> hcp | object-storage
+state_transfers: {}             # public HUMAN cutover evidence, keyed by migrated leaf
 github_apps:                    # handoff evidence when github uses Actions
   plan_app_id: ""               # public numeric ID, distinct from apply
   apply_app_id: ""
   reviewed_at: ""               # HUMAN UTC after permissions + secret scopes reviewed
+  plan_manifest_blob: ""        # git hash-object of committed .github/apps/terraform-plan.json
+  apply_manifest_blob: ""
 github_org: <string>           # GitHub org slug
 apex_domain: <string>          # e.g. example.dev
 cloudflare_account_id: <hex>   # Cloudflare account ID
@@ -277,6 +280,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    ```sh
    export BACKEND=<backend>  # required: hcp | object-storage
    export LEAF_BACKENDS='<leaf_backends as compact JSON; {} when absent>'
+   export STATE_TRANSFERS='<state_transfers as compact JSON; {} when absent>'
    export GITHUB_ORG=<github_org>
    export DOMAIN=<apex_domain>
    export CF_ACCOUNT_ID=<cloudflare_account_id>
@@ -308,6 +312,8 @@ Before running ANY step's `check` or `run`, the agent MUST:
    App handoff is red. Require distinct public IDs and strict non-future UTC review time.
    Secret updates invalidate that review until the HUMAN reviews custody/live permissions
    again. These public fields never authorize reading secret values.
+   Export `GH_PLAN_MANIFEST_BLOB` and `GH_APPLY_MANIFEST_BLOB` from that record too;
+   the handoff requires the committed customized manifests to match the reviewed hashes.
 
    **HCP service present** (`HAS_HCP=true`):
 

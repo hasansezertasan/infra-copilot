@@ -2,10 +2,13 @@
 # infra-copilot:customization start
 backend: object-storage        # required: hcp | object-storage; confirm the choice during setup
 leaf_backends: {}               # declared leaf overrides; e.g. {github: object-storage} with default hcp
+state_transfers: {}             # public evidence from the ordered HCP cutover runbook
 github_apps:
   plan_app_id: ""
   apply_app_id: ""
   reviewed_at: ""
+  plan_manifest_blob: ""
+  apply_manifest_blob: ""
 github_org: your-org
 apex_domain: example.dev
 cloudflare_account_id: 0000000000000000000000000000000

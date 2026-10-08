@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6c53d5b5603da7992ca782cb0cad087968b1f1a7ee82635a447769933ade5b6f
-Source-Hash: blake3:84d9135d3ea2fc403f4f424701c906033cb8fe96cb8be86f8f782000da33a391
+Content-Hash: blake3:5c8a428dc38d4a39c950b2a98fcf8810edb436ceeccd2d15861522056f412794
+Source-Hash: blake3:ad43e66d469ee9233069460521d0eba5996844a9124ac98be94a6ff68475da4c
 Schema-Version: v1
 -->
 
@@ -97,6 +97,9 @@ record those IDs plus strict UTC `reviewed_at` under `github_apps` in the consum
 and commit it. Missing evidence or a secret update newer than that review keeps the
 handoff incomplete. Re-review when live permissions change; metadata cannot prove
 permissions or reveal which PEM was installed.
+Commit both customized manifest copies and record their `git hash-object` values as
+`plan_manifest_blob` and `apply_manifest_blob` in the same review record. Missing,
+uncommitted, or changed manifests invalidate the handoff until reviewed again.
 
 ### HCP variable verification
 

@@ -278,6 +278,31 @@ Verify serial and lineage against HCP's still-current state version again.
 Re-run the PR's Actions plan after upload and require a successful **leaf** plan with the expected resources and no unintended changes; a green aggregate with a skipped leaf is insufficient.
 Only then may the human merge the cutover PR.
 
+Before merge, commit public transfer evidence under `state_transfers.<leaf>` in the
+consuming config. Populate this record only after locking before pull, scanning privately,
+comparing the destination bytes/serial/lineage/resources, and obtaining the leaf plan:
+
+```yaml
+state_transfers:
+  github:
+    source_backend: hcp
+    workspace_id: ws-REPLACE
+    hcp_locked_before_pull: true
+    destination_verified: true
+    serial: 42
+    lineage: "<verified source lineage>"
+    state_sha256: "<SHA-256 of the frozen snapshot; no state contents>"
+    backend_blob: "<git hash-object terraform/github/backend.tf>"
+    verified_at: "<strict current UTC YYYY-MM-DDTHH:MM:SSZ>"
+```
+
+The read-only transfer check detects committed HCP backend history and refuses a
+backend-only cutover without this evidence. A shallow checkout must fetch complete
+history before certifying a genuinely new leaf. The attestation binds the destination
+backend file; changing that destination requires a renewed transfer review. Keep the
+original transfer evidence after subsequent legitimate applies advance state. Never
+record credential values or state contents in this public record.
+
 ### Disconnect HCP and retire credentials
 
 Immediately after merge, keep the HCP workspace locked and remove its VCS connection: `PATCH /workspaces/:id` with this JSON:API body (see the [workspaces API](https://developer.hashicorp.com/terraform/cloud-docs/api-docs/workspaces#update-a-workspace)):

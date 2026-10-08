@@ -77,8 +77,12 @@ class GitHubAppPermissionTests(unittest.TestCase):
             checkout = Path(directory)
             (checkout / '.infra-copilot').mkdir()
             (checkout / '.infra-copilot/config.md').write_text('github_apps: {}\n')
+            (checkout / '.github/apps').mkdir(parents=True)
+            for app_kind in ('plan', 'apply'):
+                (checkout / f'.github/apps/terraform-{app_kind}.json').write_bytes(
+                    (REFERENCES / f'templates/apps/terraform-{app_kind}.json').read_bytes())
             subprocess.run(['git', 'init', '-q'], cwd=checkout, check=True)
-            subprocess.run(['git', 'add', '.infra-copilot'], cwd=checkout, check=True)
+            subprocess.run(['git', 'add', '.infra-copilot', '.github/apps'], cwd=checkout, check=True)
             subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
                             'commit', '-qm', 'public review fixture'], cwd=checkout, check=True)
             binary_directory = checkout / 'bin'
@@ -91,6 +95,10 @@ class GitHubAppPermissionTests(unittest.TestCase):
             environment = {**os.environ, 'PATH': f'{binary_directory}{os.pathsep}{os.environ["PATH"]}',
                            'REPO': 'acme/infra', 'GH_PLAN_APP_ID': '123', 'GH_APPLY_APP_ID': '456',
                            'GH_APPS_REVIEWED_AT': '2025-01-02T00:00:00Z'}
+            for app_kind in ('plan', 'apply'):
+                environment[f'GH_{app_kind.upper()}_MANIFEST_BLOB'] = subprocess.run(
+                    ['git', 'hash-object', f'.github/apps/terraform-{app_kind}.json'], cwd=checkout,
+                    check=True, capture_output=True, text=True).stdout.strip()
             reviewed = subprocess.run(['sh', '-c', app_check], cwd=checkout, env=environment,
                                       capture_output=True, text=True)
             self.assertEqual(reviewed.returncode, 0, reviewed.stderr)
@@ -99,6 +107,10 @@ class GitHubAppPermissionTests(unittest.TestCase):
                 rejected = subprocess.run(['sh', '-c', app_check], cwd=checkout,
                                           env={**environment, **invalid_review}, capture_output=True, text=True)
                 self.assertEqual(rejected.returncode, 1, rejected.stderr)
+            (checkout / '.github/apps/terraform-plan.json').unlink()
+            missing_manifest = subprocess.run(['sh', '-c', app_check], cwd=checkout, env=environment,
+                                              capture_output=True, text=True)
+            self.assertEqual(missing_manifest.returncode, 1)
 
 
 if __name__ == '__main__':

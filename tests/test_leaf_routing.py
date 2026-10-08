@@ -131,6 +131,10 @@ class LeafRoutingTests(unittest.TestCase):
         runner_backend.write_text(
             'terraform { backend "gcs" { bucket = "acme-state"\n'
             'prefix = "terraform/state/github" } }\n', encoding='utf-8')
+        subprocess.run(['git', 'init', '-q'], cwd=self.checkout, check=True)
+        subprocess.run(['git', 'add', 'terraform'], cwd=self.checkout, check=True)
+        subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                        'commit', '-qm', 'fresh backend fixture'], cwd=self.checkout, check=True)
         manifest_text = (REFERENCES / 'steps.yaml').read_text(encoding='utf-8')
         member_body = manifest_text.split('  - id: backend-config\n', 1)[1].split('  - id: ', 1)[0]
         check_body = member_body.split('    check: |\n', 1)[1].split('    produces:', 1)[0]
