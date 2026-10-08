@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9698321f9e7ceb7ed0d230929a95f7c0fd04a911645304fff019912216b0ab0e
-Source-Hash: blake3:3900082067c36989bcac64abd343b9f9c855338d13b86f9ec73ae73e5531db95
+Content-Hash: blake3:1ca6e723013910909e73a04531102872d8e9272627df7bb2b816028d2370b8b3
+Source-Hash: blake3:df4dd5f62bb68e7d55e30a3b3d425b39ce7e6fa03d7740dffbb1393a44ba0165
 Schema-Version: v1
 -->
 
@@ -375,9 +375,6 @@ keeps canonical workflows independent of the active coding agent.
 ## Staged backend migration
 
 `backend` is repo-wide; per-leaf overrides are not supported.
-Keep `backend: hcp` until the last leaf moves, then switch to `object-storage` in its
-cutover PR. During the mixed window, the global `when` gates and `status` checks cannot
-certify both modes: migrated leaves may report red under HCP checks, while the
-object-storage steps are skipped. Use the per-leaf evidence in
-[the cutover guide](docs/object-storage-state.md#mixed-backend-window) and do not run
-setup to rewrite every leaf or interpret skipped checks as migration success.
+Keep `backend: hcp` until the last leaf moves, then switch to `object-storage` in its cutover PR.
+During the mixed window, the global `when` gates and `status` checks cannot certify both modes: migrated leaves may report red under HCP checks, while the object-storage steps are skipped.
+Use the per-leaf evidence in [the cutover guide](docs/object-storage-state.md#mixed-backend-window) and do not run setup to rewrite every leaf or interpret skipped checks as migration success.

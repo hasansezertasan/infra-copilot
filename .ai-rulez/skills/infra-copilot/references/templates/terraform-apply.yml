@@ -112,11 +112,15 @@ jobs:
           # Set this production environment variable to true only for a new leaf's first apply.
           ALLOW_EMPTY_STATE: ${{ vars.TF_ALLOW_EMPTY_STATE_CLOUDFLARE }}
         run: |
-          # A read error must fail even when first creation is explicitly allowed.
-          state=$(terraform state list) || { echo "::error::cannot read state; refusing to apply"; exit 1; }
-          if [ -z "$state" ] && [ "$ALLOW_EMPTY_STATE" != "true" ]; then
-            echo "::error::empty state; refusing to apply"
-            exit 1
+          # First creation may have no state file at all (notably on S3).
+          if [ "$ALLOW_EMPTY_STATE" = "true" ]; then
+            echo "::notice::state guard bypassed for explicitly authorized first creation"
+          else
+            state=$(terraform state list) || { echo "::error::cannot read state; refusing to apply"; exit 1; }
+            if [ -z "$state" ]; then
+              echo "::error::empty state; refusing to apply"
+              exit 1
+            fi
           fi
 
       - name: Terraform Apply
@@ -177,11 +181,15 @@ jobs:
           # Set this production environment variable to true only for a new leaf's first apply.
           ALLOW_EMPTY_STATE: ${{ vars.TF_ALLOW_EMPTY_STATE_GITHUB }}
         run: |
-          # A read error must fail even when first creation is explicitly allowed.
-          state=$(terraform state list) || { echo "::error::cannot read state; refusing to apply"; exit 1; }
-          if [ -z "$state" ] && [ "$ALLOW_EMPTY_STATE" != "true" ]; then
-            echo "::error::empty state; refusing to apply"
-            exit 1
+          # First creation may have no state file at all (notably on S3).
+          if [ "$ALLOW_EMPTY_STATE" = "true" ]; then
+            echo "::notice::state guard bypassed for explicitly authorized first creation"
+          else
+            state=$(terraform state list) || { echo "::error::cannot read state; refusing to apply"; exit 1; }
+            if [ -z "$state" ]; then
+              echo "::error::empty state; refusing to apply"
+              exit 1
+            fi
           fi
 
       - name: Terraform Apply

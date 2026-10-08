@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
@@ -98,6 +102,14 @@ jobs:
         if: github.event_name == 'pull_request'
         with:
           script: |
+            const { data: pull } = await github.rest.pulls.get({
+              ...context.repo,
+              pull_number: context.issue.number
+            });
+            if (pull.head.sha !== context.payload.pull_request.head.sha) {
+              core.notice('Skipping plan comment for an outdated PR head.');
+              return;
+            }
             const fs = require('fs');
             const plan = fs.readFileSync('terraform/cloudflare/plan.txt', 'utf8');
             const maxLength = 65000;
@@ -106,6 +118,8 @@ jobs:
               : plan;
 
             const body = `### Terraform Plan: \`cloudflare\`
+
+            Commit: \`${context.payload.pull_request.head.sha}\`
 
             <details>
             <summary>Show Plan</summary>
@@ -197,6 +211,14 @@ jobs:
         if: github.event_name == 'pull_request'
         with:
           script: |
+            const { data: pull } = await github.rest.pulls.get({
+              ...context.repo,
+              pull_number: context.issue.number
+            });
+            if (pull.head.sha !== context.payload.pull_request.head.sha) {
+              core.notice('Skipping plan comment for an outdated PR head.');
+              return;
+            }
             const fs = require('fs');
             const plan = fs.readFileSync('terraform/github/plan.txt', 'utf8');
             const maxLength = 65000;
@@ -205,6 +227,8 @@ jobs:
               : plan;
 
             const body = `### Terraform Plan: \`github\`
+
+            Commit: \`${context.payload.pull_request.head.sha}\`
 
             <details>
             <summary>Show Plan</summary>
