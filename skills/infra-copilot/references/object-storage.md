@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7b838876b430222fbe1b8744ab1bb0e76a3ce9b9576b07de893f3ba3c6ee73bb
-Source-Hash: blake3:94e0b3a775e82d952994a3675cebe4e202872f29a91f3e614821110dc12c9d5b
+Content-Hash: blake3:c6c28e4bad71160facb019fad116acbd6f6bdc947c8e3bc4c8cdaf08204d5f3d
+Source-Hash: blake3:32f7dce0599e20d977e1729bc06070c5d860879122160c4344fb587594c2bea9
 Schema-Version: v1
 -->
 
@@ -28,8 +28,13 @@ values in the same reviewed cutover PR. Verify with `checks/workflow-routing.sh`
 accepting evidence; the template's object-storage defaults do not resolve config.
 For additional providers, extend change routing, job conditions and the aggregate to
 the entry's effective backend. Add a top-level static route literal named after the
-uppercase slug with hyphens replaced by underscores, followed by `_BACKEND` (e.g.
-`GCP_PROD_BACKEND`). Run the workflow agreement check with `ROUTING_PROVIDER` set to
+uppercase slug with hyphens replaced by underscores, prefixed with `LEAF_` and followed
+by `_BACKEND` (e.g. `LEAF_GCP_PROD_BACKEND`). Use corresponding `LEAF_<SLUG>_CHANGED`
+inputs and `leaf_<slug_with_underscores>` shell variables. Preserve the supported route
+script grouping: all false initializers, guarded true decisions, then output writes,
+bootstrap leaves first and additional leaves in lexical order. Include both workflow
+paths in plan/apply filters and every Actions provider in the aggregate's dependencies
+and changed-leaf success predicates. Run the workflow agreement check with `ROUTING_PROVIDER` set to
 `NEW_PROVIDER` for that entry to verify both workflows against effective config.
 The Phase 6 workflow and plan checks enforce this.
 An override to HCP must disable that provider's runner auth/init/plan/apply path.

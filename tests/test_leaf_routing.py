@@ -217,6 +217,19 @@ class LeafRoutingTests(unittest.TestCase):
             prefix = 'plan' if workflow_name == 'terraform-plan.yml' else 'apply'
             suffix = " && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)" if prefix == 'plan' else ''
             workflow_text += f"\n  {prefix}-gcp-prod:\n    if: needs.changes.outputs.gcp-prod == 'true'{suffix}\n"
+            if prefix == 'plan':
+                workflow_text = workflow_text.replace(
+                    'needs: [changes, plan-cloudflare, plan-github, validate]',
+                    'needs: [changes, plan-cloudflare, plan-github, plan-gcp-prod, validate]')
+                workflow_text = workflow_text.replace(
+                    '          GITHUB_CHANGED: ${{ needs.changes.outputs.github }}',
+                    '          GITHUB_CHANGED: ${{ needs.changes.outputs.github }}\n'
+                    '          LEAF_GCP_PROD_CHANGED: ${{ needs.changes.outputs.gcp-prod }}')
+                workflow_text = workflow_text.replace(
+                    '          echo "All plan and validation checks passed."',
+                    '          plan_gcp_prod_result=$(echo \'${{ toJson(needs) }}\' | jq -r \'.["plan-gcp-prod"].result // "skipped"\')\n'
+                    '          if [ "$LEAF_GCP_PROD_CHANGED" = "true" ] && [ "$plan_gcp_prod_result" != "success" ]; then\n'
+                    '            exit 1\n          fi\n          echo "All plan and validation checks passed."')
             workflow_path.write_text(workflow_text)
         self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 0)
         self.environment['LEAF_BACKENDS'] = '{"github":"object-storage"}'
@@ -270,6 +283,10 @@ class LeafRoutingTests(unittest.TestCase):
         self.write_workflows()
         (self.checkout / 'terraform/gcp').mkdir(parents=True)
         self.environment.update(NEW_PROVIDER='gcp', HAS_OBJECT_STORAGE='true')
+        subprocess.run(['git', 'init', '-q'], cwd=self.checkout, check=True)
+        subprocess.run(['git', 'add', '.github'], cwd=self.checkout, check=True)
+        subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                        'commit', '-qm', 'workflow fixture'], cwd=self.checkout, check=True)
         manifest_text = (REFERENCES / 'steps.yaml').read_text()
         leaf_body = manifest_text.split('  - id: new-provider-leaf\n')[1].split('  - id: ')[0]
         validation_check = leaf_body.split('    check: |\n')[1].split('      if [ "$NEW_PROVIDER_BACKEND"')[0]
@@ -280,6 +297,12 @@ class LeafRoutingTests(unittest.TestCase):
         workflow_path = self.checkout / '.github/workflows/terraform-plan.yml'
         workflow_path.write_text(workflow_path.read_text().replace('leaf: [cloudflare, github]',
                                                                   'leaf: [cloudflare, github, gcp]'))
+        uncommitted = subprocess.run(['sh', '-c', validation_check], cwd=self.checkout,
+                                    env=self.environment, capture_output=True, text=True)
+        self.assertEqual(uncommitted.returncode, 1)
+        subprocess.run(['git', 'add', '.github'], cwd=self.checkout, check=True)
+        subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                        'commit', '-qm', 'validation membership'], cwd=self.checkout, check=True)
         included = subprocess.run(['sh', '-c', validation_check], cwd=self.checkout,
                                   env=self.environment, capture_output=True, text=True)
         self.assertEqual(included.returncode, 0, included.stderr)
@@ -291,7 +314,69 @@ class LeafRoutingTests(unittest.TestCase):
         for workflow_path in (self.checkout / '.github/workflows').iterdir():
             workflow_text = workflow_path.read_text().replace('gcp-prod', '1password').replace(
                 'LEAF_GCP_PROD', 'LEAF_1PASSWORD').replace('leaf_gcp_prod', 'leaf_1password')
+            workflow_text = workflow_text.replace('plan_gcp_prod_result', 'plan_1password_result').replace(
+                '.outputs.1password', ".outputs['1password']")
             workflow_path.write_text(workflow_text)
+        self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 0)
+
+    def test_blank_line_cannot_hide_a_later_route_override(self) -> None:
+        self.write_workflows()
+        workflow_path = self.checkout / '.github/workflows/terraform-apply.yml'
+        workflow_path.write_text(workflow_path.read_text().replace(
+            '          echo "github=$github" >> "$GITHUB_OUTPUT"',
+            '          echo "github=$github" >> "$GITHUB_OUTPUT"\n\n'
+            '          cloudflare=true\n          echo "cloudflare=$cloudflare" >> "$GITHUB_OUTPUT"'))
+        self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 2)
+
+    def test_crlf_templates_preserve_routing_semantics(self) -> None:
+        self.write_workflows()
+        for workflow_path in (self.checkout / '.github/workflows').iterdir():
+            workflow_path.write_bytes(workflow_path.read_bytes().replace(b'\n', b'\r\n'))
+        self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 0)
+
+    def test_missing_workflows_and_new_routes_are_provisioning_failures(self) -> None:
+        self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 1)
+        self.write_workflows()
+        self.environment.update(ADDITIONAL_PROVIDER_NAMES='["gcp"]',
+                                LEAF_BACKENDS='{"github":"object-storage","gcp":"object-storage"}')
+        self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 1)
+
+    def test_escaped_environment_and_quoted_job_keys_are_unsupported(self) -> None:
+        for injection in ('        env:\n          "\\u0043LOUDFLARE_BACKEND": object-storage\n',
+                          '  "plan-gcp":\n    if: true\n'):
+            with self.subTest(injection=injection):
+                self.write_workflows()
+                workflow_path = self.checkout / '.github/workflows/terraform-plan.yml'
+                workflow_path.write_text(workflow_path.read_text() + injection)
+                self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 2)
+
+    def test_route_in_an_unrelated_job_is_not_changes_evidence(self) -> None:
+        self.write_workflows()
+        workflow_path = self.checkout / '.github/workflows/terraform-apply.yml'
+        workflow_text = workflow_path.read_text()
+        route_start = workflow_text.index('      - name: Route object-storage leaves')
+        route_end = workflow_text.index('  apply-cloudflare:')
+        route_block = workflow_text[route_start:route_end]
+        workflow_text = workflow_text[:route_start] + workflow_text[route_end:]
+        workflow_text += '  decoy:\n    steps:\n' + route_block
+        workflow_path.write_text(workflow_text)
+        self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 1)
+
+    def test_additional_plan_must_be_in_the_required_aggregate(self) -> None:
+        self.test_additional_provider_workflow_literal_matches_override()
+        self.environment['LEAF_BACKENDS'] = '{"github":"object-storage","gcp-prod":"object-storage"}'
+        workflow_path = self.checkout / '.github/workflows/terraform-plan.yml'
+        workflow_path.write_text(workflow_path.read_text().replace('plan-github, plan-gcp-prod, validate',
+                                                                  'plan-github, validate'))
+        self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 1)
+
+    def test_provider_keys_with_bootstrap_suffixes_are_distinct(self) -> None:
+        self.test_additional_provider_workflow_literal_matches_override()
+        self.environment.update(ADDITIONAL_PROVIDER_NAMES='["org-github"]', ROUTING_PROVIDER='org-github',
+                                LEAF_BACKENDS='{"github":"object-storage","org-github":"object-storage"}')
+        for workflow_path in (self.checkout / '.github/workflows').iterdir():
+            workflow_path.write_text(workflow_path.read_text().replace('gcp-prod', 'org-github').replace(
+                'GCP_PROD', 'ORG_GITHUB').replace('gcp_prod', 'org_github'))
         self.assertEqual(self.execute_check('workflow-routing.sh').returncode, 0)
 
     def prepare_hcp_api(self, *, legacy_permissions: dict[str, bool] | None = None) -> None:

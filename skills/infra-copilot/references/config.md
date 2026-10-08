@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:cda90aa739a8edd61d556dec1a119a71f372f3d9c330a93d695cb069d14995a9
-Source-Hash: blake3:94e0b3a775e82d952994a3675cebe4e202872f29a91f3e614821110dc12c9d5b
+Content-Hash: blake3:cee43855da4a809f6ff0ea58d370fa1938a44102e6a1db0e74979f6244f927fc
+Source-Hash: blake3:32f7dce0599e20d977e1729bc06070c5d860879122160c4344fb587594c2bea9
 Schema-Version: v1
 -->
 
@@ -88,6 +88,10 @@ config; direct the user to add the field or run `setup` to record their choice.
 ---
 backend: object-storage        # required: hcp | object-storage; recommended for new repos
 leaf_backends: {}               # optional map: leaf name -> hcp | object-storage
+github_apps:                    # handoff evidence when github uses Actions
+  plan_app_id: ""               # public numeric ID, distinct from apply
+  apply_app_id: ""
+  reviewed_at: ""               # HUMAN UTC after permissions + secret scopes reviewed
 github_org: <string>           # GitHub org slug
 apex_domain: <string>          # e.g. example.dev
 cloudflare_account_id: <hex>   # Cloudflare account ID
@@ -306,6 +310,11 @@ Before running ANY step's `check` or `run`, the agent MUST:
    clear stale implementation-specific and provider-entry exports first.
    `BACKEND` always remains the repository default, never the current leaf.
    Then export and validate the fields for every service present in that inventory:
+   For `GITHUB_BACKEND=object-storage`, export `GH_PLAN_APP_ID`, `GH_APPLY_APP_ID`, and
+   `GH_APPS_REVIEWED_AT` from `github_apps`; missing fields become empty so the HUMAN
+   App handoff is red. Require distinct public IDs and strict non-future UTC review time.
+   Secret updates invalidate that review until the HUMAN reviews custody/live permissions
+   again. These public fields never authorize reading secret values.
 
    **HCP service present** (`HAS_HCP=true`):
 

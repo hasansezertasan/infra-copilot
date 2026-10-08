@@ -55,5 +55,7 @@ for leaf in $leaves; do
               and ((($a["trigger-patterns"]) // []) | index("mise.toml") != null)
               and (($a["vcs-repo"].identifier // "") == $repo)
               and (($a["vcs-repo"].branch // "") == "main")' >/dev/null \
-        || exit 1
+        && { [ "$selection" != hcp_leaves ] || exit 0; } \
+        || { [ "$selection" = hcp_leaves ] || exit 1; }
 done
+[ "$selection" != hcp_leaves ] || exit 1

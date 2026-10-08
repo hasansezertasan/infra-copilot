@@ -3,6 +3,17 @@
 # Reject ambiguous overrides/expressions instead of claiming to parse arbitrary YAML.
 set -eu
 fail() { echo "CANNOT VERIFY workflow routing: $1" >&2; exit 2; }
+broken() { echo "BROKEN workflow routing: $1" >&2; exit 1; }
+normalized=$(mktemp) || fail 'cannot allocate workflow scratch file'
+trap 'rm -f "$normalized"' EXIT
+job_block() {
+    awk -v name="$1" '
+        /^jobs:/ {jobs=1; next}
+        /^[^[:space:]#]/ {jobs=0}
+        jobs && /^  [a-zA-Z0-9_-]+:/ {inside=($0 == "  " name ":")}
+        jobs && inside {print}
+    ' "$normalized"
+}
 routing=$(sh "${INFRA_COPILOT_REFERENCES:?}/checks/leaf-routing.sh") || exit 2
 pairs='cloudflare:CLOUDFLARE_BACKEND github:GITHUB_BACKEND'
 for provider in $(printf '%s' "$routing" | jq -r '.effective | keys[] | select(. != "cloudflare" and . != "github")'); do
@@ -16,19 +27,33 @@ fi
 [ "$#" -gt 0 ] || set -- .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml
 for file do
     case "$file" in .github/workflows/terraform-plan.yml|.github/workflows/terraform-apply.yml) ;; *) fail 'unsupported workflow path' ;; esac
-    [ -r "$file" ] || fail "$file is missing or unreadable"
+    [ -e "$file" ] || broken "$file is missing; provision the workflows"
+    [ -r "$file" ] || fail "$file is unreadable"
+    source_file=$file
+    awk '{sub(/\r$/, ""); print}' "$file" > "$normalized" || fail "$file cannot be read"
+    file=$normalized
     # Only block environments are supported. Flow maps, aliases, merge keys and
     # quoted keys must not conceal a more-specific routing override.
     awk '
         /^[[:space:]]*#/ {next}
+        /^[[:space:]]*["\047].*["\047][[:space:]]*:/ {exit 1}
         /(^|[[:space:]])["\047]?env["\047]?[[:space:]]*:/ &&
             $0 !~ /^[[:space:]]*env:[[:space:]]*(#.*)?$/ {exit 1}
         /^[[:space:]]*<</ {exit 1}
         /(^|[[:space:]:,\{\[])[&*][a-zA-Z_]/ {exit 1}
     ' "$file" || fail "$file uses unsupported environment syntax"
+    changes=$(job_block changes)
+    [ -n "$changes" ] || broken "$source_file lacks changes job"
+    route=$(printf '%s\n' "$changes" | awk '
+        /^      - / {if (found) print block; block=""; found=0}
+        {block=block $0 "\n"}
+        /^        id: route[[:space:]]*$/ {found=1; count++}
+        END {if (found) printf "%s", block; if (count != 1) exit 1}
+    ') || broken "$source_file needs one route step in changes"
     initializers=''; decisions=''; emissions=''
     for pair in $pairs; do
         leaf=${pair%%:*}; key=${pair#*:}
+        case "$leaf" in [0-9]*) accessor="['$leaf']" ;; *) accessor=.$leaf ;; esac
         expected=$(printf '%s' "$routing" | jq -er --arg leaf "$leaf" '.effective[$leaf]') || exit 2
         # HCP-only additional leaves need no runner jobs. If any runner declaration
         # remains, verify it even though the leaf's Actions implementation is skipped.
@@ -36,10 +61,12 @@ for file do
            ! grep -Eq "$key|^  (plan|apply)-$leaf:" "$file"; then
             continue
         fi
+        grep -Eq "(^|[^A-Za-z0-9_])$key[\"']?[[:space:]]*:" "$file" ||
+            broken "$source_file is missing $key"
         value=$(awk -v key="$key" '
             /^[[:space:]]*#/ {next}
             /^[^[:space:]#]/ { global_env = ($0 ~ /^env:[[:space:]]*(#.*)?$/) }
-            $0 ~ key "[\"\047]?[[:space:]]*:" {
+            $0 ~ "(^|[^A-Za-z0-9_])" key "[\"\047]?[[:space:]]*:" {
                 count++
                 if (!global_env || $0 !~ "^  " key ":") bad=1
                 line=$0; sub("^  " key ":[[:space:]]*", "", line)
@@ -54,24 +81,45 @@ for file do
             exit 1 ;;
         esac
         # Verify the supported execution wiring, not merely decorative literals.
-        grep -Fxq "      $leaf: \${{ steps.route.outputs.$leaf }}" "$file" || {
+        output=$(printf '%s\n' "$changes" | awk -v leaf="$leaf" '
+            /^    outputs:/ {inside=1; next}
+            /^    [^[:space:]]/ {inside=0}
+            inside && $0 ~ "^      " leaf ":" {print}
+        ')
+        [ "$output" = "      $leaf: \${{ steps.route.outputs$accessor }}" ] || {
             echo "BROKEN workflow routing: $file $leaf output bypasses route" >&2; exit 1;
         }
-        case "$file" in
+        case "$source_file" in
             *terraform-plan.yml) prefix=plan; suffix=" && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)" ;;
             *) prefix=apply; suffix='' ;;
         esac
-        guard=$(awk -v name="$prefix-$leaf" '
-            /^  [a-zA-Z0-9_-]+:/ {inside=($0 == "  " name ":")}
-            inside && /^    if:/ {sub(/^    if: /, ""); print}
-        ' "$file")
-        [ "$guard" = "needs.changes.outputs.$leaf == 'true'$suffix" ] ||
+        guard=$(job_block "$prefix-$leaf" | awk '/^    if:/ {sub(/^    if: /, ""); print}')
+        [ -n "$guard" ] || broken "$source_file is missing $prefix-$leaf guard"
+        [ "$guard" = "needs.changes.outputs$accessor == 'true'$suffix" ] ||
             fail "$file $prefix-$leaf does not use the supported routed job guard"
         slug=$(printf '%s' "$leaf" | tr '-' '_')
         case "$leaf" in cloudflare|github) variable=$slug ;; *) variable=leaf_$slug ;; esac
         changed=${key%_BACKEND}_CHANGED
-        grep -Fxq "          $changed: \${{ steps.filter.outputs.$leaf }}" "$file" ||
-            fail "$file route lacks $changed input"
+        printf '%s\n' "$route" | grep -Fxq "          $changed: \${{ steps.filter.outputs$accessor }}" ||
+            broken "$source_file route lacks $changed input"
+        if [ "$prefix" = plan ] && [ "$expected" = object-storage ]; then
+            aggregate=$(job_block plan)
+            dependencies=$(printf '%s\n' "$aggregate" | sed -n 's/^    needs: //p')
+            printf '%s\n' "$dependencies" | grep -Eq "(^|[^a-z0-9-])plan-$leaf([^a-z0-9-]|$)" ||
+                broken "$source_file aggregate omits plan-$leaf"
+            printf '%s\n' "$aggregate" | grep -Fxq "          $changed: \${{ needs.changes.outputs$accessor }}" ||
+                broken "$source_file aggregate lacks $changed input"
+            result=plan_${slug}_result
+            printf '%s\n' "$aggregate" | grep -Fq ".[\"plan-$leaf\"].result" ||
+                broken "$source_file aggregate lacks plan-$leaf result"
+            predicate=$(printf 'if [ "$%s" = "true" ] && [ "$%s" != "success" ]; then' "$changed" "$result")
+            printf '%s\n' "$aggregate" | awk -v predicate="$predicate" '
+                $0 == "          " predicate {inside=1; count++}
+                inside && /^            exit 1$/ {fails++}
+                /^          fi$/ {inside=0}
+                END {if (count != 1 || fails != 1) exit 1}
+            ' || broken "$source_file aggregate does not require successful changed $leaf plan"
+        fi
         initialization="$variable=false"
         decision=$(printf 'if [ "$%s" = "object-storage" ] && [ "$%s" = "true" ]; then\n  %s=true\nfi' "$key" "$changed" "$variable")
         emission=$(printf 'echo "%s=$%s" >> "$GITHUB_OUTPUT"' "$leaf" "$variable")
@@ -84,14 +132,15 @@ for file do
         emissions="$emissions$emission
 "
     done
-    route_run=$(awk '
+    route_run=$(printf '%s\n' "$route" | awk '
         /^      - / {route=0; run=0}
         /^        id: route[[:space:]]*$/ {route=1; count++}
         route && /^        run: \|[[:space:]]*$/ {run=1; next}
         run && /^          / {sub(/^          /, ""); print; next}
+        run && /^[[:space:]]*$/ {print ""; next}
         run {run=0}
         END {if (count != 1) exit 1}
-    ' "$file") || fail "$file needs exactly one supported route step"
+    ') || fail "$source_file needs exactly one supported route step"
     # Order is significant: reject unguarded/later assignments and early writes.
     # Bootstrap leaves first, then additional leaves in lexical order.
     expected_run=$(printf '%s%s%s' "$initializers" "$decisions" "$emissions")

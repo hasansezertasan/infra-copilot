@@ -21,8 +21,13 @@ values in the same reviewed cutover PR. Verify with `checks/workflow-routing.sh`
 accepting evidence; the template's object-storage defaults do not resolve config.
 For additional providers, extend change routing, job conditions and the aggregate to
 the entry's effective backend. Add a top-level static route literal named after the
-uppercase slug with hyphens replaced by underscores, followed by `_BACKEND` (e.g.
-`GCP_PROD_BACKEND`). Run the workflow agreement check with `ROUTING_PROVIDER` set to
+uppercase slug with hyphens replaced by underscores, prefixed with `LEAF_` and followed
+by `_BACKEND` (e.g. `LEAF_GCP_PROD_BACKEND`). Use corresponding `LEAF_<SLUG>_CHANGED`
+inputs and `leaf_<slug_with_underscores>` shell variables. Preserve the supported route
+script grouping: all false initializers, guarded true decisions, then output writes,
+bootstrap leaves first and additional leaves in lexical order. Include both workflow
+paths in plan/apply filters and every Actions provider in the aggregate's dependencies
+and changed-leaf success predicates. Run the workflow agreement check with `ROUTING_PROVIDER` set to
 `NEW_PROVIDER` for that entry to verify both workflows against effective config.
 The Phase 6 workflow and plan checks enforce this.
 An override to HCP must disable that provider's runner auth/init/plan/apply path.

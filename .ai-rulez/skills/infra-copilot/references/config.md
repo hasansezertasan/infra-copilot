@@ -81,6 +81,10 @@ config; direct the user to add the field or run `setup` to record their choice.
 ---
 backend: object-storage        # required: hcp | object-storage; recommended for new repos
 leaf_backends: {}               # optional map: leaf name -> hcp | object-storage
+github_apps:                    # handoff evidence when github uses Actions
+  plan_app_id: ""               # public numeric ID, distinct from apply
+  apply_app_id: ""
+  reviewed_at: ""               # HUMAN UTC after permissions + secret scopes reviewed
 github_org: <string>           # GitHub org slug
 apex_domain: <string>          # e.g. example.dev
 cloudflare_account_id: <hex>   # Cloudflare account ID
@@ -299,6 +303,11 @@ Before running ANY step's `check` or `run`, the agent MUST:
    clear stale implementation-specific and provider-entry exports first.
    `BACKEND` always remains the repository default, never the current leaf.
    Then export and validate the fields for every service present in that inventory:
+   For `GITHUB_BACKEND=object-storage`, export `GH_PLAN_APP_ID`, `GH_APPLY_APP_ID`, and
+   `GH_APPS_REVIEWED_AT` from `github_apps`; missing fields become empty so the HUMAN
+   App handoff is red. Require distinct public IDs and strict non-future UTC review time.
+   Secret updates invalidate that review until the HUMAN reviews custody/live permissions
+   again. These public fields never authorize reading secret values.
 
    **HCP service present** (`HAS_HCP=true`):
 

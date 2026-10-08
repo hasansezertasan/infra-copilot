@@ -355,8 +355,11 @@ steps:
       # version, VCS target, execution mode, or safety toggles still requires the
       # user credential so workspaces-create can reconcile it. Both steps call
       # one shared check so their definitions of "provisioned" cannot diverge.
+      readiness=''
+      # Pending Phase 6 provisioning does not invalidate an established service.
+      [ "$HAS_HCP_BOOTSTRAP" = true ] || readiness=--login-readiness
       HCP_TOKEN=$token \
-        sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh" --login-readiness \
+        sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh" $readiness \
         >/dev/null 2>&1 && exit 0
 
       # Cold repository: phases 0 and 1 genuinely need the user credential, and a
@@ -971,16 +974,34 @@ steps:
          in repository Actions secrets. Store the write-capable apply App's same three
          names in the protected production environment, overriding repository secrets.
       4. Verify both live App permission sets and secret scopes privately before replying done.
+         Record the distinct public IDs in config.github_apps.plan_app_id/apply_app_id
+         and current strict UTC timestamp in github_apps.reviewed_at only after reviewing
+         both live permissions and secret stores. Commit that evidence. Re-review after
+         any secret update or live App permission change.
     check: |
+      printf '%s\n' "${GH_PLAN_APP_ID:-}" | grep -Eq '^[0-9]+$' || exit 1
+      printf '%s\n' "${GH_APPLY_APP_ID:-}" | grep -Eq '^[0-9]+$' || exit 1
+      [ "$GH_PLAN_APP_ID" != "$GH_APPLY_APP_ID" ] || exit 1
+      reviewed=${GH_APPS_REVIEWED_AT:-}
+      printf '%s\n' "$reviewed" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' || exit 1
+      printf '%s\n' "$reviewed" | jq -Re '
+        . as $raw | try strptime("%Y-%m-%dT%H:%M:%SZ") catch null
+        | select(. != null) | mktime as $epoch
+        | ($epoch | strftime("%Y-%m-%dT%H:%M:%SZ")) == $raw and $epoch <= now' >/dev/null || exit 1
+      git ls-files --error-unmatch .infra-copilot/config.md >/dev/null 2>&1 || exit 1
+      git diff --quiet HEAD -- .infra-copilot/config.md || exit 1
+      git diff --cached --quiet HEAD -- .infra-copilot/config.md || exit 1
       for scope in repository production; do
         if [ "$scope" = repository ]; then
-          secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name') || exit 1
+          secrets=$(gh secret list --repo "$REPO" --json name,updatedAt) || exit 1
         else
-          secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name') || exit 1
+          secrets=$(gh secret list --repo "$REPO" --env production --json name,updatedAt) || exit 1
         fi
-        for key in GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PEM; do
-          printf '%s\n' "$secrets" | grep -Fxq "$key" || exit 1
-        done
+        printf '%s\n' "$secrets" | jq -e --arg reviewed "$reviewed" '
+          [ .[] | select(.name | IN("GH_APP_ID", "GH_APP_INSTALLATION_ID", "GH_APP_PEM")) ]
+          | length == 3 and all(.[]; (.updatedAt | type == "string")
+            and (.updatedAt | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime)
+              <= ($reviewed | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime))' >/dev/null || exit 1
       done
       # Metadata proves custody only; the HUMAN verifies distinct live permissions.
     produces: GitHub Actions secrets for GitHub App authentication
@@ -2002,13 +2023,17 @@ steps:
     check: |
       test -d "terraform/$NEW_PROVIDER" || exit 1
       if [ "${HAS_OBJECT_STORAGE:-false}" = true ]; then
+        git ls-files --error-unmatch .github/workflows/terraform-plan.yml >/dev/null 2>&1 || exit 1
+        git diff --quiet HEAD -- .github/workflows/terraform-plan.yml || exit 1
+        git diff --cached --quiet HEAD -- .github/workflows/terraform-plan.yml || exit 1
         matrix=$(awk '
           /^  validate:/ {inside=1; next}
           inside && /^  [^[:space:]#]/ {exit}
           inside && /^        leaf: \[/ {print}
         ' .github/workflows/terraform-plan.yml) || exit 1
-        printf '%s\n' "$matrix" | sed 's/^[[:space:]]*leaf:[[:space:]]*//' |
-          grep -Eq "(^|[^a-z0-9-])$NEW_PROVIDER([^a-z0-9-]|$)" || exit 1
+        matrix=$(printf '%s\n' "$matrix" | sed 's/#.*//; s/^[[:space:]]*leaf:[[:space:]]*//; s/[[:space:]]*$//')
+        printf '%s\n' "$matrix" | grep -Eq '^\[[a-z0-9, -]+\]$' || exit 1
+        printf '%s\n' "$matrix" | tr -d '[]' | tr ', ' '\n' | grep -Fxq "$NEW_PROVIDER" || exit 1
       fi
       if [ "$NEW_PROVIDER_BACKEND" = "hcp" ]; then
         # HCP mode: verify cloud block
@@ -2171,6 +2196,8 @@ steps:
          additional leaves in lexical order, all false initializers, then guarded true
          decisions, then output writes. Use shell-safe leaf_<slug_with_underscores>
          variables and LEAF_<SLUG>_CHANGED inputs for additional leaves, even digit-leading names.
+         Use bracket expression access for digit-leading output keys, e.g.
+         needs.changes.outputs['1password'] and steps.route.outputs['1password'].
       Commit the updated workflows before re-running this check.
     check: |
       # File existence and git tracking
@@ -2390,7 +2417,7 @@ steps:
       `credentials_verified_at` in config.md
       using strict `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and then reply `done`.
     check: |
-      [ "${NEW_PROVIDER_CREDENTIALS_BACKEND:-hcp}" = hcp ] || exit 1
+      [ "${NEW_PROVIDER_CREDENTIALS_BACKEND-hcp}" = hcp ] || exit 1
       test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
       workspace_body=$(curl -sf \
         "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \

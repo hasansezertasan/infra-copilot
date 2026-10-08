@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:ef9d1b21f540b365c8dcb2275edf79192f5fc32c1721334b50dcf2f13ac2aee5
-Source-Hash: blake3:94e0b3a775e82d952994a3675cebe4e202872f29a91f3e614821110dc12c9d5b
+Content-Hash: blake3:6c53d5b5603da7992ca782cb0cad087968b1f1a7ee82635a447769933ade5b6f
+Source-Hash: blake3:32f7dce0599e20d977e1729bc06070c5d860879122160c4344fb587594c2bea9
 Schema-Version: v1
 -->
 
@@ -92,6 +92,11 @@ exchange. Keep the committed manifest synchronized with approved live permission
 drift can be reviewed and the App recreated. Store plan credentials in repository secrets
 and apply credentials in the protected `production` environment; see
 [Actions provider authentication](docs/object-storage-ci.md#terraform-providers).
+After reviewing the distinct public App IDs, live permissions, and secret stores,
+record those IDs plus strict UTC `reviewed_at` under `github_apps` in the consuming config
+and commit it. Missing evidence or a secret update newer than that review keeps the
+handoff incomplete. Re-review when live permissions change; metadata cannot prove
+permissions or reveal which PEM was installed.
 
 ### HCP variable verification
 

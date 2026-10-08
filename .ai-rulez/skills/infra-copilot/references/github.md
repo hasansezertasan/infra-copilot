@@ -85,6 +85,11 @@ exchange. Keep the committed manifest synchronized with approved live permission
 drift can be reviewed and the App recreated. Store plan credentials in repository secrets
 and apply credentials in the protected `production` environment; see
 [Actions provider authentication](docs/object-storage-ci.md#terraform-providers).
+After reviewing the distinct public App IDs, live permissions, and secret stores,
+record those IDs plus strict UTC `reviewed_at` under `github_apps` in the consuming config
+and commit it. Missing evidence or a secret update newer than that review keeps the
+handoff incomplete. Re-review when live permissions change; metadata cannot prove
+permissions or reveal which PEM was installed.
 
 ### HCP variable verification
 

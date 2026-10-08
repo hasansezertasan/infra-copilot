@@ -135,6 +135,12 @@ class NewProviderFlowTests(unittest.TestCase):
                 capture_output=True, text=True,
             )
             self.assertEqual(stale_attestation.returncode, 1)
+            empty_binding = subprocess.run(
+                ['/bin/sh', '-c', literal_check(self.steps['new-provider-credentials'])], cwd=root,
+                env={**os.environ, 'NEW_PROVIDER_CREDENTIALS_BACKEND': '', 'hcp_api': 'invalid'},
+                capture_output=True, text=True,
+            )
+            self.assertEqual(empty_binding.returncode, 1)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
