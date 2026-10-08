@@ -870,19 +870,9 @@ steps:
         - Applies every leaf on every run, without a changes job or leaf-change conditions
         - Refuses non-main refs and commits that are not main's tip immediately before each apply
         - Retry failed applies by dispatching the workflow on main
-    check: |
-      # File existence and git tracking
-      test -f .github/workflows/terraform-plan.yml || exit 1
-      test -f .github/workflows/terraform-apply.yml || exit 1
-      git ls-files --error-unmatch \
-        .github/workflows/terraform-plan.yml \
-        .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
-      # YAML syntax validation skipped - workflow execution will catch malformed files
-      # Basic job existence - detailed validation happens in Phase 4 when workflows run
-      grep -q "plan-cloudflare" .github/workflows/terraform-plan.yml || exit 1
-      grep -q "plan-github" .github/workflows/terraform-plan.yml || exit 1
-      grep -q "apply-cloudflare" .github/workflows/terraform-apply.yml || exit 1
-      grep -q "apply-github" .github/workflows/terraform-apply.yml || exit 1
+      Commit both workflows before re-running this check.
+    tri_state: true
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/gha-workflows.sh"
     produces: GitHub Actions workflows for Terraform CI
     docs: docs/object-storage-ci.md#github-actions
 

@@ -25,6 +25,9 @@ The plan workflow uses `dorny/paths-filter` to detect which leaves changed, runs
 The apply workflow applies every leaf on each push, including unchanged leaves, so a newer run catches up changes from superseded or failed runs.
 To retry an apply, dispatch the workflow on `main`; each apply job refuses a ref other than `main` or a commit that is no longer its tip.
 Concurrency is scoped by ref so a dispatch from another branch cannot replace a pending `main` run.
+Setup checks committed workflows against the supported template layout before skipping creation.
+Legacy filters, conditional applies, missing dispatch support, or missing main-tip guards make the step incomplete.
+Keep the templates' guard and expression layout when customizing provider authentication.
 The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
 
 ## GitHub Environments
