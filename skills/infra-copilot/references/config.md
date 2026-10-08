@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9d8b59a9a530cc5fc3da363248f89e9ae89247f60580067d1c5a83805af82de7
-Source-Hash: blake3:5dfa14ab5f0c477e6e87034d2c495b33ee1db772492511dac5665eb012e37ad7
+Content-Hash: blake3:9698321f9e7ceb7ed0d230929a95f7c0fd04a911645304fff019912216b0ab0e
+Source-Hash: blake3:3900082067c36989bcac64abd343b9f9c855338d13b86f9ec73ae73e5531db95
 Schema-Version: v1
 -->
 
@@ -371,3 +371,13 @@ consuming repository. Copy [`decisions.md.example`](decisions.md.example) there 
 each durable choice, its status, and its rationale. If only a legacy `CLAUDE.md`
 locked-decisions table exists, honor it and offer to migrate the relevant entries. This
 keeps canonical workflows independent of the active coding agent.
+
+## Staged backend migration
+
+`backend` is repo-wide; per-leaf overrides are not supported.
+Keep `backend: hcp` until the last leaf moves, then switch to `object-storage` in its
+cutover PR. During the mixed window, the global `when` gates and `status` checks cannot
+certify both modes: migrated leaves may report red under HCP checks, while the
+object-storage steps are skipped. Use the per-leaf evidence in
+[the cutover guide](docs/object-storage-state.md#mixed-backend-window) and do not run
+setup to rewrite every leaf or interpret skipped checks as migration success.

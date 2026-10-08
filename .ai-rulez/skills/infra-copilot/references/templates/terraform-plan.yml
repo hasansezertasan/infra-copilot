@@ -22,6 +22,8 @@ jobs:
       github: ${{ steps.filter.outputs.github }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         with:
@@ -49,6 +51,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
 
@@ -111,12 +115,20 @@ jobs:
             \`\`\`
             </details>`;
 
-            github.rest.issues.createComment({
+            const marker = '<!-- infra-copilot-plan:cloudflare -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...context.repo,
               issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
+              per_page: 100
             });
+            const previous = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker));
+            const args = { ...context.repo, body: `${marker}\n${body}` };
+            if (previous) {
+              await github.rest.issues.updateComment({ ...args, comment_id: previous.id });
+            } else {
+              await github.rest.issues.createComment({ ...args, issue_number: context.issue.number });
+            }
 
       - name: Check Plan Status
         if: steps.plan.outputs.exitcode != '0'
@@ -132,6 +144,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
 
@@ -200,12 +214,20 @@ jobs:
             \`\`\`
             </details>`;
 
-            github.rest.issues.createComment({
+            const marker = '<!-- infra-copilot-plan:github -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...context.repo,
               issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
+              per_page: 100
             });
+            const previous = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker));
+            const args = { ...context.repo, body: `${marker}\n${body}` };
+            if (previous) {
+              await github.rest.issues.updateComment({ ...args, comment_id: previous.id });
+            } else {
+              await github.rest.issues.createComment({ ...args, issue_number: context.issue.number });
+            }
 
       - name: Check Plan Status
         if: steps.plan.outputs.exitcode != '0'
@@ -219,6 +241,8 @@ jobs:
         leaf: [cloudflare, github]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
 
       - name: Terraform Format
@@ -255,12 +279,12 @@ jobs:
           plan_github_result=$(echo '${{ toJson(needs) }}' | jq -r '.["plan-github"].result // "skipped"')
           if [ "$CLOUDFLARE_CHANGED" = "true" ] && [ "$plan_cloudflare_result" != "success" ]; then
             echo "Error: terraform/cloudflare changed but plan-cloudflare did not succeed (result: $plan_cloudflare_result)"
-            echo "This may be a fork PR - fork PRs cannot run authenticated plans."
+            echo "The leaf plan did not succeed. Check its logs for init, authentication, or plan errors; fork PRs cannot run authenticated plans."
             exit 1
           fi
           if [ "$GITHUB_CHANGED" = "true" ] && [ "$plan_github_result" != "success" ]; then
             echo "Error: terraform/github changed but plan-github did not succeed (result: $plan_github_result)"
-            echo "This may be a fork PR - fork PRs cannot run authenticated plans."
+            echo "The leaf plan did not succeed. Check its logs for init, authentication, or plan errors; fork PRs cannot run authenticated plans."
             exit 1
           fi
           # IMPORTANT: When adopting additional providers, add similar checks here:
