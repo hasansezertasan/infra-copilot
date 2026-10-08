@@ -62,7 +62,7 @@ class PlanCommentTests(unittest.TestCase):
 const assert = require('node:assert/strict');
 const leaf = LEAF;
 const marker = `<!-- infra-copilot-plan:${leaf} -->`;
-const context = { repo: { owner: 'owner', repo: 'infra' }, issue: { number: 107 },
+const context = { repo: { owner: 'owner', repo: 'infra' }, issue: { number: 107 }, sha: 'planned-merge',
   payload: { pull_request: { head: { sha: 'current-head' } } } };
 const core = { notice: () => {} };
 const comments = [
@@ -109,7 +109,8 @@ SCRIPT
     assert.equal(args.repo, 'infra');
     assert.ok(args.body.startsWith(marker + '\\n'));
     assert.ok(args.body.includes('No changes.'));
-    assert.ok(args.body.includes('current-head'));
+    assert.ok(args.body.includes('PR head: `current-head`'));
+    assert.ok(args.body.includes('Planned commit: `planned-merge`'));
   }
   context.payload.pull_request.head.sha = 'old-head';
   await post();

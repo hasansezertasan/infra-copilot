@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:67286fdebb054da67ce34d198c45867107761096b4f9f2ca42e4229bbefff35a
-Source-Hash: blake3:df4dd5f62bb68e7d55e30a3b3d425b39ce7e6fa03d7740dffbb1393a44ba0165
+Content-Hash: blake3:f899a2702bbf8e7a28d4c4ab26491aa4db7b088d3e0ff398c8740ab6ea1ea516
+Source-Hash: blake3:ef3ec4caf8a83e866d54a34d78c6fd5c5ca2466132f14aca7b9b7771dd047a4e
 Schema-Version: v1
 -->
 
@@ -292,9 +292,14 @@ Immediately after merge, keep the HCP workspace locked and remove its VCS connec
 ```
 
 Inspect every nonterminal HCP run, including the merge-triggered run.
-Runs queued behind the lock may return `409` on `POST /runs/:id/actions/discard`; use `POST /runs/:id/actions/cancel` for those queued runs.
-For a run already awaiting confirmation, discard it if allowed by its current actions.
+Read `GET /runs/:id` and inspect `data.attributes.status` and `data.attributes.actions` before choosing an action.
+If `is-discardable` is true, use `POST /runs/:id/actions/discard` (documented for pending runs and runs awaiting confirmation).
+Use `POST /runs/:id/actions/cancel` only when `is-cancelable` is true; the documented cancel operation normally interrupts planning or applying.
+Reported cutovers saw queued-behind-lock runs reject discard with `409` and accept cancel, so do not select an operation from the queue label alone.
+On `409`, re-read the run and its advertised actions instead of blindly switching endpoints.
+If neither action is permitted, stop and keep the workspace locked while investigating.
 Re-read run status and require a terminal cancelled/discarded outcome; an API error is not evidence that it stopped.
+See the [runs API](https://developer.hashicorp.com/terraform/cloud-docs/api-docs/run) for supported actions.
 Never confirm an HCP apply against the old state.
 See [run management](https://developer.hashicorp.com/terraform/cloud-docs/workspaces/run/manage).
 

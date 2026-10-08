@@ -119,7 +119,8 @@ jobs:
 
             const body = `### Terraform Plan: \`cloudflare\`
 
-            Commit: \`${context.payload.pull_request.head.sha}\`
+            PR head: \`${context.payload.pull_request.head.sha}\`
+            Planned commit: \`${context.sha}\`
 
             <details>
             <summary>Show Plan</summary>
@@ -228,7 +229,8 @@ jobs:
 
             const body = `### Terraform Plan: \`github\`
 
-            Commit: \`${context.payload.pull_request.head.sha}\`
+            PR head: \`${context.payload.pull_request.head.sha}\`
+            Planned commit: \`${context.sha}\`
 
             <details>
             <summary>Show Plan</summary>

@@ -729,7 +729,8 @@ steps:
          pulling state, scans for secrets, uploads without overwriting and verifies bytes,
          serial, lineage and resource membership BEFORE merging the backend PR.
          Include CI and required-check changes in that PR. After merge, disconnect HCP,
-         cancel queued runs, verify Actions applies, then retire old credentials.
+         retire nonterminal runs using advertised discard/cancel actions, verify Actions
+         applies, then retire old credentials.
          During a staged migration keep backend: hcp until the last leaf moves; the
          global step checks cannot certify mixed backends. Do not run this step across
          still-HCP leaves or treat a mixed-backend status scan as proof of cutover.

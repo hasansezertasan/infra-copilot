@@ -285,9 +285,14 @@ Immediately after merge, keep the HCP workspace locked and remove its VCS connec
 ```
 
 Inspect every nonterminal HCP run, including the merge-triggered run.
-Runs queued behind the lock may return `409` on `POST /runs/:id/actions/discard`; use `POST /runs/:id/actions/cancel` for those queued runs.
-For a run already awaiting confirmation, discard it if allowed by its current actions.
+Read `GET /runs/:id` and inspect `data.attributes.status` and `data.attributes.actions` before choosing an action.
+If `is-discardable` is true, use `POST /runs/:id/actions/discard` (documented for pending runs and runs awaiting confirmation).
+Use `POST /runs/:id/actions/cancel` only when `is-cancelable` is true; the documented cancel operation normally interrupts planning or applying.
+Reported cutovers saw queued-behind-lock runs reject discard with `409` and accept cancel, so do not select an operation from the queue label alone.
+On `409`, re-read the run and its advertised actions instead of blindly switching endpoints.
+If neither action is permitted, stop and keep the workspace locked while investigating.
 Re-read run status and require a terminal cancelled/discarded outcome; an API error is not evidence that it stopped.
+See the [runs API](https://developer.hashicorp.com/terraform/cloud-docs/api-docs/run) for supported actions.
 Never confirm an HCP apply against the old state.
 See [run management](https://developer.hashicorp.com/terraform/cloud-docs/workspaces/run/manage).
 
