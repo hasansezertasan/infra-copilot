@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:8365f671eb635701ee379921a498f8d4e292f76e86a5d947eb2b171a08bfa925
-Source-Hash: blake3:52553605c926b932ee9da91352ff259f57d4b633c26f5dbea0a54056ad95cca5
+Content-Hash: blake3:a5be3b5f918ef922c28085fc527c9614444cd476282d3e0228bab3f6a458b88d
+Source-Hash: blake3:53f3e51d0368c9434f9af423a3be4b03d4046ebe2839fd457ec8da1f7d900d47
 Schema-Version: v1
 -->
 
@@ -114,5 +114,8 @@ merge settings or ruleset bypass actors; production apply refreshes last-applied
 See [the credential tiers and migration](docs/object-storage-ci.md#terraform-providers).
 
 GitHub Apps support multiple active keys, so rotation is overlap-then-cutover: human
-generates a new key + pastes it, agent proves it with a no-op `plan`, then human deletes
-the old key. Steps in [`secrets.md`](docs/secrets.md#github-app-private-key).
+generates a new key and pastes it, verifies the execution that uses that App, then deletes
+the old key. HCP or a read-App replacement can be verified by its no-op plan. An
+object-storage write-App replacement requires a HUMAN-authorized production run;
+a branch plan uses the separate read App and cannot validate the write key.
+Steps in [`secrets.md`](docs/secrets.md#github-app-private-key).

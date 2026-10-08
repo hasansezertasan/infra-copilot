@@ -875,9 +875,10 @@ steps:
       Plan can only read state and must not write locks, resources, or impersonate apply.
       Remove old GCS plan objectAdmin grants; verify equivalent S3/Azure read-only permissions.
       Verify separate plan/apply trust paths and the exact-main production deployment policy.
-      For a genuinely new empty leaf, follow docs/object-storage-state.md#fresh-leaf-bootstrap
-      to initialize empty state before the first branch plan. Never create empty state for a
-      migration or a leaf with existing resources. Verify the actual state object exists.
+      For a genuinely new state destination, follow docs/object-storage-state.md#fresh-leaf-bootstrap
+      to initialize empty state before the first branch plan. Existing unmanaged resources
+      require an import-only first plan. Never create empty state instead of transferring
+      existing managed state. Verify the actual state object exists.
       Reply done after reviewing IAM and state readiness; never return credential values.
       This review is ephemeral: repeat it on resume; matching secret names is not evidence.
     check: ~

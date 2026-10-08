@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e9f57abfcab595ae85c00ee669529a30b56045659ea4c32261838e5020f1d481
-Source-Hash: blake3:52553605c926b932ee9da91352ff259f57d4b633c26f5dbea0a54056ad95cca5
+Content-Hash: blake3:2ec44088420b49b5c6e2929a32eb019a75766a82d0db01622e41261e06111b7e
+Source-Hash: blake3:53f3e51d0368c9434f9af423a3be4b03d4046ebe2839fd457ec8da1f7d900d47
 Schema-Version: v1
 -->
 
@@ -39,7 +39,7 @@ is separate from operation completion and cannot move the first-red verdict.
 
 | Operation | `hcp` members | `object-storage` members |
 |---|---|---|
-| `bootstrap-state` | `hcp-login`, `hcp-signup`, `hcp-verify` | `state-bucket`, `backend-config`, `backend-identity` |
+| `bootstrap-state` | `hcp-login`, `hcp-signup`, `hcp-verify` | `state-bucket`, `backend-config`, `backend-identity`, `backend-identity-trust` |
 | `provision-execution` | `vcs-connect`, `workspaces-create` | `gha-workflows`, `gha-environments` |
 | `store-cloudflare-credential` | `cf-token` | `cf-token-gha` |
 | `store-github-credential` | `gh-app` | `gh-app-gha` |
@@ -86,8 +86,10 @@ Implementation: [service execution](hcp.md), [runner execution](object-storage.m
 A HUMAN stores the scoped credential out of band, without exposing its value to the
 agent, git, logs or plans. Verify inventory plus authentication with a plan; secret-name
 existence alone does not verify the value. The named bootstrap credential operations use
-this same contract. Rotate by storing a replacement, verifying a no-op plan, then revoking
-its predecessor. Implementation: [service custody](docs/hcp-secrets.md),
+this same contract. Rotate by storing a replacement, verifying authentication with the
+execution that actually uses that credential tier, then revoking its predecessor.
+In object-storage mode, a branch plan verifies read credentials only; apply replacements
+require a HUMAN-authorized production run. Implementation: [service custody](docs/hcp-secrets.md),
 [runner custody](object-storage.md#store-provider-credential).
 
 ## Get-plan

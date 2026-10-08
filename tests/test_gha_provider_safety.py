@@ -143,6 +143,16 @@ jobs:
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_guarded_plan_cannot_access_bracket_or_whole_secret_context(self) -> None:
+        original = self.plan.read_text()
+        for expression in ('secrets["WRITE_TOKEN"]', 'toJSON(secrets)',
+                           'toJSON(secrets) || secrets.READ_TOKEN'):
+            with self.subTest(expression=expression):
+                self.plan.write_text(original.replace('    steps: []',
+                    f'    env:\n      TOKEN: ${{{{ {expression} }}}}\n    steps: []', 1))
+                self.commit()
+                self.assertEqual(self.check().returncode, 1)
+
     def test_unprotected_new_job_cannot_borrow_another_jobs_guard(self) -> None:
         original = self.plan.read_text()
         other = original.replace('plan-aws:', 'plan-other:')

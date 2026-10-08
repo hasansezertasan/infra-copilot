@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:5d2734068d7b7d3ac3274b910d536869fe9914b129735a549a2c0bb3ad87708c
-Source-Hash: blake3:52553605c926b932ee9da91352ff259f57d4b633c26f5dbea0a54056ad95cca5
+Content-Hash: blake3:5a7dd55fb5cb494ee5eef7d1bb6dba4aacd153a0691447bec1182f7654f7b92c
+Source-Hash: blake3:53f3e51d0368c9434f9af423a3be4b03d4046ebe2839fd457ec8da1f7d900d47
 Schema-Version: v1
 -->
 
@@ -102,6 +102,8 @@ Write the results into `terraform/cloudflare/main.tf` `locals`. See the Configur
 
 ## Rotation
 
-Zero-downtime, agent-assisted: human mints the new token and pastes it; agent runs a no-op
-`plan` to prove it; only then does the human revoke the old one. Steps in
+Zero-downtime, agent-assisted: human mints the new token and pastes it; verify the run
+that actually uses it before revoking the old value. HCP or an object-storage read token
+can be verified by a no-op plan; an object-storage edit token needs a HUMAN-authorized
+production run. A branch plan does not validate production credentials. Steps in
 [`secrets.md`](docs/secrets.md#cloudflare-api-token).

@@ -124,8 +124,8 @@ for name in $names; do
   # Only read-only credentials may reach branch plans. No environment is allowed.
   printf '%s\n' "$plan_job" | grep -Eq '^    environment:' && exit 1
   # Only dot-form secret access is supported; bracket/whole-context forms are ambiguous.
-  printf '%s\n' "$plan_job" | grep -E '(^|[^A-Za-z0-9_])secrets([^A-Za-z0-9_]|$)' |
-    grep -Ev 'secrets\.[A-Za-z_][A-Za-z0-9_]*' && exit 1
+  printf '%s\n' "$plan_job" | sed -E 's/secrets\.[A-Za-z_][A-Za-z0-9_]*//g' |
+    grep -Eq '(^|[^A-Za-z0-9_])secrets([^A-Za-z0-9_]|$)' && exit 1
   printf '%s\n' "$plan_job" | grep -Eq 'secrets[[:space:]]*\[' && exit 1
   printf '%s\n' "$plan_job" | grep -Eq 'secrets\.(CLOUDFLARE_API_TOKEN|GH_APP_ID|GH_APP_INSTALLATION_ID|GH_APP_PEM)([^A-Za-z0-9_]|$)' && exit 1
   plan_step=$(printf '%s\n' "$plan_job" | step 'Terraform Plan')

@@ -186,10 +186,13 @@ Do not grant plan objectAdmin to fix initialization. Fresh leaves use the separa
 
 ### Fresh leaf bootstrap
 
-For a genuinely new leaf with no managed resources and no previous state, a HUMAN
+For a genuinely new state destination with no previous Terraform state, a HUMAN
 initializes empty backend state before requiring its first PR plan. This avoids the
 GCS first-plan/first-apply deadlock while preserving branch read-only IAM and main protection.
-Never use this procedure for migrations, existing resources, or an unreadable destination.
+Never use this procedure for state migrations, resources already managed in another
+state, or an unreadable destination. First adoption of existing **unmanaged** resources
+is permitted only after verifying no previous state owns them; its first plan must contain
+imports, with no unintended creates, destroys or changes.
 
 1. Review the exact leaf backend, bucket/container, key/prefix and workspace. Verify
    with authorized backend access that the state object is genuinely absent, not hidden
@@ -205,10 +208,12 @@ Never use this procedure for migrations, existing resources, or an unreadable de
    and valid state version. If that backend does not persist state on init, stop and
    follow its reviewed state-initialization procedure rather than assume readiness.
 4. Remove temporary bootstrap access, then run the branch's read-only plan. It should
-   show the reviewed first creates. The agent never performs this credentialed bootstrap.
+   show the reviewed first creates for new resources, or imports for existing unmanaged
+   resources. The agent never performs this credentialed bootstrap.
 5. For the first production resource creation, the HUMAN sets that leaf's
    `TF_ALLOW_EMPTY_STATE_<LEAF>` environment variable to `true`, reviews the planned
-   creates, merges through the normal gate and verifies apply. Remove the opt-out afterward.
+   creates (or import-only adoption), merges through the normal gate and verifies apply.
+   Remove the opt-out afterward.
 
 The bootstrap `backend-identity-trust` and additional-provider identity handoffs require
 this state-readiness review before the first plan; repeat IAM review on resume.

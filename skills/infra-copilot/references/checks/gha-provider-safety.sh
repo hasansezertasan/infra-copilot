@@ -78,8 +78,8 @@ for file in .github/workflows/terraform-plan.yml .github/workflows/terraform-app
         *terraform-plan.yml:plan-*)
           printf '%s\n' "$active" | grep -Eq '^    environment:' && exit 1
           printf '%s\n' "$active" | grep -Eq 'secrets[[:space:]]*\[' && exit 1
-          printf '%s\n' "$active" | grep -E '(^|[^A-Za-z0-9_])secrets([^A-Za-z0-9_]|$)' |
-            grep -Ev 'secrets\.[A-Za-z_][A-Za-z0-9_]*' && exit 1
+          printf '%s\n' "$active" | sed -E 's/secrets\.[A-Za-z_][A-Za-z0-9_]*//g' |
+            grep -Eq '(^|[^A-Za-z0-9_])secrets([^A-Za-z0-9_]|$)' && exit 1
           printf '%s\n' "$active" | grep -Eq 'secrets\.(CLOUDFLARE_API_TOKEN|GH_APP_ID|GH_APP_INSTALLATION_ID|GH_APP_PEM)([^A-Za-z0-9_]|$)' && exit 1
           provider=${name#plan-}
           guard=$(printf '%s\n' "$block" | sed -n 's/^    if: //p')

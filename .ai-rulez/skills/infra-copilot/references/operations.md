@@ -32,7 +32,7 @@ is separate from operation completion and cannot move the first-red verdict.
 
 | Operation | `hcp` members | `object-storage` members |
 |---|---|---|
-| `bootstrap-state` | `hcp-login`, `hcp-signup`, `hcp-verify` | `state-bucket`, `backend-config`, `backend-identity` |
+| `bootstrap-state` | `hcp-login`, `hcp-signup`, `hcp-verify` | `state-bucket`, `backend-config`, `backend-identity`, `backend-identity-trust` |
 | `provision-execution` | `vcs-connect`, `workspaces-create` | `gha-workflows`, `gha-environments` |
 | `store-cloudflare-credential` | `cf-token` | `cf-token-gha` |
 | `store-github-credential` | `gh-app` | `gh-app-gha` |
@@ -79,8 +79,10 @@ Implementation: [service execution](hcp.md), [runner execution](object-storage.m
 A HUMAN stores the scoped credential out of band, without exposing its value to the
 agent, git, logs or plans. Verify inventory plus authentication with a plan; secret-name
 existence alone does not verify the value. The named bootstrap credential operations use
-this same contract. Rotate by storing a replacement, verifying a no-op plan, then revoking
-its predecessor. Implementation: [service custody](docs/hcp-secrets.md),
+this same contract. Rotate by storing a replacement, verifying authentication with the
+execution that actually uses that credential tier, then revoking its predecessor.
+In object-storage mode, a branch plan verifies read credentials only; apply replacements
+require a HUMAN-authorized production run. Implementation: [service custody](docs/hcp-secrets.md),
 [runner custody](object-storage.md#store-provider-credential).
 
 ## Get-plan

@@ -95,6 +95,8 @@ Write the results into `terraform/cloudflare/main.tf` `locals`. See the Configur
 
 ## Rotation
 
-Zero-downtime, agent-assisted: human mints the new token and pastes it; agent runs a no-op
-`plan` to prove it; only then does the human revoke the old one. Steps in
+Zero-downtime, agent-assisted: human mints the new token and pastes it; verify the run
+that actually uses it before revoking the old value. HCP or an object-storage read token
+can be verified by a no-op plan; an object-storage edit token needs a HUMAN-authorized
+production run. A branch plan does not validate production credentials. Steps in
 [`secrets.md`](docs/secrets.md#cloudflare-api-token).
