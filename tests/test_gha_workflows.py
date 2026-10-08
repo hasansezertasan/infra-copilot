@@ -73,6 +73,8 @@ class WorkflowSetupTests(unittest.TestCase):
             original.replace('    branches: [main]\n', '').replace('  workflow_dispatch:', '  workflow_dispatch:\n    branches: [main]'),
             original + '\n  apply-cloudflare:\n    steps: []\n',
             original.replace('  apply-cloudflare:', '  other:'),
+            original.replace('  apply-github:', '    if: false\n\n  apply-github:'),
+            original.replace('  apply-github:', '    needs: skipped-job\n\n  apply-github:'),
             original.replace('    runs-on:', "    if: needs.changes.outputs.cloudflare == 'true'\n    runs-on:", 1),
             original.replace('    runs-on:', '    needs: changes\n    runs-on:', 1),
             original.replace(guard, '', 1),
@@ -92,6 +94,8 @@ class WorkflowSetupTests(unittest.TestCase):
         for broken in (
             original.replace('  workflow_dispatch:\n', ''),
             original.replace('  changes:\n', "  changes:\n    if: github.event_name == 'pull_request'\n"),
+            original.replace('  plan-cloudflare:', "    if: github.event_name == 'pull_request'\n\n  plan-cloudflare:"),
+            original.replace('  plan-cloudflare:', '    needs: skipped-job\n\n  plan-cloudflare:'),
             original.replace('    needs: changes', '    needs: [changes, skipped-job]', 1),
             original.replace('    needs: changes\n', '', 1),
             original.replace("        if: github.event_name == 'pull_request'\n", ''),

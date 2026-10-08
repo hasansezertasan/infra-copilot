@@ -79,8 +79,7 @@ plan_events=$(section "$plan" on)
 printf '%s\n' "$plan_events" | grep -q '^  pull_request:$' || exit 1
 printf '%s\n' "$plan_events" | grep -q '^  workflow_dispatch:$' || exit 1
 changes=$(job "$plan" changes)
-changes_header=$(printf '%s\n' "$changes" | sed '/^    steps:/,$d')
-printf '%s\n' "$changes_header" | grep -Eq '^[[:space:]]+(if|needs|continue-on-error):' && exit 1
+printf '%s\n' "$changes" | grep -Eq '^    (if|needs|continue-on-error):' && exit 1
 filter=$(printf '%s\n' "$changes" | awk '
   /^      - / {inside=($0 ~ /uses: dorny\/paths-filter@/)}
   inside {print}
@@ -101,9 +100,9 @@ done
 for name in $names; do
   leaf=${name#apply-}
   block=$(job "$apply" "$name")
-  header=$(printf '%s\n' "$block" | sed '/^    steps:/,$d')
   apply_step=$(printf '%s\n' "$block" | step 'Terraform Apply')
-  printf '%s\n' "$header" "$apply_step" | grep -Eq '^[[:space:]]+(if|needs|continue-on-error):' && exit 1
+  printf '%s\n' "$block" | grep -Eq '^    (if|needs|continue-on-error):' && exit 1
+  printf '%s\n' "$apply_step" | grep -Eq '^        (if|continue-on-error):' && exit 1
   [ "$(printf '%s\n' "$block" | grep -Fc '      - name: Terraform Apply')" = 1 ] || exit 1
   guard=$(printf '%s\n' "$block" | step "Refuse to apply a commit that is not main's tip")
   [ "$guard" = "$expected_guard" ] || exit 1
@@ -113,9 +112,8 @@ for name in $names; do
   ' || exit 1
   plan_job=$(job "$plan" "plan-$leaf")
   [ -n "$plan_job" ] || exit 1
-  plan_header=$(printf '%s\n' "$plan_job" | sed '/^    steps:/,$d')
-  [ "$(printf '%s\n' "$plan_header" | grep -c '^    needs:' || true)" = 1 ] || exit 1
-  printf '%s\n' "$plan_header" | grep -Fxq '    needs: changes' || exit 1
+  [ "$(printf '%s\n' "$plan_job" | grep -c '^    needs:' || true)" = 1 ] || exit 1
+  printf '%s\n' "$plan_job" | grep -Fxq '    needs: changes' || exit 1
   condition="    if: needs.changes.outputs.$leaf == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"
   bracket="    if: needs.changes.outputs['$leaf'] == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"
   printf '%s\n' "$plan_job" | grep -Fxq "$condition" ||
