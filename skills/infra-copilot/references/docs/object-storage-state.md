@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6647555840c464865725c3b5bbc7fbd997bca97b6c07b04cd6aeadd183a1d454
-Source-Hash: blake3:cbe7b5636d9cfe98f2765d0a6bcd5a8b31703891d01bd8c43151898e6e91f278
+Content-Hash: blake3:cdd72be84d671f3196172b29a5f426644a62caca7b9bcdcf106a45d742ff0e25
+Source-Hash: blake3:e14c78d27ea7195aea9fbffd68e088594de7dbce72ea0a33a3a69b9f4a4772de
 Schema-Version: v1
 -->
 
@@ -305,11 +305,14 @@ state_transfers:
 
 The read-only transfer check detects committed HCP backend history and refuses a
 backend-only cutover without this evidence. A shallow checkout must fetch complete
-history before certifying a genuinely new leaf. The attestation binds the destination
-backend file; changing that destination requires a renewed transfer review. Keep the
-complete, single backend block in that reviewed `backend.tf`, with no backend
-or cloud declarations in other `.tf`, override, or `.tf.json` files. The transfer check rejects layouts
-that could change the effective destination without changing the reviewed file.
+history before certifying a genuinely new leaf. History inspection strips HCL
+comments before matching tokens, so `backend /* legacy HCP */ "remote" {}` cannot
+hide an earlier HCP backend, and inspects historical `*.tf.json` structurally.
+The attestation binds the destination backend file; changing that destination
+requires a renewed transfer review. Keep the complete, single backend block in
+that reviewed `backend.tf`, with no backend or cloud declarations in other
+`.tf`, override, or `.tf.json` files. The transfer check rejects layouts that
+could change the effective destination without changing the reviewed file.
 Preserve the original transfer evidence after subsequent legitimate applies advance state. Never
 record credential values or state contents in this public record.
 

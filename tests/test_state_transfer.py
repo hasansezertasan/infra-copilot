@@ -140,3 +140,28 @@ class StateTransferTests(unittest.TestCase):
     def test_historical_json_remote_cannot_be_treated_as_fresh(self) -> None:
         self.prepare_json_migration({'backend': {'remote': {'organization': 'acme'}}})
         self.assertEqual(self.check_transfer().returncode, 1)
+
+    def test_commented_hcp_history_cannot_be_treated_as_fresh(self) -> None:
+        """Codex repro: HCL comments between tokens hide the committed remote."""
+        for history_text in ('terraform {\n  backend /* legacy HCP */ "remote" { organization = "acme" } }\n}\n',
+                             'terraform {\n  cloud /* legacy HCP */ { organization = "acme" } }\n}\n'):
+            with self.subTest(history=history_text):
+                hidden = self.checkout / 'terraform/github/versions.tf'
+                hidden.write_text(history_text)
+                self.commit_files()
+                hidden.unlink()
+                self.backend.write_text('terraform { backend "gcs" { bucket = "acme-state" } }\n')
+                self.commit_files()
+                result = self.check_transfer()
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn('record the frozen, verified HUMAN HCP transfer', result.stderr)
+
+    def test_current_comments_do_not_distort_the_reviewed_layout(self) -> None:
+        """Comments never create false declarations nor hide reviewed ones."""
+        transfer = self.prepare_migration()
+        self.environment['STATE_TRANSFERS'] = json.dumps({'github': transfer})
+        self.backend.write_text('terraform {\n  backend /* reviewed in the cutover PR */ "gcs" { bucket = "acme-state" }\n}\n')
+        self.commit_files()
+        transfer['backend_blob'] = self.execute_git('hash-object', str(self.backend))
+        self.environment['STATE_TRANSFERS'] = json.dumps({'github': transfer})
+        self.assertEqual(self.check_transfer().returncode, 0)
