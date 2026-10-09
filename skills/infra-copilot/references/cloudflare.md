@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:3f05e1a16c0ad07820b37a8d8910e4944ee80adc4d83ff8f9143766032c22618
-Source-Hash: blake3:97a862694726ac65fa258255743de00e1c7e624132ad07b981bb00efd380ca26
+Content-Hash: blake3:cd09a8b7a394f53604139c815a605963afa69ab5bb9630930d44dfe5ca9ac1d4
+Source-Hash: blake3:d24cbea87332e73737fe4d4decfb2ea42514574279e0e7d427cb6952f6d44925
 Schema-Version: v1
 -->
 
@@ -28,7 +28,9 @@ default or consult a retained migrated workspace as evidence of current credenti
 ## What this repo manages via Cloudflare
 
 The `<apex-domain>` zone and all its DNS records (Email Routing + GitHub Pages), through the
-`cloudflare/cloudflare` v5 provider. State + token live in the HCP `cloudflare` workspace.
+`cloudflare/cloudflare` v5 provider. For an effective HCP leaf, state + token live in the
+HCP `cloudflare` workspace; for an object-storage leaf, state lives in the leaf's bucket
+prefix and the token lives in the scoped runner credentials described above.
 
 ## The actor split
 

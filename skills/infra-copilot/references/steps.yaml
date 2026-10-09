@@ -1054,11 +1054,11 @@ steps:
          The HUMAN performs manifest submission/code conversion and keeps PEMs private.
          Never reuse the write App's PEM for plan. Create and install a
          second App scoped to the same managed repos, with only Read permissions; that is the plan App.
-         Permissions: Repository Administration (R/W), Actions (R), Contents (R/W), Metadata (R),
+         Apply App permissions: Repository Administration (R/W), Actions (R), Contents (R/W), Metadata (R),
          Pull requests (R/W); Organization Members (R/W), Administration (R/W).
          Actions (R) reads environments and deployment branch policies on refresh. Members (R/W)
          is required when Terraform manages organization or team membership.
-         The read-only plan App mirrors these permissions without any write.
+         The plan App uses the same scopes with Read only; it never has a write permission.
       2. Install each App only on managed_repos; record each App and installation ID.
       3. Store the read-only plan App's GH_APP_READ_ID, GH_APP_READ_INSTALLATION_ID,
          GH_APP_READ_PEM in repository Actions secrets. Store the apply App's

@@ -21,7 +21,9 @@ default or consult a retained migrated workspace as evidence of current credenti
 ## What this repo manages via Cloudflare
 
 The `<apex-domain>` zone and all its DNS records (Email Routing + GitHub Pages), through the
-`cloudflare/cloudflare` v5 provider. State + token live in the HCP `cloudflare` workspace.
+`cloudflare/cloudflare` v5 provider. For an effective HCP leaf, state + token live in the
+HCP `cloudflare` workspace; for an object-storage leaf, state lives in the leaf's bucket
+prefix and the token lives in the scoped runner credentials described above.
 
 ## The actor split
 
