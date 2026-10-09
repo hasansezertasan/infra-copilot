@@ -1,15 +1,15 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:d24cbea87332e73737fe4d4decfb2ea42514574279e0e7d427cb6952f6d44925",
+  "source_hash": "blake3:da0d0850d69ff4a20c9cbbefe9088a8fe5ba2c636a99b00a89d6fafe6456e7b0",
   "outputs": {
     ".claude-plugin/marketplace.json": {
-      "content_hash": "blake3:640778e783af20fce5c257ca09abe0a64ecad0724e9fc2f4ceab5e76493e4b0c"
+      "content_hash": "blake3:0efce10ec2273126d9878b1173b2b9a0c9311f24cfee5d8a56140a0aae05dc3c"
     },
     ".claude-plugin/plugin.json": {
-      "content_hash": "blake3:328eb4ea75a197494fadda71f6b61dd457db16960f80d5801485b27dd84d6771"
+      "content_hash": "blake3:9ecf5147e697cbd7a7c4388572f5d10f6811ad64664728f69bc2effef2f1e891"
     },
     ".codex-plugin/plugin.json": {
-      "content_hash": "blake3:0b99e81bf5b194ce5a13329366a6c81fa697a25207f80d22d9be1b386fa7bd0e"
+      "content_hash": "blake3:fdb29c05b4a00a0547fc8ca193868e2a3bd8edd72dda1ba3e8958f6270c26c35"
     },
     "commands/infra-add.md": {
       "content_hash": "blake3:36118fb05d84c27feee587a29494ec7d46173e31ae612164b6b6b947d05d7deb"
