@@ -62,6 +62,9 @@ done
     && [ -r "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" ] \
     || cannot_verify "INFRA_COPILOT_REFERENCES does not contain checks/leaf-cloud.sh; export it per references/config.md"
 
+routing=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-routing.sh") || exit 2
+hcp_leaves=$(printf '%s' "$routing" | jq -c '.hcp_leaves') || exit 2
+
 # Checked before the credential is resolved, let alone sent. $hcp_api comes from a
 # repo-local config file, so an edited or mistyped value would put a bearer token in
 # a request to an arbitrary host -- over plaintext if the scheme were http.
@@ -245,7 +248,8 @@ while : ; do
         directory=$(printf '%s' "$entry" | jq -r '.attributes["working-directory"] // empty' 2>/dev/null)
         identifier=$(printf '%s' "$entry" | jq -r '.attributes["vcs-repo"].identifier // empty' 2>/dev/null)
         ours=false
-        if [ "$identifier" = "$REPO" ]; then
+        if [ "$identifier" = "$REPO" ] \
+            && printf '%s' "$hcp_leaves" | jq -e --arg leaf "${directory#terraform/}" 'index($leaf) != null' >/dev/null; then
             ours=true
             seen_repo_names="$seen_repo_names $name"
         fi
@@ -341,6 +345,7 @@ fi
 for leaf in terraform/*/; do
     [ -d "$leaf" ] || continue    # no terraform/ yet: nothing to compare
     directory=${leaf%/}
+    printf '%s' "$hcp_leaves" | jq -e --arg leaf "${directory#terraform/}" 'index($leaf) != null' >/dev/null || continue
     # Every permission read above was scoped to $ORG, so a leaf pointed at
     # another organization proves nothing: a same-named plan-only workspace in
     # $ORG would satisfy the comparison while Terraform targeted an organization
@@ -361,7 +366,10 @@ for leaf in terraform/*/; do
     fi
     # terraform/modules and other shared implementation directories are not
     # deployable roots. Only a directory with a cloud block targets HCP.
-    printf '%s\n' "$settings" | grep -Fx 'cloud=present' >/dev/null || continue
+    if ! printf '%s\n' "$settings" | grep -Fx 'cloud=present' >/dev/null; then
+        note_unknown "$directory is routed to HCP but has no cloud block"
+        continue
+    fi
 
     # A leaf may carry its own credential inline. That token is what Terraform
     # would use for this leaf, and nothing here can read it, so no permission

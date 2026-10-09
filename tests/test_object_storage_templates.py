@@ -55,12 +55,14 @@ class WorkflowConvergenceTests(unittest.TestCase):
         self.assertIn('group: terraform-apply-${{ github.ref }}', template)
         self.assertIn('cancel-in-progress: false', template)
         jobs = template.split('\njobs:\n', 1)[1]
-        self.assertNotIn('  changes:', jobs)
+        routes = jobs.split('  changes:\n', 1)[1].split('\n  apply-', 1)[0]
+        self.assertNotIn('paths-filter', routes)
         for leaf in ('cloudflare', 'github'):
             job = jobs.split(f'  apply-{leaf}:\n', 1)[1].split('\n  apply-', 1)[0]
             header, steps = job.split('    steps:\n', 1)
-            self.assertNotIn('    needs:', header)
-            self.assertNotIn('    if:', header)
+            self.assertIn('    needs: changes', header)
+            self.assertIn(f"    if: needs.changes.outputs.{leaf} == 'true'", header)
+            self.assertIn(f"{leaf.upper()}_CHANGED: 'true'", routes)
             self.assertIn('environment: production', header)
             self.assertLess(steps.index("Refuse to apply a commit that is not main's tip"),
                             steps.index('name: Terraform Apply'))
@@ -74,7 +76,7 @@ class WorkflowConvergenceTests(unittest.TestCase):
         filter_step = template.split('        id: filter\n', 1)[1].split('        with:', 1)[0]
         self.assertIn("if: github.event_name == 'pull_request'", filter_step)
         for leaf in ('cloudflare', 'github'):
-            output = re.search(rf"^      {leaf}: \$\{{\{{ (.*?) \}}\}}$", template, re.M).group(1)
+            output = re.search(rf"^          {leaf.upper()}_CHANGED: \$\{{\{{ (.*?) \}}\}}$", template, re.M).group(1)
             job = template.split(f'  plan-{leaf}:\n', 1)[1].split('    steps:', 1)[0]
             condition = re.search(r'    if: (.*)', job).group(1)
             harness = """

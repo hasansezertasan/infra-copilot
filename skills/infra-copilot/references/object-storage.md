@@ -1,13 +1,13 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1ae668481631ce327fbcffc99b20d259c4ac13e4cb8de0a97ded77d4b328b1b9
-Source-Hash: blake3:3a9697a49dfbe82ce6e776a6cb9df377de2454c7b960f3fb5a5526b3b2b7c1ab
+Content-Hash: blake3:d1377576ac03bf563e29e723a73234281a2c4762fd52312eae8515db61680fdd
+Source-Hash: blake3:d24cbea87332e73737fe4d4decfb2ea42514574279e0e7d427cb6952f6d44925
 Schema-Version: v1
 -->
 
 # Object-storage execution
 
-The implementation selected by `backend: object-storage` uses GitHub Actions to execute
+The implementation selected by a leaf's effective `object-storage` backend uses GitHub Actions to execute
 Terraform against per-leaf GCS, S3 or Azure state. The shared contracts are in
 [operations](operations.md). The full [runner CI recipes](docs/object-storage-ci.md) document authentication and environments.
 State provisioning, IAM and migration commands are in
@@ -25,6 +25,28 @@ each plan path filter. Use the committed mise lock via `jdx/mise-action`.
 Update the workflows and helper together when re-scaffolding; setup rejects missing,
 dirty or outdated helpers and missing destructive guards. A HUMAN approves creation of
 `allow-destroy` and records its intent-marker limitations as a locked decision.
+
+Only `OBJECT_STORAGE_LEAVES` may initialize, authenticate, plan or apply in Actions.
+Keep HCP leaves in validation but out of credential-bearing runner execution. Set static
+top-level `CLOUDFLARE_BACKEND`/`GITHUB_BACKEND` in both workflows to the effective config
+values in the same reviewed cutover PR. Verify with `checks/workflow-routing.sh` before
+accepting evidence; the template's object-storage defaults do not resolve config.
+For additional providers, extend change routing, job conditions and the aggregate to
+the entry's effective backend. Add a top-level static route literal named after the
+uppercase slug with hyphens replaced by underscores, prefixed with `LEAF_` and followed
+by `_BACKEND` (e.g. `LEAF_GCP_PROD_BACKEND`). Use corresponding `LEAF_<SLUG>_CHANGED`
+inputs and `leaf_<slug_with_underscores>` shell variables. Preserve the supported route
+script grouping: all false initializers, guarded true decisions, then output writes,
+bootstrap leaves first and additional leaves in lexical order. Include both workflow
+paths in plan filters and every Actions provider in the aggregate's dependencies
+and changed-leaf success predicates. Run the workflow agreement check with `ROUTING_PROVIDER` set to
+`NEW_PROVIDER` for that entry to verify both workflows against effective config.
+The Phase 6 workflow and plan checks enforce this.
+Apply routing uses static true change inputs, converging all object-storage leaves on
+every main push/dispatch; plan routing combines dispatch with PR-filter outputs.
+An override to HCP must disable that provider's runner auth/init/plan/apply path.
+In mixed mode retain both Actions and HCP protection contexts regardless of which
+service manages the GitHub leaf itself. Never reconnect migrated HCP workspaces.
 
 Provision execution before adding provider secrets. The new leaf's apply job must set
 `environment: production`. A HUMAN restricts that environment to `main` and adds required reviewers or records an apply gate ([GitHub Environments](docs/object-storage-ci.md#github-environments)).
@@ -100,6 +122,10 @@ trust and reviewing current deployments, not by storing long-lived keys in the r
 ## Get-plan
 
 Commit relevant changes first; reject dirty leaf, shared modules, config or mise pins.
+Resolve the target in `OBJECT_STORAGE_LEAVES` and verify workflow agreement first.
+Both plan and apply workflow files are relevant committed inputs for dirty-tree and
+revision correlation. A pre-cutover green run cannot validate newer routing or identity
+changes merely because the Terraform leaf itself did not change.
 Push the branch and dispatch `terraform-plan.yml` with the explicit branch ref when no
 PR run exists. Find the newest applicable `pull_request` or `workflow_dispatch` run on
 that branch; verify its SHA includes the newest relevant input commit and has a successful

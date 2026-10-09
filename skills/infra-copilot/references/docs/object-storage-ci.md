@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:b948b4cc79bb07e340e721859b2e040c5eaed8654c4b6e24754fa23811b8e208
-Source-Hash: blake3:3a9697a49dfbe82ce6e776a6cb9df377de2454c7b960f3fb5a5526b3b2b7c1ab
+Content-Hash: blake3:9c5f120d0193410d5f0e0b3fff8e5c3e688c31d0bfa3d0786c2c74359ca8a734
+Source-Hash: blake3:d24cbea87332e73737fe4d4decfb2ea42514574279e0e7d427cb6952f6d44925
 Schema-Version: v1
 -->
 
@@ -9,7 +9,7 @@ Schema-Version: v1
 
 ## GitHub Actions
 
-When `backend: object-storage` is set in [`../config.md`](../config.md), CI runs entirely in GitHub Actions instead of HCP's VCS integration. This section documents that mode.
+For leaves whose effective backend is `object-storage` in [`../config.md`](../config.md), CI runs in GitHub Actions instead of HCP's VCS integration. Other leaves can continue using HCP during a staged cutover.
 
 ## Trust boundary (object-storage mode)
 
@@ -34,8 +34,8 @@ Two workflows handle the Terraform lifecycle. See the templates for full impleme
 - [`../templates/terraform-apply.yml`](../templates/terraform-apply.yml) — runs on every push to `main` or manual dispatch in the `main`-only `production` environment
 - [`../templates/terraform-destroy.cjs`](../templates/terraform-destroy.cjs) — copy to `.github/scripts/terraform-destroy.cjs` with both workflows
 
-The plan workflow uses `dorny/paths-filter` to detect which leaves changed, runs `terraform plan` for each, and posts the output as a PR comment. Manual plan dispatch skips the PR path filter and plans every leaf.
-The apply workflow applies every leaf on each push, including unchanged leaves, so a newer run catches up changes from superseded or failed runs.
+The plan workflow uses `dorny/paths-filter` to detect changed object-storage leaves, runs `terraform plan` for each, and posts the output as a PR comment. Manual plan dispatch skips the PR path filter and plans every object-storage leaf.
+The apply workflow applies every object-storage leaf on each push, including unchanged leaves, so a newer run catches up changes from superseded or failed runs. Its routing job selects by backend only, never by changed paths; HCP leaves remain excluded.
 To retry an apply, dispatch the workflow on `main`; each apply job refuses a ref other than `main` or a commit that is no longer its tip.
 Concurrency is scoped by ref so a dispatch from another branch cannot replace a pending `main` run.
 Setup checks committed workflows against the supported template layout before skipping creation.
@@ -88,6 +88,11 @@ For live acceptance, create a throwaway resource through a PR, merge its deletio
 the label, and confirm apply refuses before deletion. Label the producing PR and dispatch
 on the same `main` tip to confirm deletion succeeds. Keep that plan limited to the
 throwaway resource, and obtain approval for every live mutation.
+
+Set the static `<LEAF>_BACKEND` literals in both workflows to each leaf's effective config
+backend; credentialed plan/apply outputs exclude HCP leaves. Update these literals in the
+same PR as `leaf_backends`. Plan comments carry a per-leaf hidden marker and update the
+existing Actions-bot comment, including when the PR already has many comments.
 
 ## GitHub Environments
 
@@ -510,6 +515,18 @@ for the distinct apply principal. Inspect effective RBAC and all federated crede
 
 ### Terraform providers
 
+Use separate read-only plan and write-capable apply GitHub Apps when managing GitHub
+resources. Copy the reviewed manifest templates
+[`terraform-plan.json`](../templates/apps/terraform-plan.json) and
+[`terraform-apply.json`](../templates/apps/terraform-apply.json) to
+`.github/apps/` in the consuming repository. Set unique names and real homepage/callback/webhook
+URLs, trim permissions for the resources actually managed, and review manifest changes
+alongside live App settings. The manifests describe provider identities, not the built-in
+Actions token that writes plan comments. See [the manifest flow](../github.md#versioned-app-manifests).
+Install only on managed repositories. Keep the plan App's `GH_APP_READ_*` credentials in
+repository secrets and the apply App's `GH_APP_*` credentials in the `production`
+environment so the apply job receives its environment-specific write identity. JSON
+contains no keys; App creation, code exchange, and key storage remain HUMAN actions.
 Plan jobs have no environment and use read-only repository secrets:
 
 ```yaml
@@ -549,7 +566,7 @@ with distinct names; an empty inventory still requires separate read/write keyle
 
 Require the aggregate `plan` job: it runs even when no leaf changed and includes validation plus every applicable leaf plan.
 Path-filtered per-leaf required checks can be skipped without reporting, leaving unrelated PRs waiting forever.
-Required status checks reference GitHub Actions job names, not HCP contexts:
+Required status checks reference GitHub Actions job names, plus the HCP context(s) covering leaves still using it in a mixed repository:
 
 ```hcl
 required_status_checks {
@@ -568,6 +585,11 @@ While HCP is locked its speculative plan can still satisfy the old context on th
 If it does not report, a maintainer must coordinate the context transition without leaving subsequent PRs waiting for a disconnected workspace.
 Keep HCP contexts for leaves still using it; see [the staged cutover](object-storage-state.md#mixed-backend-window).
 The `status-check-gha` step in [`../steps.yaml`](../steps.yaml) verifies a successful Actions context; also inspect the live branch-protection settings.
+
+In a mixed repository, also retain the HCP context(s) covering unmigrated leaves. In each cutover PR, update the
+managed branch-protection configuration to replace only retiring contexts; never leave
+a disconnected HCP context required on later PRs. See the
+[ordered migration runbook](object-storage-state.md#migrating-from-hcp).
 
 ## Fork PRs
 

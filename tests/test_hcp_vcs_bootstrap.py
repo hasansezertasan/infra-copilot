@@ -67,6 +67,8 @@ else:
                    "FIXTURES": str(root / "fixtures"), "PAYLOADS": str(root / "payloads"),
                    "ORG": "hcp-org", "REPO": "acme/infra", "HCP_TOKEN": "test",
                    "TERRAFORM_VERSION": "1.14.0",
+                   "HCP_BOOTSTRAP_LEAVES": '["cloudflare","github"]',
+                   "HCP_LEAVES": '["cloudflare","github","gcp"]',
                    "INFRA_COPILOT_REFERENCES": str(REFS)}
             for key in ("OAUTH_TOKEN_ID", "GITHUB_APP_INSTALLATION_ID"):
                 env.pop(key, None)
@@ -86,6 +88,19 @@ else:
         vcs = payloads[0]["payload"]["data"]["attributes"]["vcs-repo"]
         self.assertEqual(vcs["github-app-installation-id"], "ghain-test")
         self.assertNotIn("oauth-token-id", vcs)
+
+    def test_migrated_leaf_cannot_be_created_or_reconnected(self):
+        for command in ('resolve_vcs_connection && create_ws github-org terraform/github',
+                        'set_workspace_config github-org terraform/github'):
+            with self.subTest(command=command):
+                result, payloads = self.run_helper(
+                    command,
+                    app=[{"id": "ghain-test", "attributes": {"name": "acme"}}],
+                    overrides={"HCP_LEAVES": '["cloudflare"]',
+                               "HCP_BOOTSTRAP_LEAVES": '["cloudflare"]'})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(payloads, [])
+                self.assertIn('Refusing', result.stderr)
 
     def test_fresh_oauth_org_can_create_workspace(self):
         result, payloads = self.run_helper(

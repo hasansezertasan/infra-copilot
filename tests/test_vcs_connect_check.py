@@ -62,7 +62,7 @@ def workspace(identifier: str, *, connection: str = "oauth", pages: int = 1) -> 
         "empty-app": '"oauth-token-id":null,"github-app-installation-id":""',
     }[connection]
     return (
-        '{"data":[{"attributes":{"vcs-repo":{"identifier":"%s",%s}}}],'
+        '{"data":[{"attributes":{"working-directory":"terraform/cloudflare","vcs-repo":{"identifier":"%s",%s}}}],'
         '"meta":{"pagination":{"total-pages":%d}}}' % (identifier, markers, pages)
     )
 
@@ -163,6 +163,7 @@ class VcsConnectCheckTests(unittest.TestCase):
                     "REPO": repo,
                     "HCP_TOKEN": "token",
                     "hcp_api": hcp_api,
+                    "HCP_LEAVES": '["cloudflare","github"]',
                 }
             )
             result = subprocess.run(

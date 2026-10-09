@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:301a57ca322ae3a04ddc4ad009c0f7b14917f71e1215cdea8737eee94fbb2c84
-Source-Hash: blake3:3a9697a49dfbe82ce6e776a6cb9df377de2454c7b960f3fb5a5526b3b2b7c1ab
+Content-Hash: blake3:9be2f4548d8e5cb0a5d3acf472106af900e607ef7e769acd74275833188d9d56
+Source-Hash: blake3:d24cbea87332e73737fe4d4decfb2ea42514574279e0e7d427cb6952f6d44925
 Schema-Version: v1
 -->
 
@@ -43,12 +43,16 @@ preflight — is in
    back to `.claude/infra-copilot.local.md` for migration. If both files are missing,
    report it and stop without offering to scaffold or edit (that belongs to `setup`).
    For a loaded config, before exporting vars or evaluating any `when` or check,
-   validate the HCP selection per config loading. If missing, empty, or invalid, display the
+    validate the default and per-leaf selections per config loading. If missing, empty, or invalid, display the
    [backend migration handoff](config.md#migration-existing-configs-without-backend)
    and stop. Report any detected `cloud {}` blocks as evidence for adding `backend: hcp`,
    but never write config. If other required config is
    incomplete, report it and stop; do **not** offer to scaffold or edit (that belongs
-   to `setup`). Only after validation, export the vars per [`config.md`](config.md).
+    to `setup`). Only after validation, export the vars per [`config.md`](config.md).
+    This implementation reads only `HCP_LEAVES`, including HCP-routed additional
+    providers. Object-storage leaves use the sibling Actions status implementation;
+    never fall back to their retained HCP workspaces, even if a legacy run is green.
+    Repository-wide HCP permission/protection checks still run when any HCP leaf remains.
 2. **Preflight** — first load the provider inventory. If a provider toolchain trust gate
    is pending, evaluate and report that Phase 6 gate before running the full mise check;
    do not misroute its expected HUMAN re-trust handoff as a generic phase-0 failure.

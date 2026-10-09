@@ -30,6 +30,30 @@ class BackendOperationTests(unittest.TestCase):
         protocol = self.manifest.with_name('protocol.md').read_text(encoding='utf-8')
         self.assertIn('before evaluating the next member, even if its operation is not yet green', protocol)
 
+    def test_cutover_contract_preserves_human_transfer_and_retirement_gates(self) -> None:
+        text = self.manifest.read_text(encoding='utf-8')
+        member = text.split('  - id: backend-config\n', 1)[1].split('  - id: ', 1)[0]
+        run_contract = member.split('    run: |\n', 1)[1].split('    check:', 1)[0]
+        for required in ('OBJECT_STORAGE_BOOTSTRAP_LEAVES',
+                         'docs/object-storage-state.md#migrating-from-hcp',
+                         "human locks that leaf's HCP workspace before pulling state",
+                         'uploads without overwriting', 'bytes, serial, lineage',
+                         'membership BEFORE merging', 'discard/cancel actions',
+                         'without revoking credentials still needed by HCP-routed leaves'):
+            self.assertIn(required, run_contract)
+        self.assertNotIn('terraform state pull', run_contract)
+        self.assertNotIn('terraform init -migrate-state', run_contract)
+
+    def test_staged_config_contracts_support_effective_leaf_routes(self) -> None:
+        for document in ('config.md', 'config.md.example'):
+            with self.subTest(document=document):
+                contract = self.manifest.with_name(document).read_text(encoding='utf-8')
+                staged = contract.split('## Staged backend migration\n', 1)[1]
+                self.assertIn('leaf_backends', staged)
+                self.assertNotIn('per-leaf overrides are not supported', contract)
+                self.assertNotIn('until the last leaf moves', contract)
+                self.assertIn('state transfer', staged.replace('state-transfer', 'state transfer'))
+
     def test_relocated_runbook_links_resolve_to_sections(self) -> None:
         references = self.manifest.parent
         runbooks = {'ci.md', 'state.md', 'secrets.md', 'hcp-ci.md', 'hcp-state.md',
@@ -48,7 +72,9 @@ class BackendOperationTests(unittest.TestCase):
         self.assertGreater(checked, 10)
 
     def test_router_cannot_select_backend(self) -> None:
-        for reference in ('$BACKEND', '${BACKEND}', 'HCP', 'GitHub Actions', 'object-storage'):
+        for reference in ('$BACKEND', '${BACKEND}', 'HCP', 'GitHub Actions', 'object-storage',
+                            '$HAS_HCP_BOOTSTRAP', '$HAS_OBJECT_STORAGE_BOOTSTRAP',
+                            '$HCP_LEAVES', '$OBJECT_STORAGE_LEAVES'):
             with self.subTest(reference=reference):
                 skill = self.root / '.ai-rulez/skills/add/SKILL.md'
                 original = skill.read_text(encoding='utf-8')
@@ -86,6 +112,30 @@ class BackendOperationTests(unittest.TestCase):
         text = self.manifest.read_text(encoding='utf-8').replace('    implementation: hcp\n', '    implementation: object-storage\n', 1)
         self.manifest.write_text(text, encoding='utf-8')
         self.assertTrue(any('selector lacks its backend gate' in e for e in validate_backend_operations(self.root)))
+
+    def test_repository_default_cannot_replace_leaf_route(self) -> None:
+        text = self.manifest.read_text(encoding='utf-8').replace(
+            '[ "$GITHUB_BACKEND" = "object-storage" ]', '[ "$BACKEND" = "object-storage" ]', 1)
+        self.manifest.write_text(text, encoding='utf-8')
+        self.assertTrue(any('gh-app-gha: implementation selector lacks' in error
+                            for error in validate_backend_operations(self.root)))
+
+    def test_protection_cannot_follow_github_management_leaf(self) -> None:
+        text = self.manifest.read_text(encoding='utf-8')
+        offset = text.index('  - id: status-check-context\n')
+        text = text[:offset] + text[offset:].replace(
+            '[ "$HAS_HCP" = "true" ]', '[ "$GITHUB_BACKEND" = "hcp" ]', 1)
+        self.manifest.write_text(text, encoding='utf-8')
+        self.assertTrue(any('status-check-context: implementation selector lacks' in error
+                            for error in validate_backend_operations(self.root)))
+
+    def test_shared_runtime_branch_cannot_use_repository_default(self) -> None:
+        text = self.manifest.read_text(encoding='utf-8').replace(
+            'if [ "$CLOUDFLARE_BACKEND" = "object-storage" ]; then',
+            'if [ "$BACKEND" = "object-storage" ]; then', 1)
+        self.manifest.write_text(text, encoding='utf-8')
+        self.assertTrue(any('migrate-import: runtime routing must use effective' in error
+                            for error in validate_backend_operations(self.root)))
 
     def test_not_applicable_cannot_be_unexplained(self) -> None:
         text = self.manifest.read_text(encoding='utf-8')

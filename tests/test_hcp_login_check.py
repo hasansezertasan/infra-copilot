@@ -48,6 +48,7 @@ class HcpLoginCheckTests(unittest.TestCase):
         workspace_version: str = "1.14.6",
         workspaces_readable: bool = True,
         hcp_api: str = "https://app.terraform.io/api/v2",
+        additional_names: str = "[]",
     ) -> subprocess.CompletedProcess[str]:
         """Run the extracted check with `curl` stubbed per URL.
 
@@ -130,6 +131,10 @@ class HcpLoginCheckTests(unittest.TestCase):
                     "ORG": "acme",
                     "REPO": "acme/infra",
                     "TERRAFORM_VERSION": "1.14.6",
+                    "BACKEND": "hcp",
+                    "LEAF_BACKENDS": "{}",
+                    "ADDITIONAL_PROVIDER_NAMES": additional_names,
+                    "HAS_HCP_BOOTSTRAP": "true",
                     "INFRA_COPILOT_REFERENCES": str(
                         REPO_ROOT / ".ai-rulez/skills/infra-copilot/references"
                     ),
@@ -197,6 +202,11 @@ class HcpLoginCheckTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("not a user token", result.stderr)
+
+    def test_pending_provider_preserves_established_plan_only_login(self) -> None:
+        result = self.run_check(code="404", env_token="team-token", workspace_repo="acme/infra",
+                                additional_names='["gcp"]')
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_workspace_drift_still_requires_a_user_token(self) -> None:
         """The agent needs the user identity to reconcile Phase 1 settings."""

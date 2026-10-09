@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:5a7dd55fb5cb494ee5eef7d1bb6dba4aacd153a0691447bec1182f7654f7b92c
-Source-Hash: blake3:3a9697a49dfbe82ce6e776a6cb9df377de2454c7b960f3fb5a5526b3b2b7c1ab
+Content-Hash: blake3:cd09a8b7a394f53604139c815a605963afa69ab5bb9630930d44dfe5ca9ac1d4
+Source-Hash: blake3:d24cbea87332e73737fe4d4decfb2ea42514574279e0e7d427cb6952f6d44925
 Schema-Version: v1
 -->
 
@@ -19,10 +19,18 @@ agent does, what the human must do, and how to prove it. Canonical bootstrap det
 [`setup.md#3`](docs/setup.md#3-cloudflare-api-token). Token scopes + rotation:
 [`secrets.md`](docs/secrets.md#cloudflare-api-token-scopes).
 
+Resolve `CLOUDFLARE_BACKEND` from [config.md](config.md) first. The workspace commands
+below apply only to an effective HCP leaf; for an object-storage leaf use
+[runner credential custody](object-storage.md#store-provider-credential) and
+[runner plans](object-storage.md#get-plan). Never select custody from the repository
+default or consult a retained migrated workspace as evidence of current credentials.
+
 ## What this repo manages via Cloudflare
 
 The `<apex-domain>` zone and all its DNS records (Email Routing + GitHub Pages), through the
-`cloudflare/cloudflare` v5 provider. State + token live in the HCP `cloudflare` workspace.
+`cloudflare/cloudflare` v5 provider. For an effective HCP leaf, state + token live in the
+HCP `cloudflare` workspace; for an object-storage leaf, state lives in the leaf's bucket
+prefix and the token lives in the scoped runner credentials described above.
 
 ## The actor split
 

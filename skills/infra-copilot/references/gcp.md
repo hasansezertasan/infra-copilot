@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7ac216e229fcc487e5efe4434c15825cb8beb5304e006673c4fb39e427be41a3
-Source-Hash: blake3:3a9697a49dfbe82ce6e776a6cb9df377de2454c7b960f3fb5a5526b3b2b7c1ab
+Content-Hash: blake3:3f3bcf62f3c8c58d70bf5135701474abc040b06011f7b15704038bc7cd0d7931
+Source-Hash: blake3:d24cbea87332e73737fe4d4decfb2ea42514574279e0e7d427cb6952f6d44925
 Schema-Version: v1
 -->
 
@@ -12,6 +12,13 @@ there is no `terraform/gcp/` leaf and no `gcp` HCP workspace until a consuming r
 records the decision below. Everything here was exercised end to end on a real keyless
 adoption (~140 resources imported, `0 to add, 0 to change, 0 to destroy`), and the
 hazards are listed in roughly the order a first-timer meets them.
+
+Resolve the adoption entry's `NEW_PROVIDER_BACKEND` from [config.md](config.md) first.
+HCP workspace and HCP-specific WIF commands below apply only to an effective HCP leaf.
+An object-storage entry uses [runner provisioning](object-storage.md#provision-execution)
+and [Actions WIF](docs/object-storage-ci.md#gcp-workload-identity-federation), even when
+the repository default is HCP. Re-review IAM trust for the destination subject on cutover;
+HCP's subject cannot authenticate Actions, and its credential attestation is not portable.
 
 ## Prerequisite: make the decision (HUMAN + docs)
 

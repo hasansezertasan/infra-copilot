@@ -27,9 +27,37 @@ permissions:
 env:
   TF_IN_AUTOMATION: true
   TF_INPUT: false
+  CLOUDFLARE_BACKEND: object-storage
+  GITHUB_BACKEND: object-storage
 
 jobs:
+  # Route by backend only: every object-storage leaf converges on every run.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      cloudflare: ${{ steps.route.outputs.cloudflare }}
+      github: ${{ steps.route.outputs.github }}
+    steps:
+      - name: Route object-storage leaves
+        id: route
+        env:
+          CLOUDFLARE_CHANGED: 'true'
+          GITHUB_CHANGED: 'true'
+        run: |
+          cloudflare=false
+          github=false
+          if [ "$CLOUDFLARE_BACKEND" = "object-storage" ] && [ "$CLOUDFLARE_CHANGED" = "true" ]; then
+            cloudflare=true
+          fi
+          if [ "$GITHUB_BACKEND" = "object-storage" ] && [ "$GITHUB_CHANGED" = "true" ]; then
+            github=true
+          fi
+          echo "cloudflare=$cloudflare" >> "$GITHUB_OUTPUT"
+          echo "github=$github" >> "$GITHUB_OUTPUT"
+
   apply-cloudflare:
+    needs: changes
+    if: needs.changes.outputs.cloudflare == 'true'
     permissions:
       contents: read
       pull-requests: read
@@ -120,6 +148,8 @@ jobs:
         run: terraform apply -lock=true -no-color tfplan
 
   apply-github:
+    needs: changes
+    if: needs.changes.outputs.github == 'true'
     permissions:
       contents: read
       pull-requests: read

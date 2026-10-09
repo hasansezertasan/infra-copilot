@@ -66,6 +66,38 @@ is a locked decision — see this repo's `.infra-copilot/decisions.md`.
 
 ## AGENT — verify
 
+### Versioned App manifests
+
+For object-storage leaves, copy
+[`templates/apps/terraform-plan.json`](templates/apps/terraform-plan.json) and
+[`templates/apps/terraform-apply.json`](templates/apps/terraform-apply.json) into the
+consuming repository's `.github/apps/`. These are provider Apps: plan is read-only, apply
+can manage repository settings and organization memberships. Adapt permissions to the
+actual resources and installation scope, give each App a unique name, and replace the
+example homepage and callback URLs with human-controlled URLs. Permission edits require
+a live App-settings update and, where GitHub requires it, installation-owner approval;
+committing JSON alone does not change an installed App.
+
+The HUMAN submits each JSON as the `manifest` form field to the organization App creation
+URL described above, then exchanges the returned one-hour code and stores the resulting
+PEM privately. Never commit the conversion response or ask an agent to perform the
+exchange. Keep the committed manifest synchronized with approved live permissions so
+drift can be reviewed and the App recreated. Store plan credentials in repository secrets
+and apply credentials in the protected `production` environment; see
+[Actions provider authentication](docs/object-storage-ci.md#terraform-providers).
+After reviewing the distinct public App IDs, live permissions, and secret stores,
+record those IDs plus strict UTC `reviewed_at` under `github_apps` in the consuming config
+and commit it. Missing evidence or a secret update newer than that review keeps the
+handoff incomplete. Re-review when live permissions change; metadata cannot prove
+permissions or reveal which PEM was installed.
+Commit both customized manifest copies and record their `git hash-object` values as
+`plan_manifest_blob` and `apply_manifest_blob` in the same review record. Missing,
+uncommitted, or changed manifests invalidate the handoff until reviewed again.
+The check also requires every plan permission to be `read`, at least one `write` in the
+apply manifest, and distinct App names.
+
+### HCP variable verification
+
 ```sh
 HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
 WS_ID=$(curl -sf "https://app.terraform.io/api/v2/organizations/$ORG/workspaces/github-org" \

@@ -61,6 +61,7 @@ class GhaLatestRunsTests(unittest.TestCase):
         head: str = "3f9c2a1d0e",
         subdir: str = "",
         toplevel: str | None = None,
+        apply_route: str = "object-storage",
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -70,7 +71,12 @@ class GhaLatestRunsTests(unittest.TestCase):
             for path in (bin_dir, data, work / ".github/workflows"):
                 path.mkdir(parents=True)
             for name in workflows:
-                (work / ".github/workflows" / name).write_text("", encoding="utf-8")
+                workflow_text = (REPO_ROOT / '.ai-rulez/skills/infra-copilot/references/templates' / name).read_text()
+                if name == "terraform-apply.yml":
+                    workflow_text = workflow_text.replace('GITHUB_BACKEND: object-storage', f'GITHUB_BACKEND: {apply_route}')
+                (work / ".github/workflows" / name).write_text(
+                    workflow_text,
+                    encoding="utf-8")
             (data / "terraform-plan.yml.json").write_text(json.dumps(plan or []), encoding="utf-8")
             (data / "terraform-apply.yml.json").write_text(json.dumps(apply or []), encoding="utf-8")
             for workflow, (code, message) in (list_fail or {}).items():
@@ -142,6 +148,9 @@ esac
                 **os.environ,
                 "REPO": repo,
                 "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                "INFRA_COPILOT_REFERENCES": str(SOURCE.parent.parent),
+                "ADDITIONAL_PROVIDER_NAMES": "[]",
+                "LEAF_BACKENDS": "{}",
             }
             env.pop("BACKEND", None)
             if backend is not None:
@@ -149,7 +158,7 @@ esac
             cwd = work / subdir
             cwd.mkdir(parents=True, exist_ok=True)
             result = subprocess.run(
-                ["sh", str(SCRIPT)], cwd=cwd, env=env, capture_output=True, text=True
+                ["sh", str(SOURCE)], cwd=cwd, env=env, capture_output=True, text=True
             )
             calls = data / "calls"
             self.gh_calls = calls.read_text(encoding="utf-8") if calls.exists() else ""
@@ -346,7 +355,7 @@ esac
             with self.subTest(backend=backend):
                 result = self.run_helper(backend=backend)
                 self.assertEqual(result.returncode, 2, result.stderr)
-                self.assertIn("CANNOT VERIFY: BACKEND must be explicitly", result.stderr)
+                self.assertIn("CANNOT VERIFY routing: BACKEND must be explicit", result.stderr)
                 self.assertNotIn("not applicable", result.stdout)
                 self.assertEqual(self.gh_calls, "")
 
@@ -355,6 +364,16 @@ esac
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("not applicable", result.stdout)
         self.assertEqual(self.gh_calls, "")
+
+    def test_routing_failure_is_red_and_does_not_hide_failed_apply(self) -> None:
+        result = self.run_helper(
+            apply_route="hcp", apply=[run(123, conclusion="failure", event="push")],
+            jobs={123: [job("apply-github", conclusion="failure")]},
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("broken: workflow routing", result.stdout)
+        self.assertIn("run 123", result.stdout)
+        self.assertIn("apply-github ✗ failed", result.stdout)
 
 
 class GhaLatestRunsWiringTests(unittest.TestCase):

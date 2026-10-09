@@ -12,10 +12,18 @@ agent does, what the human must do, and how to prove it. Canonical bootstrap det
 [`setup.md#3`](docs/setup.md#3-cloudflare-api-token). Token scopes + rotation:
 [`secrets.md`](docs/secrets.md#cloudflare-api-token-scopes).
 
+Resolve `CLOUDFLARE_BACKEND` from [config.md](config.md) first. The workspace commands
+below apply only to an effective HCP leaf; for an object-storage leaf use
+[runner credential custody](object-storage.md#store-provider-credential) and
+[runner plans](object-storage.md#get-plan). Never select custody from the repository
+default or consult a retained migrated workspace as evidence of current credentials.
+
 ## What this repo manages via Cloudflare
 
 The `<apex-domain>` zone and all its DNS records (Email Routing + GitHub Pages), through the
-`cloudflare/cloudflare` v5 provider. State + token live in the HCP `cloudflare` workspace.
+`cloudflare/cloudflare` v5 provider. For an effective HCP leaf, state + token live in the
+HCP `cloudflare` workspace; for an object-storage leaf, state lives in the leaf's bucket
+prefix and the token lives in the scoped runner credentials described above.
 
 ## The actor split
 

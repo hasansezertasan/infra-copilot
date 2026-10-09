@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:4f16ea004ea5a4bcbeeed3f5434202e0db7cf74d2b4683750341755c7dec3fa0
-Source-Hash: blake3:3a9697a49dfbe82ce6e776a6cb9df377de2454c7b960f3fb5a5526b3b2b7c1ab
+Content-Hash: blake3:c1bc0eb7d624f1509c1f968b58dab91c1cdd4eb2117e4071cf5ac53650f22b18
+Source-Hash: blake3:d24cbea87332e73737fe4d4decfb2ea42514574279e0e7d427cb6952f6d44925
 Schema-Version: v1
 -->
 
@@ -17,6 +17,12 @@ Use [store-provider-credential](../operations.md#store-provider-credential).
 The persistent Cloudflare edit token, and GitHub App ID, installation ID and full PEM,
 are supplied by the selected execution service. Keep discovery credentials separate,
 short-lived and read-only; revoke them when discovery finishes.
+
+Choose custody by each leaf's effective route. A mixed repository can use HCP workspace
+variables for Cloudflare and Actions secrets for GitHub, or the reverse. Validate and
+refresh both service export sets when needed, and clear the previous provider entry's
+exports before switching entries. An HCP credential attestation does not verify runner
+authentication after cutover; complete the destination handoff and a fresh plan first.
 
 ## Scope and rotation
 

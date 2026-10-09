@@ -42,8 +42,10 @@ for file in "$plan" "$apply"; do
   [ "$(grep -Ec '^on:[[:space:]]*$' "$file" || true)" = 1 ] || exit 1
   [ "$(grep -Ec '^jobs:[[:space:]]*$' "$file" || true)" = 1 ] || exit 1
 done
+sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
 section() {
   awk -v key="$2" '
+    {sub(/\r$/, "")}
     /^[^[:space:]#]/ {inside=($0 == key ":")}
     inside && $0 !~ /^[[:space:]]*#/ {print}
   ' "$1"
@@ -155,8 +157,13 @@ for name in $names; do
   [ "$(printf '%s\n' "$block" | grep -c '^    environment:' || true)" = 1 ] || exit 1
   printf '%s\n' "$block" | grep -Fxq '    environment: production' || exit 1
   apply_step=$(printf '%s\n' "$block" | step 'Terraform Apply')
-  # Production generates a refreshed locked plan and applies only that inspected plan.
-  printf '%s\n' "$block" | grep -Eq '^    (if|needs|continue-on-error):' && exit 1
+  printf '%s\n' "$block" | grep -Eq '^    continue-on-error:' && exit 1
+  [ "$(printf '%s\n' "$block" | grep -c '^    needs:' || true)" = 1 ] || exit 1
+  printf '%s\n' "$block" | grep -Fxq '    needs: changes' || exit 1
+  condition="    if: needs.changes.outputs.$leaf == 'true'"
+  bracket="    if: needs.changes.outputs['$leaf'] == 'true'"
+  printf '%s\n' "$block" | grep -Fxq "$condition" ||
+    printf '%s\n' "$block" | grep -Fxq "$bracket" || exit 1
   printf '%s\n' "$apply_step" | grep -Eq '^        (if|continue-on-error):' && exit 1
   [ "$(printf '%s\n' "$block" | grep -Fc '      - name: Terraform Apply')" = 1 ] || exit 1
   guard=$(printf '%s\n' "$block" | step "Refuse to apply a commit that is not main's tip")
@@ -254,7 +261,8 @@ for name in $names; do
   printf '%s\n' "$plan_job" | grep -Fxq "$condition" ||
     printf '%s\n' "$plan_job" | grep -Fxq "$bracket" || exit 1
   [ "$(printf '%s\n' "$plan_job" | grep -c '^    if:' || true)" = 1 ] || exit 1
-  output="      $leaf: \${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.$leaf }}"
+  case "$leaf" in [0-9]*) accessor="['$leaf']" ;; *) accessor=.$leaf ;; esac
+  output="      $leaf: \${{ steps.route.outputs$accessor }}"
   printf '%s\n' "$changes" | grep -Fxq "$output" || exit 1
   [ "$(printf '%s\n' "$changes" | grep -c "^      $leaf:" || true)" = 1 ] || exit 1
   leaf_filter=$(printf '%s\n' "$filter" | awk -v name="$leaf" '

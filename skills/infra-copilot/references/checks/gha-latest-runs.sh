@@ -32,13 +32,11 @@ cannot_verify() { echo "CANNOT VERIFY: $1" >&2; exit 2; }
 
 # Step 0 requires an explicit mode. Refuse an incomplete export here as well, so a
 # direct invocation cannot report a missing backend as verified HCP or query Actions.
-case ${BACKEND:-} in
-    object-storage) : ;;
-    hcp)
-        echo "not applicable: backend is hcp; HCP runs are read from the HCP API"
-        exit 0 ;;
-    *) cannot_verify "BACKEND must be explicitly hcp or object-storage; record backend in config per references/config.md" ;;
-esac
+routing=$(sh "${INFRA_COPILOT_REFERENCES:?}/checks/leaf-routing.sh") || exit 2
+if [ "$(printf '%s' "$routing" | jq -r '.has_object_storage')" = false ]; then
+    echo "not applicable: no object-storage leaves; read HCP runs per leaf"
+    exit 0
+fi
 
 # The workflow-file probe below is relative, so anchor it at the repository root rather
 # than wherever the caller happens to be; from a subdirectory both workflows would
@@ -83,6 +81,15 @@ report() {
         echo "$1  $2  – not installed (.github/workflows/$2 is missing)"
         return
     fi
+    route_status=0
+    sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" ".github/workflows/$2" || route_status=$?
+    case "$route_status" in
+        0) : ;;
+        1) echo "$prefix  ✗ broken: workflow routing disagrees with effective config"; failed=1 ;;
+        *) unreadable "$prefix" 'workflow routing cannot be verified' ;;
+    esac
+    # Historical execution outcomes are independent evidence, even when local
+    # routing is broken or unreadable. Continue reading both workflows.
     if [ -z "$3" ]; then
         echo "$1  $2  ? detached HEAD: no branch to read runs for"
         return

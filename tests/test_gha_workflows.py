@@ -1,6 +1,7 @@
 """Resume must reject legacy and partially upgraded workflow installations."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import textwrap
@@ -43,6 +44,7 @@ class WorkflowSetupTests(unittest.TestCase):
 
     def check(self, *, references: bool = True) -> subprocess.CompletedProcess[str]:
         env = {**os.environ, 'INFRA_COPILOT_REFERENCES': str(REFERENCES) if references else '',
+               'BACKEND': 'object-storage', 'ADDITIONAL_PROVIDER_NAMES': '[]',
                'ADDITIONAL_PROVIDER_SECRETS': '[{"name":"aws","credential_secrets":[{"name":"READ_TOKEN","scope":"plan","required":true},{"name":"WRITE_TOKEN","scope":"apply","required":true}]}]'}
         return subprocess.run(['sh', str(SCRIPT)], cwd=self.root, env=env,
                               capture_output=True, text=True)
@@ -87,6 +89,8 @@ class WorkflowSetupTests(unittest.TestCase):
             original.replace('            exit 1', '            exit 0'),
             original.replace('          if [ "$GITHUB_REF" != "refs/heads/main" ] ||', '          if'),
             original.replace(guard, '', 1) + guard,
+            original.replace(guard, '', 1).replace('      - name: Terraform Init',
+                                                   guard + '      - name: Terraform Init', 1),
             original.replace('      - name: Terraform Apply', '      - name: Terraform Apply\n        if: false', 1),
             original.replace('      - name: Terraform Apply', '      - name: Terraform Apply\n        continue-on-error: true', 1),
             original.replace('run: terraform apply -lock=true', 'run: terraform apply -lock=false', 1),
@@ -172,6 +176,13 @@ class WorkflowSetupTests(unittest.TestCase):
     def test_missing_references_are_unknown(self) -> None:
         self.assertEqual(self.check(references=False).returncode, 2)
 
+    def test_crlf_workflows_preserve_convergence_evidence(self) -> None:
+        for workflow_path in (self.plan, self.apply):
+            workflow_path.write_bytes(workflow_path.read_bytes().replace(b'\n', b'\r\n'))
+        self.commit()
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_missing_dirty_and_outdated_helpers_cannot_skip_setup(self) -> None:
         original = self.helper.read_text()
         self.helper.unlink()
@@ -249,7 +260,8 @@ class WorkflowSetupTests(unittest.TestCase):
         script = textwrap.dedent(match.group(1))
         return subprocess.run(['sh', '-c', script], cwd=self.root,
                                env={**os.environ, 'INFRA_COPILOT_REFERENCES': str(REFERENCES),
-                                    'NEW_PROVIDER': provider,
+                                    'NEW_PROVIDER': provider, 'BACKEND': 'object-storage',
+                                    'ADDITIONAL_PROVIDER_NAMES': json.dumps([provider]),
                                     'NEW_PROVIDER_SECRETS': '[{"name":"READ_TOKEN","scope":"plan","required":true},{"name":"WRITE_TOKEN","scope":"apply","required":true}]'}, capture_output=True, text=True)
 
     def test_requested_provider_must_exist_as_actual_jobs(self) -> None:
@@ -273,11 +285,72 @@ class WorkflowSetupTests(unittest.TestCase):
         # Job output is mandatory for dispatch as well as PR filtering.
         self.plan.write_text(self.plan.read_text().replace('    outputs:\n',
             "    outputs:\n      aws: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.aws }}\n", 1))
-        self.plan.write_text(self.plan.read_text().replace('          filters: |\n',
-            "          filters: |\n            aws:\n"
-            "              - 'terraform/aws/**'\n"
-            "              - '.github/workflows/terraform-*.yml'\n"
-            "              - '.github/scripts/terraform-destroy.cjs'\n", 1))
+        self.commit()
+        # The legacy unfiltered output is insufficient: a new provider must also
+        # declare its backend route and participate in the required aggregate.
+        self.assertEqual(self.new_provider_check().returncode, 1)
+        plan_original = self.plan.read_text()
+        aws_filter = ("            aws:\n"
+                      "              - 'terraform/aws/**'\n"
+                      "              - 'terraform/modules/**'\n"
+                      "              - 'mise.toml'\n"
+                      "              - 'mise.lock'\n"
+                      "              - '.infra-copilot/config.md'\n"
+                      "              - '.github/workflows/terraform-*.yml'\n"
+                      "              - '.github/scripts/terraform-destroy.cjs'\n")
+        aws_init = "          leaf_aws=false\n"
+        aws_decision = ("          if [ \"$LEAF_AWS_BACKEND\" = \"object-storage\" ] && [ \"$LEAF_AWS_CHANGED\" = \"true\" ]; then\n"
+                        "            leaf_aws=true\n"
+                        "          fi\n")
+        aws_emission = "          echo \"aws=$leaf_aws\" >> \"$GITHUB_OUTPUT\"\n"
+        # Complete the backend routing the aggregate and route step demand for aws.
+        for target in (self.plan, self.apply):
+            text = (target.read_text()
+                .replace('  TF_INPUT: false\n',
+                         '  TF_INPUT: false\n  LEAF_AWS_BACKEND: object-storage\n', 1)
+                .replace('          GITHUB_CHANGED: \'true\'\n',
+                         '          GITHUB_CHANGED: \'true\'\n          LEAF_AWS_CHANGED: \'true\'\n', 1)
+                .replace("          GITHUB_CHANGED: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.github }}\n",
+                         "          GITHUB_CHANGED: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.github }}\n"
+                         "          LEAF_AWS_CHANGED: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.aws }}\n", 1)
+                .replace('          github=false\n', '          github=false\n' + aws_init, 1)
+                .replace('            github=true\n          fi\n',
+                         '            github=true\n          fi\n' + aws_decision, 1)
+                .replace('          echo "github=$github" >> "$GITHUB_OUTPUT"\n',
+                         '          echo "github=$github" >> "$GITHUB_OUTPUT"\n' + aws_emission, 1))
+            if target == self.plan:
+                text = text.replace('      aws: ${{ github.event_name == \'workflow_dispatch\' && \'true\' || steps.filter.outputs.aws }}',
+                                    '      aws: ${{ steps.route.outputs.aws }}')
+            else:
+                text = text.replace('      github: ${{ steps.route.outputs.github }}\n',
+                                    '      github: ${{ steps.route.outputs.github }}\n'
+                                    '      aws: ${{ steps.route.outputs.aws }}\n', 1)
+            target.write_text(text)
+        self.plan.write_text(self.plan.read_text()
+            .replace('          filters: |\n', '          filters: |\n' + aws_filter, 1)
+            .replace('    needs: [changes, plan-cloudflare, plan-github, validate]',
+                     '    needs: [changes, plan-cloudflare, plan-github, plan-aws, validate]', 1)
+            .replace('          GITHUB_CHANGED: ${{ needs.changes.outputs.github }}\n',
+                     '          GITHUB_CHANGED: ${{ needs.changes.outputs.github }}\n'
+                     '          LEAF_AWS_CHANGED: ${{ needs.changes.outputs.aws }}\n', 1)
+            .replace("""          if [ "$GITHUB_CHANGED" = "true" ] && [ "$plan_github_result" != "success" ]; then
+            echo "Error: terraform/github changed but plan-github did not succeed (result: $plan_github_result)"
+            echo "The leaf plan did not succeed. Check its logs for init, authentication, or plan errors; fork PRs cannot run authenticated plans."
+            exit 1
+          fi
+""",
+                     """          if [ "$GITHUB_CHANGED" = "true" ] && [ "$plan_github_result" != "success" ]; then
+            echo "Error: terraform/github changed but plan-github did not succeed (result: $plan_github_result)"
+            echo "The leaf plan did not succeed. Check its logs for init, authentication, or plan errors; fork PRs cannot run authenticated plans."
+            exit 1
+          fi
+          plan_aws_result=$(echo '${{ toJson(needs) }}' | jq -r '.["plan-aws"].result // "skipped"')
+          if [ "$LEAF_AWS_CHANGED" = "true" ] && [ "$plan_aws_result" != "success" ]; then
+            echo "Error: terraform/aws changed but plan-aws did not succeed (result: $plan_aws_result)"
+            echo "The leaf plan did not succeed. Check its logs for init, authentication, or plan errors; fork PRs cannot run authenticated plans."
+            exit 1
+          fi
+""", 1))
         self.commit()
         self.assertEqual(self.new_provider_check().returncode, 0)
         # Inventory placement alone cannot catch apply incorrectly using a read secret.
@@ -302,12 +375,18 @@ class WorkflowSetupTests(unittest.TestCase):
         self.assertEqual(self.new_provider_check().returncode, 1)
         # A hash inside a quoted active expression value is not a YAML comment.
         self.apply.write_text(apply_original.replace('${{ secrets.WRITE_TOKEN }}',
-                                                    "'${{ secrets.WRITE_TOKEN }} # retained'"))
+                                                     "'${{ secrets.WRITE_TOKEN }} # retained'"))
         self.commit()
         self.assertEqual(self.new_provider_check().returncode, 0)
         self.apply.write_text(apply_original)
         self.commit()
-        self.assertEqual(self.check().returncode, 0)
+        env = {**os.environ, 'INFRA_COPILOT_REFERENCES': str(REFERENCES),
+               'BACKEND': 'object-storage',
+               'ADDITIONAL_PROVIDER_NAMES': json.dumps(['aws']),
+               'ADDITIONAL_PROVIDER_SECRETS': '[{"name":"aws","credential_secrets":[{"name":"READ_TOKEN","scope":"plan","required":true},{"name":"WRITE_TOKEN","scope":"apply","required":true}]}]'}
+        result = subprocess.run(['sh', str(SCRIPT)], cwd=self.root, env=env,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
         plan_original = self.plan.read_text()
         for broken in (plan_original.replace('secrets.READ_TOKEN', 'secrets.WRITE_TOKEN'),
                        plan_original.replace('secrets.READ_TOKEN', 'secrets.UNDECLARED_TOKEN'),
@@ -317,7 +396,7 @@ class WorkflowSetupTests(unittest.TestCase):
             self.assertEqual(self.new_provider_check().returncode, 1)
         self.plan.write_text(plan_original)
         self.commit()
-        self.plan.write_text(plan_original.replace("      aws: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.aws }}",
+        self.plan.write_text(plan_original.replace("      aws: ${{ steps.route.outputs.aws }}",
                                                    "      aws: ${{ steps.filter.outputs.aws }}"))
         self.commit()
         self.assertEqual(self.new_provider_check().returncode, 1)

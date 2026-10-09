@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7e31a670f136a46634d8f1cc5947ef151c271d4fae2f2fdb67650139bbe83f35
-Source-Hash: blake3:3a9697a49dfbe82ce6e776a6cb9df377de2454c7b960f3fb5a5526b3b2b7c1ab
+Content-Hash: blake3:05a7b325295440acaee621cb47a955769a7029bec977196185d394c3194d7669
+Source-Hash: blake3:d24cbea87332e73737fe4d4decfb2ea42514574279e0e7d427cb6952f6d44925
 Schema-Version: v1
 -->
 
@@ -9,6 +9,12 @@ Schema-Version: v1
 
 Setup selects execution and remote state. Shared workflows use the contracts in
 [operations](../operations.md).
+
+Resolve state per declared leaf: `leaf_backends[leaf]` overrides the required `backend`
+default. Mixed repositories retain isolated HCP and object-storage state simultaneously.
+Before converting an existing HCP leaf, follow the authoritative
+[migration runbook](object-storage-state.md#migrating-from-hcp); backend text alone is not
+proof that state moved. Never infer a fresh leaf from an empty destination bucket.
 
 - [Provision-execution](../operations.md#provision-execution): isolated state per leaf,
   path-scoped execution, approved applies and a pinned toolchain.
