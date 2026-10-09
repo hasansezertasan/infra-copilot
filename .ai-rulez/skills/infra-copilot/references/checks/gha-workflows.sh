@@ -18,7 +18,6 @@ esac
   }
 root=$(git --no-optional-locks rev-parse --show-toplevel) || exit 2
 cd "$root"
-sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
 plan=.github/workflows/terraform-plan.yml
 apply=.github/workflows/terraform-apply.yml
 helper=.github/scripts/terraform-destroy.cjs
@@ -35,12 +34,15 @@ for file in "$plan" "$apply"; do
   # cannot borrow evidence from an inactive declaration.
   awk '
     /^[[:space:]]*#/ {next}
+    /^[[:space:]]*["\047].*["\047]:/ {exit 1}
+    /TF_CLI_ARGS/ {exit 1}
     /(^|[[:space:]:,{\[])[&*][^[:space:]&*]/ {exit 1}
     /^[^[:space:]#]/ {key=$0; sub(/:.*/, "", key); if (++seen[key] > 1) exit 1}
   ' "$file" || exit 1
   [ "$(grep -Ec '^on:[[:space:]]*$' "$file" || true)" = 1 ] || exit 1
   [ "$(grep -Ec '^jobs:[[:space:]]*$' "$file" || true)" = 1 ] || exit 1
 done
+sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
 section() {
   awk -v key="$2" '
     {sub(/\r$/, "")}
@@ -64,6 +66,29 @@ run_body() {
   awk '
     /^        run:/ {inside=1}
     inside {print}
+  '
+}
+active_yaml() {
+  # Supported single-line scalars: retain hashes in quoted values, omit inline comments.
+  awk '
+    /^[[:space:]]*#/ {next}
+    {
+      single=0; double=0; escaped=0
+      for (i=1; i<=length($0); i++) {
+        char=substr($0, i, 1)
+        if (double && escaped) {escaped=0; continue}
+        if (double && char == "\\") {escaped=1; continue}
+        if (!double && char == "\047") {
+          if (single && substr($0, i+1, 1) == "\047") {i++; continue}
+          single=!single; continue
+        }
+        if (!single && char == "\"") {double=!double; continue}
+        if (!single && !double && char == "#" && (i == 1 || substr($0, i-1, 1) ~ /[[:space:]]/)) {
+          $0=substr($0, 1, i-1); break
+        }
+      }
+      print
+    }
   '
 }
 apply_events=$(section "$apply" on)
@@ -129,6 +154,8 @@ done
 for name in $names; do
   leaf=${name#apply-}
   block=$(job "$apply" "$name")
+  [ "$(printf '%s\n' "$block" | grep -c '^    environment:' || true)" = 1 ] || exit 1
+  printf '%s\n' "$block" | grep -Fxq '    environment: production' || exit 1
   apply_step=$(printf '%s\n' "$block" | step 'Terraform Apply')
   printf '%s\n' "$block" | grep -Eq '^    continue-on-error:' && exit 1
   [ "$(printf '%s\n' "$block" | grep -c '^    needs:' || true)" = 1 ] || exit 1
@@ -146,7 +173,7 @@ for name in $names; do
   [ "$destroy" = "$wanted_destroy" ] || exit 1
   saved_plan=$(printf '%s\n' "$block" | step 'Terraform Plan')
   printf '%s\n' "$saved_plan" | grep -Fxq "        working-directory: terraform/$leaf" || exit 1
-  printf '%s\n' "$saved_plan" | grep -Fxq '        run: terraform plan -no-color -out=tfplan' || exit 1
+  printf '%s\n' "$saved_plan" | grep -Fxq '        run: terraform plan -lock=true -refresh=true -no-color -out=tfplan' || exit 1
   expected_saved_plan=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
     step 'Terraform Plan' | run_body)
   actual_saved_plan=$(printf '%s\n' "$saved_plan" | run_body)
@@ -170,6 +197,63 @@ for name in $names; do
   ' || exit 1
   plan_job=$(job "$plan" "plan-$leaf")
   [ -n "$plan_job" ] || exit 1
+  # Only read-only credentials may reach branch plans. No environment is allowed.
+  printf '%s\n' "$plan_job" | grep -Eq '^    environment:' && exit 1
+  # Only dot-form secret access is supported; bracket/whole-context forms are ambiguous.
+  printf '%s\n' "$plan_job" | sed -E 's/secrets\.[A-Za-z_][A-Za-z0-9_]*//g' |
+    grep -Eq '(^|[^A-Za-z0-9_])secrets([^A-Za-z0-9_]|$)' && exit 1
+  printf '%s\n' "$plan_job" | grep -Eq 'secrets[[:space:]]*\[' && exit 1
+  printf '%s\n' "$plan_job" | grep -Eq 'secrets\.(CLOUDFLARE_API_TOKEN|GH_APP_ID|GH_APP_INSTALLATION_ID|GH_APP_PEM)([^A-Za-z0-9_]|$)' && exit 1
+  plan_step=$(printf '%s\n' "$plan_job" | step 'Terraform Plan')
+  flags='-lock=false'
+  [ "$leaf" != github ] || flags='-lock=false -refresh=false'
+  printf '%s\n' "$plan_step" | grep -Fxq "          terraform plan $flags -no-color -out=tfplan 2>&1 | tee plan.txt" || exit 1
+  # Cross-check provider credentials against their tier. Public backend coordinates
+  # intentionally use environment overrides; effective IAM/trust is reviewed by HUMAN.
+  case "$leaf" in
+    cloudflare) inventory='[{"name":"CLOUDFLARE_API_TOKEN_READ","scope":"plan"},{"name":"CLOUDFLARE_API_TOKEN","scope":"apply"}]' ;;
+    github) inventory='[{"name":"GH_APP_READ_ID","scope":"plan"},{"name":"GH_APP_READ_INSTALLATION_ID","scope":"plan"},{"name":"GH_APP_READ_PEM","scope":"plan"},{"name":"GH_APP_ID","scope":"apply"},{"name":"GH_APP_INSTALLATION_ID","scope":"apply"},{"name":"GH_APP_PEM","scope":"apply"}]' ;;
+    *)
+      if [ "${NEW_PROVIDER:-}" = "$leaf" ] && [ -n "${NEW_PROVIDER_SECRETS:-}" ]; then
+        inventory=$NEW_PROVIDER_SECRETS
+      else
+        inventory=$(printf '%s' "${ADDITIONAL_PROVIDER_SECRETS:-[]}" | jq -ce --arg leaf "$leaf" '
+          [.[] | select(.name == $leaf)] | select(length == 1) | .[0].credential_secrets') || {
+          echo "CANNOT VERIFY: missing credential inventory for $leaf" >&2; exit 2;
+        }
+      fi
+      ;;
+  esac
+  case "$leaf" in
+    cloudflare|github) inventory=$(printf '%s' "$inventory" | jq -c 'map(. + {required: true})') || exit 2 ;;
+  esac
+  printf '%s' "$inventory" | jq -e '
+    type == "array" and all(.[];
+      (.name | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$"))
+      and (.scope == "plan" or .scope == "apply") and (.required | type == "boolean"))
+    and length == (map(.name | ascii_upcase) | unique | length)' >/dev/null || exit 1
+  for tier in plan apply; do
+    tier_job=$(job "$([ "$tier" = plan ] && printf '%s' "$plan" || printf '%s' "$apply")" "$tier-$leaf" | active_yaml)
+    # Credential expressions must be direct references, as in the shipped templates.
+    # Reject wrappers/fallbacks rather than partially parse format strings or nested braces.
+    printf '%s\n' "$tier_job" | sed -E 's/\$\{\{[[:space:]]*secrets\.[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\}\}//g' |
+      grep -Eq '(^|[^A-Za-z0-9_])secrets([^A-Za-z0-9_]|$)' && exit 1
+    references=$(printf '%s\n' "$tier_job" | grep -Eo 'secrets\.[A-Za-z_][A-Za-z0-9_]*' |
+      cut -d . -f 2 | tr '[:lower:]' '[:upper:]' || true)
+    printf '%s\n' "$references" | while IFS= read -r secret; do
+      [ -n "$secret" ] || continue
+      case "$secret" in
+        GCP_WORKLOAD_IDENTITY_PROVIDER|GCP_SERVICE_ACCOUNT|AWS_ROLE_ARN|AZURE_CLIENT_ID|AZURE_TENANT_ID|AZURE_SUBSCRIPTION_ID) continue ;;
+      esac
+      printf '%s' "$inventory" | jq -e --arg name "$secret" --arg tier "$tier" '
+        any(.[]; (.name | ascii_upcase) == $name and .scope == $tier)' >/dev/null || exit 1
+    done || exit 1
+    printf '%s' "$inventory" | jq -r --arg tier "$tier" '
+      .[] | select(.scope == $tier and .required == true) | .name | ascii_upcase' |
+      while IFS= read -r secret; do
+        printf '%s\n' "$references" | grep -Fxq "$secret" || exit 1
+      done || exit 1
+  done
   [ "$(printf '%s\n' "$plan_job" | grep -c '^    needs:' || true)" = 1 ] || exit 1
   printf '%s\n' "$plan_job" | grep -Fxq '    needs: changes' || exit 1
   condition="    if: needs.changes.outputs.$leaf == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"
@@ -191,7 +275,9 @@ for name in $names; do
   printf '%s\n' "$pr_plan" | grep -Fxq '        id: plan' || exit 1
   printf '%s\n' "$pr_plan" | grep -Fxq "        working-directory: terraform/$leaf" || exit 1
   printf '%s\n' "$pr_plan" | grep -Eq '^        (if|continue-on-error):' && exit 1
-  expected_plan_body=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-plan.yml" plan-cloudflare |
+  template_leaf=cloudflare
+  [ "$leaf" != github ] || template_leaf=github
+  expected_plan_body=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-plan.yml" "plan-$template_leaf" |
     step 'Terraform Plan' | run_body)
   actual_plan_body=$(printf '%s\n' "$pr_plan" | run_body)
   [ "$actual_plan_body" = "$expected_plan_body" ] || exit 1
@@ -220,4 +306,4 @@ for name in $names; do
     END {if (plan != 1 || inventory != 1 || report != 1 || status != 1 || state != 4) exit 1}
   ' || exit 1
 done
-echo 'READY: committed workflows and helper converge every leaf with destructive opt-in'
+echo 'READY: read-tier unlocked plans and production applies converge every leaf with destructive opt-in; HUMAN IAM review is still required'

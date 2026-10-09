@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:018c8fdabd5beedef7f0fa20c23344668255458f2ef06ed6c4caf2b9ccb182d8
-Source-Hash: blake3:e14c78d27ea7195aea9fbffd68e088594de7dbce72ea0a33a3a69b9f4a4772de
+Content-Hash: blake3:40ddb53448bcbe8dbfc9ad51fe7a06fb3f0d5658e921b73986cd4a37cb1aa585
+Source-Hash: blake3:e7dc18393ff262b84d55a1ce153ae86bb5bd74f06d0c72cd181e34a0727fc535
 Schema-Version: v1
 -->
 
@@ -46,7 +46,7 @@ is separate from operation completion and cannot move the first-red verdict.
 
 | Operation | `hcp` members | `object-storage` members |
 |---|---|---|
-| `bootstrap-state` | `hcp-login`, `hcp-signup`, `hcp-verify` | `state-bucket`, `backend-config`, `backend-identity` |
+| `bootstrap-state` | `hcp-login`, `hcp-signup`, `hcp-verify` | `state-bucket`, `backend-config`, `backend-identity`, `backend-identity-trust` |
 | `provision-execution` | `vcs-connect`, `workspaces-create` | `gha-workflows`, `gha-destroy-label`, `gha-environments` |
 | `store-cloudflare-credential` | `cf-token` | `cf-token-gha` |
 | `store-github-credential` | `gh-app` | `gh-app-gha` |
@@ -108,8 +108,10 @@ Implementation: [service execution](hcp.md), [runner execution](object-storage.m
 A HUMAN stores the scoped credential out of band, without exposing its value to the
 agent, git, logs or plans. Verify inventory plus authentication with a plan; secret-name
 existence alone does not verify the value. The named bootstrap credential operations use
-this same contract. Rotate by storing a replacement, verifying a no-op plan, then revoking
-its predecessor. Implementation: [service custody](docs/hcp-secrets.md),
+this same contract. Rotate by storing a replacement, verifying authentication with the
+execution that actually uses that credential tier, then revoking its predecessor.
+In object-storage mode, a branch plan verifies read credentials only; apply replacements
+require a HUMAN-authorized production run. Implementation: [service custody](docs/hcp-secrets.md),
 [runner custody](object-storage.md#store-provider-credential).
 
 ## Get-plan

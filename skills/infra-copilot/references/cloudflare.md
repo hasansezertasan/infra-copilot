@@ -1,12 +1,18 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:edc5fa8a699251091b8daeb6fb11cfb63d55221404f36e1e795d8880130d690a
-Source-Hash: blake3:e14c78d27ea7195aea9fbffd68e088594de7dbce72ea0a33a3a69b9f4a4772de
+Content-Hash: blake3:3f05e1a16c0ad07820b37a8d8910e4944ee80adc4d83ff8f9143766032c22618
+Source-Hash: blake3:e7dc18393ff262b84d55a1ce153ae86bb5bd74f06d0c72cd181e34a0727fc535
 Schema-Version: v1
 -->
 
 
 # Provider: Cloudflare (agent-first)
+
+For object-storage/GitHub Actions, use two scoped tokens: repository
+`CLOUDFLARE_API_TOKEN_READ` with DNS/Zone Settings Read for plan, and
+`CLOUDFLARE_API_TOKEN` with Edit only in the exact-main `production` environment for apply.
+Remove repository copies of the edit token; never reuse it for branch plans.
+See [the credential tiers and migration](docs/object-storage-ci.md#terraform-providers).
 
 Deep dive for [Phase 2](../../setup/SKILL.md) of the infra-copilot:setup skill. What the
 agent does, what the human must do, and how to prove it. Canonical bootstrap detail:
@@ -102,6 +108,8 @@ Write the results into `terraform/cloudflare/main.tf` `locals`. See the Configur
 
 ## Rotation
 
-Zero-downtime, agent-assisted: human mints the new token and pastes it; agent runs a no-op
-`plan` to prove it; only then does the human revoke the old one. Steps in
+Zero-downtime, agent-assisted: human mints the new token and pastes it; verify the run
+that actually uses it before revoking the old value. HCP or an object-storage read token
+can be verified by a no-op plan; an object-storage edit token needs a HUMAN-authorized
+production run. A branch plan does not validate production credentials. Steps in
 [`secrets.md`](docs/secrets.md#cloudflare-api-token).

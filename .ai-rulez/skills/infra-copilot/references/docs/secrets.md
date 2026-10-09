@@ -53,12 +53,16 @@ The PEM includes its BEGIN/END delimiters and newlines; never commit it.
 
 Mint a replacement with the existing managed-resource scopes, store it through
 [store-provider-credential](../operations.md#store-provider-credential), and obtain a
-no-op plan. Revoke the previous token only after the new token authenticates successfully.
+no-op plan for HCP or a read-only plan token. In object-storage mode, an edit-token
+replacement requires a HUMAN-authorized production run; branch plans never consume it.
+Revoke the previous token only after the matching tier authenticates successfully.
 If validation fails, restore the still-live old value and investigate.
 
 ## GitHub App private key
 
 Generate a second private key while the old one remains active. Store the full new PEM
 through [store-provider-credential](../operations.md#store-provider-credential), obtain a
-no-op plan, then delete the old App key. Correct newline/delimiter problems before revoking
+no-op plan for HCP or the read App. For the object-storage write App, verify a
+HUMAN-authorized production run instead; a successful branch plan says nothing about
+its PEM. Then delete that App's old key. Correct newline/delimiter problems before revoking
 anything. The selected credential implementation owns the storage commands.

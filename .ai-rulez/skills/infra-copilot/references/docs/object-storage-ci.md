@@ -6,13 +6,18 @@ For leaves whose effective backend is `object-storage` in [`../config.md`](../co
 
 ## Trust boundary (object-storage mode)
 
-| Surface | Visibility | Holds secrets? |
-|---|---|---|
-| Repo source, Issues, PRs, Actions logs | Public | no |
-| GitHub Actions encrypted secrets | Private (repo settings) | yes — Cloudflare token, GitHub App creds |
-| `terraform plan` output | PR comment | **sensitive values shown** unless marked `sensitive = true` |
+| Surface | Visibility | Holds secrets? | Reachable from |
+|---|---|---|---|
+| Repo source, Issues, PRs, Actions logs | Public | no | Anyone |
+| Read-only repository secrets | Private settings | yes — plan token and read App | Any same-repository branch; forks excluded by workflow |
+| Write production environment secrets | Private settings | yes — apply token and write App | Only `main` jobs in `production` |
+| Backend state | Private bucket | potentially secret values | Plan and apply identities |
+| `terraform plan` output | PR comment | **sensitive values shown** unless marked `sensitive = true` | Anyone viewing the PR |
 
 Unlike HCP mode, plan output appears directly in PR comments. Mark all sensitive outputs with `sensitive = true` in your Terraform code.
+Read-only credentials still expose readable data and state to branch code. They must not grant
+resource/state writes, secret-value reads outside state, or impersonation of apply. Do not
+put apply credentials in repository secrets or organization secrets accessible to this repo.
 
 ## Workflows
 
@@ -31,6 +36,14 @@ Legacy filters, conditional applies, missing dispatch support, or missing main-t
 Missing, dirty or outdated helpers and missing destructive guards also make setup incomplete.
 A locked dispatch-only Apply gate is supported; it must omit the push trigger.
 Keep the templates' guard and expression layout when customizing provider authentication.
+The workflow check verifies credential scope in both directions: each reference belongs
+to its job's tier and every required credential is referenced there. Credential expressions
+must be direct `${{ secrets.NAME }}` references; wrappers such as `format()` or fallbacks
+are unsupported and rejected rather than partially interpreted. Preserve explicit
+`-lock=true -refresh=true` on production planning and `-lock=true` on application of that
+production-generated saved plan. The supported workflow shape rejects
+`TF_CLI_ARGS*` overrides at workflow, job or step scope, including writes to `GITHUB_ENV`;
+do not inject command behavior through Terraform's argument environment variables.
 The apply workflow references a GitHub Environment (`production`) restricted to `main`, with required reviewers where GitHub offers them (see [GitHub Environments](#github-environments)).
 GitHub owner inputs default to the repository owner; override with the Actions variable
 `TF_GITHUB_OWNER`. Actions configuration variable names cannot start with `GITHUB_`.
@@ -289,7 +302,7 @@ resource "google_iam_workload_identity_pool_provider" "plan" {
 
 data "google_project" "current" {}
 
-# Service account for plan runs (state locking and reading)
+# Service account for plan runs (state reading only)
 resource "google_service_account" "plan" {
   account_id   = "tf-plan"
   display_name = "Terraform Plan runner"
@@ -301,10 +314,10 @@ resource "google_service_account_iam_member" "plan_wif" {
   member             = "principalSet://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.infra.workload_identity_pool_id}/attribute.repository_id/<repo-id>"
 }
 
-# Note: GCS backend acquires a state lock during plan, requiring objectAdmin to create and release .tflock objects
+# Plans use -lock=false: this identity cannot create or release locks or write state.
 resource "google_storage_bucket_iam_member" "plan_state" {
   bucket = "<state-bucket>"
-  role   = "roles/storage.objectAdmin"
+  role   = "roles/storage.objectViewer"
   member = "serviceAccount:${google_service_account.plan.email}"
 }
 
@@ -386,14 +399,14 @@ gcloud iam service-accounts add-iam-policy-binding "tf-plan@$PROJECT_ID.iam.gser
   --role="roles/iam.workloadIdentityUser" \
   --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL/attribute.repository_id/$REPO_ID"
 
-# Grant storage permissions on the state bucket (objectAdmin needed for state locking)
+# Apply can write state/locks; plan can only read state.
 gcloud storage buckets add-iam-policy-binding "gs://<state-bucket>" \
   --member="serviceAccount:tf-apply@$PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/storage.objectAdmin"
 
 gcloud storage buckets add-iam-policy-binding "gs://<state-bucket>" \
   --member="serviceAccount:tf-plan@$PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/storage.objectAdmin"
+  --role="roles/storage.objectViewer"
 ```
 
 #### GitHub secrets and workflow usage
@@ -408,7 +421,61 @@ For the production apply job in `terraform-apply.yml`, configure environment sec
 - `GCP_WORKLOAD_IDENTITY_PROVIDER`: `projects/<project-number>/locations/global/workloadIdentityPools/gha-infra/providers/apply`
 - `GCP_SERVICE_ACCOUNT`: `tf-apply@<project-id>.iam.gserviceaccount.com`
 
+These identifiers are public coordinates, not write keys. The environment overrides are
+required, but trust and effective IAM enforce the boundary even if a branch learns the
+apply coordinates. Verify distinct service accounts, remove old plan objectAdmin grants,
+and check inherited/project grants and impersonation paths too. Secret-name listing alone
+cannot verify IAM or that an environment value differs from its repository counterpart.
+
+#### GCP resource refresh permissions
+
+For a GCP resource leaf, state read access alone is insufficient. Grant the plan account
+only the viewer roles needed by the actual resource types. A mixed services/IAM/service
+accounts/Artifact Registry/storage/Compute/GKE/Cloud SQL/monitoring/WIF/Secret Manager leaf
+can require these project roles (omit those for absent resource types):
+
+- `roles/artifactregistry.reader`
+- `roles/cloudsql.viewer`
+- `roles/compute.viewer`
+- `roles/container.clusterViewer`
+- `roles/iam.securityReviewer`
+- `roles/iam.serviceAccountViewer`
+- `roles/iam.workloadIdentityPoolViewer`
+- `roles/monitoring.viewer`
+- `roles/secretmanager.viewer`
+- `roles/serviceusage.serviceUsageViewer`
+- `roles/storage.bucketViewer`
+
+`iam.securityReviewer` permits `getIamPolicy` refresh for IAM members across resource
+types and exposes every IAM policy in the project; explicitly accept that visibility.
+Secret Manager Viewer reads metadata, not secret versions (`versions.access`). Never add
+Secret Accessor or basic `roles/viewer`: basic Viewer can read BigQuery table data, and a
+PR can add a data source. Inspect current predefined roles with `gcloud iam roles describe`
+and tailor them further where needed. WIF permissions are named
+`iam.googleapis.com/workloadIdentityPools.get`, not `iam.workloadIdentityPools.get`.
+Unlike an HCP PR plan using a project-IAM-admin/secretmanager.admin identity, these plans
+cannot use PR-added data sources to read Secret Manager values or mutate cloud resources.
+GCP plans keep refresh enabled; use `-lock=false` without `-refresh=false`.
+
 **AWS:**
+
+Create separate plan/apply roles. Plan gets `s3:ListBucket` on the state bucket and
+`s3:GetObject` on the leaf state prefix (plus narrowly scoped KMS decrypt if required).
+It gets no S3 writes or DynamoDB lock mutations. Apply gets state Get/Put/Delete and
+lock permissions: S3 lockfile Get/Put/Delete when `use_lockfile` is enabled, or
+DynamoDB DescribeTable/GetItem/PutItem/DeleteItem for the configured lock table.
+Scope policies to the actual bucket, prefixes, table and encryption key.
+Cloud-resource refresh needs per-service read actions, not AdministratorAccess or broad
+data-reading policies; exclude secret-value APIs and `sts:AssumeRole` into apply.
+
+Both role trust policies must use the GitHub OIDC audience `sts.amazonaws.com` and exact
+subjects. The plan role may allow `repo:<owner>/<repo>:pull_request` and explicitly
+listed branch subjects for dispatch; do not wildcard repository or environment subjects.
+Apply allows only `repo:<owner>/<repo>:environment:production`. GitHub's exact-main
+deployment policy is required because that environment subject does not encode the ref.
+Use repository `AWS_ROLE_ARN` for plan and a production environment override pointing
+to the separate apply role. For a dispatch gate, enforce the named triggering actor via
+an independently verified trust/gate mechanism; the default AWS subject does not carry it.
 
 ```yaml
 - uses: aws-actions/configure-aws-credentials@v4
@@ -418,6 +485,18 @@ For the production apply job in `terraform-apply.yml`, configure environment sec
 ```
 
 **Azure:**
+
+Create separate applications/service principals: plan has Storage Blob Data Reader on
+the state container; apply has Storage Blob Data Contributor, including lease/lock access.
+Configure backend Entra ID authentication (`use_azuread_auth = true`), not account keys
+or permission to list storage account keys. Cloud refresh uses resource-specific metadata
+read roles/custom actions; no secret-value APIs, write actions or apply impersonation.
+Federated credentials use audience `api://AzureADTokenExchange`, issuer
+`https://token.actions.githubusercontent.com` and exact subjects: plan PR and explicitly
+listed dispatch branches; apply `repo:<owner>/<repo>:environment:production` only.
+The exact-main production policy is mandatory here too. Store plan `AZURE_CLIENT_ID`,
+`AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` at repository scope and production overrides
+for the distinct apply principal. Inspect effective RBAC and all federated credentials.
 
 ```yaml
 - uses: azure/login@v2
@@ -437,20 +516,44 @@ resources. Copy the reviewed manifest templates
 URLs, trim permissions for the resources actually managed, and review manifest changes
 alongside live App settings. The manifests describe provider identities, not the built-in
 Actions token that writes plan comments. See [the manifest flow](../github.md#versioned-app-manifests).
-Install only on managed repositories. Keep the plan App credentials in repository secrets
-and the apply App credentials in the `production` environment under the same secret names
-so the apply job receives its environment-specific write identity. JSON contains no keys;
-App creation, code exchange, and key storage remain HUMAN actions.
-
-Set secrets as environment variables:
+Install only on managed repositories. Keep the plan App's `GH_APP_READ_*` credentials in
+repository secrets and the apply App's `GH_APP_*` credentials in the `production`
+environment so the apply job receives its environment-specific write identity. JSON
+contains no keys; App creation, code exchange, and key storage remain HUMAN actions.
+Plan jobs have no environment and use read-only repository secrets:
 
 ```yaml
 env:
-  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-  GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
-  GITHUB_APP_INSTALLATION_ID: ${{ secrets.GH_APP_INSTALLATION_ID }}
-  GITHUB_APP_PEM_FILE: ${{ secrets.GH_APP_PEM }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_READ }}
+  GITHUB_APP_ID: ${{ secrets.GH_APP_READ_ID }}
+  GITHUB_APP_INSTALLATION_ID: ${{ secrets.GH_APP_READ_INSTALLATION_ID }}
+  GITHUB_APP_PEM_FILE: ${{ secrets.GH_APP_READ_PEM }}
 ```
+
+Create two Cloudflare tokens: plan has Zone DNS/Zone Settings Read, apply has Edit,
+both restricted to the managed account/zones. Create two GitHub Apps: plan has only
+Read permissions; apply uses the write permissions in [GitHub](../github.md), including
+Contents R/W specifically to refresh repository merge settings accurately.
+Install each on the managed repositories; never reuse the write App PEM for plan.
+GitHub hides merge settings and ruleset `bypass_actors` from read-only callers, so the
+GitHub plan uses `-refresh=false` to compare against last-applied state without phantom
+updates. It does not report live drift; imports/data sources may still make API calls.
+All plans use `-lock=false` and may race applies; production apply refreshes and locks
+its own recomputed plan, never a branch's saved `tfplan`.
+
+Apply jobs set `environment: production` and use `CLOUDFLARE_API_TOKEN`, `GH_APP_ID`,
+`GH_APP_INSTALLATION_ID`, `GH_APP_PEM` stored **only** there. Install with
+`gh secret set <name> --repo <owner>/<repo> --env production`. Verify the exact-main
+policy first, then delete repository copies with `gh secret delete <name> --repo <owner>/<repo>`.
+Rotate previously branch-accessible write keys and revoke old values after validating
+the protected apply. `gh secret list --repo <owner>/<repo>` must show read names and no
+write names; `gh secret list --repo <owner>/<repo> --env production` must show write names.
+Placement checks also inspect accessible organization secrets using
+`gh api --paginate repos/<owner>/<repo>/actions/organization-secrets`; a write-name match
+is incomplete, and an unreadable inventory is `CANNOT VERIFY`, not proof of absence.
+Secret checks prove placement, not permissions or identity separation; a HUMAN verifies both.
+Additional-provider `credential_secrets` entries declare `scope: plan` or `scope: apply`
+with distinct names; an empty inventory still requires separate read/write keyless identities.
 
 ## Branch protection
 

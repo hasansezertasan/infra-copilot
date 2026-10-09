@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:268a6af9b67ffa094c3a34c5824447f2e63d9716590f856768c634aa477cf441
-Source-Hash: blake3:e14c78d27ea7195aea9fbffd68e088594de7dbce72ea0a33a3a69b9f4a4772de
+Content-Hash: blake3:c81dffd9e3d349d091b9ce2ab9f12ebd2110647740365fa0801ae3303bd92f60
+Source-Hash: blake3:e7dc18393ff262b84d55a1ce153ae86bb5bd74f06d0c72cd181e34a0727fc535
 Schema-Version: v1
 -->
 
@@ -208,7 +208,12 @@ additional_providers:
 
 In object-storage mode, `workspace`, `fork_speculative_plans_*`, and `credential_variables`
 are not applicable — GitHub Actions handles CI and secrets. The `credential_secrets` field
-replaces `credential_variables` and lists the GitHub Actions secret names the workflow needs.
+replaces `credential_variables`. Each entry has `name`, boolean `required`, and `scope`:
+`plan` for read-only repository secrets, `apply` for distinct production-only write secrets.
+Names must be unique ignoring case. Existing entries without scope must be migrated; never
+infer that an old repository credential is read-only. Remove repository copies of apply names.
+For example: `[{name: GCP_READ_TOKEN, required: true, scope: plan},
+{name: GCP_WRITE_TOKEN, required: true, scope: apply}]`.
 It may be empty for keyless authentication such as Workload Identity Federation; public
 provider and service-account identifiers belong in workflow configuration, not secrets.
 
@@ -345,7 +350,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export STATE_REGION=<state_region>        # for S3 and azurerm; empty for GCS
    export AZURE_STORAGE_ACCOUNT=<azure_storage_account>  # for azurerm
    export AZURE_RESOURCE_GROUP=<azure_resource_group>    # for azurerm
-    export ADDITIONAL_PROVIDER_SECRETS='<only object-storage-routed additional_providers credential_secrets as compact JSON>'
+    export ADDITIONAL_PROVIDER_SECRETS='<only object-storage-routed [entry: {name, credential_secrets}, ...] as compact JSON>'
    ```
 
    If `additional_providers` is absent (legacy config), default it to `[]`. If the key is

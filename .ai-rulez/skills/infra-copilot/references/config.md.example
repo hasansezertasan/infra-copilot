@@ -67,6 +67,8 @@ additional_providers: []
 #     credentials_verified_at: ""
 #     credentials_backend: ""
 #     credential_secrets: []  # WIF identifiers are public; configure them in the workflow
+#     # For stored credentials, use distinct names with name, required, scope: plan|apply.
+#     # Plan secrets are read-only at repo scope; apply secrets exist only in production.
 # infra-copilot:customization end
 ---
 

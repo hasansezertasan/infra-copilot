@@ -3,6 +3,8 @@
 #
 # Copy terraform-destroy.cjs to .github/scripts/terraform-destroy.cjs too.
 # Each apply computes a fresh saved plan, inspects it, then applies that exact plan.
+# Never reuse a branch's saved plan: it is unlocked, may skip refresh, and embeds read credentials.
+# Production planning uses write credentials, explicit refresh, and state locking.
 # The environment gate still precedes planning; drift may differ from the PR plan.
 # Deletes/replacements require allow-destroy on the producing merged PR. The label
 # records intent, not authorization, and opts into all deletes in the refreshed plan.
@@ -119,7 +121,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: terraform plan -no-color -out=tfplan
+        run: terraform plan -lock=true -refresh=true -no-color -out=tfplan
 
       - name: Refuse destructive apply without opt-in
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
@@ -143,7 +145,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: terraform apply -no-color tfplan
+        run: terraform apply -lock=true -no-color tfplan
 
   apply-github:
     needs: changes
@@ -217,7 +219,7 @@ jobs:
           TF_VAR_github_app_installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
           TF_VAR_github_app_pem: ${{ secrets.GH_APP_PEM }}
           TF_VAR_github_owner: ${{ vars.TF_GITHUB_OWNER || github.repository_owner }}
-        run: terraform plan -no-color -out=tfplan
+        run: terraform plan -lock=true -refresh=true -no-color -out=tfplan
 
       - name: Refuse destructive apply without opt-in
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
@@ -246,4 +248,4 @@ jobs:
           TF_VAR_github_app_installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
           TF_VAR_github_app_pem: ${{ secrets.GH_APP_PEM }}
           TF_VAR_github_owner: ${{ vars.TF_GITHUB_OWNER || github.repository_owner }}
-        run: terraform apply -no-color tfplan
+        run: terraform apply -lock=true -no-color tfplan

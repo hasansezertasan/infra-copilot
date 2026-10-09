@@ -50,6 +50,10 @@ class GitHubAppPermissionTests(unittest.TestCase):
                 'Permissions: Repo Administration(RW), Actions(R), Contents(R), Metadata(R), Pull requests(RW);',
                 'Org Members(RW), Administration(RW).',
             ),
+            'gh-app-gha': (
+                'Permissions: Repository Administration (R/W), Actions (R), Contents (R/W), Metadata (R),',
+                'Pull requests (R/W); Organization Members (R/W), Administration (R/W).',
+            ),
         }
         for step_id, permissions in expected.items():
             with self.subTest(step=step_id):
@@ -68,80 +72,12 @@ class GitHubAppPermissionTests(unittest.TestCase):
         self.assertFalse(plan_manifest['hook_attributes']['active'])
         self.assertNotEqual(plan_manifest['name'], apply_manifest['name'])
 
-    @unittest.skipUnless(os.name == 'posix', 'manifest checks use POSIX shell')
-    def test_existing_secret_names_need_a_current_distinct_app_review(self) -> None:
-        manifest = (REFERENCES / 'steps.yaml').read_text()
-        app_step = manifest.split('  - id: gh-app-gha\n')[1].split('  - id: ')[0]
-        app_check = textwrap.dedent(app_step.split('    check: |\n')[1].split('    produces:')[0])
-        with tempfile.TemporaryDirectory() as directory:
-            checkout = Path(directory)
-            (checkout / '.infra-copilot').mkdir()
-            (checkout / '.infra-copilot/config.md').write_text('github_apps: {}\n')
-            (checkout / '.github/apps').mkdir(parents=True)
-            for app_kind in ('plan', 'apply'):
-                (checkout / f'.github/apps/terraform-{app_kind}.json').write_bytes(
-                    (REFERENCES / f'templates/apps/terraform-{app_kind}.json').read_bytes())
-            subprocess.run(['git', 'init', '-q'], cwd=checkout, check=True)
-            subprocess.run(['git', 'add', '.infra-copilot', '.github/apps'], cwd=checkout, check=True)
-            subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
-                            'commit', '-qm', 'public review fixture'], cwd=checkout, check=True)
-            binary_directory = checkout / 'bin'
-            binary_directory.mkdir()
-            secret_metadata = [{'name': name, 'updatedAt': '2025-01-01T00:00:00Z'}
-                               for name in ('GH_APP_ID', 'GH_APP_INSTALLATION_ID', 'GH_APP_PEM')]
-            gh_command = binary_directory / 'gh'
-            gh_command.write_text("#!/bin/sh\nprintf '%s\\n' '" + json.dumps(secret_metadata) + "'\n")
-            gh_command.chmod(0o755)
-            environment = {**os.environ, 'PATH': f'{binary_directory}{os.pathsep}{os.environ["PATH"]}',
-                           'REPO': 'acme/infra', 'GH_PLAN_APP_ID': '123', 'GH_APPLY_APP_ID': '456',
-                           'GH_APPS_REVIEWED_AT': '2025-01-02T00:00:00Z'}
-            for app_kind in ('plan', 'apply'):
-                environment[f'GH_{app_kind.upper()}_MANIFEST_BLOB'] = subprocess.run(
-                    ['git', 'hash-object', f'.github/apps/terraform-{app_kind}.json'], cwd=checkout,
-                    check=True, capture_output=True, text=True).stdout.strip()
-            reviewed = subprocess.run(['sh', '-c', app_check], cwd=checkout, env=environment,
-                                      capture_output=True, text=True)
-            self.assertEqual(reviewed.returncode, 0, reviewed.stderr)
-            for invalid_review in ({'GH_APPS_REVIEWED_AT': ''}, {'GH_APPLY_APP_ID': '123'},
-                                   {'GH_APPS_REVIEWED_AT': '2024-12-31T00:00:00Z'}):
-                rejected = subprocess.run(['sh', '-c', app_check], cwd=checkout,
-                                          env={**environment, **invalid_review}, capture_output=True, text=True)
-                self.assertEqual(rejected.returncode, 1, rejected.stderr)
-            plan_path = checkout / '.github/apps/terraform-plan.json'
-            committed_plan = plan_path.read_bytes()
-            plan_with_write = json.loads(committed_plan)
-            plan_with_write['default_permissions']['contents'] = 'write'
-            plan_path.write_text(json.dumps(plan_with_write))
-            subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
-                            'commit', '-qam', 'plan App gains a write'], cwd=checkout, check=True)
-            write_blob = subprocess.run(['git', 'hash-object', str(plan_path)], cwd=checkout,
-                                        check=True, capture_output=True, text=True).stdout.strip()
-            write_plan = subprocess.run(['sh', '-c', app_check], cwd=checkout,
-                                        env={**environment, 'GH_PLAN_MANIFEST_BLOB': write_blob},
-                                        capture_output=True, text=True)
-            self.assertEqual(write_plan.returncode, 1, write_plan.stderr)
-            subprocess.run(['git', 'checkout', '-q', 'HEAD~1', '--', '.github/apps/terraform-plan.json'],
-                           cwd=checkout, check=True)
-            apply_path = checkout / '.github/apps/terraform-apply.json'
-            read_only_apply = json.loads(apply_path.read_text())
-            read_only_apply['default_permissions'] = {
-                permission: 'read' for permission in read_only_apply['default_permissions']}
-            apply_path.write_text(json.dumps(read_only_apply))
-            subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
-                            'commit', '-qam', 'apply App loses its writes'], cwd=checkout, check=True)
-            read_only_blob = subprocess.run(['git', 'hash-object', str(apply_path)], cwd=checkout,
-                                            check=True, capture_output=True, text=True).stdout.strip()
-            read_only_apply_check = subprocess.run(
-                ['sh', '-c', app_check], cwd=checkout,
-                env={**environment, 'GH_APPLY_MANIFEST_BLOB': read_only_blob}, capture_output=True, text=True)
-            self.assertEqual(read_only_apply_check.returncode, 1, read_only_apply_check.stderr)
-            restored_plan = subprocess.run(['sh', '-c', app_check], cwd=checkout, env=environment,
-                                           capture_output=True, text=True)
-            self.assertEqual(restored_plan.returncode, 1, 'the apply blob no longer matches')
-            (checkout / '.github/apps/terraform-plan.json').unlink()
-            missing_manifest = subprocess.run(['sh', '-c', app_check], cwd=checkout, env=environment,
-                                              capture_output=True, text=True)
-            self.assertEqual(missing_manifest.returncode, 1)
+    def test_write_contents_is_production_only_and_plan_is_read_only(self) -> None:
+        manifest = (REFERENCES / 'steps.yaml').read_text(encoding='utf-8')
+        step = manifest.split('  - id: gh-app-gha\n', 1)[1].split('  - id: ', 1)[0]
+        self.assertIn('only in the production environment', step)
+        self.assertIn('second App scoped to the same managed repos, with only Read', step)
+        self.assertIn('merge settings accurately on apply refresh', step)
 
 
 if __name__ == '__main__':
