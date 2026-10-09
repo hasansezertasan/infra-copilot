@@ -72,7 +72,9 @@ class BackendOperationTests(unittest.TestCase):
         self.assertGreater(checked, 10)
 
     def test_router_cannot_select_backend(self) -> None:
-        for reference in ('$BACKEND', '${BACKEND}', 'HCP', 'GitHub Actions', 'object-storage'):
+        for reference in ('$BACKEND', '${BACKEND}', 'HCP', 'GitHub Actions', 'object-storage',
+                            '$HAS_HCP_BOOTSTRAP', '$HAS_OBJECT_STORAGE_BOOTSTRAP',
+                            '$HCP_LEAVES', '$OBJECT_STORAGE_LEAVES'):
             with self.subTest(reference=reference):
                 skill = self.root / '.ai-rulez/skills/add/SKILL.md'
                 original = skill.read_text(encoding='utf-8')

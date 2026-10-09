@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:21ddd62264d33b5ef9596a82b4fd5eac011eadf646f9e8638888594b1f874bc6
-Source-Hash: blake3:e7dc18393ff262b84d55a1ce153ae86bb5bd74f06d0c72cd181e34a0727fc535
+Content-Hash: blake3:9c5f120d0193410d5f0e0b3fff8e5c3e688c31d0bfa3d0786c2c74359ca8a734
+Source-Hash: blake3:97a862694726ac65fa258255743de00e1c7e624132ad07b981bb00efd380ca26
 Schema-Version: v1
 -->
 
@@ -519,7 +519,7 @@ Use separate read-only plan and write-capable apply GitHub Apps when managing Gi
 resources. Copy the reviewed manifest templates
 [`terraform-plan.json`](../templates/apps/terraform-plan.json) and
 [`terraform-apply.json`](../templates/apps/terraform-apply.json) to
-`.github/apps/` in the consuming repository. Set unique names and real homepage/callback
+`.github/apps/` in the consuming repository. Set unique names and real homepage/callback/webhook
 URLs, trim permissions for the resources actually managed, and review manifest changes
 alongside live App settings. The manifests describe provider identities, not the built-in
 Actions token that writes plan comments. See [the manifest flow](../github.md#versioned-app-manifests).
@@ -566,7 +566,7 @@ with distinct names; an empty inventory still requires separate read/write keyle
 
 Require the aggregate `plan` job: it runs even when no leaf changed and includes validation plus every applicable leaf plan.
 Path-filtered per-leaf required checks can be skipped without reporting, leaving unrelated PRs waiting forever.
-Required status checks reference GitHub Actions job names, not HCP contexts:
+Required status checks reference GitHub Actions job names, plus the HCP context(s) covering leaves still using it in a mixed repository:
 
 ```hcl
 required_status_checks {
@@ -586,10 +586,7 @@ If it does not report, a maintainer must coordinate the context transition witho
 Keep HCP contexts for leaves still using it; see [the staged cutover](object-storage-state.md#mixed-backend-window).
 The `status-check-gha` step in [`../steps.yaml`](../steps.yaml) verifies a successful Actions context; also inspect the live branch-protection settings.
 
-Require the aggregate `plan` rather than a path-filtered per-leaf plan: skipped leaf jobs
-do not emit their required context, leaving unrelated PRs waiting forever. The aggregate
-runs on every PR and checks changed Actions leaves plus validation. In a mixed repository,
-also retain the HCP context(s) covering unmigrated leaves. In each cutover PR, update the
+In a mixed repository, also retain the HCP context(s) covering unmigrated leaves. In each cutover PR, update the
 managed branch-protection configuration to replace only retiring contexts; never leave
 a disconnected HCP context required on later PRs. See the
 [ordered migration runbook](object-storage-state.md#migrating-from-hcp).

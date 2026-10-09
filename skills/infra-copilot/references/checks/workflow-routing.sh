@@ -31,7 +31,7 @@ for file do
     [ -r "$file" ] || fail "$file is unreadable"
     source_file=$file
     awk '{sub(/\r$/, ""); print}' "$file" > "$normalized" || fail "$file cannot be read"
-    file=$normalized
+    scan=$normalized
     # Only block environments are supported. Flow maps, aliases, merge keys and
     # quoted keys must not conceal a more-specific routing override.
     awk '
@@ -41,7 +41,7 @@ for file do
             $0 !~ /^[[:space:]]*env:[[:space:]]*(#.*)?$/ {exit 1}
         /^[[:space:]]*<</ {exit 1}
         /(^|[[:space:]:,\{\[])[&*][a-zA-Z_]/ {exit 1}
-    ' "$file" || fail "$file uses unsupported environment syntax"
+    ' "$scan" || fail "$source_file uses unsupported environment syntax"
     changes=$(job_block changes)
     [ -n "$changes" ] || broken "$source_file lacks changes job"
     printf '%s\n' "$changes" | grep -Eq '^    (if|needs|continue-on-error):' &&
@@ -75,10 +75,10 @@ for file do
         # HCP-only additional leaves need no runner jobs. If any runner declaration
         # remains, verify it even though the leaf's Actions implementation is skipped.
         if [ "$leaf" != cloudflare ] && [ "$leaf" != github ] && [ "$expected" = hcp ] &&
-           ! grep -Eq "$key|^  (plan|apply)-$leaf:" "$file"; then
+           ! grep -Eq "$key|^  (plan|apply)-$leaf:" "$scan"; then
             continue
         fi
-        grep -Eq "(^|[^A-Za-z0-9_])$key[\"']?[[:space:]]*:" "$file" ||
+        grep -Eq "(^|[^A-Za-z0-9_])$key[\"']?[[:space:]]*:" "$scan" ||
             broken "$source_file is missing $key"
         value=$(awk -v key="$key" '
             /^[[:space:]]*#/ {next}
@@ -91,10 +91,10 @@ for file do
                 value=line
             }
             END { if (count != 1 || bad) exit 1; print value }
-        ' "$file") || fail "$file must declare $key exactly once in its top-level env"
+        ' "$scan") || fail "$source_file must declare $key exactly once in its top-level env"
         # Bare or simply quoted literals are supported, never expressions.
         case "$value" in "'$expected'"|\""$expected"\"|"$expected") ;; *)
-            echo "BROKEN workflow routing: $file $key=$value; effective config requires $expected" >&2
+            echo "BROKEN workflow routing: $source_file $key=$value; effective config requires $expected" >&2
             exit 1 ;;
         esac
         # Verify the supported execution wiring, not merely decorative literals.
@@ -104,7 +104,7 @@ for file do
             inside && $0 ~ "^      " leaf ":" {print}
         ')
         [ "$output" = "      $leaf: \${{ steps.route.outputs$accessor }}" ] || {
-            echo "BROKEN workflow routing: $file $leaf output bypasses route" >&2; exit 1;
+            echo "BROKEN workflow routing: $source_file $leaf output bypasses route" >&2; exit 1;
         }
         case "$source_file" in
             *terraform-plan.yml) prefix=plan; suffix=" && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)" ;;
@@ -181,5 +181,5 @@ for file do
     # Order is significant: reject unguarded/later assignments and early writes.
     # Bootstrap leaves first, then additional leaves in lexical order.
     expected_run=$(printf '%s%s%s' "$initializers" "$decisions" "$emissions")
-    [ "$expected_run" = "$route_run" ] || fail "$file route script differs from the supported backend gates"
+    [ "$expected_run" = "$route_run" ] || fail "$source_file route script differs from the supported backend gates"
 done

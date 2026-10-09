@@ -3,7 +3,7 @@
   "url": "https://example.com/infra",
   "redirect_url": "http://localhost:3000/github-app/callback",
   "public": false,
-  "hook_attributes": {"active": false},
+  "hook_attributes": {"url": "https://example.com/github/events", "active": false},
   "default_permissions": {
     "administration": "write",
     "actions": "read",

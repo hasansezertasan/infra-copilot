@@ -2836,7 +2836,7 @@ def validate_backend_operations(root: Path = ROOT) -> list[str]:
     """
     errors: list[str] = []
     skills = root / ".ai-rulez/skills"
-    forbidden = re.compile(r"\$\{?(?:BACKEND|[A-Z_]+_BACKEND|HAS_HCP|HAS_OBJECT_STORAGE)\b|\bHCP\b|\bGHA\b|GitHub Actions|object-storage", re.I)
+    forbidden = re.compile(r"\$\{?(?:BACKEND|[A-Z_]+_BACKEND|HAS_HCP\w*|HAS_OBJECT_STORAGE\w*|[A-Z_]*(?:HCP|OBJECT_STORAGE)_[A-Z_]*LEAVES)\b|\bHCP\b|\bGHA\b|GitHub Actions|object-storage", re.I)
     for path in sorted(skills.glob("*/SKILL.md")):
         if path.parent.name == "setup":
             continue
@@ -2861,7 +2861,7 @@ def validate_backend_operations(root: Path = ROOT) -> list[str]:
         if re.search(r"\$\{?BACKEND\b", body):
             errors.append(f"steps.yaml: {step}: runtime routing must use effective leaf or service inventory, not BACKEND")
         if not operation:
-            if implementation or re.search(r"\$\{?(?:BACKEND|[A-Z_]+_BACKEND|HAS_HCP|HAS_OBJECT_STORAGE)\b", body):
+            if implementation or re.search(r"\$\{?(?:BACKEND|[A-Z_]+_BACKEND|HAS_HCP\w*|HAS_OBJECT_STORAGE\w*|[A-Z_]*(?:HCP|OBJECT_STORAGE)_[A-Z_]*LEAVES)\b", body):
                 errors.append(f"steps.yaml: {step}: backend-dependent step needs an operation")
             continue
         if not re.fullmatch(r"[a-z][a-z0-9-]*", operation):
