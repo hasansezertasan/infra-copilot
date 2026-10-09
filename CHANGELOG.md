@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.3.0](https://github.com/hasansezertasan/infra-copilot/compare/v0.2.0...v0.3.0) (2026-10-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **ci:** isolate read-only plan credentials from production apply ([#118](https://github.com/hasansezertasan/infra-copilot/issues/118))
+* **setup:** recommend object-storage and require an explicit backend ([#101](https://github.com/hasansezertasan/infra-copilot/issues/101))
+
+### Features
+
+* **ci:** require explicit opt-in for destructive Terraform applies ([#121](https://github.com/hasansezertasan/infra-copilot/issues/121)) ([15ad79e](https://github.com/hasansezertasan/infra-copilot/commit/15ad79e1449b1da8d2d1dee02b9f427c0df179c2))
+* **setup:** recommend object-storage and require an explicit backend ([#101](https://github.com/hasansezertasan/infra-copilot/issues/101)) ([b6f106e](https://github.com/hasansezertasan/infra-copilot/commit/b6f106e427c72b4df17db6a3ad54a72017fe3884))
+* **state:** support per-leaf backend cutovers ([#119](https://github.com/hasansezertasan/infra-copilot/issues/119)) ([e3a290e](https://github.com/hasansezertasan/infra-copilot/commit/e3a290e0e8f94eac989d0691a0a00efbc5c6a50c))
+
+
+### Bug Fixes
+
+* **ci:** converge every Terraform leaf on apply ([#117](https://github.com/hasansezertasan/infra-copilot/issues/117)) ([29fc6fe](https://github.com/hasansezertasan/infra-copilot/commit/29fc6fe1d1863ebfabee0f1af8890bbb91857c1e))
+* **ci:** isolate read-only plan credentials from production apply ([#118](https://github.com/hasansezertasan/infra-copilot/issues/118)) ([58419c3](https://github.com/hasansezertasan/infra-copilot/commit/58419c3118fcab64363dccef08b449190f73ce49))
+* **hcp:** bootstrap workspaces with GitHub App connections ([#100](https://github.com/hasansezertasan/infra-copilot/issues/100)) ([9d9d107](https://github.com/hasansezertasan/infra-copilot/commit/9d9d107ff91441cb9c36670c71e26a22732a8f81))
+* **state:** complete HCP-to-object-storage cutover guide ([#116](https://github.com/hasansezertasan/infra-copilot/issues/116)) ([0f53938](https://github.com/hasansezertasan/infra-copilot/commit/0f53938169a48dfd96ede896ab5cbc25df3ec623))
+* **steps:** accept GitHub App connections when vcs-connect finds no OAuth client ([#94](https://github.com/hasansezertasan/infra-copilot/issues/94)) ([b404413](https://github.com/hasansezertasan/infra-copilot/commit/b40441330d14fb215edb7b3196164995ee840783))
+* **steps:** accept mise's ~-abbreviated path in the trust check ([#92](https://github.com/hasansezertasan/infra-copilot/issues/92)) ([1031bd0](https://github.com/hasansezertasan/infra-copilot/commit/1031bd028a2b7aeaf064f2de311355a843832ab6))
+* **steps:** allow keyless object-storage providers ([#115](https://github.com/hasansezertasan/infra-copilot/issues/115)) ([434b4e0](https://github.com/hasansezertasan/infra-copilot/commit/434b4e0a5989f93920180543cf03d69cdd52c0d1))
+* **steps:** inspect provider locks without backend initialization ([#99](https://github.com/hasansezertasan/infra-copilot/issues/99)) ([534c057](https://github.com/hasansezertasan/infra-copilot/commit/534c0579239c676d9a921fdbc1f857caed8f0e29))
+* **steps:** permit alternative apply gate when plan lacks required reviewers ([#108](https://github.com/hasansezertasan/infra-copilot/issues/108)) ([769a761](https://github.com/hasansezertasan/infra-copilot/commit/769a7610f795d335eb49695a4cbc58c2eaea09c6))
+* **steps:** verify unpaginated workspace variables ([#98](https://github.com/hasansezertasan/infra-copilot/issues/98)) ([2f8037d](https://github.com/hasansezertasan/infra-copilot/commit/2f8037d4fadcf27da89f48c42bfde1b8f1fb27d2))
+
 ## [0.2.0](https://github.com/hasansezertasan/infra-copilot/compare/v0.1.0...v0.2.0) (2026-09-24)
 
 
