@@ -12,6 +12,10 @@ plans, and imports over each provider's API, pausing for the human steps.
 
 ## Install
 
+The quickest way is to give your agent the prompt in
+[`docs/installation.md`](docs/installation.md), which tells it to pick the install route
+for its own host and stop once the install is confirmed. Or install yourself:
+
 | Host | Install | Update | Invoke |
 |---|---|---|---|
 | [Claude Code](docs/install-claude-code.md) | `claude plugin marketplace add hasansezertasan/infra-copilot --scope project`, then `claude plugin install infra-copilot --scope project` | `/plugin update infra-copilot`, then restart | `/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add`, `/infra-status` |
