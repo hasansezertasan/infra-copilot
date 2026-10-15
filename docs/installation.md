@@ -50,8 +50,10 @@ You were pointed here to install the skills. Do this:
    in the conversation that installed them: tell the user to restart, and do not report
    the install as done until you have either verified it or said it needs a restart.
 5. Do not install other skills or switch to a different host's route. Do not run `setup`,
-   `import`, `prune` or `add`, and do not create repositories, change settings or secrets,
-   or push. Only the install is in scope.
+   `import`, `prune` or `add`, and do not create repositories, change repository settings
+   or secrets, or push. Only the install is in scope, including the settings it
+   necessarily writes: `.claude/settings.json` for a Claude Code project install, and
+   enabling the plugin from `/plugins` on Codex.
 
 ### Routes
 
