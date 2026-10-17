@@ -107,11 +107,11 @@ uvx copier copy gh:hasansezertasan/copier-infra infra
 
 Then ask your agent to use infra-copilot to set up the new repository, with the host
 invocation from the install table above (`/infra-setup` on Claude Code and Antigravity); it
-reads the committed config and resumes from where the scan reports. Change values later
-with `uvx copier update` (run from the repo root) and review the diff, rather than hand-editing `config.md` or
-`backend.tf`, so the config and the Terraform literals stay aligned. `uvx copier recopy` re-renders
-over local edits; use it only for deliberate recovery, on a clean tree, after reading the diff.
-The template ships no `scripts/sync-config.sh`, so the `repo-config-sync` step has nothing to
+reads the committed config and resumes from where the scan reports. Change values later with
+`uvx copier update` (run from the repo root) and review the diff, rather than hand-editing
+`config.md` or `backend.tf`, so the config and the Terraform literals stay aligned.
+`uvx copier recopy` re-renders over local edits; use it only for deliberate recovery, on a clean
+tree, after reading the diff. The template ships no `scripts/sync-config.sh`, so the `repo-config-sync` step has nothing to
 synchronize.
 
 Treat any change to `backend`, `state_backend`, `state_bucket` or `state_prefix` after
