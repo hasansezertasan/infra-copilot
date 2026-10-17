@@ -117,6 +117,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "chore: regenerate plugin output for the release"
+          # Drop whatever the allowlist above did not stage, so the check below reads
+          # exactly the committed tree and cannot pass on files the patch omits.
+          git restore --worktree -- .
+          git clean -fdq
           # Check the committed tree: strict validation reports plugin-version
           # drift (AR961) while generated output differs from HEAD. A failing
           # check stops the job before anything is handed over.

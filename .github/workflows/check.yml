@@ -1,9 +1,11 @@
 name: Check
 
 # Unfiltered on purpose: a required check must always report. Reusable so the
-# release workflow runs the very same jobs before it releases.
+# release workflow runs the very same jobs before it releases. There is no `push`
+# trigger: a pull request is already checked by `pull_request`, so pushing to its
+# branch would run everything twice, and a push to `main` is checked by the
+# release workflow's call.
 on:
-  push:
   pull_request:
   workflow_call:
   workflow_dispatch:
