@@ -93,6 +93,26 @@ Full schema, the shell-export contract, and the startup behavior when the file i
 missing: [`config.md`](skills/infra-copilot/references/config.md). A fillable template ships at
 [`config.md.example`](skills/infra-copilot/references/config.md.example).
 
+### Scaffolding the repository with copier-infra
+
+[`copier-infra`](https://github.com/hasansezertasan/copier-infra) is a Copier template that
+renders a consuming repo shaped for this contract: `.infra-copilot/config.md` with an
+explicit `backend:` and its matching fields, a `backend.tf` per Terraform root,
+`mise.toml` and `mise.lock` at the repo root, plus `AGENTS.md` and `decisions.md`. It asks
+only for the public identifiers in the config above.
+
+```sh
+uvx copier copy gh:hasansezertasan/copier-infra infra
+```
+
+Then run `/infra-setup` in the new repository; it reads the committed config and resumes
+from where the scan reports. Change those values later with `copier update` or
+`copier recopy` rather than hand-editing `config.md` or `backend.tf`, so the config and the
+Terraform literals stay aligned. The template ships no `scripts/sync-config.sh`, so the
+`repo-config-sync` step has nothing to synchronize. Switching `backend` after rendering is a
+state migration, not an answer change; follow
+[`object-storage-state.md`](skills/infra-copilot/references/docs/object-storage-state.md#migrating-from-hcp).
+
 HCP mode requires a paid tier with team management for this workflow's plan-only team
 token, even below the free tier's 500-resource limit. The
 [backend comparison](skills/infra-copilot/references/config.md#backend-modes) explains
