@@ -37,7 +37,7 @@ rather than restating it.
 On OpenCode you can install a single skill and its dependencies rather than all six —
 `--skill status --skill infra-copilot` is the read-only audit install, since every action
 skill is a router over the `infra-copilot` hub and is inert without it. See
-[`docs/install-opencode.md`](docs/install-opencode.md); `make closure SKILL=<name>`
+[`docs/install-opencode.md`](docs/install-opencode.md); `npm run closure -- <name>`
 prints any **action** skill's closure, derived from the links in its `SKILL.md`. The
 `infra-copilot` hub is not a closure root — it owns no operations, so installed alone it
 routes to nothing — and the command says so rather than printing one.
@@ -170,32 +170,32 @@ to reach for.
 ## Maintaining host packages
 
 Canonical behavior lives only in `.ai-rulez/skills/` and `.ai-rulez/commands/`. Claude
-Code, Codex, and Antigravity consume the committed root adapters generated from those
-sources. OpenCode installs the same root skills through the portable `skills` installer;
-it does not need a second generated `.opencode/` copy. The native Codex marketplace and
-Antigravity manifest remain small hand-authored adapters because `ai-rulez` does not
-currently generate those install surfaces. Claude-compatible `allowed-tools` values live
+Code, Codex, and Pi consume the committed root output generated from those sources
+(the Codex marketplace and the Pi package fields included). OpenCode installs the same root
+skills through the portable `skills` installer; it does not need a second generated
+`.opencode/` copy. The Antigravity manifest (`plugin.json`) remains a small hand-authored
+adapter because `ai-rulez` does not generate that install surface. Claude-compatible
+`allowed-tools` values live
 only in command frontmatter as adapter permissions; workflow bodies remain host-neutral.
 
-Run everything through `make` — it is what CI runs, so a green `make check` locally is a
-green pipeline:
+Run everything through npm scripts — `npm run check:all` is what CI runs, so a green run locally
+is a green pipeline:
 
 ```bash
-make            # list targets
-make generate   # regenerate the host packages after editing .ai-rulez/
-make check      # everything CI runs: validate + test + OpenCode smoke test
+npm run generate   # regenerate the host packages after editing .ai-rulez/
+npm run check:all  # everything CI runs: check + lint + validate + test + OpenCode smoke tests
 ```
 
-Individual targets (`make validate`, `make test`, `make smoke-opencode`) exist for
-narrowing down a failure.
+Individual scripts (`npm run check`, `npm run lint`, `npm run validate`, `npm test`,
+`npm run smoke-opencode`) exist for narrowing down a failure.
 
-`make check-upstream` is separate because it reads the network. The shipped references
+`npm run check-upstream` is separate because it reads the network. The shipped references
 cite external facts whose currency matters — a `cf-terraforming` coverage matrix, two
 provider majors, an action pinned by SHA in shipped CI — and it compares each against the
 current upstream release. It also checks every HCP API path the guidance calls against
 the OpenAPI spec HashiCorp ships in `go-tfe`. It runs nightly rather than on pull
 requests, so a rate limit can never fail a PR. The audited facts and what each one affects live in
-[`scripts/upstream.json`](scripts/upstream.json); `make check` verifies offline that the
+[`scripts/upstream.json`](scripts/upstream.json); `npm run validate` verifies offline that the
 docs still cite them.
 
 Versions that are only illustrative are deliberately not tracked — the worked `mise.toml`
@@ -203,16 +203,14 @@ in the setup runbook names example versions whose requirement is being *exact*, 
 *newest*, and gating them produced recurring failures with no decision attached.
 
 [`package.json`](package.json) is the single definition of the tool versions this
-repository invokes; `npm ci` installs them and the `Makefile` runs them from
+repository invokes; `npm ci` installs them and the npm scripts run them from
 `node_modules/.bin`. Renovate's native npm manager keeps them current, so a tool added to
-`devDependencies` is covered the moment it lands. `scripts/validate.py` asserts every tool
-the `Makefile` runs resolves from `devDependencies`, and that no `Makefile` or workflow
-reintroduces a `<tool>@<version>` of its own.
+`devDependencies` is covered the moment it lands.
 
-`make check` deliberately excludes `smoke-opencode`, which installs the plugin into a
-throwaway copy of the tree: "the plugin installs" is a different claim from "the payloads
+`npm run check` deliberately excludes `smoke-opencode` and `smoke-closure`, which install the plugin
+into a throwaway copy of the tree: "the plugin installs" is a different claim from "the payloads
 are valid", so it gets its own CI job and its own signal, and failing it still blocks the
-merge. `make check-all` runs both locally.
+merge. `npm run check:all` runs everything locally.
 
 Generated files are committed so users can install without having `ai-rulez`. CI runs the
 same validation and fails if generated payloads drift or local Markdown links break.

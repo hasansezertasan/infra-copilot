@@ -1,0 +1,29 @@
+---
+description: 'Shortcut that loads the infra-copilot add skill — grow a bootstrapped repo: add a managed repo, a new resource, or a brand-new provider, ending on a green plan.'
+---
+
+<!--
+AI-RULEZ :: GENERATED FILE — DO NOT EDIT
+Content-Hash: blake3:fbea2b48b5dfe3b10f125c1a31e70c45d12f474d49717250386ede1f653c8aaa
+Source-Hash: blake3:df6d5f221d5f2752857325a9d44038aac3612972e673e1181956a295f21aba0f
+Schema-Version: v1
+-->
+
+# /infra-add
+
+Explicit entry point for the [`add`](../skills/add/SKILL.md) skill — extend an
+already-bootstrapped repo. Three flavors: add a managed GitHub repo, add a new resource to
+an existing provider, or adopt a brand-new provider (e.g. GCP). Run after `/infra-setup`.
+
+Load `../skills/add/SKILL.md` and drive it:
+
+1. **Read config first** — [`config.md`](../skills/infra-copilot/references/config.md).
+2. **Pick the flavor** (managed repo · new resource · new provider) per the skill. New
+   providers are a **locked-design-decision change** — decide on the record first.
+3. **Respect the actor split** — App-scope changes, token mint/paste, and the provider
+   decision are `HUMAN`; wiring and plans are yours.
+   Contract: [`protocol.md`](../skills/infra-copilot/references/protocol.md).
+4. **Done = green plan** with the new thing as **will be created**, nothing unexpectedly
+   destroyed. If the thing already exists at the provider, hand to `/infra-import` instead.
+
+If `$ARGUMENTS` names the target (e.g. `repo owner/name`, `provider gcp`), start there.

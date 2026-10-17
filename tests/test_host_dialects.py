@@ -1321,7 +1321,7 @@ class NinthRoundTests(unittest.TestCase):
         "README.md",
         "docs/roadmap.md",
         "docs/policy.md",
-        ".github/CONTRIBUTING.md",
+        "CONTRIBUTING.md",
     )
     #: Facts hosts.md owns, in the spellings the prose actually used. Hook facts
     #: and subagent facts are listed together because splitting the assertion is
@@ -2355,7 +2355,7 @@ class SixteenthRoundTests(unittest.TestCase):
         """Its own table says `.ai-rulez/` is the source and everything under
         `skills/` is generated, so a contributor following this link to change a
         capability would have the edit overwritten by the next `make generate`."""
-        guide = (REPO_ROOT / ".github/CONTRIBUTING.md").read_text(encoding="utf-8")
+        guide = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
         self.assertIn(".ai-rulez/skills/infra-copilot/references/hosts.md", guide)
         self.assertNotIn("](../skills/infra-copilot/references/hosts.md)", guide)
 

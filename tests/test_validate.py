@@ -13,8 +13,6 @@ from scripts.validate import (
     JSON_MANIFESTS,
     RELEASE_PLEASE_CONFIG,
     MAX_DESCRIPTION_BUDGET,
-    TOOL_PACKAGES,
-    TOOL_PIN_WORKFLOWS,
     VERSIONLESS_MANIFESTS,
     collect_manifest_errors,
     skill_descriptions,
@@ -33,7 +31,6 @@ from scripts.validate import (
     audited_version,
     validate_shipped_check_paths,
     validate_skill_sections,
-    validate_tool_pins,
     validate_version_locations,
     validate_versions,
 )
@@ -695,19 +692,6 @@ class SingleVersionAuthorityTests(unittest.TestCase):
                 errors,
             )
 
-    def test_unreadable_workflow_is_reported_not_raised(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            (repository / "package.json").write_text(
-                json.dumps({"devDependencies": dict.fromkeys(TOOL_PACKAGES, "1.0.0")}),
-                encoding="utf-8",
-            )
-            (repository / "Makefile").write_text("lint:\n", encoding="utf-8")
-
-            errors = validate_tool_pins(repository)
-
-            self.assertTrue(any("cannot read file" in error for error in errors), errors)
-
     def test_unknown_entry_raises_rather_than_defaulting(self) -> None:
         with self.assertRaises(KeyError):
             audited_version("not-an-entry")
@@ -813,7 +797,7 @@ class LintScopeTests(unittest.TestCase):
     def test_nested_config_relaxes_only_line_width(self) -> None:
         """Deleting this file silently reintroduces 119 findings, so pin its purpose.
 
-        `make lint` is the real enforcement — it fails loudly if a future
+        `npm run lint` is the real enforcement — it fails loudly if a future
         markdownlint version stops applying nested configuration — but nothing
         stopped someone deleting the file as apparently inert.
         """
@@ -961,7 +945,7 @@ class GeneratedInventoryDocsTests(unittest.TestCase):
             if "AI-RULEZ :: GENERATED FILE"
             not in (root / path).read_text(encoding="utf-8", errors="replace")
         ]
-        for document in ("AGENTS.md", ".github/CONTRIBUTING.md"):
+        for document in ("AGENTS.md", "CONTRIBUTING.md"):
             text = (root / document).read_text(encoding="utf-8")
             self.assertIn(
                 str(len(outputs)), text, f"{document} does not quote {len(outputs)} outputs"
@@ -981,404 +965,6 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
     def test_manifest_paths_stay_inside_repository(self) -> None:
         self.assertEqual(validate_manifest_paths(), [])
 
-    def test_repository_tool_pins_are_consistent(self) -> None:
-        self.assertEqual(validate_tool_pins(), [])
-
-    def _pin_workspace(self, root: Path, *, makefile: str | None = None) -> None:
-        """A self-consistent pin workspace, derived from TOOL_PACKAGES.
-
-        Derived rather than hard-coded: adding a fourth tool once broke three
-        unrelated tests with a message about a missing Makefile variable.
-        """
-        (root / "package.json").write_text(
-            json.dumps({"devDependencies": dict.fromkeys(sorted(TOOL_PACKAGES), "1.0.0")}),
-            encoding="utf-8",
-        )
-        (root / "Makefile").write_text(
-            makefile
-            if makefile is not None
-            else "".join(
-                f"run-{package}:\n\t$(CURDIR)/node_modules/.bin/{package}\n"
-                for package in sorted(TOOL_PACKAGES)
-            ),
-            encoding="utf-8",
-        )
-        for relative in TOOL_PIN_WORKFLOWS:
-            workflow = root / relative
-            workflow.parent.mkdir(parents=True, exist_ok=True)
-            workflow.write_text("run: make check\n", encoding="utf-8")
-
-    def test_the_bin_directory_may_not_be_factored_into_a_variable(self) -> None:
-        """`BIN := …/node_modules/.bin` then `$(BIN)/yaml` runs an unseen tool.
-
-        The path is only contiguous after make expands it, so the binary scan
-        goes blind with nothing appearing to change. Resolving make variables
-        would be a third grammar; requiring the paths to stay written out is the
-        same guarantee without one.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            makefile = repository / "Makefile"
-            makefile.write_text(
-                "NODE_BIN := $(CURDIR)/node_modules/.bin\n"
-                "YAML := $(NODE_BIN)/yaml\n"
-                + makefile.read_text(encoding="utf-8")
-                + "probe:\n\t$(YAML) --version\n",
-                encoding="utf-8",
-            )
-
-            self.assertEqual(
-                validate_tool_pins(repository),
-                [
-                    "Makefile: names node_modules/.bin without a binary after it; "
-                    "write each tool's path out in full so this check can see "
-                    "which binaries run"
-                ],
-            )
-
-    #: Bash's five quoting forms, each of which it prints as `ai-rulez@4.9.0`,
-    #: plus the plain spelling. Enumerated from the shell rather than from review
-    #: -- four of these arrived one per round as "fresh evidence" before the set
-    #: was checked against bash and found to be closed.
-    QUOTED_PIN_FORMS = (
-        "ai-rulez@4.9.0",
-        "ai-rulez'@'4.9.0",
-        'ai-rulez"@"4.9.0',
-        "ai-rulez\\@4.9.0",
-        "ai-rulez$'@'4.9.0",
-        'ai-rulez$"@"4.9.0',
-    )
-
-    def test_no_quoting_form_hides_a_tool_we_pin(self) -> None:
-        for token in self.QUOTED_PIN_FORMS:
-            with self.subTest(token=token):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    makefile = repository / "Makefile"
-                    makefile.write_text(
-                        makefile.read_text(encoding="utf-8")
-                        + f"probe:\n\tnpx {token}\n",
-                        encoding="utf-8",
-                    )
-
-                    errors = validate_tool_pins(repository)
-
-                    self.assertEqual(len(errors), 1, errors)
-                    self.assertIn("invokes ai-rulez@… directly", errors[0])
-
-    def test_a_package_may_not_be_run_past_its_bin_link(self) -> None:
-        """`node node_modules/yaml/bin.mjs` runs a transitive CLI unseen.
-
-        The binary scan reads .bin links, so reaching into a package's own files
-        skips it entirely -- and `yaml` is installed transitively with no
-        devDependency, so nothing else would notice either.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            makefile = repository / "Makefile"
-            makefile.write_text(
-                makefile.read_text(encoding="utf-8")
-                + "probe:\n\tnode node_modules/yaml/bin.mjs --version\n",
-                encoding="utf-8",
-            )
-
-            self.assertEqual(
-                validate_tool_pins(repository),
-                [
-                    "Makefile: reaches into node_modules/yaml; run tools through "
-                    "node_modules/.bin/<tool> so this check can see them"
-                ],
-            )
-
-    def test_the_dot_entries_npm_maintains_are_not_packages(self) -> None:
-        """`.bin` holds the links and `.install-stamp` records the install."""
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            makefile = repository / "Makefile"
-            makefile.write_text(
-                makefile.read_text(encoding="utf-8")
-                + "probe:\n\ttouch node_modules/.install-stamp\n",
-                encoding="utf-8",
-            )
-
-            self.assertEqual(validate_tool_pins(repository), [])
-
-    #: Every spelling PR #70's reviewers found for reaching a registry. All pass
-    #: now, and that is the decision: telling these from a step label that merely
-    #: names one needs a YAML parser and a shell parser, and seventeen findings
-    #: landed on successive attempts to do it without either.
-    UNGUARDED_REGISTRY_ROUTES = (
-        "npx --yes prettier@3.0.0",
-        "npm exec -- prettier@3.0.0",
-        "npm --prefix /tmp exec -- prettier@3.0.0",
-        "env npm exec -- prettier@3.0.0",
-        "if test -f config; then npx prettier@3.0.0; fi",
-    )
-
-    #: Comments are scanned like anything else, so prose may not spell a pin.
-    #: Deciding where a shell comment begins produced five of the last six review
-    #: rounds on this check -- delimiter characters, escaped delimiters, then the
-    #: parity of a backslash run -- so the question is no longer asked. Write
-    #: `ai-rulez 4.11.3` in a comment, not `ai-rulez@4.11.3`.
-    PINS_IN_PROSE = (
-        "# npx ai-rulez@4.11.3 was the old form",
-        "\techo hi # old: npx ai-rulez@4.11.3",
-        "\techo ok;# old: npx ai-rulez@4.11.3",
-    )
-
-    def test_a_comment_may_not_spell_a_pin_either(self) -> None:
-        for line in self.PINS_IN_PROSE:
-            with self.subTest(line=line):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    makefile = repository / "Makefile"
-                    makefile.write_text(
-                        makefile.read_text(encoding="utf-8") + f"probe:\n{line}\n",
-                        encoding="utf-8",
-                    )
-
-                    errors = validate_tool_pins(repository)
-
-                    self.assertEqual(len(errors), 1, errors)
-                    self.assertIn("invokes ai-rulez@… directly", errors[0])
-
-    def test_prose_may_still_name_a_tool_without_a_version(self) -> None:
-        """The rule is the `@`, not the name -- comments stay useful.
-
-        The Makefile's own comments name `skills`, `npm ci` and
-        `node_modules/.bin/skills`, and must keep being able to.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            makefile = repository / "Makefile"
-            makefile.write_text(
-                "# skills 1.5.23 is pinned in package.json; npm ci installs it\n"
-                "# into node_modules/.bin/skills, which is what recipes run.\n"
-                + makefile.read_text(encoding="utf-8"),
-                encoding="utf-8",
-            )
-
-            self.assertEqual(validate_tool_pins(repository), [])
-
-    def test_a_tool_we_do_not_pin_is_not_guarded_statically(self) -> None:
-        """The documented ceiling, asserted so it cannot be mistaken for a bug.
-
-        Nothing here stops these. `npm ci` never installs prettier, so
-        node_modules/.bin has no binary and the recipe fails on a real error --
-        which is the enforcement, and always was.
-        """
-        for invocation in self.UNGUARDED_REGISTRY_ROUTES:
-            with self.subTest(invocation=invocation):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    makefile = repository / "Makefile"
-                    makefile.write_text(
-                        makefile.read_text(encoding="utf-8")
-                        + f"fmt:\n\t{invocation}\n",
-                        encoding="utf-8",
-                    )
-
-                    self.assertEqual(validate_tool_pins(repository), [])
-
-    def test_a_tool_we_do_pin_is_guarded_in_every_spelling(self) -> None:
-        """What survives, and why the ceiling above is affordable.
-
-        A substring needs no grammar, so quoting, YAML comments and block
-        scalars -- each of which defeated a parser on PR #70 -- cannot hide the
-        three tools this repository actually pins.
-        """
-        for line in (
-            "\tnpx --yes ai-rulez@4.11.3 generate",
-            '        run: "npx --yes ai-rulez@4.11.3" # regenerate',
-            "        run: |\n          if true; then npx ai-rulez@4.11.3; fi",
-        ):
-            with self.subTest(line=line):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    workflow = repository / TOOL_PIN_WORKFLOWS[0]
-                    workflow.write_text(f"steps:\n{line}\n", encoding="utf-8")
-
-                    errors = validate_tool_pins(repository)
-
-                    self.assertEqual(len(errors), 1, errors)
-                    self.assertIn("invokes ai-rulez@… directly", errors[0])
-
-    def test_makefile_may_not_run_a_tool_outside_the_manifest(self) -> None:
-        """The failure #45 actually shipped: a fourth tool with no owner.
-
-        markdownlint-cli2 was added to the Makefile and to nothing else, so
-        Renovate never saw it and nothing failed. Running an unmanifested binary
-        is now the error.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(
-                repository,
-                makefile="lint:\n\t$(CURDIR)/node_modules/.bin/some-new-tool\n",
-            )
-
-            self.assertEqual(
-                validate_tool_pins(repository),
-                [
-                    "Makefile: runs some-new-tool, which no package.json "
-                    "devDependency provides"
-                ],
-            )
-
-    def test_manifest_entry_outside_the_guarded_set_is_reported(self) -> None:
-        """Both directions, so neither list can drift ahead of the other."""
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            manifest = repository / "package.json"
-            declared = dict.fromkeys(sorted(TOOL_PACKAGES), "1.0.0")
-            del declared["skills"]
-            declared["prettier"] = "1.0.0"
-            manifest.write_text(
-                json.dumps({"devDependencies": declared}), encoding="utf-8"
-            )
-
-            self.assertEqual(
-                sorted(validate_tool_pins(repository)),
-                sorted(
-                    [
-                        "package.json: missing devDependency skills",
-                        "prettier: in package.json but not TOOL_PACKAGES; "
-                        "add it there so scripts/validate.py guards it too",
-                        "Makefile: runs skills, which no package.json "
-                        "devDependency provides",
-                    ]
-                ),
-            )
-
-    def test_a_range_is_not_a_pin(self) -> None:
-        """A caret lets CI resolve a version nobody reviewed."""
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            declared = dict.fromkeys(sorted(TOOL_PACKAGES), "1.0.0")
-            declared["skills"] = "^1.0.0"
-            (repository / "package.json").write_text(
-                json.dumps({"devDependencies": declared}), encoding="utf-8"
-            )
-
-            self.assertEqual(
-                validate_tool_pins(repository),
-                ["skills: package.json pins '^1.0.0'; use an exact version, not a range"],
-            )
-
-    def _makefile_running(self, root: Path, invocation: str) -> None:
-        makefile = root / "Makefile"
-        makefile.write_text(
-            makefile.read_text(encoding="utf-8") + f"fmt:\n\t{invocation} --write .\n",
-            encoding="utf-8",
-        )
-
-    def test_a_path_segment_is_not_a_tool_invocation(self) -> None:
-        """`<pkg>@` matches a command, not any word that ends in a tool name.
-
-        A pinned action or container image carries the same shape after a slash
-        -- `anthropics/skills@v1` -- and reporting it fails `make check` on a
-        line that names no tool of ours at all.
-        """
-        for reference in ("anthropics/skills@v1", "ghcr.io/x/ai-rulez@sha256:abc"):
-            with self.subTest(reference=reference):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    repository = Path(temporary_directory)
-                    self._pin_workspace(repository)
-                    workflow = repository / TOOL_PIN_WORKFLOWS[0]
-                    workflow.write_text(
-                        f"steps:\n      - uses: {reference}\n", encoding="utf-8"
-                    )
-
-                    self.assertEqual(validate_tool_pins(repository), [])
-
-    def test_workflow_may_not_reintroduce_its_own_pin(self) -> None:
-        """package.json is the only definition; a second one is the drift itself.
-
-        Both workflows previously carried their own copy of each version, which
-        is why they could disagree.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            (repository / TOOL_PIN_WORKFLOWS[0]).write_text(
-                "run: npx --yes ai-rulez@4.9.0 validate\n", encoding="utf-8"
-            )
-
-            self.assertEqual(
-                validate_tool_pins(repository),
-                [
-                    f"{TOOL_PIN_WORKFLOWS[0]}: invokes ai-rulez@… directly; "
-                    "run node_modules/.bin/ai-rulez so package.json stays the "
-                    "only definition"
-                ],
-            )
-
-    def test_makefile_may_not_reintroduce_its_own_pin(self) -> None:
-        """The Makefile is scanned too — it is where the pins used to live."""
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(
-                repository, makefile="lint:\n\tnpx --yes markdownlint-cli2@0.23.2\n"
-            )
-
-            self.assertEqual(
-                validate_tool_pins(repository),
-                [
-                    "Makefile: invokes markdownlint-cli2@… directly; "
-                    "run node_modules/.bin/markdownlint-cli2 so package.json "
-                    "stays the only definition"
-                ],
-            )
-
-    def test_every_linux_workflow_is_registered_with_the_pin_validator(self) -> None:
-        """A workflow outside TOOL_PIN_WORKFLOWS could pin a package unnoticed."""
-        root = Path(__file__).resolve().parents[1]
-        workflows = {
-            f".github/workflows/{path.name}"
-            for pattern in ("*.yml", "*.yaml")  # GitHub supports both
-            for path in (root / ".github/workflows").glob(pattern)
-        }
-        unregistered = workflows - set(TOOL_PIN_WORKFLOWS)
-
-        self.assertEqual(
-            unregistered,
-            set(),
-            "add these to TOOL_PIN_WORKFLOWS so validate_tool_pins scans them",
-        )
-
-    def test_workflow_may_not_reintroduce_an_indirect_pin(self) -> None:
-        """The replaced form kept the version in `env:`, not next to the `@`.
-
-        A guard that only matched a literal semver after `@` would miss the
-        exact pattern this change removes.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            self._pin_workspace(repository)
-            (repository / TOOL_PIN_WORKFLOWS[0]).write_text(
-                "env:\n  PIN: 4.9.0\nrun: npx --yes ai-rulez@${PIN} validate\n",
-                encoding="utf-8",
-            )
-
-            self.assertEqual(
-                validate_tool_pins(repository),
-                [
-                    f"{TOOL_PIN_WORKFLOWS[0]}: invokes ai-rulez@… directly; "
-                    "run node_modules/.bin/ai-rulez so package.json stays the "
-                    "only definition"
-                ],
-            )
-
     def test_versions_agree_across_every_manifest_and_the_changelog(self) -> None:
         self.assertEqual(validate_versions(), [])
 
@@ -1396,9 +982,8 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         config and manifests from the module-level one, so a fixture could
         appear to pass while comparing against the real checkout.
         """
-        (root / ".ai-rulez").mkdir(parents=True, exist_ok=True)
-        (root / ".ai-rulez/config.toml").write_text(
-            f'[plugin]\nversion = "{version}"\n', encoding="utf-8"
+        (root / "package.json").write_text(
+            json.dumps({"version": version}), encoding="utf-8"
         )
         (root / "CHANGELOG.md").write_text(f"# Changelog\n\n{changelog}", encoding="utf-8")
         for relative in JSON_MANIFESTS:
@@ -1455,19 +1040,19 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
     def test_missing_version_field_is_reported(self) -> None:
         """Deleting the key must fail, not silently drop out of the comparison.
 
-        `.agents/plugins/marketplace.json` is hand-authored, so it is the one
-        this check exists to guard.
+        The Codex marketplace is generated without a version and is skipped, so
+        the Claude marketplace stands in for a manifest that carries one.
         """
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
             self._version_fixture(repository)
-            (repository / ".agents/plugins/marketplace.json").write_text(
+            (repository / ".claude-plugin/marketplace.json").write_text(
                 '{"plugins": [{}]}', encoding="utf-8"
             )
 
             self.assertEqual(
                 validate_versions(repository),
-                [".agents/plugins/marketplace.json#plugins[0]: no version field found"],
+                [".claude-plugin/marketplace.json#plugins[0]: no version field found"],
             )
 
     def test_sibling_entry_cannot_hide_a_missing_version(self) -> None:
@@ -1488,7 +1073,7 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         """Prerelease and build metadata can both appear in one version.
 
         `VERSION_PATTERN` allowed only one of the two, so a real release of
-        0.3.0-rc.1+build.5 would have failed `make check` on the changelog.
+        0.3.0-rc.1+build.5 would have failed `npm run check` on the changelog.
         """
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
@@ -1504,7 +1089,7 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         """release-please links the version, and writes a patch release at `###`.
 
         Its `## [X.Y.Z](…) (date)` heading failed the old `## <version>` match, so
-        every release PR would have failed `make check`.
+        every release PR would have failed `npm run check`.
         """
         link = "https://github.com/o/r/compare/v9.9.8...v9.9.9"
         for changelog in (
@@ -1561,7 +1146,6 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
     def _release_please_fixture(root: Path, extra_files: object) -> None:
         """The version fixture plus a release-please config with `extra_files`."""
         ValidateReleaseSurfacesTests._version_fixture(root)
-        (root / ".config").mkdir()
         (root / RELEASE_PLEASE_CONFIG).write_text(
             json.dumps({"packages": {".": {"extra-files": extra_files}}}),
             encoding="utf-8",
@@ -1588,10 +1172,10 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
         release-please skips a jsonpath that matches nothing, or a file parsed as
         the wrong type, with only a log warning -- so both count as missing.
         """
-        target = ".agents/plugins/marketplace.json"
+        target = ".claude-plugin/marketplace.json"
         for change in (
             lambda entry: None,
-            lambda entry: {**entry, "jsonpath": "$.plugins[*].verison"},
+            lambda entry: {**entry, "jsonpath": "$.plugins[0].verison"},
             lambda entry: {**entry, "type": "toml"},
         ):
             extra_files = [
@@ -1608,8 +1192,8 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
                     self.assertEqual(
                         validate_release_please(repository),
                         [
-                            ".config/release-please-config.json: extra-files has no "
-                            f"json entry for {target} at $.plugins[*].version, so the "
+                            "release-please-config.json: extra-files has no "
+                            f"json entry for {target} at $.plugins[0].version, so the "
                             "release PR would leave that version behind and fail "
                             "validate_versions"
                         ],
@@ -1620,14 +1204,13 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             with self.subTest(config=config):
                 with tempfile.TemporaryDirectory() as temporary_directory:
                     repository = Path(temporary_directory)
-                    (repository / ".config").mkdir()
                     (repository / RELEASE_PLEASE_CONFIG).write_text(
                         config, encoding="utf-8"
                     )
 
                     self.assertEqual(
                         validate_release_please(repository),
-                        ['.config/release-please-config.json: no object at packages["."]'],
+                        ['release-please-config.json: no object at packages["."]'],
                     )
 
     def test_repository_spells_the_plugin_version_only_where_it_is_compared(
@@ -1680,7 +1263,7 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             self.assertEqual(validate_version_locations(repository), [])
 
     def test_only_tracked_files_are_scanned_in_a_work_tree(self) -> None:
-        """A local .venv or gitignored build output must not fail `make check`.
+        """A local .venv or gitignored build output must not fail `npm run check`.
 
         CI checks a clean clone, so scanning the whole disk made a maintainer's
         checkout fail on files that are not part of the repository.

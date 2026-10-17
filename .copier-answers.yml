@@ -1,0 +1,13 @@
+_commit: v0.4.0
+_src_path: https://github.com/hasansezertasan/copier-skill-repo
+author_name: hasansezertasan
+author_url: https://github.com/hasansezertasan
+description: Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub
+    infrastructure.
+github_owner: hasansezertasan
+keywords: terraform, infrastructure, cloudflare, github
+license: MIT
+placeholder_skill: hello
+publish_to_npm: false
+repo_name: infra-copilot
+
