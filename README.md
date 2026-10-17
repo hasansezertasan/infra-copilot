@@ -103,9 +103,13 @@ only for the public identifiers in the config above.
 
 ```sh
 uvx copier copy gh:hasansezertasan/copier-infra infra
+cd infra
+git init && git add -A && git commit -m "chore: scaffold infrastructure repository"
 ```
 
-Then ask your agent to use infra-copilot to set up the new repository, with the host
+Copier does not initialize Git, and setup's checks and `copier update` both read tracked files
+and `HEAD`, so commit the render first. Install infra-copilot and start the agent inside
+`infra`, then ask it to use infra-copilot to set up the new repository, with the host
 invocation from the install table above (`/infra-setup` on Claude Code and Antigravity); it
 reads the committed config and resumes from where the scan reports. Change values later with
 `uvx copier update` (run from the repo root) and review the diff, rather than hand-editing
