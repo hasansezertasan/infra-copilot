@@ -5,7 +5,7 @@ This file is owned by the [copier-skill-repo](https://github.com/hasansezertasan
 ## How the repo works
 
 - Skills live under `.ai-rulez/skills/<name>/`. That directory is the source of truth.
-- `skills/`, `AGENTS.md` and the plugin and marketplace manifests are generated output. Never edit them by hand.
+- `skills/` and the plugin and marketplace manifests are generated output. Never edit them by hand. `AGENTS.md` is hand-authored here, not generated.
 - After changing anything under `.ai-rulez/`, run `npm run generate` and commit the result.
 - `npm run check` is what CI runs. It fails when generated output has drifted.
 - Node comes from `.node-version`.
@@ -93,7 +93,7 @@ needs an entry there with a reason; the check rejects an unknown name or an empt
 
 ### Checks
 
-`npm run check:all` is CI parity: if it passes locally, the pipeline passes.
+`npm run check:all` runs every check CI runs on Linux. CI also runs a separate `Validate portable paths (Windows)` job, which runs `python scripts/validate.py` and the tests on `windows-latest`.
 
 | Script | What it covers |
 |---|---|

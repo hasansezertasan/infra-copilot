@@ -56,7 +56,7 @@ release workflow — hand edits to generated files are still wrong.
 
 Never invoke `npx ai-rulez`, `python3 scripts/validate.py`, or the `skills` installer
 directly in documentation, in a commit's verification step, or in the Linux CI job.
-`npm run check:all` is CI parity.
+`npm run check:all` runs every check CI runs on Linux; CI also runs the Windows job below.
 
 This governs **this repository's own workflow**. The install guides under `docs/` address
 a different audience: those commands run in the *consuming* repo, which has no copy of
