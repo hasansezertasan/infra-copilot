@@ -30,9 +30,10 @@ placeholder skill was deleted after rendering. `package.json` is private, so Pi 
   check; `npm run check:all` adds `lint`, `validate`, `test` and the two smoke scripts, which is what
   CI runs. `check.yml` keeps three jobs (`check`, `Smoke-test the OpenCode payload`,
   `Validate portable paths (Windows)`), and `upstream.yml` stays, hardened to the template's level.
-- **`validate_tool_pins` and its tests were deleted.** They guarded a Makefile and a
-  `TOOL_PACKAGES` list that no longer exist. Renovate's native npm manager keeps the three tools
-  current. The exact-version rule for `devDependencies` is no longer enforced.
+- **`validate_tool_pins` was replaced by `validate_exact_pins`.** The old check guarded a Makefile
+  and a `TOOL_PACKAGES` list that no longer exist, so both went. Renovate's native npm manager keeps
+  the three tools current, and the one rule that still matters stays: every `devDependency` is an
+  exact version, not a range.
 - **Version checks read `package.json`.** `validate_versions`, `validate_release_please` and the
   location scan keep their rules, repointed at `package.json` and the root `release-please-config.json`
   (`node` release type, `plugins[0].version` for the Claude marketplace). The generated Codex

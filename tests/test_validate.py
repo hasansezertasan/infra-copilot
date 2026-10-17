@@ -30,6 +30,7 @@ from scripts.validate import (
     validate_toolchain_contract,
     audited_version,
     validate_shipped_check_paths,
+    validate_exact_pins,
     validate_skill_sections,
     validate_version_locations,
     validate_versions,
@@ -964,6 +965,47 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
 
     def test_manifest_paths_stay_inside_repository(self) -> None:
         self.assertEqual(validate_manifest_paths(), [])
+
+    def test_repository_tool_pins_are_exact(self) -> None:
+        self.assertEqual(validate_exact_pins(), [])
+
+    def test_a_range_is_not_a_pin(self) -> None:
+        for specifier in ("^5.3.0", "~5.3.0", ">=5.3.0", "5.3", "latest", "*"):
+            with self.subTest(specifier=specifier):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    repository = Path(temporary_directory)
+                    (repository / "package.json").write_text(
+                        json.dumps({"devDependencies": {"ai-rulez": specifier}}),
+                        encoding="utf-8",
+                    )
+
+                    self.assertEqual(
+                        validate_exact_pins(repository),
+                        [
+                            f"ai-rulez: package.json pins {specifier!r}; "
+                            "use an exact version, not a range"
+                        ],
+                    )
+
+    def test_an_exact_version_is_a_pin(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            (repository / "package.json").write_text(
+                json.dumps({"devDependencies": {"ai-rulez": "5.3.0", "skills": "1.5.23"}}),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(validate_exact_pins(repository), [])
+
+    def test_missing_dev_dependencies_are_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            (repository / "package.json").write_text("{}", encoding="utf-8")
+
+            self.assertEqual(
+                validate_exact_pins(repository),
+                ["package.json: missing a devDependencies table"],
+            )
 
     def test_versions_agree_across_every_manifest_and_the_changelog(self) -> None:
         self.assertEqual(validate_versions(), [])

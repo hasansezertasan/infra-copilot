@@ -1240,6 +1240,27 @@ def validate_manifest_paths(root: Path = ROOT) -> list[str]:
     return errors
 
 
+def validate_exact_pins(root: Path = ROOT) -> list[str]:
+    """Every devDependency in package.json is an exact version, never a range.
+
+    A caret would let CI resolve a version nobody reviewed, and ai-rulez output
+    hashes depend on the exact ai-rulez version. Renovate keeps the pins current;
+    this only stops a hand edit or a loose rule from weakening them.
+    """
+    try:
+        manifest = load_json("package.json", root)
+    except (OSError, json.JSONDecodeError) as error:
+        return [f"package.json: cannot read the tool manifest: {error}"]
+    declared = manifest.get("devDependencies")
+    if not isinstance(declared, dict) or not declared:
+        return ["package.json: missing a devDependencies table"]
+    return [
+        f"{package}: package.json pins {specifier!r}; use an exact version, not a range"
+        for package, specifier in sorted(declared.items())
+        if not re.fullmatch(VERSION_PATTERN, str(specifier))
+    ]
+
+
 def canonical_version(root: Path = ROOT) -> str:
     """`version` in package.json, the one file release-please bumps."""
     version = load_json("package.json", root).get("version")
@@ -2795,6 +2816,7 @@ def main(argv: list[str] | None = None) -> int:
         *validate_shipped_check_paths(),
         *collect_manifest_errors(),
         *validate_links(),
+        *validate_exact_pins(),
         *validate_versions(),
         *validate_version_locations(),
         *validate_release_please(),
