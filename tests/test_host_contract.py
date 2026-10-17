@@ -362,7 +362,7 @@ class ShippedClosureTests(unittest.TestCase):
     def test_every_action_skill_needs_the_hub(self) -> None:
         """What docs/install-opencode.md tells users to type, asserted here offline.
 
-        make smoke-closure proves the same thing by installing it; this catches the
+        npm run smoke-closure proves the same thing by installing it; this catches the
         regression without the npm download.
         """
         action_skills = sorted(
@@ -447,7 +447,7 @@ class ClosureCommandTests(unittest.TestCase):
 
     def test_rejects_an_unrecognised_flag_instead_of_validating(self) -> None:
         """A typo'd flag used to fall through and print the success banner on stdout,
-        which `make smoke-closure` would have captured as the closure."""
+        which `npm run smoke-closure` would have captured as the closure."""
         result = self.run_closure("--clsoure", "status")
         self.assertEqual(result.returncode, 2)
         self.assertIn("usage:", result.stderr)

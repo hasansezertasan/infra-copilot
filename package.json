@@ -1,11 +1,121 @@
 {
-  "name": "infra-copilot-tooling",
-  "private": true,
-  "description": "Single source of truth for the npm tools this repository invokes. Bump here and nowhere else: the Makefile runs node_modules/.bin/<tool> and scripts/validate.py rejects a version named anywhere else. Private -- the tagged tree is the artifact.",
-  "license": "MIT",
+  "author": {
+    "name": "hasansezertasan"
+  },
+  "description": "Agent-first, human-in-the-loop workflows for infrastructure maintenance.",
   "devDependencies": {
-    "ai-rulez": "4.11.3",
+    "ai-rulez": "5.3.0",
     "markdownlint-cli2": "0.23.2",
     "skills": "1.5.23"
-  }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    ".pi/prompts/infra-add.md",
+    ".pi/prompts/infra-import.md",
+    ".pi/prompts/infra-prune.md",
+    ".pi/prompts/infra-setup.md",
+    ".pi/prompts/infra-status.md",
+    "skills/add/SKILL.md",
+    "skills/import/SKILL.md",
+    "skills/infra-copilot/SKILL.md",
+    "skills/infra-copilot/references/checks/gcp-wif-trust.sh",
+    "skills/infra-copilot/references/checks/gha-apply-gate.sh",
+    "skills/infra-copilot/references/checks/gha-latest-runs.sh",
+    "skills/infra-copilot/references/checks/gha-provider-safety.sh",
+    "skills/infra-copilot/references/checks/gha-workflows.sh",
+    "skills/infra-copilot/references/checks/hcp-apply-scope.sh",
+    "skills/infra-copilot/references/checks/hcp-bootstrap-workspaces.sh",
+    "skills/infra-copilot/references/checks/hcp-current-plan.sh",
+    "skills/infra-copilot/references/checks/hcp-github-app.sh",
+    "skills/infra-copilot/references/checks/leaf-cloud.sh",
+    "skills/infra-copilot/references/checks/leaf-routing.sh",
+    "skills/infra-copilot/references/checks/provider-requirements.sh",
+    "skills/infra-copilot/references/checks/state-transfer.sh",
+    "skills/infra-copilot/references/checks/status-check-context.sh",
+    "skills/infra-copilot/references/checks/workflow-routing.sh",
+    "skills/infra-copilot/references/cloudflare.md",
+    "skills/infra-copilot/references/config.md",
+    "skills/infra-copilot/references/config.md.example",
+    "skills/infra-copilot/references/decisions.md.example",
+    "skills/infra-copilot/references/docs/ci.md",
+    "skills/infra-copilot/references/docs/hcp-api.md",
+    "skills/infra-copilot/references/docs/hcp-ci.md",
+    "skills/infra-copilot/references/docs/hcp-prune.md",
+    "skills/infra-copilot/references/docs/hcp-secrets.md",
+    "skills/infra-copilot/references/docs/hcp-state.md",
+    "skills/infra-copilot/references/docs/import.md",
+    "skills/infra-copilot/references/docs/object-storage-ci.md",
+    "skills/infra-copilot/references/docs/object-storage-state.md",
+    "skills/infra-copilot/references/docs/prune.md",
+    "skills/infra-copilot/references/docs/secrets.md",
+    "skills/infra-copilot/references/docs/setup.md",
+    "skills/infra-copilot/references/docs/state.md",
+    "skills/infra-copilot/references/gcp.md",
+    "skills/infra-copilot/references/github.md",
+    "skills/infra-copilot/references/hcp-status.md",
+    "skills/infra-copilot/references/hcp.md",
+    "skills/infra-copilot/references/hosts.md",
+    "skills/infra-copilot/references/migration.md",
+    "skills/infra-copilot/references/object-storage.md",
+    "skills/infra-copilot/references/operations.md",
+    "skills/infra-copilot/references/protocol.md",
+    "skills/infra-copilot/references/status.md",
+    "skills/infra-copilot/references/steps.yaml",
+    "skills/infra-copilot/references/templates/apps/terraform-apply.json",
+    "skills/infra-copilot/references/templates/apps/terraform-plan.json",
+    "skills/infra-copilot/references/templates/terraform-apply.yml",
+    "skills/infra-copilot/references/templates/terraform-destroy.cjs",
+    "skills/infra-copilot/references/templates/terraform-plan.yml",
+    "skills/prune/SKILL.md",
+    "skills/setup/SKILL.md",
+    "skills/status/SKILL.md",
+    "README.md"
+  ],
+  "keywords": [
+    "terraform",
+    "infrastructure",
+    "cloudflare",
+    "github",
+    "pi-package"
+  ],
+  "license": "MIT",
+  "name": "infra-copilot",
+  "pi": {
+    "skills": [
+      "./skills/add",
+      "./skills/import",
+      "./skills/infra-copilot",
+      "./skills/prune",
+      "./skills/setup",
+      "./skills/status"
+    ],
+    "prompts": [
+      "./.pi/prompts/infra-add.md",
+      "./.pi/prompts/infra-import.md",
+      "./.pi/prompts/infra-prune.md",
+      "./.pi/prompts/infra-setup.md",
+      "./.pi/prompts/infra-status.md"
+    ]
+  },
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hasansezertasan/infra-copilot"
+  },
+  "scripts": {
+    "check": "node scripts/check-repo.mjs && ai-rulez generate --check --no-self-mcp --strict-config && ai-rulez verify --plugin && ai-rulez validate --strict",
+    "check-upstream": "python3 scripts/check_upstream.py",
+    "check:all": "npm run check && npm run lint && npm run validate && npm test && npm run smoke-opencode && npm run smoke-closure",
+    "clean": "rm -rf .agents/skills skills-lock.json && find . -name __pycache__ -type d -prune -not -path \"./.git/*\" -not -path \"./node_modules/*\" -exec rm -rf {} +",
+    "closure": "python3 scripts/validate.py --closure",
+    "generate": "ai-rulez generate --no-self-mcp --strict-config && ai-rulez generate --plugin",
+    "lint": "markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc",
+    "smoke-closure": "bash scripts/smoke-closure.sh",
+    "smoke-opencode": "bash scripts/smoke-opencode.sh",
+    "test": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests",
+    "validate": "python3 scripts/validate.py && python3 scripts/check_upstream.py --offline"
+  },
+  "version": "0.3.0"
 }

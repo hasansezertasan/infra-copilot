@@ -1321,7 +1321,7 @@ class NinthRoundTests(unittest.TestCase):
         "README.md",
         "docs/roadmap.md",
         "docs/policy.md",
-        ".github/CONTRIBUTING.md",
+        "CONTRIBUTING.md",
     )
     #: Facts hosts.md owns, in the spellings the prose actually used. Hook facts
     #: and subagent facts are listed together because splitting the assertion is
@@ -1656,8 +1656,8 @@ class RootConditionTests(unittest.TestCase):
 
     def test_the_validator_imports_without_tomllib(self) -> None:
         """tomllib is 3.11+, and the repository's baseline is whatever `python3`
-        is -- the Makefile says 3.11 affects the release target only. A
-        module-level import broke `make check` for a 3.10 contributor before any
+        is, not the 3.12 CI installs. A module-level import broke
+        `npm run check` for a 3.10 contributor before any
         check could run.
         """
         import ast
@@ -2354,8 +2354,8 @@ class SixteenthRoundTests(unittest.TestCase):
     def test_contributing_links_the_editable_record(self) -> None:
         """Its own table says `.ai-rulez/` is the source and everything under
         `skills/` is generated, so a contributor following this link to change a
-        capability would have the edit overwritten by the next `make generate`."""
-        guide = (REPO_ROOT / ".github/CONTRIBUTING.md").read_text(encoding="utf-8")
+        capability would have the edit overwritten by the next `npm run generate`."""
+        guide = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
         self.assertIn(".ai-rulez/skills/infra-copilot/references/hosts.md", guide)
         self.assertNotIn("](../skills/infra-copilot/references/hosts.md)", guide)
 

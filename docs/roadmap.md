@@ -26,7 +26,7 @@ oversight. Each item links to the issue that owns it.
 
 ## Known gaps in the repository itself
 
-- **Only HCP endpoint paths have a staleness gate, and only by path.** `make check-upstream`
+- **Only HCP endpoint paths have a staleness gate, and only by path.** `npm run check-upstream`
   reads every HCP path the shipped guidance calls — the `api/v2/...` and `$hcp_api/...`
   spellings — and reports any that `hashicorp/go-tfe`'s OpenAPI spec does not list (#55).
   Three things stay unchecked: the HTTP method, prose paths without a prefix such as
