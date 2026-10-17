@@ -1,117 +1,168 @@
-name: release
-
-# release-please opens and maintains a release PR from the Conventional Commit titles
-# that land on `main`. The PR bumps every version copy validate_versions compares and
-# writes the CHANGELOG.md section. Merging it makes the next run of this workflow create
-# the `vX.Y.Z` tag and the GitHub Release. Nothing else creates releases: a tag pushed by
-# hand triggers no workflow.
-#
-# The release is created here rather than by a workflow reacting to the tag, because
-# `check-all` has to pass on the exact tree being released. release-please only runs
-# after `check-all` passes on the same commit, and only creates a release when that
-# commit is the release PR's merge, so a release is never created from a tree that
-# fails it.
+name: Release
 
 on:
-  # For re-running release-please after a transient failure. A manual run still goes
-  # through `validate` first, and the release step still only fires on a release merge.
-  workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
 
-# Never cancelled: a cancelled run between tag creation and release creation would
-# leave a tag without its release. Note that a *pending* run is still replaced when a
-# newer one queues; see "Recovering a release" in CONTRIBUTING.
+permissions: {}
+
+# Preserve a running tag or release operation; a queued run can still be
+# superseded by a newer one.
 concurrency:
   group: release
   cancel-in-progress: false
 
-permissions: {}
-
 jobs:
-  validate:
-    if: github.ref == 'refs/heads/main'
+  check:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/check.yml
+
+  guard:
+    needs: check
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 22
-          cache: npm
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          python-version: "3.12"
-      - name: Run all checks
-        run: make check-all
+          node-version-file: .node-version
+      - run: node scripts/release-guard.mjs --private
 
   release-please:
-    needs: validate
+    needs: guard
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     permissions:
       contents: write
-      issues: write # release-please manages PR labels via the Issues API
+      issues: write # release-please manages PR labels through the Issues API
       pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      prs_created: ${{ steps.release.outputs.prs_created }}
+      pr_branch: ${{ fromJSON(steps.release.outputs.pr || '{}').headBranchName }}
     steps:
-      # release-please creates a release for *any* merged release PR still labelled
-      # `autorelease: pending`, and tags that PR's merge commit -- not the commit this
-      # run validated. Left alone, a release merge whose `validate` failed would be
-      # released by the next green push, from the tree that failed. So the release step
-      # runs only when the commit this run validated is itself the release PR's merge.
-      - name: Is this commit a release PR merge?
-        id: release-merge
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      # release-please can otherwise release an older pending, failed merge on a
+      # later green push. Require a single pending release merged as this commit.
+      - id: release-merge
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
-          pending=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[]
-            | select(.merged_at != null)
-            | select(any(.labels[]; .name == "autorelease: pending"))] | length')
-          echo "is-release-merge=$([ "$pending" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      # GITHUB_TOKEN, so `check` on the release PR waits for a maintainer to approve it.
-      # CONTRIBUTING ("Repository setup") records why that trade was taken.
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
-        id: release-please
+          gh api --paginate --slurp "repos/$REPO/pulls?state=closed&base=main&per_page=100" > "$RUNNER_TEMP/closed-prs.json"
+          node scripts/release-merge.mjs --pulls "$RUNNER_TEMP/closed-prs.json" --sha "$SHA" >> "$GITHUB_OUTPUT"
+      # Runs with the implicit GITHUB_TOKEN on purpose: a PAT or App token would
+      # be a standing credential with write access to main. The cost is that
+      # events created with GITHUB_TOKEN start no workflow runs, so the release
+      # PR reports no required checks until someone closes and reopens it
+      # (check.yml runs on `reopened` and can be dispatched on the release
+      # branch). The repository setting "Allow GitHub Actions to create and
+      # approve pull requests" must also be on.
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
-          config-file: .config/release-please-config.json
-          manifest-file: .config/release-please-manifest.json
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
           skip-github-release: ${{ steps.release-merge.outputs.is-release-merge != 'true' }}
 
-      # Bumping `.ai-rulez/config.toml` changes the source hash that `.ai-rulez-generated.json`
-      # and every generated Markdown header record, which release-please cannot compute.
-      # Without this the release PR fails `ai-rulez verify --plugin`. release-please
-      # force-pushes its branch whenever it rewrites the PR, dropping this commit, and it
-      # reports the PR as created or updated exactly then -- so the commit is re-added on
-      # every run that removed it.
-      - name: Check out the release PR branch
-        if: steps.release-please.outputs.prs_created == 'true'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+  # release-please bumps package.json and the plugin manifests, but cannot update
+  # the hash ledger (.ai-rulez-generated.json) that `npm run check` verifies, so
+  # the release PR would fail its own check. Regenerate the output on the release
+  # branch. The work is split so that no code from a dependency runs next to a
+  # write token: `regenerate` installs and runs the scripts with read-only access
+  # and hands over a patch; `push` holds the write token and only applies it.
+  regenerate:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.prs_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.regenerate.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ fromJSON(steps.release-please.outputs.pr).headBranchName }}
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        if: steps.release-please.outputs.prs_created == 'true'
+          ref: ${{ needs.release-please.outputs.pr_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
-          cache: npm
-      - name: Regenerate the host packages on the release PR branch
-        if: steps.release-please.outputs.prs_created == 'true'
-        # The raw output, parsed in the shell: a step's `env` is evaluated even when its
-        # `if` is false, and `fromJSON` of the empty `pr` output -- a run that opened or
-        # updated no PR, such as every release merge -- fails the job.
-        env:
-          PR: ${{ steps.release-please.outputs.pr }}
+          node-version-file: .node-version
+      - id: regenerate
         run: |
-          BRANCH=$(jq -r .headBranchName <<<"$PR")
-          make generate
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "generated output already matches the bumped version"
+          npm ci
+          npm run generate
+          # Dependency code ran above and may have staged files; start from a
+          # clean index so only the paths below can enter the commit.
+          git reset -q
+          # Only generated output, and only what exists in this repo.
+          for path in AGENTS.md skills commands .claude-plugin .codex-plugin .agents .pi .ai-rulez-generated.json .ai-rulez/.generated-manifest.json; do
+            if [ -e "$path" ]; then git add -A -- "$path"; fi
+          done
+          if git diff --cached --quiet; then
+            echo "Generated output already matches the release version."
+            npm run check
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "chore: regenerate host packages for the release"
+          git commit -m "chore: regenerate plugin output for the release"
+          # Drop whatever the allowlist above did not stage, so the check below reads
+          # exactly the committed tree and cannot pass on files the patch omits.
+          git restore --worktree -- .
+          git clean -fdq
+          # Check the committed tree: strict validation reports plugin-version
+          # drift (AR961) while generated output differs from HEAD. A failing
+          # check stops the job before anything is handed over.
+          npm run check
+          git diff --binary HEAD~1 HEAD > "$RUNNER_TEMP/regenerate.patch"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.regenerate.outputs.changed == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: regenerate-patch
+          path: ${{ runner.temp }}/regenerate.patch
+          if-no-files-found: error
+
+  push:
+    needs: [release-please, regenerate]
+    if: ${{ needs.regenerate.outputs.changed == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # This job runs no npm and no repository script: it applies a patch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.pr_branch }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: regenerate-patch
+          path: ${{ runner.temp }}
+      - env:
+          BRANCH: ${{ needs.release-please.outputs.pr_branch }}
+        run: |
+          patch="$RUNNER_TEMP/regenerate.patch"
+          # Refuse anything that is not generated output.
+          allowed='^(AGENTS\.md$|skills/|commands/|\.claude-plugin/|\.codex-plugin/|\.agents/|\.pi/|\.ai-rulez-generated\.json$|\.ai-rulez/\.generated-manifest\.json$)'
+          while IFS=$'\t' read -r _ _ path; do
+            if [[ ! "$path" =~ $allowed ]]; then
+              echo "Refusing to push: $path is not generated output" >&2
+              exit 1
+            fi
+          done < <(git apply --numstat "$patch")
+          git apply --index "$patch"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: regenerate plugin output for the release"
           git push origin "HEAD:$BRANCH"

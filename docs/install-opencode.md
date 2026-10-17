@@ -36,9 +36,9 @@ npx skills add hasansezertasan/infra-copilot --agent opencode \
 ```
 
 Repeat `--skill` per skill; a comma-separated list matches nothing. The same shape works
-for `setup`, `import`, `prune`, and `add`. `make smoke-closure` installs this exact closure and
+for `setup`, `import`, `prune`, and `add`. `npm run smoke-closure` installs this exact closure and
 fails if it resolves to anything other than `status` plus the hub, so the pairing above
-cannot silently rot. (`make smoke-opencode` installs all six and only counts them; it
+cannot silently rot. (`npm run smoke-opencode` installs all six and only counts them; it
 would not notice.)
 
 ## Update

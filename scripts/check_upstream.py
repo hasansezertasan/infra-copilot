@@ -5,7 +5,7 @@ Two independent checks, deliberately separated:
 
 ``--offline``
     Coherence. Every audited version must still appear in each document that
-    cites it. No network, so this belongs in ``make check`` on every PR: it
+    cites it. No network, so this belongs in ``npm run validate`` on every PR: it
     catches the manifest and the prose drifting apart.
 
 default

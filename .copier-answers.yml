@@ -1,0 +1,12 @@
+_commit: v0.4.2
+_src_path: https://github.com/hasansezertasan/copier-skill-repo
+author_name: hasansezertasan
+author_url: https://github.com/hasansezertasan
+description: Agent-first, human-in-the-loop workflows for infrastructure maintenance.
+github_owner: hasansezertasan
+keywords: terraform, infrastructure, cloudflare, github
+license: MIT
+placeholder_skill: hello
+publish_to_npm: false
+repo_name: infra-copilot
+
