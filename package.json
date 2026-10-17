@@ -108,6 +108,7 @@
     "check": "node scripts/check-repo.mjs && ai-rulez generate --check --no-self-mcp --strict-config && ai-rulez verify --plugin && ai-rulez validate --strict",
     "check-upstream": "python3 scripts/check_upstream.py",
     "check:all": "npm run check && npm run lint && npm run validate && npm test && npm run smoke-opencode && npm run smoke-closure",
+    "clean": "rm -rf .agents/skills skills-lock.json && find . -name __pycache__ -type d -prune -not -path \"./.git/*\" -not -path \"./node_modules/*\" -exec rm -rf {} +",
     "closure": "python3 scripts/validate.py --closure",
     "generate": "ai-rulez generate --no-self-mcp --strict-config && ai-rulez generate --plugin",
     "lint": "markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc",

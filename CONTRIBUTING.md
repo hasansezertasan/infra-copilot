@@ -109,6 +109,7 @@ needs an entry there with a reason; the check rejects an unknown name or an empt
 | `npm run smoke-closure` | installs one skill's derived closure and asserts it resolves exactly |
 | `npm run check:all` | all of the above |
 | `npm run closure -- <skill>` | prints the install arguments for one skill and its dependencies |
+| `npm run clean` | removes `.agents/skills`, `skills-lock.json` and `__pycache__`; never `.agents/plugins/` |
 | `npm run check-upstream` | compares audited external versions with upstream (network; nightly in `upstream.yml`) |
 
 The two smoke scripts are separate CI jobs on purpose: installing the plugin is a different claim

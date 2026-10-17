@@ -34,6 +34,13 @@ placeholder skill was deleted after rendering. `package.json` is private, so Pi 
   and a `TOOL_PACKAGES` list that no longer exist, so both went. Renovate's native npm manager keeps
   the three tools current, and the one rule that still matters stays: every `devDependency` is an
   exact version, not a range.
+- **Makefile targets dropped on purpose.** `help` (`npm run` lists the scripts), `preflight` (it
+  only checked that `node`, `npm` and `python3` exist, and a missing one fails the first script that
+  needs it) and the install stamp, which installed the tools before every target. Run `npm ci` once
+  per clone; CONTRIBUTING says so. `clean` is kept as `npm run clean`. The old `PYTHON` override is
+  gone, so the scripts call `python3`, and an install under `NODE_ENV=production` needs
+  `npm ci --include=dev` by hand. `npm run check` is now the template's check; the old
+  lint, validate and test sequence is `npm run check:all`.
 - **Version checks read `package.json`.** `validate_versions`, `validate_release_please` and the
   location scan keep their rules, repointed at `package.json` and the root `release-please-config.json`
   (`node` release type, `plugins[0].version` for the Claude marketplace). The generated Codex
