@@ -93,6 +93,40 @@ Full schema, the shell-export contract, and the startup behavior when the file i
 missing: [`config.md`](skills/infra-copilot/references/config.md). A fillable template ships at
 [`config.md.example`](skills/infra-copilot/references/config.md.example).
 
+### Scaffolding the repository with copier-infra
+
+[`copier-infra`](https://github.com/hasansezertasan/copier-infra) is a Copier template that
+renders a consuming repo shaped for this contract: `.infra-copilot/config.md` with an
+explicit `backend:` and its matching fields, a `backend.tf` per Terraform root,
+`mise.toml` and `mise.lock` at the repo root, plus `AGENTS.md` and `decisions.md`. It asks
+only for the public identifiers in the config above.
+
+```sh
+uvx copier copy gh:hasansezertasan/copier-infra infra
+cd infra
+git init && git add -A && git commit -m "chore: scaffold infrastructure repository"
+```
+
+Copier does not initialize Git, and setup's checks and `copier update` both read tracked files
+and `HEAD`, so commit the render first. Install infra-copilot and start the agent inside
+`infra`, then ask it to use infra-copilot to set up the new repository, with the host
+invocation from the install table above (`/infra-setup` on Claude Code and Antigravity); it
+reads the committed config and resumes from where the scan reports. Change values later with
+`uvx copier update` (run from the repo root) and review the diff, rather than hand-editing
+`config.md` or `backend.tf`, so the config and the Terraform literals stay aligned.
+`uvx copier recopy` re-renders over local edits; use it only for deliberate recovery, on a clean
+tree, after reading the diff. The template ships no `scripts/sync-config.sh`, so the
+`repo-config-sync` step has nothing to synchronize.
+
+Treat any change to `backend`, `state_backend`, `state_bucket` or `state_prefix` after
+rendering as a state migration, not an answer change. Copier rewrites `backend.tf` but moves
+no state, and the state-transfer check only demands transfer evidence once it detects an HCP
+backend in history, so an empty new destination can be accepted and the next plan may propose
+recreating managed resources. Follow
+[`object-storage-state.md`](skills/infra-copilot/references/docs/object-storage-state.md#migrating-from-hcp)
+for an HCP cutover, and move state yourself, with the same verification, for any other
+location change.
+
 HCP mode requires a paid tier with team management for this workflow's plan-only team
 token, even below the free tier's 500-resource limit. The
 [backend comparison](skills/infra-copilot/references/config.md#backend-modes) explains
