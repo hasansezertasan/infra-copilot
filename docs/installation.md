@@ -29,9 +29,9 @@ You were pointed here to install the skills. Do this:
 
 | Runtime | Install | Update | Confirm |
 | --- | --- | --- | --- |
-| Claude Code | `claude plugin marketplace add hasansezertasan/infra-copilot`, then `claude plugin install infra-copilot@infra-copilot` (in a session: `/plugin marketplace add hasansezertasan/infra-copilot` and `/plugin install infra-copilot@infra-copilot`) | `claude plugin marketplace update infra-copilot`, then `claude plugin update infra-copilot@infra-copilot` | `claude plugin list` shows the plugin and its version; run `/reload-plugins` or start a new session to load it |
-| Codex | clone this repository, then `codex plugin marketplace add /absolute/path/to/infra-copilot` and `codex plugin add infra-copilot@infra-copilot`; start a new thread | pull the clone, then `codex plugin add infra-copilot@infra-copilot` again, and start a new thread (`marketplace upgrade` applies to Git marketplaces, not a local path; this update route has not been verified) | the plugin appears in Codex's plugin list in a new thread |
-| OpenCode | git only; see [OpenCode](#opencode) | `git pull` in the clone | the skills are offered by OpenCode's `skill` tool in a new session |
+| Claude Code | `claude plugin marketplace add hasansezertasan/infra-copilot`, then `claude plugin install infra-copilot@infra-copilot` (user scope by default; add `--scope project` to record it in `.claude/settings.json`) | `claude plugin marketplace update infra-copilot`, then `claude plugin update infra-copilot@infra-copilot` | `claude plugin list` shows the plugin and its version; start a new session to load it |
+| Codex | `codex plugin marketplace add hasansezertasan/infra-copilot`, then enable the plugin from `/plugins` (adding a marketplace does not enable what is in it); user-wide | `codex plugin marketplace upgrade infra-copilot`, then `codex plugin add infra-copilot@infra-copilot`, then restart | the plugin appears in Codex's plugin list in a new thread |
+| OpenCode | in the infra repo: `npx skills add hasansezertasan/infra-copilot --agent opencode --skill '*' -y`; see [OpenCode](#opencode) | `npx skills update -p`, then restart | `npx skills list` shows the skills; they are offered by OpenCode's `skill` tool in a new session |
 | Pi | `pi install git:github.com/hasansezertasan/infra-copilot` (not published to npm) | `pi update git:github.com/hasansezertasan/infra-copilot` (a bare `pi update` updates Pi itself), then restart Pi or reload resources | invoke one of the skills with `/skill:<name>` |
 | Antigravity | git only; see [Antigravity](#antigravity) | reinstall with the same command, then restart | `agy plugin list` shows the plugin as installed and enabled; restart Antigravity to load it |
 | Manual | clone this repository, then copy `skills/*` into your agent's skills directory (reading `skills/<name>/SKILL.md` from the clone only lets you use the skills in the current conversation; it is not an install) | `git pull` in the clone, then copy `skills/*` again | `for d in <clone>/skills/*/; do diff -r "$d" "<destination>/$(basename "$d")"; done` prints nothing (compare skill by skill: the destination may hold skills from other sources) |
@@ -42,7 +42,13 @@ The Pi package declares the `pi-package` keyword and a `pi.skills` entry per ski
 
 ## OpenCode
 
-OpenCode installs from git only. Clone the repository, then make each skill discoverable. OpenCode searches `.agents/skills/<name>/SKILL.md` in the project and `~/.agents/skills/<name>/SKILL.md` globally, so link every folder under `skills/` into one of those:
+OpenCode works differently from the other hosts: `npx skills add` copies the skills into the consuming repository (`.agents/skills/`, plus `skills-lock.json`) instead of installing into the host. Run it in the infra repository you are bootstrapping, not in a global location; `-g` selects global scope. To install only `status` and what it needs, see [install-opencode.md](install-opencode.md).
+
+```sh
+npx skills add hasansezertasan/infra-copilot --agent opencode --skill '*' -y
+```
+
+To avoid copying, clone the repository and make each skill discoverable. OpenCode searches `.agents/skills/<name>/SKILL.md` in the project and `~/.agents/skills/<name>/SKILL.md` globally, so link every folder under `skills/` into one of those:
 
 ```sh
 git clone https://github.com/hasansezertasan/infra-copilot
@@ -59,7 +65,7 @@ Alternatively, add the clone's `skills/` directory to OpenCode's configuration. 
 }
 ```
 
-To update, run `git pull` in the clone; nothing was copied.
+With a clone, update with `git pull`; nothing was copied.
 
 > **Open question.** The official OpenCode documentation shows no way for an npm package to ship skills, so there is no npm route for OpenCode. If that changes, add it here.
 

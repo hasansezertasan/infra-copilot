@@ -1,13 +1,13 @@
 {
   "name": "infra-copilot",
-  "description": "Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure.",
+  "description": "Agent-first, human-in-the-loop workflows for infrastructure maintenance.",
   "owner": {
     "name": "hasansezertasan"
   },
   "plugins": [
     {
       "name": "infra-copilot",
-      "description": "Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure.",
+      "description": "Agent-first, human-in-the-loop workflows for infrastructure maintenance.",
       "version": "0.3.0",
       "source": "./",
       "category": "Development",

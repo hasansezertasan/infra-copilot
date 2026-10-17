@@ -5,7 +5,7 @@ description: Shortcut that loads the infra-copilot setup skill — agent-first, 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:56eac8884cbe2467447c813ae31d599a24d1491be2d3092a2c1caa49ea4e5407
-Source-Hash: blake3:df6d5f221d5f2752857325a9d44038aac3612972e673e1181956a295f21aba0f
+Source-Hash: blake3:c535a86f520f062f5c1f59c222e1d2203060f2f36c47ad88a0af2922a116db5c
 Schema-Version: v1
 -->
 

@@ -5,7 +5,7 @@ description: Shortcut that loads the infra-copilot import skill — adopt existi
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:59f6fec2ed0ed48452c345b67a67454ea9666f3832158c38a3c0105b6f865a2e
-Source-Hash: blake3:df6d5f221d5f2752857325a9d44038aac3612972e673e1181956a295f21aba0f
+Source-Hash: blake3:c535a86f520f062f5c1f59c222e1d2203060f2f36c47ad88a0af2922a116db5c
 Schema-Version: v1
 -->
 

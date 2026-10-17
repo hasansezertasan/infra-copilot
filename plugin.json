@@ -1,5 +1,5 @@
 {
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "infra-copilot",
-  "description": "Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure."
+  "description": "Agent-first, human-in-the-loop workflows for infrastructure maintenance."
 }

@@ -105,7 +105,7 @@ jobs:
           # clean index so only the paths below can enter the commit.
           git reset -q
           # Only generated output, and only what exists in this repo.
-          for path in AGENTS.md skills .claude-plugin .codex-plugin .agents .ai-rulez-generated.json .ai-rulez/.generated-manifest.json; do
+          for path in AGENTS.md skills commands .claude-plugin .codex-plugin .agents .pi .ai-rulez-generated.json .ai-rulez/.generated-manifest.json; do
             if [ -e "$path" ]; then git add -A -- "$path"; fi
           done
           if git diff --cached --quiet; then
@@ -150,7 +150,7 @@ jobs:
         run: |
           patch="$RUNNER_TEMP/regenerate.patch"
           # Refuse anything that is not generated output.
-          allowed='^(AGENTS\.md$|skills/|\.claude-plugin/|\.codex-plugin/|\.agents/|\.ai-rulez-generated\.json$|\.ai-rulez/\.generated-manifest\.json$)'
+          allowed='^(AGENTS\.md$|skills/|commands/|\.claude-plugin/|\.codex-plugin/|\.agents/|\.pi/|\.ai-rulez-generated\.json$|\.ai-rulez/\.generated-manifest\.json$)'
           while IFS=$'\t' read -r _ _ path; do
             if [[ ! "$path" =~ $allowed ]]; then
               echo "Refusing to push: $path is not generated output" >&2

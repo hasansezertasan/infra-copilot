@@ -2195,8 +2195,8 @@ def _check_agent(relative: str, text: str, row: dict[str, str], dialect: str) ->
         # TOML: the body lives in a multi-line string, so there is no fixed block
         # to compare. tomllib is stdlib, so this one is genuinely parsed.
         # Imported here, not at module load: tomllib is 3.11+, while the
-        # repository's baseline is whatever `python3` is -- the Makefile says
-        # 3.11 "only affects this maintainer target". A module-level import broke
+        # repository's baseline is whatever `python3` is, not the 3.12 CI installs.
+        # A module-level import broke
         # `npm run check` for a 3.10 contributor before any check could run. This
         # branch is unreachable for a shipped row today, since the dialect that
         # needs it cannot express the read-only grant.

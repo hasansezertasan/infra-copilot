@@ -1,9 +1,8 @@
-_commit: v0.4.0
+_commit: v0.4.1
 _src_path: https://github.com/hasansezertasan/copier-skill-repo
 author_name: hasansezertasan
 author_url: https://github.com/hasansezertasan
-description: Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub
-    infrastructure.
+description: Agent-first, human-in-the-loop workflows for infrastructure maintenance.
 github_owner: hasansezertasan
 keywords: terraform, infrastructure, cloudflare, github
 license: MIT

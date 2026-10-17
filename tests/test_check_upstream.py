@@ -240,7 +240,7 @@ class ApiPathTests(unittest.TestCase):
                 self.assertIn(shape, cited)
 
     def test_findings_cite_the_editable_source_not_the_generated_copy(self) -> None:
-        """Generated trees are overwritten by `make generate` (AGENTS.md rule 1)."""
+        """Generated trees are overwritten by `npm run generate` (AGENTS.md rule 1)."""
         cited = cited_api_paths(list(load_api_paths()["scan"]))
         locations = [location for places in cited.values() for location in places]
         self.assertTrue(any(location.startswith(".ai-rulez/") for location in locations))

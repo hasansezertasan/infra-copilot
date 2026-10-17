@@ -1,21 +1,21 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:df6d5f221d5f2752857325a9d44038aac3612972e673e1181956a295f21aba0f",
+  "source_hash": "blake3:c535a86f520f062f5c1f59c222e1d2203060f2f36c47ad88a0af2922a116db5c",
   "outputs": {
     ".agents/plugins/marketplace.json": {
       "content_hash": "blake3:cc4c1d8ce0de7b4278c6923f269188926cfd234aec46b4c7eeaaceb79e83da0e",
       "mode": "0644"
     },
     ".claude-plugin/marketplace.json": {
-      "content_hash": "blake3:375ff4a52407519912b24a80d1b04ef2927b438d94a8c312f288214ed3b3eda9",
+      "content_hash": "blake3:e73353541f0fba12aaafd07936aba73434e1335d4125cbcdb25732ad7458c52b",
       "mode": "0644"
     },
     ".claude-plugin/plugin.json": {
-      "content_hash": "blake3:9ecf5147e697cbd7a7c4388572f5d10f6811ad64664728f69bc2effef2f1e891",
+      "content_hash": "blake3:bf9e8a9b83861abaf544671c3ba09f45f184f7fadfc0f62e9e30d05ce0bd7409",
       "mode": "0644"
     },
     ".codex-plugin/plugin.json": {
-      "content_hash": "blake3:671252a3853f62e537f68987ba1e847653351b09e3c5e216fbc9d040f8070c3d",
+      "content_hash": "blake3:12337933b2ef2794bedab71f6224e762af8486e3b9f590eea813ba074deed968",
       "mode": "0644"
     },
     ".pi/prompts/infra-add.md": {
@@ -59,7 +59,7 @@
       "mode": "0644"
     },
     "package.json": {
-      "content_hash": "blake3:d9d810fd1045648670eeef3c0ad866085e0cea0a51c3faa2fabe69ec6338087f",
+      "content_hash": "blake3:12dd6e3d0da22066575e39aa86c5e03c01bfddbcbf097f9e6560f4a4b9fa2ae3",
       "mode": "0644"
     },
     "skills/add/SKILL.md": {

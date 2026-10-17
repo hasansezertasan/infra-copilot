@@ -1,7 +1,7 @@
 # Adopt the copier-skill-repo template
 
 Decided 2026-10-18. infra-copilot is generated from, and kept current by,
-[copier-skill-repo](https://github.com/hasansezertasan/copier-skill-repo), rendered at `v0.4.0`
+[copier-skill-repo](https://github.com/hasansezertasan/copier-skill-repo), rendered at `v0.4.1`
 (`.copier-answers.yml`). It is the last of three skill repos to adopt it, and the outlier: it moved
 from ai-rulez 4.11.3 to 5.3.0, from a literal plugin version to `package.json`, and from a Makefile
 and Python validator to npm scripts. Skills, `CHANGELOG.md` and the shipped hook, subagent and slash
@@ -54,9 +54,14 @@ placeholder skill was deleted after rendering. `package.json` is private, so Pi 
   the old ones. Expect `copier update` conflicts there and keep both sides.
 - **Node** is 24 from `.node-version` (CI used 22); `engines` still allows 22.
 
+## Before the merge
+
+- **Replace `validate` with `check`** in the `main` ruleset's required status checks. This pull
+  request renames the job, so while `validate` is required it can never report that check and cannot
+  merge. Until it merges, any other open pull request waits for a `check` it has not run; rebase it
+  after the merge. The other two required checks keep their names.
+
 ## After the merge
 
-- Change the required status checks in the `main` ruleset from `validate` to `check`. The other two
-  keep their names.
 - Close Renovate's open pull requests for tools that moved into `package.json` configuration.
 - Close the adoption ticket in copier-skill-repo (#13).

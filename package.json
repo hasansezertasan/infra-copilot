@@ -2,7 +2,7 @@
   "author": {
     "name": "hasansezertasan"
   },
-  "description": "Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure.",
+  "description": "Agent-first, human-in-the-loop workflows for infrastructure maintenance.",
   "devDependencies": {
     "ai-rulez": "5.3.0",
     "markdownlint-cli2": "0.23.2",

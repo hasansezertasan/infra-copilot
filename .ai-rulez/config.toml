@@ -54,7 +54,7 @@ name = "infra-copilot"
 version_from = "package.json"
 homepage = "https://github.com/hasansezertasan/infra-copilot"
 license = "MIT"
-description = "Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure."
+description = "Agent-first, human-in-the-loop workflows for infrastructure maintenance."
 repository = "https://github.com/hasansezertasan/infra-copilot"
 keywords = ["terraform", "infrastructure", "cloudflare", "github"]
 runtimes = ["claude", "codex", "pi"]
@@ -66,11 +66,11 @@ name = "hasansezertasan"
 
 [plugin.interface]
 display_name = "infra-copilot"
-short_description = "Bootstrap and maintain Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure."
+short_description = "Agent-first, human-in-the-loop workflows for infrastructure maintenance."
 category = "Development"
 capabilities = ["Read", "Write"]
 default_prompt = ["Use infra-copilot to report the current infrastructure setup status."]
-long_description = "Agent-first, human-in-the-loop workflows for Terraform, HCP Terraform, Cloudflare, and GitHub infrastructure."
+long_description = "Agent-first, human-in-the-loop workflows to bootstrap, audit and change infrastructure repositories, whatever the infrastructure is."
 developer_name = "hasansezertasan"
 
 # Single-plugin catalogs point at the repository root ("./").
