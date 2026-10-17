@@ -72,13 +72,17 @@ Hand-authored, and safe to edit directly:
 ### The loop
 
 ```bash
+# 0. once per clone: install the pinned tools (ai-rulez, markdownlint-cli2, skills)
+npm ci
 # 1. edit a source under .ai-rulez/
 # 2. regenerate the host packages
 npm run generate
-# 3. run exactly what CI runs
+# 3. run the checks CI runs on Linux
 npm run check:all
 # 4. commit sources AND generated output together
 ```
+
+`python3` is also needed for `npm run validate` and `npm test`.
 
 Generated files are committed on purpose, so users can install the plugin without having
 `ai-rulez`. A commit that changes a source without its regenerated output fails
