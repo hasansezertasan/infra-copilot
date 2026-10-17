@@ -105,13 +105,23 @@ only for the public identifiers in the config above.
 uvx copier copy gh:hasansezertasan/copier-infra infra
 ```
 
-Then run `/infra-setup` in the new repository; it reads the committed config and resumes
-from where the scan reports. Change those values later with `copier update` or
-`copier recopy` rather than hand-editing `config.md` or `backend.tf`, so the config and the
-Terraform literals stay aligned. The template ships no `scripts/sync-config.sh`, so the
-`repo-config-sync` step has nothing to synchronize. Switching `backend` after rendering is a
-state migration, not an answer change; follow
-[`object-storage-state.md`](skills/infra-copilot/references/docs/object-storage-state.md#migrating-from-hcp).
+Then ask your agent to use infra-copilot to set up the new repository, with the host
+invocation from the install table above (`/infra-setup` on Claude Code and Antigravity); it
+reads the committed config and resumes from where the scan reports. Change values later
+with `copier update` and review the diff, rather than hand-editing `config.md` or
+`backend.tf`, so the config and the Terraform literals stay aligned. `copier recopy` re-renders
+over local edits; use it only for deliberate recovery, on a clean tree, after reading the diff.
+The template ships no `scripts/sync-config.sh`, so the `repo-config-sync` step has nothing to
+synchronize.
+
+Treat any change to `backend`, `state_backend`, `state_bucket` or `state_prefix` after
+rendering as a state migration, not an answer change. Copier rewrites `backend.tf` but moves
+no state, and the state-transfer check only demands transfer evidence once it detects an HCP
+backend in history, so an empty new destination can be accepted and the next plan may propose
+recreating managed resources. Follow
+[`object-storage-state.md`](skills/infra-copilot/references/docs/object-storage-state.md#migrating-from-hcp)
+for an HCP cutover, and move state yourself, with the same verification, for any other
+location change.
 
 HCP mode requires a paid tier with team management for this workflow's plan-only team
 token, even below the free tier's 500-resource limit. The
