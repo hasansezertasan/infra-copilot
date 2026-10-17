@@ -111,8 +111,8 @@ reads the committed config and resumes from where the scan reports. Change value
 `uvx copier update` (run from the repo root) and review the diff, rather than hand-editing
 `config.md` or `backend.tf`, so the config and the Terraform literals stay aligned.
 `uvx copier recopy` re-renders over local edits; use it only for deliberate recovery, on a clean
-tree, after reading the diff. The template ships no `scripts/sync-config.sh`, so the `repo-config-sync` step has nothing to
-synchronize.
+tree, after reading the diff. The template ships no `scripts/sync-config.sh`, so the
+`repo-config-sync` step has nothing to synchronize.
 
 Treat any change to `backend`, `state_backend`, `state_bucket` or `state_prefix` after
 rendering as a state migration, not an answer change. Copier rewrites `backend.tf` but moves
