@@ -44,6 +44,10 @@ placeholder skill was deleted after rendering. `package.json` is private, so Pi 
   `package.json` carries the generated Pi fields and a `files` allowlist. ai-rulez 5.3.0 leaves the
   `../skills/...` links in those prompts unrewritten, so `validate.py` skips `.pi/`; the commands
   under `commands/` carry the same links and are still checked.
+  The fix is Goldziher/ai-rulez#453, after which the exclusion goes. It makes the links resolve
+  from `.pi/prompts/`, but Pi expands a prompt into plain text and resolves paths from the session
+  directory, so a relative link still would not reach the installed package. A Pi-safe reference,
+  such as `/skill:<name>`, needs generator support and is not done here.
 - **`plugin.json` (Antigravity)** takes the config's description, because the template's check
   requires it to equal the Claude manifest's.
 - **Renovate** keeps its own `renovate.json` (the `github>` preset, the Monday schedule and the weekly
