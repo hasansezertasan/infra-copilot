@@ -53,6 +53,29 @@ class TemplateContractTests(unittest.TestCase):
         )
         self.assertEqual(self.run_check(None).returncode, 2)
 
+    def test_source_must_be_an_exact_alias_not_a_substring(self) -> None:
+        for crafted in ('gh:attacker/hasansezertasan/copier-infra',
+                        'gh:someone/evil # gh:hasansezertasan/copier-infra',
+                        'gh:hasansezertasan/copier-infra-fork'):
+            with self.subTest(crafted=crafted):
+                (self.checkout / '.copier-answers.yml').write_text(
+                    f'_commit: v1.0.0\n_src_path: {crafted}\n', encoding='utf-8')
+                self.assertEqual(self.run_check(None).returncode, 2)
+
+    def test_canonical_aliases_pass(self) -> None:
+        for alias in ('gh:hasansezertasan/copier-infra.git', '"https://github.com/hasansezertasan/copier-infra"',
+                      'git@github.com:hasansezertasan/copier-infra.git # pinned'):
+            with self.subTest(alias=alias):
+                (self.checkout / '.copier-answers.yml').write_text(
+                    f'_commit: v1.0.0\n_src_path: {alias}\n', encoding='utf-8')
+                self.assertEqual(self.run_check(None).returncode, 0)
+
+    def test_source_only_skips_the_version_comparison(self) -> None:
+        self.run_check('v0.0.1')
+        completed = subprocess.run(['sh', str(CHECK), '--source-only'], cwd=self.checkout,
+                                   capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0)
+
     def test_trailing_comment_and_crlf_are_ignored(self) -> None:
         self.assertEqual(self.run_check('v0.2.0 # pinned\r').returncode, 0)
 

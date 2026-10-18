@@ -4,15 +4,27 @@
 #   exit 0  a release tag at or above the minimum
 #   exit 1  an older release tag; propose the Template's update
 #   exit 2  cannot be judged (no answers file, bare commit, between-tags value); hand off
-# An optional first argument overrides the minimum; tests use it, nothing ambient can.
+# `--source-only` stops after the source check. Otherwise an optional first argument
+# overrides the minimum; tests use it, nothing ambient can.
 set -eu
+source_only=false
+if [ "${1:-}" = "--source-only" ]; then source_only=true; set --; fi
 minimum=${1:-v0.1.0}
 cannot_verify() { echo "CANNOT VERIFY Template contract: $1; hand off to the human, never assume it is compatible" >&2; exit 2; }
 
 [ -f .copier-answers.yml ] || cannot_verify 'no .copier-answers.yml, so no Template version is recorded'
 # The version is only meaningful for copier-infra; another Template's tag proves nothing.
-grep -Eq '^_src_path:.*hasansezertasan/copier-infra(\.git)?[[:space:]]*$' .copier-answers.yml ||
-    cannot_verify '_src_path in .copier-answers.yml is not hasansezertasan/copier-infra'
+# Compare the parsed scalar against the canonical spellings of its GitHub source, never a
+# pattern searched inside the raw line.
+source=$(sed -n 's/^_src_path:[[:space:]]*//p' .copier-answers.yml | head -n 1 | sed 's/[[:space:]]#.*$//' | tr -d "\"'\r[:space:]")
+case $source in
+    gh:hasansezertasan/copier-infra|gh:hasansezertasan/copier-infra.git|\
+    https://github.com/hasansezertasan/copier-infra|https://github.com/hasansezertasan/copier-infra.git|\
+    git+https://github.com/hasansezertasan/copier-infra|git+https://github.com/hasansezertasan/copier-infra.git|\
+    git@github.com:hasansezertasan/copier-infra|git@github.com:hasansezertasan/copier-infra.git) ;;
+    *) cannot_verify "_src_path '$source' is not a copier-infra source" ;;
+esac
+[ "$source_only" = false ] || exit 0
 recorded=$(sed -n 's/^_commit:[[:space:]]*//p' .copier-answers.yml | head -n 1 | sed 's/[[:space:]]#.*$//' | tr -d "\"'\r[:space:]")
 [ -n "$recorded" ] || cannot_verify '.copier-answers.yml has no _commit'
 

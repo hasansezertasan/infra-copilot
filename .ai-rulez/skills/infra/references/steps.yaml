@@ -262,7 +262,7 @@ steps:
            gh:hasansezertasan/copier-infra .
       3. Commit the render, including .copier-answers.yml, before any other step; Copier does
          not initialize Git and its update reads tracked files and HEAD.
-      Never edit a file the Template owns afterwards; change answers with `copier update`,
+      Never edit a file the Template owns afterwards, apart from the pins `toolchain-pin` reviews; change answers with `copier update`,
       run through the pinned Copier (the same `uv run ... copier` command, `update` in place of `copy`).
       Do not trust the rendered mise.toml: `toolchain-pin` is still the human's review. mise
       trust survives a change of file contents, so after the render run `mise trust --untrust`
@@ -271,7 +271,7 @@ steps:
       git ls-files --error-unmatch .copier-answers.yml README.md >/dev/null 2>&1 &&
       git diff --quiet HEAD -- .copier-answers.yml README.md &&
       git diff --cached --quiet HEAD -- .copier-answers.yml README.md &&
-      grep -Eq '^_src_path:.*hasansezertasan/copier-infra(\.git)?[[:space:]]*$' .copier-answers.yml &&
+      sh "$INFRA_REFERENCES/checks/template-contract.sh" --source-only &&
       grep -q '<!-- infra:config start -->' README.md &&
       grep -q '<!-- infra:config end -->' README.md
     produces: committed .copier-answers.yml and the Template-rendered repository
@@ -290,7 +290,10 @@ steps:
       tree through the pinned Copier (`uv run --no-project --with-requirements
       "$INFRA_REFERENCES/copier-requirements.txt" copier update`; `uv` is a HUMAN install if absent, since
       preflight skips it once the answers file exists),
-      show the conflicts for review, and re-run this check. Never overwrite silently.
+      show the conflicts for review, resolve them with the human, and commit the result;
+      copier leaves the update uncommitted, and this check reads the working tree. Then
+      restart the scan at `template-render`, which requires a committed, clean render, before
+      re-running this check. Never overwrite silently.
       Exit 2 (bare commit, between-tags value, no answers file): emit the handoff block
       and wait; never assume the Template is compatible.
     check: sh "$INFRA_REFERENCES/checks/template-contract.sh"
@@ -304,8 +307,10 @@ steps:
     title: Create and commit the pinned mise.toml + mise.lock
     why: Preflight and every per-tool check compare installed binaries against these pins; nothing else creates them.
     run: |
-      1. Follow docs/setup.md#6-local-development to choose exact tool versions and
-         author mise.toml. Choosing the versions is a project decision, not a lookup.
+      1. Follow docs/setup.md#6-local-development to review the exact tool versions in the
+         mise.toml and mise.lock the Template rendered, or to author them when absent. Changing
+         a rendered pin is a deliberate human decision, not a lookup, and the one place a
+         Template-owned file is edited by hand; a later `copier update` merges it.
       2. Review the entire mise.toml before trusting it; repository config can enable
          templates, plugins, and other executable behavior.
       3. Trust it, initialize and populate mise.lock, install the locked pins, and
