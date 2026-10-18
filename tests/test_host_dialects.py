@@ -1415,7 +1415,7 @@ class TenthRoundTests(unittest.TestCase):
             document = root / relative
             document.write_text(
                 document.read_text(encoding="utf-8").replace(
-                    "**`status` and only `status`**", "**any skill**"
+                    "**`infra-status` and only `infra-status`**", "**any skill**"
                 ),
                 encoding="utf-8",
             )

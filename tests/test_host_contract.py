@@ -420,7 +420,7 @@ class ClosureCommandTests(unittest.TestCase):
     def test_prints_install_arguments_for_an_action_skill(self) -> None:
         result = self.run_closure("--closure", "infra-status")
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.strip(), "--skill infra-skills --skill infra-status")
+        self.assertEqual(result.stdout.strip(), "--skill infra --skill infra-status")
 
     def test_rejects_the_router_as_a_root(self) -> None:
         result = self.run_closure("--closure", "infra")
