@@ -31,8 +31,7 @@ class TemplateContractTests(unittest.TestCase):
                 encoding='utf-8',
             )
         return subprocess.run(
-            ['sh', str(CHECK)], cwd=self.checkout, capture_output=True, text=True,
-            env={**os.environ, 'TEMPLATE_MIN_TAG': minimum},
+            ['sh', str(CHECK), minimum], cwd=self.checkout, capture_output=True, text=True,
         )
 
     def test_tag_at_the_minimum_passes(self) -> None:
@@ -44,6 +43,14 @@ class TemplateContractTests(unittest.TestCase):
 
     def test_quoted_tag_passes(self) -> None:
         self.assertEqual(self.run_check('"v1.0.0"').returncode, 0)
+
+    def test_trailing_comment_and_crlf_are_ignored(self) -> None:
+        self.assertEqual(self.run_check('v0.2.0 # pinned\r').returncode, 0)
+
+    def test_ambient_override_is_ignored(self) -> None:
+        os.environ['TEMPLATE_MIN_TAG'] = 'v0.0.1'
+        self.addCleanup(os.environ.pop, 'TEMPLATE_MIN_TAG')
+        self.assertEqual(self.run_check('v0.1.9').returncode, 1)
 
     def test_older_tag_proposes_the_templates_update(self) -> None:
         completed = self.run_check('v0.1.9')

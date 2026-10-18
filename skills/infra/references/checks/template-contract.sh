@@ -4,13 +4,13 @@
 #   exit 0  a release tag at or above the minimum
 #   exit 1  an older release tag; propose the Template's update
 #   exit 2  cannot be judged (no answers file, bare commit, between-tags value); hand off
-# TEMPLATE_MIN_TAG overrides the minimum, for tests only.
+# An optional first argument overrides the minimum; tests use it, nothing ambient can.
 set -eu
-minimum=${TEMPLATE_MIN_TAG:-v0.1.0}
+minimum=${1:-v0.1.0}
 cannot_verify() { echo "CANNOT VERIFY Template contract: $1; hand off to the human, never assume it is compatible" >&2; exit 2; }
 
 [ -f .copier-answers.yml ] || cannot_verify 'no .copier-answers.yml, so no Template version is recorded'
-recorded=$(sed -n 's/^_commit:[[:space:]]*//p' .copier-answers.yml | head -n 1 | tr -d "\"'")
+recorded=$(sed -n 's/^_commit:[[:space:]]*//p' .copier-answers.yml | head -n 1 | sed 's/[[:space:]]#.*$//' | tr -d "\"'\r[:space:]")
 [ -n "$recorded" ] || cannot_verify '.copier-answers.yml has no _commit'
 
 # Only a bare vX.Y.Z release tag compares; a hash or v0.1.0-3-gabc1234 is indeterminate.

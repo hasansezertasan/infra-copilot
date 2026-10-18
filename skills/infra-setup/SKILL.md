@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:b6169000691a21315da41c771474765a294edd4b5452543b06704ee45ab098a7
-Source-Hash: blake3:6810227bba9ec11ee785af3fd29784bfec2acac1d7d5271e9ebab32c907fb9ea
+Content-Hash: blake3:854ea255a631908d22952af72449efb33fdba6da2d7f973bb9dcb2591ea8ec28
+Source-Hash: blake3:ed8822b51ed7976c72cb884ea48a81e743a0fe15247e788da90c8c6fa1eeaeca
 Schema-Version: v1
 -->
 
@@ -76,10 +76,13 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 1. **Render the Template, or resume** (shared protocol, Step 0). On a directory with no
    `.copier-answers.yml` and no README Config block, run `template-render`: read the
    Template's current `copier.yml`, ask its questions, render with the pinned Copier and
-   commit the answers file. A repo that is already rendered resumes; never re-scaffold it
-   and never edit a file the Template owns. Then run `template-contract`: an older tag
+   commit the answers file. A repo is rendered when it has a committed answers file and
+   a README Config block; it resumes, and is never re-scaffolded. A Config block without
+   an answers file (or the reverse) is not rendered: hand off, never render over it.
+   Never edit a file the Template owns. Then run `template-contract`: an older tag
    proposes the Template's `copier update`, a bare commit hands off.
-   **Read config.** Load the Config block from the
+
+   Then **read config.** Load the Config block from the
    root `README.md` and export the org vars. A legacy `.infra-copilot/` directory or
    `.claude/infra-copilot.local.md` → unsupported, stop. No Config block → handoff, wait.
    For a new setup, recommend **object-storage** first. Explain HCP's managed runs and

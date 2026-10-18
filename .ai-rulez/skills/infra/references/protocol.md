@@ -204,7 +204,9 @@ run created after the entire recorded UTC second and the workspace's latest `upd
 so a prior workspace run cannot prove the new least-privilege credential or reconciled
 execution settings work.
 
-`infra-setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
+`infra-setup` renders the Template (`template-render`, then `template-contract`) before
+anything else, with `INFRA_REFERENCES` exported and no config read. After that it has one
+cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
 pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool
 checks) before that step has established committed pins. Once `toolchain-pin` is green,

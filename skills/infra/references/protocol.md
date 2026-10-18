@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6849c0c3bd8d17bf05b8279262b606ccb96d64d21c8eb93c27740d483fbf1e32
-Source-Hash: blake3:6810227bba9ec11ee785af3fd29784bfec2acac1d7d5271e9ebab32c907fb9ea
+Content-Hash: blake3:bb4d421132132411b89d6993b94a473f8d51044a067a65381231ab0d6368f72a
+Source-Hash: blake3:ed8822b51ed7976c72cb884ea48a81e743a0fe15247e788da90c8c6fa1eeaeca
 Schema-Version: v1
 -->
 
@@ -211,7 +211,9 @@ run created after the entire recorded UTC second and the workspace's latest `upd
 so a prior workspace run cannot prove the new least-privilege credential or reconciled
 execution settings work.
 
-`infra-setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
+`infra-setup` renders the Template (`template-render`, then `template-contract`) before
+anything else, with `INFRA_REFERENCES` exported and no config read. After that it has one
+cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
 pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool
 checks) before that step has established committed pins. Once `toolchain-pin` is green,
