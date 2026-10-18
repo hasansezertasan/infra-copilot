@@ -53,8 +53,9 @@ team token, and free-tier organizations have only the owners team
 Disclose both the resource limit and this paid-plan prerequisite before asking for the
 backend choice; never substitute an apply-capable token to complete setup on the free tier.
 Present HCP as a deliberate choice. Ask using the shared protocol's decision mechanism,
-put object-storage first and mark it recommended, then write `backend:` explicitly into
-the Config block for whichever mode the user chooses before any step runs.
+put object-storage first and mark it recommended, then record the choice as the Template's `backend` answer before any step runs. `backend` is
+a Template answer outside the customization markers, so the Skills never write it themselves:
+the Template renders it, or a human adds it by hand when it is missing.
 
 ### Migration: existing configs without backend
 
@@ -70,13 +71,13 @@ leaves for HCP `cloud {}` blocks, for example:
 grep -lE '(^|[[:space:]])cloud[[:space:]]*\{' terraform/*/*.tf 2>/dev/null
 ```
 
-If found, show the paths and offer to write `backend: hcp` to preserve the existing HCP
+If found, show the paths and offer a `backend: hcp` line for the human to add, to preserve the existing HCP
 workflow. The match is a hint for the user's decision, never permission to choose a
 backend automatically. Without that evidence, ask which mode the repo uses; absence of
-a match is not evidence for object-storage. Wait for an explicit choice before writing,
-then re-read config, validate the field, and export vars before resuming.
-Add or correct only `backend:`; preserve the other fields and customization markers.
-Do not re-scaffold an existing file to perform this migration.
+a match is not evidence for object-storage. Wait for an explicit choice and for the human to add or correct `backend:` (the one
+Template answer the migration handoff asks a person to edit), then re-read config, validate
+the field, and export vars before resuming. The Skills never write it, and never touch the
+other fields or the customization markers while doing so.
 `infra-status` reports the missing/invalid field and the suggested migration but never writes
 config; direct the user to add the field or run `infra-setup` to record their choice.
 

@@ -20,7 +20,6 @@ from scripts.validate import (
     validate_config_fallbacks,
     _looks_like_marker,
     frontmatter_bounds,
-    frontmatter_keys,
     validate_customization_markers,
     validate_description_budget,
     validate_json_manifests,
@@ -110,7 +109,7 @@ class CustomizationMarkerTests(unittest.TestCase):
         repository = Path(temporary_directory)
         defaults = {
             "config.md.example": (
-                "---\n# infra:customization start\nhcp_org: x\n"
+                "---\n# infra:customization start\nleaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n"
                 'hcp_status_check_id: ""\n'
                 "# infra:customization end\n---\n"
             ),
@@ -127,59 +126,6 @@ class CustomizationMarkerTests(unittest.TestCase):
             document.parent.mkdir(parents=True, exist_ok=True)
             document.write_text(body, encoding="utf-8")
         return repository
-
-    def test_every_frontmatter_field_is_required_inside_the_region(self) -> None:
-        """Derived, not enumerated.
-
-        The first version listed two of the seven fields, so the other five
-        could drift out of the region while validation stayed green. Listing
-        them would only move the gap to whichever field is added next.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = self._repository(
-                temporary_directory,
-                **{
-                    "config.md.example": (
-                        "---\n# infra:customization start\n"
-                        'hcp_org: x\nhcp_status_check_id: ""\n'
-                        "# infra:customization end\n"
-                        "github_org: x\napex_domain: x\n---\n"
-                    )
-                },
-            )
-
-            self.assertEqual(
-                validate_customization_markers(repository),
-                [
-                    f"{self.REFERENCES}/config.md.example: 'github_org:' is outside "
-                    "the infra:customization region a re-scaffold preserves",
-                    f"{self.REFERENCES}/config.md.example: 'apex_domain:' is outside "
-                    "the infra:customization region a re-scaffold preserves",
-                ],
-            )
-
-    def test_protects_a_field_added_to_the_template_later(self) -> None:
-        """The point of deriving: no list to remember to update."""
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = self._repository(
-                temporary_directory,
-                **{
-                    "config.md.example": (
-                        "---\n# infra:customization start\n"
-                        'hcp_org: x\nhcp_status_check_id: ""\n'
-                        "# infra:customization end\n"
-                        "gcp_project: your-project\n---\n"
-                    )
-                },
-            )
-
-            self.assertEqual(
-                validate_customization_markers(repository),
-                [
-                    f"{self.REFERENCES}/config.md.example: 'gcp_project:' is outside "
-                    "the infra:customization region a re-scaffold preserves"
-                ],
-            )
 
     def test_rejects_markers_that_enclose_nothing(self) -> None:
         """Balanced and ordered, but the region is empty.
@@ -199,7 +145,7 @@ class CustomizationMarkerTests(unittest.TestCase):
                     "config.md.example": (
                         "---\n# infra:customization start\n"
                         "# infra:customization end\n"
-                        "hcp_org: x\nhcp_status_check_id: \"\"\n---\n"
+                        "leaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\nhcp_status_check_id: \"\"\n---\n"
                     )
                 },
             )
@@ -207,11 +153,15 @@ class CustomizationMarkerTests(unittest.TestCase):
             self.assertEqual(
                 validate_customization_markers(repository),
                 [
-                    f"{self.REFERENCES}/config.md.example: 'hcp_status_check_id:' is "
-                    "outside the infra:customization region a re-scaffold "
-                    "preserves",
-                    f"{self.REFERENCES}/config.md.example: 'hcp_org:' is outside the "
-                    "infra:customization region a re-scaffold preserves",
+                    f"{self.REFERENCES}/config.md.example: {key!r} is outside the "
+                    "infra:customization region a re-scaffold preserves"
+                    for key in (
+                        "leaf_backends:",
+                        "state_transfers:",
+                        "github_apps:",
+                        "hcp_status_check_id:",
+                        "additional_providers:",
+                    )
                 ],
             )
 
@@ -280,7 +230,7 @@ class CustomizationMarkerTests(unittest.TestCase):
                 **{
                     "config.md.example": (
                         "---\n# infra:customization start\n"
-                        "hcp_org: x\n  hcp_status_check_id: \"\"\n"
+                        "leaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n  hcp_status_check_id: \"\"\n"
                         "# infra:customization end\n---\n"
                     )
                 },
@@ -335,7 +285,7 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "---\ninfra:customization start\nhcp_org: x\n"
+                        "---\ninfra:customization start\nleaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n"
                         'hcp_status_check_id: ""\n'
                         "# infra:customization end\n---\n"
                     )
@@ -380,7 +330,7 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "---\n# infra:customization start\nhcp_org: x\n"
+                        "---\n# infra:customization start\nleaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n"
                         'hcp_status_check_id: ""\n---\n'
                         "# infra:customization end\n"
                     )
@@ -391,8 +341,8 @@ class CustomizationMarkerTests(unittest.TestCase):
                 validate_customization_markers(repository),
                 [
                     f"{self.REFERENCES}/config.md.example: "
-                    "infra:customization marker on line 6 is outside the "
-                    "frontmatter delimiters (lines 1 and 5), so the preserved "
+                    "infra:customization marker on line 9 is outside the "
+                    "frontmatter delimiters (lines 1 and 8), so the preserved "
                     "region no longer matches the fields a human fills in"
                 ],
             )
@@ -404,7 +354,7 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "# infra:customization start\n---\nhcp_org: x\n"
+                        "# infra:customization start\n---\nleaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n"
                         'hcp_status_check_id: ""\n'
                         "# infra:customization end\n---\n"
                     )
@@ -446,7 +396,7 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "---\n# infra:customization start\nhcp_org: x\n"
+                        "---\n# infra:customization start\nleaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n"
                         "# infra:customization end\n"
                         'hcp_status_check_id: ""\n---\n'
                     )
@@ -524,7 +474,7 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "# infra:customization end\nhcp_org: x\n"
+                        "# infra:customization end\nleaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n"
                         "# infra:customization start\n"
                     )
                 },
@@ -565,24 +515,6 @@ class CustomizationMarkerTests(unittest.TestCase):
             )
 
             self.assertEqual(validate_customization_markers(repository), [])
-
-
-class FrontmatterKeyTests(unittest.TestCase):
-    def test_reads_top_level_keys_only(self) -> None:
-        lines = [
-            "---",
-            "hcp_org: x",
-            "managed_repos:",
-            "  - owner/name",
-            "---",
-            "body: not frontmatter",
-        ]
-        self.assertEqual(frontmatter_keys(lines), ["hcp_org", "managed_repos"])
-
-    def test_documents_without_frontmatter_have_no_keys(self) -> None:
-        """decisions.md.example is a plain body; the derived rule is a no-op there."""
-        self.assertEqual(frontmatter_keys(["# heading", "key: value"]), [])
-        self.assertEqual(frontmatter_keys([]), [])
 
 
 class LooksLikeMarkerTests(unittest.TestCase):

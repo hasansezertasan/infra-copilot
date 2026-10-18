@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:91db60a73c2802adcbdb7fa1d363235c14b7eea17b9780aaa6d08106f7df4a76
-Source-Hash: blake3:4a813d783fc56f6e35f6fad607f12250c75fbec05220a0dc7eb0a4bb930dcb08
+Content-Hash: blake3:961e2ca386f9ea610bad374fc3235d294c75ca9aac8c487ef7408ac0a0fde2c8
+Source-Hash: blake3:6e02258534512fefb9e19921919c9c130ca647882b0dadca595d6b5e5ffff986
 Schema-Version: v1
 -->
 
@@ -20,7 +20,7 @@ validation and migration contract without editing its choice.
 
 ## Workflow
 
-1. Load validated config per [config](config.md), including the legacy fallback, and
+1. Load validated config per [config](config.md), after the legacy-state stop (unsupported paths end the run), and
    resolve operation implementations. No missing choice may become an all-skipped scan.
    Include every effective leaf and both service implementations in mixed repositories.
    Print the default and effective routes, so an override is visible in the report.

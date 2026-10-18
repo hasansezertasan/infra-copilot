@@ -72,10 +72,11 @@ Adopting resources that already exist (a live domain, existing repos)? That's
    For a new setup, recommend **object-storage** first. Explain HCP's managed runs and
    UI, its free tier's 500-resource limit, and this workflow's required paid tier with
    team management for the plan-only credential, even below 500 resources. Ask for the
-   choice using the shared protocol, then always write `backend: object-storage` or
-   `backend: hcp` explicitly.
+   choice using the shared protocol and record it as the Template's `backend` answer
+   (`object-storage` or `hcp`), explicit and never defaulted. `backend` sits outside the
+   customization markers, so you never write it yourself.
    Existing configs without `backend` stop for the migration handoff; existing `cloud {}`
-   blocks prompt an offer to record `backend: hcp`, never an automatic mode switch.
+   blocks prompt an offer for the human to record `backend: hcp`, never an automatic mode switch.
    See [`../infra/references/config.md`](../infra/references/config.md).
 2. **Bootstrap preflight**, then **resume scan** over phases 0–4 of
    [`../infra/references/steps.yaml`](../infra/references/steps.yaml). On a cold repo, check that `mise` itself

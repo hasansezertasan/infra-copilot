@@ -101,12 +101,17 @@ def _marker_pattern(comment: str) -> re.Pattern[str]:
 CUSTOMIZATION_DOCUMENTS = {
     ".ai-rulez/skills/infra/references/config.md.example": CustomizationRules(
         marker=_marker_pattern("yaml"),
+        # The keys the Skills and humans write, which the Template's update keeps.
+        # Template answers (backend, org, state fields) sit above the markers, so
+        # this list is what the pair must enclose. hcp_status_check_id is regenerated
+        # by HCP after the first VCS connect and exists nowhere else; naming it
+        # catches its outright removal.
         enclosed=(
-            # Kept explicit on top of the derived keys: HCP regenerates this
-            # after first VCS connect, so it is filled in long after the
-            # scaffold and exists nowhere else. Naming it catches its outright
-            # removal, which the derived rule cannot see.
+            "leaf_backends:",
+            "state_transfers:",
+            "github_apps:",
             "hcp_status_check_id:",
+            "additional_providers:",
         ),
         in_frontmatter=True,
     ),
@@ -399,25 +404,6 @@ def frontmatter_bounds(lines: list[str]) -> tuple[int, int] | None:
     return None
 
 
-def frontmatter_keys(lines: list[str]) -> list[str]:
-    """Top-level YAML keys in a document's frontmatter, or [] if it has none.
-
-    Every one of these is a value a human fills in, so every one has to sit
-    inside the preserved region. Deriving them means a field added to the
-    template later is protected without anyone remembering to list it.
-    """
-    if not lines or lines[0].strip() != "---":
-        return []
-    keys: list[str] = []
-    for line in lines[1:]:
-        if line.strip() == "---":
-            break
-        match = FRONTMATTER_KEY.match(line)
-        if match:
-            keys.append(match.group("key"))
-    return keys
-
-
 def validate_customization_markers(root: Path = ROOT) -> list[str]:
     """Both scaffolded files must carry one balanced customization pair.
 
@@ -537,7 +523,7 @@ def validate_customization_markers(root: Path = ROOT) -> list[str]:
             for line in lines[starts[0] + 1 : ends[0]]
             if line[:1] not in (" ", "\t")
         ]
-        required = (*rules.enclosed, *(f"{key}:" for key in frontmatter_keys(lines)))
+        required = rules.enclosed
         errors.extend(
             f"{relative}: {phrase!r} is outside the "
             f"{CUSTOMIZATION_TOKEN} region a re-scaffold preserves"

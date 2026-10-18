@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:8b8ac9c670859cf6c19d3bba1580c40cf658861af8c210f593030f93f44c3fc6
-Source-Hash: blake3:4a813d783fc56f6e35f6fad607f12250c75fbec05220a0dc7eb0a4bb930dcb08
+Content-Hash: blake3:901095e370b99fd5ff756ba1f9b38e995cfc31458e68fa8a3338ad9c9a4216fa
+Source-Hash: blake3:6e02258534512fefb9e19921919c9c130ca647882b0dadca595d6b5e5ffff986
 Schema-Version: v1
 -->
 
@@ -60,8 +60,9 @@ team token, and free-tier organizations have only the owners team
 Disclose both the resource limit and this paid-plan prerequisite before asking for the
 backend choice; never substitute an apply-capable token to complete setup on the free tier.
 Present HCP as a deliberate choice. Ask using the shared protocol's decision mechanism,
-put object-storage first and mark it recommended, then write `backend:` explicitly into
-the Config block for whichever mode the user chooses before any step runs.
+put object-storage first and mark it recommended, then record the choice as the Template's `backend` answer before any step runs. `backend` is
+a Template answer outside the customization markers, so the Skills never write it themselves:
+the Template renders it, or a human adds it by hand when it is missing.
 
 ### Migration: existing configs without backend
 
@@ -77,13 +78,13 @@ leaves for HCP `cloud {}` blocks, for example:
 grep -lE '(^|[[:space:]])cloud[[:space:]]*\{' terraform/*/*.tf 2>/dev/null
 ```
 
-If found, show the paths and offer to write `backend: hcp` to preserve the existing HCP
+If found, show the paths and offer a `backend: hcp` line for the human to add, to preserve the existing HCP
 workflow. The match is a hint for the user's decision, never permission to choose a
 backend automatically. Without that evidence, ask which mode the repo uses; absence of
-a match is not evidence for object-storage. Wait for an explicit choice before writing,
-then re-read config, validate the field, and export vars before resuming.
-Add or correct only `backend:`; preserve the other fields and customization markers.
-Do not re-scaffold an existing file to perform this migration.
+a match is not evidence for object-storage. Wait for an explicit choice and for the human to add or correct `backend:` (the one
+Template answer the migration handoff asks a person to edit), then re-read config, validate
+the field, and export vars before resuming. The Skills never write it, and never touch the
+other fields or the customization markers while doing so.
 `infra-status` reports the missing/invalid field and the suggested migration but never writes
 config; direct the user to add the field or run `infra-setup` to record their choice.
 

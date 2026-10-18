@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2163eabb5d2a29b4e58b6a472b0f9bfc7c141ecc78a6d81e9211a897d7982555
-Source-Hash: blake3:4a813d783fc56f6e35f6fad607f12250c75fbec05220a0dc7eb0a4bb930dcb08
+Content-Hash: blake3:ee527c98ec37a54eff62444e59e1f95f3e62fbd4cd577fea4c08da11c4997d60
+Source-Hash: blake3:6e02258534512fefb9e19921919c9c130ca647882b0dadca595d6b5e5ffff986
 Schema-Version: v1
 -->
 
@@ -79,10 +79,11 @@ Adopting resources that already exist (a live domain, existing repos)? That's
    For a new setup, recommend **object-storage** first. Explain HCP's managed runs and
    UI, its free tier's 500-resource limit, and this workflow's required paid tier with
    team management for the plan-only credential, even below 500 resources. Ask for the
-   choice using the shared protocol, then always write `backend: object-storage` or
-   `backend: hcp` explicitly.
+   choice using the shared protocol and record it as the Template's `backend` answer
+   (`object-storage` or `hcp`), explicit and never defaulted. `backend` sits outside the
+   customization markers, so you never write it yourself.
    Existing configs without `backend` stop for the migration handoff; existing `cloud {}`
-   blocks prompt an offer to record `backend: hcp`, never an automatic mode switch.
+   blocks prompt an offer for the human to record `backend: hcp`, never an automatic mode switch.
    See [`../infra/references/config.md`](../infra/references/config.md).
 2. **Bootstrap preflight**, then **resume scan** over phases 0–4 of
    [`../infra/references/steps.yaml`](../infra/references/steps.yaml). On a cold repo, check that `mise` itself
