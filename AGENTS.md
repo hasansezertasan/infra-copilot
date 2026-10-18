@@ -11,16 +11,17 @@ Pi fields of `package.json` are generated from
 skill — and editing them is silently undone by the next `npm run generate`.
 
 Before editing any file under those paths, check `.ai-rulez-generated.json`. If the path
-is listed (59 are), edit its source under `.ai-rulez/` instead, then run `npm run generate`.
+is listed (61 are), edit its source under `.ai-rulez/` instead, then run `npm run generate`.
 
 Most generated files carry an `AI-RULEZ :: GENERATED FILE — DO NOT EDIT` header, but
-**28 of the 59 do not** — every non-Markdown output, because a Markdown comment is not
+**30 of the 61 do not** — every non-Markdown output, because a Markdown comment is not
 valid in them: the JSON manifests (`marketplace.json`, `plugin.json`),
 `config.md.example`, `decisions.md.example`, `steps.yaml`, shell checks
 (`gcp-wif-trust.sh`, `gha-apply-gate.sh`, `gha-latest-runs.sh`, `hcp-apply-scope.sh`,
 `hcp-bootstrap-workspaces.sh`, `hcp-github-app.sh`, `hcp-current-plan.sh`, `leaf-cloud.sh`,
 `provider-requirements.sh`, `status-check-context.sh`, `gha-provider-safety.sh`,
-`leaf-routing.sh`, `workflow-routing.sh`, `gha-workflows.sh`, `state-transfer.sh`), App manifests
+`leaf-routing.sh`, `workflow-routing.sh`, `gha-workflows.sh`, `state-transfer.sh`,
+`template-contract.sh`), the pinned Copier requirements (`copier-requirements.txt`), App manifests
 (`templates/apps/terraform-plan.json`, `templates/apps/terraform-apply.json`),
 and the YAML workflow templates
 (`terraform-apply.yml`, `terraform-plan.yml`), plus their CommonJS helper
