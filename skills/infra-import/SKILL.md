@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:afdd97c3373001d4e2b728e65ed2dbb7c65f4be69cb5ebdd44428dea0ae99ba4
-Source-Hash: blake3:576c1bd119aa63ecaa609fe520d4bbea573a4c53b6216edd6fa0739eb0a25184
+Content-Hash: blake3:9692ce099225d41343d347abde498327541089c4a2fc5c12f6323ddca32b32d4
+Source-Hash: blake3:86b0b32bc3ae5a04473d61c44690e1fc745e6e3667ccba75207f90e72416fd5e
 Schema-Version: v1
 -->
 
@@ -31,7 +31,8 @@ preflight — lives in [`../infra/references/protocol.md`](../infra/references/p
 ## Guardrails
 
 `infra-skills:infra-setup` phases 0–4 are green: the target leaf's execution, credential
-storage and first plan are proven. Otherwise run `setup` first. Obtain plans through
+storage and first plan are proven. Otherwise run `setup` first. A repo that pre-dates the
+Template has no answers file, so adopt the Template first (`template-adopt` below). Obtain plans through
 [get-plan](../infra/references/operations.md#get-plan), and verify adoption through
 [import-resources](../infra/references/operations.md#import-resources).
 
@@ -51,6 +52,17 @@ write `terraform/cloudflare/generated.tf` for repos that live in the GitHub leaf
   not creates. No cf-terraforming and no Cloudflare discovery token are involved; use a
   read-only listing (e.g. `gh repo list`) to enumerate ids.
 
+## Adopt the Template first (phase 5)
+
+`template-adopt` runs before any resource import. A repo with no committed
+`.copier-answers.yml` and no README Config block — including one created from the old
+`infra-template` GitHub template — gets the Template rendered into a scratch directory and
+reconciled into the repo, **a human reviewing every conflicting file**. The procedure is
+[`../infra/references/docs/import.md`](../infra/references/docs/import.md#adopt-the-template-first). Never run
+`copier copy` into the repo itself, and never overwrite a file that differs without the
+human's say. Once it is green the later Template update works, and the import steps below run
+exactly as before.
+
 ## Cloudflare turnkey steps (phase 5)
 
 | Step | Actor | What |
@@ -68,10 +80,11 @@ this import applies.
 
 ## Workflow
 
-1. **Read config first** (shared protocol, Step 0) and export the org vars —
-   [`../infra/references/config.md`](../infra/references/config.md).
-2. **Resume scan** over `migrate-discovery-token` and `migrate-import` in
-   [`../infra/references/steps.yaml`](../infra/references/steps.yaml) — **those two steps only**, not all of
+1. **Adopt the Template, then read config** (shared protocol, Step 0). On a repo with
+   no answers file and no Config block, run `template-adopt` first. Then read config and
+   export the org vars — [`../infra/references/config.md`](../infra/references/config.md).
+2. **Resume scan** over `template-adopt`, `migrate-discovery-token` and `migrate-import` in
+   [`../infra/references/steps.yaml`](../infra/references/steps.yaml) — **those three steps only**, not all of
    phase 5. `prune-spent-imports` is red for the whole of a correct import and belongs to
    another skill; scanning it here would make the shared protocol resume at it and run the
    prune procedure before this apply has landed. The

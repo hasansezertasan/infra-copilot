@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:adb4a6788ed130c5be7ea5428ca96eeb2e14123e6c1bda664765efad7133892b
-Source-Hash: blake3:576c1bd119aa63ecaa609fe520d4bbea573a4c53b6216edd6fa0739eb0a25184
+Content-Hash: blake3:0a627c48c104c5c1ebf5fdcbe60f57462b03b70e38deb17efa17cbee5415bda8
+Source-Hash: blake3:86b0b32bc3ae5a04473d61c44690e1fc745e6e3667ccba75207f90e72416fd5e
 Schema-Version: v1
 -->
 
@@ -11,6 +11,45 @@ Schema-Version: v1
 Use Cloudflare's own [`cf-terraforming`](https://github.com/cloudflare/cf-terraforming) CLI to bring resources that already exist in the `<apex-domain>` zone (and the parent Cloudflare account) under Terraform management without recreating them.
 
 Why not a custom script: cf-terraforming is maintained by Cloudflare alongside the Terraform provider, so import ID formats and HCL schemas track provider changes automatically. A hand-rolled script would drift.
+
+## Adopt the Template first
+
+A repo with no committed `.copier-answers.yml` and no README Config block pre-dates the
+[`copier-infra`](https://github.com/hasansezertasan/copier-infra) Template. That includes
+every repo made from the former `infra-template` GitHub template. `infra-skills:infra-import`
+adopts the Template before any import (the `template-adopt` step), so the Config block exists
+and a later `copier update` has an answers file to merge from. A human reviews every
+conflicting file; nothing the repo already has is overwritten silently.
+
+1. **Old template first.** A `.infra-copilot/` directory or `.claude/infra-copilot.local.md`
+   is the old state layout and is unsupported. Copy its identifiers (orgs, apex domain, account
+   and zone IDs, managed repos) somewhere you can read them, delete it in its own reviewed
+   commit, and restart. Its values become the answers below.
+2. **Render into a scratch directory, never into the repo.** Use the pinned Copier, at the
+   Template's newest release tag, with the answers from step 1:
+
+   ```sh
+   uv run --no-project --with-requirements "$INFRA_REFERENCES/copier-requirements.txt" \
+     copier copy --vcs-ref <tag> --defaults --data key=value \
+     gh:hasansezertasan/copier-infra "$(mktemp -d)"
+   ```
+
+   `copier copy` straight into the repo is the wrong move. With no terminal it stops at the
+   first conflicting file, after writing the files before it and before writing the answers
+   file; with `--overwrite` it replaces the human's files. Both leave the repo half-adopted.
+3. **Reconcile** the scratch render into the repo, file by file. Absent in the repo: copy it.
+   Identical: skip it. Different: show the human the diff and take their choice, as a
+   conflict. `README.md` always differs; take the Template's Config block and Decisions
+   table and keep the human's prose around them.
+4. **Copy `.copier-answers.yml` last** and read its `_src_path`: it must be
+   `gh:hasansezertasan/copier-infra`. A local checkout used as the source records its own
+   path, which `template-contract` rejects. Commit the adoption, then check that the recorded
+   `_commit` is a release tag at or above the minimum (the Template contract).
+5. **Plan before importing.** Adoption can change `terraform/` files the human accepted from
+   the Template. Obtain a plan; the resource import below runs exactly as before.
+
+Later, `copier update` three-way merges against the recorded `_commit`, so every file the
+human kept differently shows as their change rather than being overwritten.
 
 ## Discovery token
 
