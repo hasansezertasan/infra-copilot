@@ -1,6 +1,6 @@
 # Installation
 
-Infra Copilot publishes the same skills to five runtimes: Claude Code, Codex, OpenCode, Pi and Antigravity. The skills are generated into `skills/` and the plugin manifests at the repository root.
+infra-skills publishes the same skills to five runtimes: Claude Code, Codex, OpenCode, Pi and Antigravity. The skills are generated into `skills/` and the plugin manifests at the repository root.
 
 Your agent can do the install. Copy this prompt into your coding agent:
 

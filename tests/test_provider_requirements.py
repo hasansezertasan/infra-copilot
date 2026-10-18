@@ -134,10 +134,10 @@ done
                 self.assertEqual(result.returncode, 2, result.stderr)
 
 
-REAL_TERRAFORM = os.environ.get("INFRA_COPILOT_TEST_TERRAFORM")
+REAL_TERRAFORM = os.environ.get("INFRA_TEST_TERRAFORM")
 
 
-@unittest.skipUnless(REAL_TERRAFORM, "set INFRA_COPILOT_TEST_TERRAFORM for CLI integration")
+@unittest.skipUnless(REAL_TERRAFORM, "set INFRA_TEST_TERRAFORM for CLI integration")
 class RealTerraformProviderRequirementsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.env = os.environ | {

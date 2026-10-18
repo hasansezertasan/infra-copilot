@@ -1,6 +1,6 @@
-# Contributing to Infra Copilot
+# Contributing to Infra Skills
 
-This file is owned by the [copier-skill-repo](https://github.com/hasansezertasan/copier-skill-repo) template and is merged on `copier update`. Repo-specific guidance sits in the "Infra Copilot development" section below; expect to keep both sides when `copier update` conflicts here.
+This file is owned by the [copier-skill-repo](https://github.com/hasansezertasan/copier-skill-repo) template and is merged on `copier update`. Repo-specific guidance sits in the "Infra Skills development" section below; expect to keep both sides when `copier update` conflicts here.
 
 ## How the repo works
 
@@ -10,7 +10,7 @@ This file is owned by the [copier-skill-repo](https://github.com/hasansezertasan
 - `npm run check` is what CI runs. It fails when generated output has drifted.
 - Node comes from `.node-version`.
 
-## Infra Copilot development
+## Infra Skills development
 
 ### Most of the tree is generated
 
