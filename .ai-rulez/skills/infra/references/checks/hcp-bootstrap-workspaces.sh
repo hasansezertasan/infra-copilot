@@ -51,7 +51,7 @@ for leaf in $leaves; do
               and ($a["file-triggers-enabled"] == true)
               and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
               and ((($a["trigger-patterns"]) // []) | index("terraform/modules/**") != null)
-              and ((($a["trigger-patterns"]) // []) | index(".infra-copilot/config.md") != null)
+              and ((($a["trigger-patterns"]) // []) | index("README.md") != null)
               and ((($a["trigger-patterns"]) // []) | index("mise.toml") != null)
               and (($a["vcs-repo"].identifier // "") == $repo)
               and (($a["vcs-repo"].branch // "") == "main")' >/dev/null \

@@ -52,7 +52,7 @@ none. If your workflow reuses a self-hosted runner with a user-level mise config
 
 ## What runs on merge to `main`
 
-- HCP creates a real run for each workspace whose path filter matches the merged commit (`terraform/cloudflare/**` for the `cloudflare` workspace, `terraform/github/**` for `github-org`, and `.infra-copilot/config.md` for both).
+- HCP creates a real run for each workspace whose path filter matches the merged commit (`terraform/cloudflare/**` for the `cloudflare` workspace, `terraform/github/**` for `github-org`, and `README.md` for both).
 - The run plans then **stops at "needs confirmation"** — applies require a human click in HCP UI (or an authenticated `POST /runs/<id>/actions/apply`).
 - Apply logs live in HCP, not GitHub Actions.
 
@@ -120,7 +120,7 @@ the HCP run that actually applies that file is only created *after* the merge, a
 waits for a human confirmation. So editing the file is necessary but not sufficient: the
 normal workflow cannot deliver it.
 
-Pick one, and record which in `.infra-copilot/decisions.md`:
+Pick one, and record which in `the README Decisions table`:
 
 **A — Relax protection out of band, then reconcile immediately (preferred).**
 

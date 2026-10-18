@@ -7,7 +7,7 @@ bootstrap detail: [`setup.md#4`](docs/setup.md#4-github-app). Auth rationale + r
 
 ## What this repo manages via GitHub
 
-This repo's managed repos (`managed_repos` in `.infra-copilot/config.md` — e.g.
+This repo's managed repos (`managed_repos` in `README.md` — e.g.
 `<owner/repo>` and, if applicable, an org-Pages repo) — their settings, `main` branch
 protection, and the `safe-to-plan` label — through the `integrations/github` v6
 provider. State + App credentials live in the HCP `github-org` workspace.
@@ -16,7 +16,7 @@ provider. State + App credentials live in the HCP `github-org` workspace.
 
 Apps aren't tied to a user, support fine-grained permissions, and rotate cleanly (multiple
 active keys → overlap-then-cutover). A PAT dies with its owner and is coarse-grained. This
-is a locked decision — see this repo's `.infra-copilot/decisions.md`.
+is a locked decision — see this repo's `the README Decisions table`.
 
 ## The actor split
 

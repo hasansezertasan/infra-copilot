@@ -16,10 +16,10 @@ from scripts.validate import (
     VERSIONLESS_MANIFESTS,
     collect_manifest_errors,
     skill_descriptions,
+    CONFIG_FALLBACK_DOCUMENTS,
     validate_config_fallbacks,
     _looks_like_marker,
     frontmatter_bounds,
-    frontmatter_keys,
     validate_customization_markers,
     validate_description_budget,
     validate_json_manifests,
@@ -71,8 +71,25 @@ class ValidateLinksTests(unittest.TestCase):
 
 
 class ValidateConfigFallbacksTests(unittest.TestCase):
-    def test_canonical_entrypoints_document_legacy_fallback(self) -> None:
+    def test_canonical_entrypoints_document_the_readme_config_and_unsupported_legacy(self) -> None:
         self.assertEqual(validate_config_fallbacks(), [])
+
+    def test_a_skill_that_does_not_say_legacy_state_is_unsupported_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            for relative in CONFIG_FALLBACK_DOCUMENTS:
+                document = repository / relative
+                document.parent.mkdir(parents=True, exist_ok=True)
+                document.write_text(
+                    "Load the README Config block. .infra-copilot/ and "
+                    ".claude/infra-copilot.local.md are read as a fallback.\n",
+                    encoding="utf-8",
+                )
+
+            errors = validate_config_fallbacks(repository)
+
+        self.assertEqual(len(errors), len(CONFIG_FALLBACK_DOCUMENTS))
+        self.assertTrue(all("'unsupported'" in error for error in errors), errors)
 
 
 class CustomizationMarkerTests(unittest.TestCase):
@@ -92,16 +109,16 @@ class CustomizationMarkerTests(unittest.TestCase):
         repository = Path(temporary_directory)
         defaults = {
             "config.md.example": (
-                "---\n# infra-copilot:customization start\nhcp_org: x\n"
+                "---\n# infra:customization start\nleaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n"
                 'hcp_status_check_id: ""\n'
-                "# infra-copilot:customization end\n---\n"
+                "# infra:customization end\n---\n"
             ),
             "decisions.md.example": (
-                "<!-- infra-copilot:customization start -->\n"
+                "<!-- infra:customization start -->\n"
                 "| Decision | Choice | Status | Rationale |\n"
-                "<!-- infra-copilot:customization end -->\n"
+                "<!-- infra:customization end -->\n"
             ),
-            "config.md": "preserve it verbatim. Never merge by inference.\n",
+            "config.md": "preserve it verbatim. Never merge by inference. refuse to edit anything outside them.\n",
         }
         defaults.update(files)
         for name, body in defaults.items():
@@ -109,59 +126,6 @@ class CustomizationMarkerTests(unittest.TestCase):
             document.parent.mkdir(parents=True, exist_ok=True)
             document.write_text(body, encoding="utf-8")
         return repository
-
-    def test_every_frontmatter_field_is_required_inside_the_region(self) -> None:
-        """Derived, not enumerated.
-
-        The first version listed two of the seven fields, so the other five
-        could drift out of the region while validation stayed green. Listing
-        them would only move the gap to whichever field is added next.
-        """
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = self._repository(
-                temporary_directory,
-                **{
-                    "config.md.example": (
-                        "---\n# infra-copilot:customization start\n"
-                        'hcp_org: x\nhcp_status_check_id: ""\n'
-                        "# infra-copilot:customization end\n"
-                        "github_org: x\napex_domain: x\n---\n"
-                    )
-                },
-            )
-
-            self.assertEqual(
-                validate_customization_markers(repository),
-                [
-                    f"{self.REFERENCES}/config.md.example: 'github_org:' is outside "
-                    "the infra-copilot:customization region a re-scaffold preserves",
-                    f"{self.REFERENCES}/config.md.example: 'apex_domain:' is outside "
-                    "the infra-copilot:customization region a re-scaffold preserves",
-                ],
-            )
-
-    def test_protects_a_field_added_to_the_template_later(self) -> None:
-        """The point of deriving: no list to remember to update."""
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = self._repository(
-                temporary_directory,
-                **{
-                    "config.md.example": (
-                        "---\n# infra-copilot:customization start\n"
-                        'hcp_org: x\nhcp_status_check_id: ""\n'
-                        "# infra-copilot:customization end\n"
-                        "gcp_project: your-project\n---\n"
-                    )
-                },
-            )
-
-            self.assertEqual(
-                validate_customization_markers(repository),
-                [
-                    f"{self.REFERENCES}/config.md.example: 'gcp_project:' is outside "
-                    "the infra-copilot:customization region a re-scaffold preserves"
-                ],
-            )
 
     def test_rejects_markers_that_enclose_nothing(self) -> None:
         """Balanced and ordered, but the region is empty.
@@ -179,9 +143,9 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "---\n# infra-copilot:customization start\n"
-                        "# infra-copilot:customization end\n"
-                        "hcp_org: x\nhcp_status_check_id: \"\"\n---\n"
+                        "---\n# infra:customization start\n"
+                        "# infra:customization end\n"
+                        "leaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\nhcp_status_check_id: \"\"\n---\n"
                     )
                 },
             )
@@ -189,11 +153,15 @@ class CustomizationMarkerTests(unittest.TestCase):
             self.assertEqual(
                 validate_customization_markers(repository),
                 [
-                    f"{self.REFERENCES}/config.md.example: 'hcp_status_check_id:' is "
-                    "outside the infra-copilot:customization region a re-scaffold "
-                    "preserves",
-                    f"{self.REFERENCES}/config.md.example: 'hcp_org:' is outside the "
-                    "infra-copilot:customization region a re-scaffold preserves",
+                    f"{self.REFERENCES}/config.md.example: {key!r} is outside the "
+                    "infra:customization region a re-scaffold preserves"
+                    for key in (
+                        "leaf_backends:",
+                        "state_transfers:",
+                        "github_apps:",
+                        "hcp_status_check_id:",
+                        "additional_providers:",
+                    )
                 ],
             )
 
@@ -209,9 +177,9 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "decisions.md.example": (
-                        "```\n<!-- infra-copilot:customization start -->\n"
+                        "```\n<!-- infra:customization start -->\n"
                         "| Decision | Choice | Status | Rationale |\n"
-                        "<!-- infra-copilot:customization end -->\n```\n"
+                        "<!-- infra:customization end -->\n```\n"
                     )
                 },
             )
@@ -241,9 +209,9 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "decisions.md.example": (
-                        "<!-- infra-copilot:customization start -->\n```\n"
+                        "<!-- infra:customization start -->\n```\n"
                         "| Decision | Choice | Status | Rationale |\n```\n"
-                        "<!-- infra-copilot:customization end -->\n"
+                        "<!-- infra:customization end -->\n"
                     )
                 },
             )
@@ -261,9 +229,9 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "---\n# infra-copilot:customization start\n"
-                        "hcp_org: x\n  hcp_status_check_id: \"\"\n"
-                        "# infra-copilot:customization end\n---\n"
+                        "---\n# infra:customization start\n"
+                        "leaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n  hcp_status_check_id: \"\"\n"
+                        "# infra:customization end\n---\n"
                     )
                 },
             )
@@ -272,7 +240,7 @@ class CustomizationMarkerTests(unittest.TestCase):
                 validate_customization_markers(repository),
                 [
                     f"{self.REFERENCES}/config.md.example: 'hcp_status_check_id:' "
-                    "is outside the infra-copilot:customization region a "
+                    "is outside the infra:customization region a "
                     "re-scaffold preserves"
                 ],
             )
@@ -289,9 +257,9 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "decisions.md.example": (
-                        "    <!-- infra-copilot:customization start -->\n"
+                        "    <!-- infra:customization start -->\n"
                         "    | Decision | Choice | Status | Rationale |\n"
-                        "    <!-- infra-copilot:customization end -->\n"
+                        "    <!-- infra:customization end -->\n"
                     )
                 },
             )
@@ -300,11 +268,11 @@ class CustomizationMarkerTests(unittest.TestCase):
                 validate_customization_markers(repository),
                 [
                     f"{self.REFERENCES}/decisions.md.example: "
-                    "infra-copilot:customization marker on line 1 is indented; "
+                    "infra:customization marker on line 1 is indented; "
                     "markers must start at column 0, or Markdown reads the region "
                     "as a code block",
                     f"{self.REFERENCES}/decisions.md.example: "
-                    "infra-copilot:customization marker on line 3 is indented; "
+                    "infra:customization marker on line 3 is indented; "
                     "markers must start at column 0, or Markdown reads the region "
                     "as a code block",
                 ],
@@ -317,9 +285,9 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "---\ninfra-copilot:customization start\nhcp_org: x\n"
+                        "---\ninfra:customization start\nleaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n"
                         'hcp_status_check_id: ""\n'
-                        "# infra-copilot:customization end\n---\n"
+                        "# infra:customization end\n---\n"
                     )
                 },
             )
@@ -328,8 +296,8 @@ class CustomizationMarkerTests(unittest.TestCase):
                 validate_customization_markers(repository),
                 [
                     f"{self.REFERENCES}/config.md.example: line 2 carries "
-                    "infra-copilot:customization but is not a well-formed comment "
-                    "marker: 'infra-copilot:customization start'"
+                    "infra:customization but is not a well-formed comment "
+                    "marker: 'infra:customization start'"
                 ],
             )
 
@@ -340,8 +308,8 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "decisions.md.example": (
-                        "# infra-copilot:customization start\n| a |\n"
-                        "<!-- infra-copilot:customization end -->\n"
+                        "# infra:customization start\n| a |\n"
+                        "<!-- infra:customization end -->\n"
                     )
                 },
             )
@@ -350,8 +318,8 @@ class CustomizationMarkerTests(unittest.TestCase):
                 validate_customization_markers(repository),
                 [
                     f"{self.REFERENCES}/decisions.md.example: line 1 carries "
-                    "infra-copilot:customization but is not a well-formed comment "
-                    "marker: '# infra-copilot:customization start'"
+                    "infra:customization but is not a well-formed comment "
+                    "marker: '# infra:customization start'"
                 ],
             )
 
@@ -362,9 +330,9 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "---\n# infra-copilot:customization start\nhcp_org: x\n"
+                        "---\n# infra:customization start\nleaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n"
                         'hcp_status_check_id: ""\n---\n'
-                        "# infra-copilot:customization end\n"
+                        "# infra:customization end\n"
                     )
                 },
             )
@@ -373,8 +341,8 @@ class CustomizationMarkerTests(unittest.TestCase):
                 validate_customization_markers(repository),
                 [
                     f"{self.REFERENCES}/config.md.example: "
-                    "infra-copilot:customization marker on line 6 is outside the "
-                    "frontmatter delimiters (lines 1 and 5), so the preserved "
+                    "infra:customization marker on line 9 is outside the "
+                    "frontmatter delimiters (lines 1 and 8), so the preserved "
                     "region no longer matches the fields a human fills in"
                 ],
             )
@@ -386,9 +354,9 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "# infra-copilot:customization start\n---\nhcp_org: x\n"
+                        "# infra:customization start\n---\nleaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n"
                         'hcp_status_check_id: ""\n'
-                        "# infra-copilot:customization end\n---\n"
+                        "# infra:customization end\n---\n"
                     )
                 },
             )
@@ -411,10 +379,10 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "decisions.md.example": (
-                        "Keep the two `infra-copilot:customization` comments.\n"
-                        "<!-- infra-copilot:customization start -->\n"
+                        "Keep the two `infra:customization` comments.\n"
+                        "<!-- infra:customization start -->\n"
                         "| Decision | Choice | Status | Rationale |\n"
-                        "<!-- infra-copilot:customization end -->\n"
+                        "<!-- infra:customization end -->\n"
                     )
                 },
             )
@@ -428,8 +396,8 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "---\n# infra-copilot:customization start\nhcp_org: x\n"
-                        "# infra-copilot:customization end\n"
+                        "---\n# infra:customization start\nleaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n"
+                        "# infra:customization end\n"
                         'hcp_status_check_id: ""\n---\n'
                     )
                 },
@@ -439,7 +407,7 @@ class CustomizationMarkerTests(unittest.TestCase):
                 validate_customization_markers(repository),
                 [
                     f"{self.REFERENCES}/config.md.example: 'hcp_status_check_id:' is "
-                    "outside the infra-copilot:customization region a re-scaffold "
+                    "outside the infra:customization region a re-scaffold "
                     "preserves",
                 ],
             )
@@ -466,14 +434,14 @@ class CustomizationMarkerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = self._repository(
                 temporary_directory,
-                **{"config.md.example": "---\n# infra-copilot:customization start\n---\n"},
+                **{"config.md.example": "---\n# infra:customization start\n---\n"},
             )
 
             self.assertEqual(
                 validate_customization_markers(repository),
                 [
                     f"{self.REFERENCES}/config.md.example: expected exactly one "
-                    "infra-copilot:customization pair, found 1 start and 0 end"
+                    "infra:customization pair, found 1 start and 0 end"
                 ],
             )
 
@@ -484,9 +452,9 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "# infra-copilot:customization start\n"
-                        "# infra-copilot:customization start\n"
-                        "# infra-copilot:customization end\n"
+                        "# infra:customization start\n"
+                        "# infra:customization start\n"
+                        "# infra:customization end\n"
                     )
                 },
             )
@@ -495,7 +463,7 @@ class CustomizationMarkerTests(unittest.TestCase):
                 validate_customization_markers(repository),
                 [
                     f"{self.REFERENCES}/config.md.example: expected exactly one "
-                    "infra-copilot:customization pair, found 2 start and 1 end"
+                    "infra:customization pair, found 2 start and 1 end"
                 ],
             )
 
@@ -506,8 +474,8 @@ class CustomizationMarkerTests(unittest.TestCase):
                 temporary_directory,
                 **{
                     "config.md.example": (
-                        "# infra-copilot:customization end\nhcp_org: x\n"
-                        "# infra-copilot:customization start\n"
+                        "# infra:customization end\nleaf_backends: {}\nstate_transfers: {}\ngithub_apps: {}\nadditional_providers: []\n"
+                        "# infra:customization start\n"
                     )
                 },
             )
@@ -516,7 +484,7 @@ class CustomizationMarkerTests(unittest.TestCase):
                 validate_customization_markers(repository),
                 [
                     f"{self.REFERENCES}/config.md.example: "
-                    "infra-copilot:customization end precedes its start"
+                    "infra:customization end precedes its start"
                 ],
             )
 
@@ -533,6 +501,8 @@ class CustomizationMarkerTests(unittest.TestCase):
                     f"{self.REFERENCES}/config.md: re-scaffold rule missing 'verbatim'",
                     f"{self.REFERENCES}/config.md: re-scaffold rule missing "
                     "'Never merge by inference'",
+                    f"{self.REFERENCES}/config.md: re-scaffold rule missing "
+                    "'refuse to edit anything outside them'",
                 ],
             )
 
@@ -541,51 +511,33 @@ class CustomizationMarkerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = self._repository(
                 temporary_directory,
-                **{"config.md": "preserve it\nverbatim. **Never merge by\ninference.**\n"},
+                **{"config.md": "preserve it\nverbatim. **Never merge by\ninference.** And refuse to edit\nanything outside them.\n"},
             )
 
             self.assertEqual(validate_customization_markers(repository), [])
-
-
-class FrontmatterKeyTests(unittest.TestCase):
-    def test_reads_top_level_keys_only(self) -> None:
-        lines = [
-            "---",
-            "hcp_org: x",
-            "managed_repos:",
-            "  - owner/name",
-            "---",
-            "body: not frontmatter",
-        ]
-        self.assertEqual(frontmatter_keys(lines), ["hcp_org", "managed_repos"])
-
-    def test_documents_without_frontmatter_have_no_keys(self) -> None:
-        """decisions.md.example is a plain body; the derived rule is a no-op there."""
-        self.assertEqual(frontmatter_keys(["# heading", "key: value"]), [])
-        self.assertEqual(frontmatter_keys([]), [])
 
 
 class LooksLikeMarkerTests(unittest.TestCase):
     """Which lines count as an attempted marker, and so as malformed."""
 
     def test_a_bare_token_counts(self) -> None:
-        self.assertTrue(_looks_like_marker("infra-copilot:customization start"))
+        self.assertTrue(_looks_like_marker("infra:customization start"))
 
     def test_the_wrong_comment_syntax_counts(self) -> None:
-        self.assertTrue(_looks_like_marker("# infra-copilot:customization start"))
+        self.assertTrue(_looks_like_marker("# infra:customization start"))
         self.assertTrue(
-            _looks_like_marker("<!-- infra-copilot:customization end -->")
+            _looks_like_marker("<!-- infra:customization end -->")
         )
 
     def test_explanatory_prose_inside_a_comment_does_not_count(self) -> None:
         """The token and edge must follow the prefix, not appear anywhere."""
         self.assertFalse(
             _looks_like_marker(
-                "<!-- Use infra-copilot:customization start before editing. -->"
+                "<!-- Use infra:customization start before editing. -->"
             )
         )
         self.assertFalse(
-            _looks_like_marker("# Keep infra-copilot:customization end in place")
+            _looks_like_marker("# Keep infra:customization end in place")
         )
 
     def test_prose_opening_with_the_bare_token_does_not_count(self) -> None:
@@ -597,13 +549,13 @@ class LooksLikeMarkerTests(unittest.TestCase):
         """
         self.assertFalse(
             _looks_like_marker(
-                "infra-copilot:customization comments delimit user values."
+                "infra:customization comments delimit user values."
             )
         )
 
     def test_prose_naming_the_token_without_an_edge_does_not_count(self) -> None:
         self.assertFalse(
-            _looks_like_marker("Keep the two `infra-copilot:customization` comments.")
+            _looks_like_marker("Keep the two `infra:customization` comments.")
         )
 
 
@@ -1373,75 +1325,6 @@ class ValidateToolchainContractTests(unittest.TestCase):
     def test_committed_pins_flow_to_hcp(self) -> None:
         self.assertEqual(validate_toolchain_contract(), [])
 
-    @unittest.skipUnless(shutil.which("zsh"), "zsh is not available")
-    def test_repo_config_sync_check_preserves_zsh_path(self) -> None:
-        steps = (
-            Path(__file__).parents[1]
-            / ".ai-rulez/skills/infra/references/steps.yaml"
-        ).read_text(encoding="utf-8")
-        step = re.search(
-            r"^  - id: repo-config-sync\n(?P<metadata>(?:(?!^  - id:).*(?:\n|\Z))*)",
-            steps,
-            re.MULTILINE,
-        )
-        self.assertIsNotNone(step)
-        check = re.search(
-            r"^    check: >-\n(?P<body>(?:      .*\n)+)",
-            step.group("metadata"),
-            re.MULTILINE,
-        )
-        self.assertIsNotNone(check)
-        command = "\n".join(
-            line.removeprefix("      ")
-            for line in check.group("body").splitlines()
-        )
-
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            (repository / "scripts").mkdir()
-            sync_helper = repository / "scripts/sync-config.sh"
-            sync_helper.write_text("#!/bin/sh\n", encoding="utf-8")
-            sync_helper.chmod(0o755)
-            (repository / ".infra-copilot").mkdir()
-            (repository / ".infra-copilot/config.md").write_text(
-                "hcp_org: test-org\n", encoding="utf-8"
-            )
-            for terraform_root in ("cloudflare", "github"):
-                versions = repository / f"terraform/{terraform_root}/versions.tf"
-                versions.parent.mkdir(parents=True)
-                versions.write_text(
-                    'cloud {\n  organization = "test-org"\n}\n', encoding="utf-8"
-                )
-            subprocess.run(
-                ["git", "init", "--quiet"], cwd=repository, check=True
-            )
-            subprocess.run(["git", "add", "."], cwd=repository, check=True)
-            subprocess.run(
-                [
-                    "git",
-                    "-c",
-                    "user.name=Test",
-                    "-c",
-                    "user.email=test@example.invalid",
-                    "commit",
-                    "--quiet",
-                    "-m",
-                    "fixture",
-                ],
-                cwd=repository,
-                check=True,
-            )
-
-            result = subprocess.run(
-                ["zsh", "-c", command],
-                cwd=repository,
-                env={**os.environ, "ORG": "test-org"},
-                capture_output=True,
-                text=True,
-            )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-
     def test_rejects_missing_toolchain_bootstrap_step(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
@@ -1495,110 +1378,6 @@ class ValidateToolchainContractTests(unittest.TestCase):
 
         self.assertTrue(any("first phase-0 step" in error for error in errors), errors)
 
-    def test_rejects_missing_repo_config_sync_step(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            shutil.copytree(
-                Path(__file__).parents[1] / ".ai-rulez",
-                repository / ".ai-rulez",
-            )
-            steps = (
-                repository
-                / ".ai-rulez/skills/infra/references/steps.yaml"
-            )
-            text = steps.read_text(encoding="utf-8")
-            text = re.sub(
-                r"  - id: repo-config-sync\n(?:(?!  - id: hcp-login).)*",
-                "",
-                text,
-                count=1,
-                flags=re.DOTALL,
-            )
-            steps.write_text(text, encoding="utf-8")
-
-            errors = validate_toolchain_contract(repository)
-
-        self.assertTrue(
-            any("repo-config-sync contract is incomplete" in error for error in errors),
-            errors,
-        )
-
-    def test_rejects_agent_running_repository_sync_helper(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            shutil.copytree(
-                Path(__file__).parents[1] / ".ai-rulez",
-                repository / ".ai-rulez",
-            )
-            steps = (
-                repository
-                / ".ai-rulez/skills/infra/references/steps.yaml"
-            )
-            text = steps.read_text(encoding="utf-8")
-            start = text.index("  - id: repo-config-sync\n")
-            end = text.index("  - id: hcp-login\n", start)
-            sync_step = text[start:end].replace(
-                "    actor: HUMAN\n", "    actor: AGENT\n", 1
-            )
-            steps.write_text(text[:start] + sync_step + text[end:], encoding="utf-8")
-
-            errors = validate_toolchain_contract(repository)
-
-        self.assertTrue(
-            any("repo-config-sync contract is incomplete" in error for error in errors),
-            errors,
-        )
-
-    def test_rejects_zsh_special_repo_config_sync_loop_variable(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            shutil.copytree(
-                Path(__file__).parents[1] / ".ai-rulez",
-                repository / ".ai-rulez",
-            )
-            steps = (
-                repository
-                / ".ai-rulez/skills/infra/references/steps.yaml"
-            )
-            text = steps.read_text(encoding="utf-8").replace(
-                "for config_file in terraform/cloudflare/versions.tf",
-                "for path in terraform/cloudflare/versions.tf",
-                1,
-            ).replace('"$config_file"', '"$path"')
-            steps.write_text(text, encoding="utf-8")
-
-            errors = validate_toolchain_contract(repository)
-
-        self.assertTrue(
-            any("repo-config-sync contract is incomplete" in error for error in errors),
-            errors,
-        )
-
-    def test_rejects_uncommitted_repo_config_sync_contract(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            shutil.copytree(
-                Path(__file__).parents[1] / ".ai-rulez",
-                repository / ".ai-rulez",
-            )
-            steps = (
-                repository
-                / ".ai-rulez/skills/infra/references/steps.yaml"
-            )
-            text = steps.read_text(encoding="utf-8").replace(
-                "git diff --cached --quiet HEAD -- .infra-copilot/config.md",
-                "true # omitted staged-state check for .infra-copilot/config.md",
-                1,
-            )
-            steps.write_text(text, encoding="utf-8")
-
-            errors = validate_toolchain_contract(repository)
-
-        self.assertTrue(
-            any("repo-config-sync contract is incomplete" in error for error in errors),
-            errors,
-        )
-
     def test_rejects_missing_shared_config_workspace_trigger(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
@@ -1608,7 +1387,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             hcp = repository / ".ai-rulez/skills/infra/references/hcp.md"
             text = hcp.read_text(encoding="utf-8").replace(
-                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]',
+                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", "README.md", "mise.toml"]',
                 '"trigger-patterns":[$dir+"/**"]',
                 1,
             )
@@ -1633,7 +1412,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
                 / ".ai-rulez/skills/infra/references/checks/hcp-bootstrap-workspaces.sh"
             )
             text = check.read_text(encoding="utf-8").replace(
-                'index(".infra-copilot/config.md") != null',
+                'index("README.md") != null',
                 'index("terraform.tfvars") != null',
                 1,
             )
@@ -1657,7 +1436,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             start = text.index("  set_workspace_config () {")
             end = text.index("\n  }", start)
             reconciliation = text[start:end].replace(
-                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]',
+                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", "README.md", "mise.toml"]',
                 '"trigger-patterns":[$dir+"/**"]',
                 1,
             )
@@ -1669,28 +1448,6 @@ class ValidateToolchainContractTests(unittest.TestCase):
 
         self.assertTrue(
             any("trigger patterns must be" in error for error in errors), errors
-        )
-
-    def test_rejects_status_report_without_repo_config_sync(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory)
-            shutil.copytree(
-                Path(__file__).parents[1] / ".ai-rulez",
-                repository / ".ai-rulez",
-            )
-            status = (
-                repository
-                / ".ai-rulez/skills/infra/references/status.md"
-            )
-            text = status.read_text(encoding="utf-8").replace(
-                "  ✓ repo-config-sync", "", 1
-            )
-            status.write_text(text, encoding="utf-8")
-
-            errors = validate_toolchain_contract(repository)
-
-        self.assertTrue(
-            any("phase-0 report must include" in error for error in errors), errors
         )
 
     def test_rejects_toolchain_step_check_drift(self) -> None:

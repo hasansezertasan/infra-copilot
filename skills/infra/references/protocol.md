@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:615669abe70a8c791201b851ead2e4ebf7e5c919bd276e9a95d6e932db3866d9
-Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
+Content-Hash: blake3:ddc88c89ba1a8a8830d3040a2f2169d5cfb607f812588cf5ca7b712ca87eb0fb
+Source-Hash: blake3:0185c7546ec1e8d9f1a3371eb98d4fcf2fb7254291dbad3543b8c4ce2e3661a6
 Schema-Version: v1
 -->
 
@@ -34,14 +34,15 @@ Everything else — repository changes, verification, imports, and plans — is 
 
 ## Step 0 — read the repo config (AGENT, always first)
 
-Before any resume scan, read `.infra-copilot/config.md` from the current repo. If it is
-missing but `.claude/infra-copilot.local.md` exists, use that legacy file for this run and
-offer to copy it unchanged to the agent-neutral path. If both files are missing, emit the
-handoff block, show the schema, offer to scaffold from
-[`config.md.example`](config.md.example), and wait — never guess org/domain/IDs. If a
-config already exists and you are re-scaffolding, preserve the region between its
-`infra-copilot:customization` markers verbatim and hand off rather than guess when those
-markers are missing or unbalanced: [`config.md`](config.md#re-scaffolding-an-existing-config). Once a
+Before any resume scan, check for a legacy `.infra-copilot/` directory or
+`.claude/infra-copilot.local.md`. If either exists, report it as unsupported and stop; do not
+read, copy or migrate it. Then read the Config block from the current repo's root
+`README.md`, the fenced YAML between `<!-- infra:config start -->` and
+`<!-- infra:config end -->`. If the block is missing, emit the handoff block, show the
+schema and wait — never guess org/domain/IDs, and never hand-write Template-owned README
+text. Write only inside the block's `# infra:customization` markers, refuse edits outside
+them, and hand off rather than guess when those markers are missing or unbalanced:
+[`config.md`](config.md#editing-the-config-block). Once a
 config is loaded, validate the execution choice using [config.md](config.md) before preflight, any
 `when` evaluation, check, or run. Missing,
 empty, or invalid `backend` means stop and emit the migration handoff in
@@ -210,12 +211,9 @@ execution settings work.
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
 pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool
 checks) before that step has established committed pins. Once `toolchain-pin` is green,
-run the full preflight, stop for the `HUMAN` `repo-config-sync` step when its check is red, and continue the
-resume scan at the selected `bootstrap-state` operation. The sync step is a no-op when the consuming repository does
-not ship `scripts/sync-config.sh`. This keeps the fail-fast gate while giving a missing
-toolchain and repository-specific literal synchronization owned, resumable steps. A
-repository with only the legacy config fallback skips synchronization because no canonical
-`.infra-copilot/config.md` exists yet.
+run the full preflight and continue the
+resume scan at the selected `bootstrap-state` operation. This keeps the fail-fast gate
+while giving a missing toolchain an owned, resumable step.
 `infra-status` remains read-only: it reports the same failed step but never executes its `run`.
 
 ```text
@@ -366,7 +364,7 @@ asserts *parity with the repo's committed pin*. The default manifest requires
 `mise.toml` + `mise.lock` and reads each exact key with `mise config get --file`; it never
 uses the active mise environment as evidence of what the repository committed.
 See [`docs/setup.md`](docs/setup.md#6-local-development) and
-[`decisions.md.example`](decisions.md.example).
+[`decisions.md.example`](decisions.md.example) (the Decisions table rows).
 
 Report the committed pin and whether the running binary matches it:
 

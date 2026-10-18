@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:23a07cf7adbbae3f486d63d84303c22a5dbbf2ed40f71d230cf9a739eb1efc5a
-Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
+Content-Hash: blake3:df478b92402aeb17945b4bb2cc46ecfa410d0d926108fb2627d32da98a374aab
+Source-Hash: blake3:0185c7546ec1e8d9f1a3371eb98d4fcf2fb7254291dbad3543b8c4ce2e3661a6
 Schema-Version: v1
 -->
 
@@ -40,8 +40,9 @@ mint or paste, and a provider decision are the human's, per the shared protocol.
 
 Terraform's `github-org` leaf manages repos. To add one:
 
-1. **Config** — append the repo to `managed_repos` in `.infra-copilot/config.md`
-   ([`../infra/references/config.md`](../infra/references/config.md)) and re-export `$REPO` if it's the first
+1. **Config** — `managed_repos` is a Template answer in the README Config block, outside the customization
+   markers, so the Skills never edit it. Add the repo through the Template's own update flow
+   ([`../infra/references/config.md`](../infra/references/config.md)), then re-export `$REPO` if it's the first
    entry (the repository used by the execution service).
 2. **GitHub App install scope** (`HUMAN` if the App is installed on selected repos) — the
    App must be able to see the new repo. If install is scoped, a human extends it in the

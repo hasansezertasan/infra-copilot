@@ -87,8 +87,8 @@ class NewProviderCredentialsCheckTests(unittest.TestCase):
             stub.chmod(0o755)
 
             repo = root / "repo"
-            (repo / ".infra-copilot").mkdir(parents=True)
-            (repo / ".infra-copilot/config.md").write_text("config\n", encoding="utf-8")
+            repo.mkdir()
+            (repo / "README.md").write_text("config\n", encoding="utf-8")
             git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
             subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
             subprocess.run([*git, "add", "."], cwd=repo, check=True)

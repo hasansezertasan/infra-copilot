@@ -25,16 +25,16 @@ preflight — is in
 - Never emit a manifest `HUMAN` step's handoff block. Its `check` is classified like
   any other; nothing is being unblocked here. The startup backend migration handoff is
   the exception: display it read-only, then stop before preflight or the scan.
-- Never scaffold or edit config. A missing or incomplete `.infra-copilot/config.md` is
+- Never scaffold or edit config. A missing or incomplete README Config block is
   reported and the scan stops; offering to create it belongs to `infra-setup`.
 - Read git with `git --no-optional-locks`, which leaves git's index untouched.
 - A red step is a finding, not a licence to fix it. Report which skill owns it.
 
 ## Workflow
 
-1. **Read config** (shared protocol, Step 0). Load `.infra-copilot/config.md`, falling
-   back to `.claude/infra-copilot.local.md` for migration. If both files are missing,
-   report it and stop without offering to scaffold or edit (that belongs to `infra-setup`).
+1. **Read config** (shared protocol, Step 0). Load the Config block from the root
+   `README.md`. A legacy `.infra-copilot/` directory or `.claude/infra-copilot.local.md` is
+   unsupported: report it and stop. If the block is missing, report it and stop without offering to scaffold or edit (that belongs to `infra-setup`).
    For a loaded config, before exporting vars or evaluating any `when` or check,
     validate the default and per-leaf selections per config loading. If missing, empty, or invalid, display the
    [backend migration handoff](config.md#migration-existing-configs-without-backend)
@@ -56,7 +56,7 @@ preflight — is in
    applied. A missing `mise.toml` key or `mise.lock` is a failed toolchain contract and a
    red phase-0 `toolchain-pin` step — say so, and point at
    [`docs/setup.md#6`](docs/setup.md#6-local-development) and
-   [`decisions.md.example`](decisions.md.example).
+   [`decisions.md.example`](decisions.md.example) (the Decisions table rows).
    Report the HCP token pivot: present or not.
    For each additional provider, run `new-provider-toolchain` first without activating
    any conditional provider preflight. If that HUMAN trust gate is red, report the gate
@@ -94,14 +94,14 @@ preflight — is in
      HEAD` names the last *commit*, not what is on disk, so uncommitted changes under a
      leaf's directory mean the files you are auditing were never sent to HCP. Test each
      leaf together with shared inputs — `git --no-optional-locks status --porcelain --
-     terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml`, and the same leaf
+     terraform/cloudflare terraform/modules README.md mise.toml`, and the same leaf
      substitution for `terraform/github` or `terraform/$NEW_PROVIDER` — and if the output is non-empty, that leaf's plan
      check is `?` (working tree differs from the last tested revision). Stop there for that
      leaf; a green run for HEAD says nothing about edited files. `--no-optional-locks` keeps
      this read from touching git's index, preserving the change-nothing promise.
 
      For a clean leaf, find the newest commit whose relevant trees match — `git log
-     --format=%H -1 -- terraform/<leaf> terraform/modules .infra-copilot/config.md
+     --format=%H -1 -- terraform/<leaf> terraform/modules README.md
      mise.toml`. Path-filtered workspaces correctly create no run for unrelated later
      commits, so correlating on exact `HEAD` would report `?` whenever HEAD contains
      only an unrelated change after the last Terraform update. Use the guide's
@@ -133,7 +133,7 @@ preflight — is in
    **Phase 6 plan contents and durable completion.** For `new-provider-plan`, a terminal
    green HCP run is necessary but not sufficient. Its manifest helper correlates on the
    newest commit whose provider leaf, shared `terraform/modules`, and
-   `.infra-copilot/config.md` trees match, because
+   `README.md` trees match, because
    the path-filtered workspace correctly has no run for unrelated later commits. Read its
    structured plan summary using the helper in
    [`docs/hcp-api.md`](docs/hcp-api.md)

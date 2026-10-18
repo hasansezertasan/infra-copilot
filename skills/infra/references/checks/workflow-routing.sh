@@ -136,7 +136,7 @@ for file do
                   $0 !~ /^              - \047[a-zA-Z0-9_.\/*?-]+\047[[:space:]]*(#.*)?$/ {exit 1}
             ' || fail "$source_file $leaf uses unsupported filter path syntax"
             for required_path in "terraform/$leaf/**" 'terraform/modules/**' mise.toml mise.lock \
-                .infra-copilot/config.md '.github/workflows/terraform-*.yml' .github/scripts/terraform-destroy.cjs; do
+                README.md '.github/workflows/terraform-*.yml' .github/scripts/terraform-destroy.cjs; do
                 printf '%s\n' "$paths" | grep -Fxq "              - '$required_path'" ||
                     broken "$source_file $leaf filter omits $required_path"
             done

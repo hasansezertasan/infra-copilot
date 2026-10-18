@@ -2033,8 +2033,9 @@ class ThirteenthRoundTests(unittest.TestCase):
         self.assertEqual(validate_host_dialects(root), [])
         work = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, work, True)
-        (work / ".infra-copilot").mkdir()
-        (work / ".infra-copilot/config.md").write_text("x", encoding="utf-8")
+        (work / "README.md").write_text(
+            "<!-- infra:config start -->\n<!-- infra:config end -->\n", encoding="utf-8"
+        )
         emitted = subprocess.run(
             ["sh", str(script)],
             cwd=work,

@@ -13,7 +13,7 @@ validation and migration contract without editing its choice.
 
 ## Workflow
 
-1. Load validated config per [config](config.md), including the legacy fallback, and
+1. Load validated config per [config](config.md), after the legacy-state stop (unsupported paths end the run), and
    resolve operation implementations. No missing choice may become an all-skipped scan.
    Include every effective leaf and both service implementations in mixed repositories.
    Print the default and effective routes, so an override is visible in the report.
@@ -84,7 +84,7 @@ from a check that could not be verified. A skipped leaf plan is never a green pl
 ```text
 infra-skills status — <repo>
 Preflight terraform ✓ pinned   gh ✓ pinned   jq ✓ pinned   curl ✓ present
-Phase 0 bootstrap ✓ toolchain-pin  ✓ repo-config-sync  ✓ bootstrap-state
+Phase 0 bootstrap ✓ toolchain-pin  ✓ bootstrap-state
 Phase 1 execution ✗ provision-execution (member: selected execution check) ← first red
 Phase 2 credentials – store-cloudflare-credential (not reached)
 Verdict: execution incomplete — first red operation provision-execution (phase 1).

@@ -33,8 +33,9 @@ mint or paste, and a provider decision are the human's, per the shared protocol.
 
 Terraform's `github-org` leaf manages repos. To add one:
 
-1. **Config** — append the repo to `managed_repos` in `.infra-copilot/config.md`
-   ([`../infra/references/config.md`](../infra/references/config.md)) and re-export `$REPO` if it's the first
+1. **Config** — `managed_repos` is a Template answer in the README Config block, outside the customization
+   markers, so the Skills never edit it. Add the repo through the Template's own update flow
+   ([`../infra/references/config.md`](../infra/references/config.md)), then re-export `$REPO` if it's the first
    entry (the repository used by the execution service).
 2. **GitHub App install scope** (`HUMAN` if the App is installed on selected repos) — the
    App must be able to see the new repo. If install is scoped, a human extends it in the

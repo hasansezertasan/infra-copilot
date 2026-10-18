@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.readme_fixture import render
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / '.ai-rulez/skills/infra/references/checks/gha-apply-gate.sh'
 
@@ -61,9 +63,8 @@ class ApplyGateTests(unittest.TestCase):
         }
 
     def decide(self, row: str) -> None:
-        (self.root / '.infra-copilot').mkdir(exist_ok=True)
-        (self.root / '.infra-copilot/decisions.md').write_text(
-            '| Decision | Choice | Status | Rationale |\n|---|---|---|---|\n' + row + '\n')
+        (self.root / 'README.md').write_text(render(decisions=(
+            '| Decision | Choice | Status | Rationale |\n|---|---|---|---|\n' + row + '\n')))
 
     def check(self) -> subprocess.CompletedProcess[str]:
         return subprocess.run(['sh', str(SCRIPT)], cwd=self.root, env=self.env,
@@ -115,6 +116,26 @@ class ApplyGateTests(unittest.TestCase):
         for row in ['| Apply gate | merge-approval | proposed | x |', '| Apply gate | none | locked | x |']:
             with self.subTest(row=row):
                 self.decide(row)
+                self.assertEqual(self.check().returncode, 1)
+
+    def test_crlf_line_endings_do_not_hide_a_locked_gate(self) -> None:
+        text = render(decisions='| Apply gate | merge-approval | locked | x |\n')
+        (self.root / 'README.md').write_bytes(text.replace('\n', '\r\n').encode())
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_row_outside_a_closed_decisions_section_does_not_count(self) -> None:
+        """An unclosed, duplicated or stray-ended section is not a bounded table."""
+        row = '| Apply gate | merge-approval | locked | x |\n'
+        start, end = '<!-- infra:decisions start -->\n', '<!-- infra:decisions end -->\n'
+        for name, body in {
+            'unclosed': f'{start}\n{row}',
+            'duplicated': f'{start}\n{end}{start}\n{row}{end}',
+            'end before start': f'{end}{start}\n{row}',
+            'row after the end': f'{start}\n{end}{row}',
+        }.items():
+            with self.subTest(section=name):
+                (self.root / 'README.md').write_text('## Decisions\n\n' + body)
                 self.assertEqual(self.check().returncode, 1)
 
     def test_user_owned_private_repo_can_use_a_gate(self) -> None:

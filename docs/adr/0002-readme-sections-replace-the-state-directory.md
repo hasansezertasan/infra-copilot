@@ -1,7 +1,10 @@
 # README sections replace the `.infra-copilot/` state directory
 
-Status: proposed, not yet implemented; the Skills still read the old state directory until
-the tickets under #130 land.
+Status: accepted. The Skills read the README Config block and Decisions table, and stop on
+the old state directory (#132). The Template already renders both sections on its main branch
+(copier-infra#25) and no longer renders the old directory. Having `infra-setup` render the
+Template, and the Template contract check, follow in the remaining tickets under #130. The
+Template has no release tag yet, so until one exists `uvx copier copy` renders its main branch.
 
 An Infra repo keeps its public identifiers and human attestations in a Config block, and its
 locked choices in a Decisions table, as fixed sections of the root `README.md`. The

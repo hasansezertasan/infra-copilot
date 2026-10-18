@@ -66,22 +66,22 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 ## Workflow
 
-1. **Read config first** (shared protocol, Step 0). Load `.infra-copilot/config.md`, or
-   use `.claude/infra-copilot.local.md` as the migration fallback, and export the org
-   vars. If both are missing → handoff, offer to scaffold, wait.
+1. **Read config first** (shared protocol, Step 0). Load the Config block from the
+   root `README.md` and export the org vars. A legacy `.infra-copilot/` directory or
+   `.claude/infra-copilot.local.md` → unsupported, stop. No Config block → handoff, wait.
    For a new setup, recommend **object-storage** first. Explain HCP's managed runs and
    UI, its free tier's 500-resource limit, and this workflow's required paid tier with
    team management for the plan-only credential, even below 500 resources. Ask for the
-   choice using the shared protocol, then always write `backend: object-storage` or
-   `backend: hcp` explicitly.
+   choice using the shared protocol and record it as the Template's `backend` answer
+   (`object-storage` or `hcp`), explicit and never defaulted. `backend` sits outside the
+   customization markers, so you never write it yourself.
    Existing configs without `backend` stop for the migration handoff; existing `cloud {}`
-   blocks prompt an offer to record `backend: hcp`, never an automatic mode switch.
+   blocks prompt an offer for the human to record `backend: hcp`, never an automatic mode switch.
    See [`../infra/references/config.md`](../infra/references/config.md).
 2. **Bootstrap preflight**, then **resume scan** over phases 0–4 of
    [`../infra/references/steps.yaml`](../infra/references/steps.yaml). On a cold repo, check that `mise` itself
    is available, then scan `toolchain-pin` before running the pin-dependent preflight
-   checks. Once it is green, finish preflight, handle the optional `repo-config-sync` step,
-    print `✓`, and continue through every selected service's bootstrap members. Full contract:
+   checks. Once it is green, finish preflight, print `✓`, and continue through every selected service's bootstrap members. Full contract:
    [`../infra/references/protocol.md`](../infra/references/protocol.md).
 3. **Respect the actor split.** Run `AGENT` steps yourself. On a `HUMAN` step, stop, emit
    the handoff block, wait for `done`, re-run the `check` — never fake a signup, a
@@ -94,10 +94,7 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 - **Phase 0 — Toolchain + HCP bootstrap.** The first `HUMAN` step chooses exact tool
   versions, reviews the whole `mise.toml`, and commits it with `mise.lock`; this must
-  happen before pin-dependent preflight. If the consuming repository ships an executable
-  `scripts/sync-config.sh`, stop for a human to review and run it next, then verify its
-  deterministic changes and canonical config were committed together;
-  repositories without the helper skip this step. Then `HUMAN` signs up + runs
+  happen before pin-dependent preflight. Then `HUMAN` signs up + runs
   `terraform login`, after which you own the HCP API. Toolchain sequence:
   [`../infra/references/docs/setup.md#6`](../infra/references/docs/setup.md#6-local-development).
   HCP commands + verify: [`../infra/references/hcp.md`](../infra/references/hcp.md#phase-0--bootstrap).
@@ -142,7 +139,7 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 Setup is complete when you can report:
 
-- ✓ `.infra-copilot/config.md` explicitly records the chosen `backend`.
+- ✓ The README Config block explicitly records the chosen `backend`.
 
 **For every effective HCP leaf and the shared HCP service:**
 
@@ -202,6 +199,7 @@ Everything green means the scope is already done and there is nothing to do.
 ## Configuring for your org
 
 All org-specific values — HCP org, GitHub org, apex domain, Cloudflare account/zone IDs,
-managed repos, HCP status-check ID — live in `.infra-copilot/config.md` (schema +
-export block: [`../infra/references/config.md`](../infra/references/config.md)). Fill it in once and re-run —
+managed repos, HCP status-check ID — live in the README Config block (schema +
+export block: [`../infra/references/config.md`](../infra/references/config.md)). The Template answers (orgs, domain, account IDs, `managed_repos`) change only through the
+Template's update flow; fill in the customization region once and re-run —
 the resume protocol handles the rest.

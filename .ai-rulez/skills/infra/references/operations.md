@@ -53,7 +53,6 @@ is separate from operation completion and cannot move the first-red verdict.
 | `store-provider-credential` | `new-provider-credentials` | `new-provider-secrets-gha` |
 | `provider-identity-trust` | `new-provider-gcp-wif-trust` | `new-provider-identity-trust-gha` |
 | `plan-provider` | `new-provider-plan` | `new-provider-plan-gha` |
-| `sync-execution-config` | `repo-config-sync` (shared) | `repo-config-sync` (shared) |
 | `provider-inventory` | `new-provider-inventory` (shared) | `new-provider-inventory` (shared) |
 | `provider-decision` | `new-provider-decision` (shared) | `new-provider-decision` (shared) |
 | `provider-leaf` | `new-provider-leaf` (shared) | `new-provider-leaf` (shared) |

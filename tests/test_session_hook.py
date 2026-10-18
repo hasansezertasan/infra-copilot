@@ -57,9 +57,20 @@ class SessionHookTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             if marker == "config":
+                (root / "README.md").write_text(
+                    "# Infra\n\n## Config\n\n<!-- infra:config start -->\n```yaml\n"
+                    "backend: object-storage\n```\n<!-- infra:config end -->\n",
+                    encoding="utf-8",
+                )
+            elif marker == "crlf":
+                (root / "README.md").write_bytes(
+                    b"## Config\r\n\r\n<!-- infra:config start -->\r\n<!-- infra:config end -->\r\n"
+                )
+            elif marker == "plain-readme":
+                (root / "README.md").write_text("# Some project\n", encoding="utf-8")
+            elif marker == "legacy":
                 (root / ".infra-copilot").mkdir()
                 (root / ".infra-copilot/config.md").touch()
-            elif marker == "legacy":
                 (root / ".claude").mkdir()
                 (root / ".claude/infra-copilot.local.md").touch()
             elif marker == "terraform":
@@ -90,8 +101,15 @@ class SessionHookTests(unittest.TestCase):
         output = self.run_hook(marker="config", disabled=True)
         self.assertEqual(json.loads(output), {})
 
+    def test_a_readme_without_the_config_markers_is_not_an_infra_repo(self) -> None:
+        self.assertEqual(json.loads(self.run_hook(marker="plain-readme")), {})
+
+    def test_the_retired_state_paths_alone_no_longer_trigger_it(self) -> None:
+        """They are unsupported: Step 0 reports that, the hook does not advertise them."""
+        self.assertEqual(json.loads(self.run_hook(marker="legacy")), {})
+
     def test_each_marker_triggers_it(self) -> None:
-        for marker in ("config", "legacy", "terraform"):
+        for marker in ("config", "crlf", "terraform"):
             with self.subTest(marker=marker):
                 payload = json.loads(
                     self.run_hook(marker=marker, host_env={"CLAUDE_PLUGIN_ROOT": "/x"})
@@ -172,19 +190,19 @@ class SessionHookTests(unittest.TestCase):
             self.assertIn(source, matcher)
 
     def test_context_does_not_name_a_marker_it_cannot_vouch_for(self) -> None:
-        """Naming config.md is false for a repo matching only terraform/.
+        """Naming the README markers is false for a repo matching only terraform/.
 
         That would be the hook injecting wrong repository state, which is what
         its own closing sentence warns against.
         """
-        for marker in ("config", "legacy", "terraform"):
+        for marker in ("config", "terraform"):
             with self.subTest(marker=marker):
                 payload = json.loads(
                     self.run_hook(marker=marker, host_env={"CLAUDE_PLUGIN_ROOT": "/x"})
                 )
                 context = payload["hookSpecificOutput"]["additionalContext"]
-                self.assertNotIn(".infra-copilot/config.md", context)
-                self.assertNotIn("terraform/ tree", context)
+                for named in ("README", "infra:config", "terraform/"):
+                    self.assertNotIn(named, context)
 
 
 if __name__ == "__main__":

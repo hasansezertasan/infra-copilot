@@ -29,7 +29,7 @@ printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" | jq -Re '
     || cannot_verify "refusing to send the HCP token to unexpected endpoint '$hcp_api'"
 
 [ -z "$(git --no-optional-locks status --porcelain -- \
-    "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml)" ] \
+    "terraform/$NEW_PROVIDER" terraform/modules README.md mise.toml)" ] \
     || cannot_verify "the provider leaf, shared modules, config, or mise pin has uncommitted changes"
 workspace_body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
     -H "Authorization: Bearer $HCP_TOKEN") || cannot_verify "workspace could not be read"
@@ -168,7 +168,7 @@ for sha in $(printf '%s' "$candidates" \
         continue
     fi
     if git diff --quiet "$sha" HEAD -- "terraform/$NEW_PROVIDER" \
-        terraform/modules .infra-copilot/config.md mise.toml; then
+        terraform/modules README.md mise.toml; then
         matching_shas=$(jq -cn --argjson shas "$matching_shas" --arg sha "$sha" \
           '$shas + [$sha]') || cannot_verify "matching ingress SHAs could not be encoded"
     fi

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9519b5a931ead7d388ad577ed7b539ed98f07ad578ad6d0c2587857425405822
-Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
+Content-Hash: blake3:c9f1e03c8c32ed8804251264e88db2f515af5cf5d98440b1ece3789b23b6200f
+Source-Hash: blake3:0185c7546ec1e8d9f1a3371eb98d4fcf2fb7254291dbad3543b8c4ce2e3661a6
 Schema-Version: v1
 -->
 
@@ -14,7 +14,7 @@ bootstrap detail: [`setup.md#4`](docs/setup.md#4-github-app). Auth rationale + r
 
 ## What this repo manages via GitHub
 
-This repo's managed repos (`managed_repos` in `.infra-copilot/config.md` — e.g.
+This repo's managed repos (`managed_repos` in `README.md` — e.g.
 `<owner/repo>` and, if applicable, an org-Pages repo) — their settings, `main` branch
 protection, and the `safe-to-plan` label — through the `integrations/github` v6
 provider. State + App credentials live in the HCP `github-org` workspace.
@@ -23,7 +23,7 @@ provider. State + App credentials live in the HCP `github-org` workspace.
 
 Apps aren't tied to a user, support fine-grained permissions, and rotate cleanly (multiple
 active keys → overlap-then-cutover). A PAT dies with its owner and is coarse-grained. This
-is a locked decision — see this repo's `.infra-copilot/decisions.md`.
+is a locked decision — see this repo's `the README Decisions table`.
 
 ## The actor split
 

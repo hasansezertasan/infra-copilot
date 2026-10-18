@@ -86,7 +86,7 @@ class HcpLoginCheckTests(unittest.TestCase):
                                     "trigger-patterns": [
                                         f"{leaf}/**",
                                         "terraform/modules/**",
-                                        ".infra-copilot/config.md",
+                                        "README.md",
                                         "mise.toml",
                                     ],
                                     "vcs-repo": {
