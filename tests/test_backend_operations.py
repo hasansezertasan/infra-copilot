@@ -18,7 +18,7 @@ class BackendOperationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         shutil.copytree(ROOT / '.ai-rulez', self.root / '.ai-rulez')
-        self.manifest = self.root / '.ai-rulez/skills/infra-copilot/references/steps.yaml'
+        self.manifest = self.root / '.ai-rulez/skills/infra/references/steps.yaml'
 
     def test_current_contracts_are_complete(self) -> None:
         self.assertEqual(validate_backend_operations(self.root), [])
@@ -76,7 +76,7 @@ class BackendOperationTests(unittest.TestCase):
                             '$HAS_HCP_BOOTSTRAP', '$HAS_OBJECT_STORAGE_BOOTSTRAP',
                             '$HCP_LEAVES', '$OBJECT_STORAGE_LEAVES'):
             with self.subTest(reference=reference):
-                skill = self.root / '.ai-rulez/skills/add/SKILL.md'
+                skill = self.root / '.ai-rulez/skills/infra-add/SKILL.md'
                 original = skill.read_text(encoding='utf-8')
                 skill.write_text(original + '\n' + reference + '\n', encoding='utf-8')
                 self.assertTrue(any('skill outside setup' in e for e in validate_backend_operations(self.root)))
@@ -144,7 +144,7 @@ class BackendOperationTests(unittest.TestCase):
         self.assertTrue(any('backend-specific reason' in e for e in validate_backend_operations(self.root)))
 
     def test_gha_wif_guidance_and_trust_conditions(self) -> None:
-        doc = (self.root / '.ai-rulez/skills/infra-copilot/references/docs/object-storage-ci.md').read_text(encoding='utf-8')
+        doc = (self.root / '.ai-rulez/skills/infra/references/docs/object-storage-ci.md').read_text(encoding='utf-8')
         self.assertIn('### GCP Workload Identity Federation', doc)
         self.assertIn('assertion.repository_id', doc)
         self.assertIn('assertion.repository_owner_id', doc)
@@ -160,7 +160,7 @@ class BackendOperationTests(unittest.TestCase):
         self.assertIn('docs: docs/object-storage-ci.md#gcp-workload-identity-federation', manifest)
         self.assertIn('--env production', manifest)
 
-        gcp_doc = (self.root / '.ai-rulez/skills/infra-copilot/references/gcp.md').read_text(encoding='utf-8')
+        gcp_doc = (self.root / '.ai-rulez/skills/infra/references/gcp.md').read_text(encoding='utf-8')
         self.assertIn('docs/object-storage-ci.md#gcp-workload-identity-federation', gcp_doc)
 
 

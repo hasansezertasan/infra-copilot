@@ -1,12 +1,12 @@
 {
-  "name": "infra-copilot",
+  "name": "infra-skills",
   "version": "0.3.0",
   "description": "Agent-first, human-in-the-loop workflows for infrastructure maintenance.",
   "author": {
     "name": "hasansezertasan"
   },
-  "homepage": "https://github.com/hasansezertasan/infra-copilot",
-  "repository": "https://github.com/hasansezertasan/infra-copilot",
+  "homepage": "https://github.com/hasansezertasan/infra-skills",
+  "repository": "https://github.com/hasansezertasan/infra-skills",
   "license": "MIT",
   "keywords": [
     "terraform",
@@ -16,7 +16,7 @@
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "infra-copilot",
+    "displayName": "infra-skills",
     "shortDescription": "Agent-first, human-in-the-loop workflows for infrastructure maintenance.",
     "longDescription": "Agent-first, human-in-the-loop workflows to bootstrap, audit and change infrastructure repositories, whatever the infrastructure is.",
     "developerName": "hasansezertasan",
@@ -26,7 +26,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Use infra-copilot to report the current infrastructure setup status."
+      "Use infra-skills to report the current infrastructure setup status."
     ]
   }
 }

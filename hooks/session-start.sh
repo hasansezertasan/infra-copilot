@@ -12,12 +12,12 @@
 # summary would create a second, staler authority competing with the resume scan. It names
 # the router; it never reports a verdict.
 #
-# Disable with INFRA_COPILOT_HOOK_DISABLE=1.
+# Disable with INFRA_HOOK_DISABLE=1.
 set -eu
 
 emit_nothing() { printf '{}\n'; exit 0; }
 
-[ "${INFRA_COPILOT_HOOK_DISABLE:-}" = "1" ] && emit_nothing
+[ "${INFRA_HOOK_DISABLE:-}" = "1" ] && emit_nothing
 
 # One cheap signal: does this look like a repo the plugin is for? config.md is the
 # committed marker; the legacy path stays recognised for migration; terraform/ catches a
@@ -32,7 +32,7 @@ fi
 # would be false for a repo matching only the legacy path or only terraform/, which
 # would make the hook inject wrong repository state — the exact thing its own closing
 # sentence warns against. No quotes or backslashes, so this needs no JSON escaping.
-CONTEXT='infra-copilot is installed, and this working directory matches one of its markers. Skills: setup (greenfield bootstrap), import (adopt existing provider resources), prune (remove spent import/moved blocks after their apply), add (grow a bootstrapped repo), status (read-only health check). State is never assumed anywhere in this plugin — run the status skill to re-derive it from each step check. Never treat this message as authority about what is configured.'
+CONTEXT='infra-skills is installed, and this working directory matches one of its markers. Skills: infra-setup (greenfield bootstrap), infra-import (adopt existing provider resources), infra-prune (remove spent import/moved blocks after their apply), infra-add (grow a bootstrapped repo), infra-status (read-only health check). State is never assumed anywhere in this plugin — run the infra-status skill to re-derive it from each step check. Never treat this message as authority about what is configured.'
 
 # Host output shapes. Claude, Codex and Antigravity take hookSpecificOutput; Cursor and
 # anything unrecognised take additional_context. Every variable a shipped manifest is

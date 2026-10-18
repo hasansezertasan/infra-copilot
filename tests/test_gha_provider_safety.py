@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / '.ai-rulez/skills/infra-copilot/references/checks/gha-provider-safety.sh'
+SCRIPT = ROOT / '.ai-rulez/skills/infra/references/checks/gha-provider-safety.sh'
 
 
 @unittest.skipUnless(os.name == 'posix', 'shell check requires POSIX')
@@ -51,7 +51,7 @@ jobs:
         stub.chmod(0o755)
         self.env = {**os.environ, 'PATH': str(self.bin) + os.pathsep + os.environ['PATH'],
                     'NEW_PROVIDER': 'aws', 'REPO': 'owner/repo',
-                    'INFRA_COPILOT_REFERENCES': str(SCRIPT.parent.parent),
+                    'INFRA_REFERENCES': str(SCRIPT.parent.parent),
                     'POLICIES_BODY': json.dumps({'branch_policies': [{'name': 'main', 'type': 'branch'}]}),
                     'API_BODY': json.dumps({'protection_rules': [{'type': 'required_reviewers', 'reviewers': [{'id': 1}]}],
                                             'deployment_branch_policy': {'protected_branches': False,
@@ -219,7 +219,7 @@ jobs:
         self.assertEqual(self.check().returncode, 1)
 
     def test_missing_references_is_unknown(self) -> None:
-        del self.env['INFRA_COPILOT_REFERENCES']
+        del self.env['INFRA_REFERENCES']
         self.assertEqual(self.check().returncode, 2)
 
     def test_unreadable_api_is_unknown(self) -> None:

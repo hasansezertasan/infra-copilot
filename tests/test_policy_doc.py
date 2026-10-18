@@ -13,10 +13,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 POLICY = REPO_ROOT / "docs/policy.md"
-MANIFEST = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
-ADD_SKILL = REPO_ROOT / ".ai-rulez/skills/add/SKILL.md"
-PROTOCOL = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/protocol.md"
-GCP = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/gcp.md"
+MANIFEST = REPO_ROOT / ".ai-rulez/skills/infra/references/steps.yaml"
+ADD_SKILL = REPO_ROOT / ".ai-rulez/skills/infra-add/SKILL.md"
+PROTOCOL = REPO_ROOT / ".ai-rulez/skills/infra/references/protocol.md"
+GCP = REPO_ROOT / ".ai-rulez/skills/infra/references/gcp.md"
 
 
 class PolicyDocTests(unittest.TestCase):
@@ -71,7 +71,7 @@ class PolicyDocTests(unittest.TestCase):
             "actions/apply",                  # hcp-api.md ships the REST recipe
             "do not govern Bash",             # Read() rules bind the Read tool only
             "compound shell strings",         # allow-lists cannot match the checks
-            "second entry point",             # /infra-setup bypasses the Skill deny
+            "second entry point",             # a typed /infra-skills:infra-setup bypasses the Skill deny
             "/tmp/cf_token",                  # the import discovery token
         ):
             with self.subTest(bypass=bypass):

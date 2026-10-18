@@ -1,6 +1,6 @@
-# Contributing to Infra Copilot
+# Contributing to Infra Skills
 
-This file is owned by the [copier-skill-repo](https://github.com/hasansezertasan/copier-skill-repo) template and is merged on `copier update`. Repo-specific guidance sits in the "Infra Copilot development" section below; expect to keep both sides when `copier update` conflicts here.
+This file is owned by the [copier-skill-repo](https://github.com/hasansezertasan/copier-skill-repo) template and is merged on `copier update`. Repo-specific guidance sits in the "Infra Skills development" section below; expect to keep both sides when `copier update` conflicts here.
 
 ## How the repo works
 
@@ -10,11 +10,11 @@ This file is owned by the [copier-skill-repo](https://github.com/hasansezertasan
 - `npm run check` is what CI runs. It fails when generated output has drifted.
 - Node comes from `.node-version`.
 
-## Infra Copilot development
+## Infra Skills development
 
 ### Most of the tree is generated
 
-`skills/`, `commands/`, `.claude-plugin/`, `.codex-plugin/`, `.agents/plugins/`, `.pi/` and the Pi fields of
+`skills/`, `.claude-plugin/`, `.codex-plugin/`, `.agents/plugins/` and the Pi fields of
 `package.json` are **generated output**. Editing them does nothing durable — the next
 `npm run generate` overwrites your change, and CI fails with a hash mismatch that never
 mentions the file you touched.
@@ -23,9 +23,7 @@ The sources are in **`.ai-rulez/`**.
 
 ```text
 .ai-rulez/skills/<name>/SKILL.md          →  skills/<name>/SKILL.md
-.ai-rulez/skills/infra-copilot/references/ →  skills/infra-copilot/references/
-.ai-rulez/commands/<name>.md              →  commands/<name>.md
-.ai-rulez/commands/<name>.md              →  .pi/prompts/<name>.md
+.ai-rulez/skills/infra/references/ →  skills/infra/references/
 .ai-rulez/config.toml                     →  .claude-plugin/*, .codex-plugin/plugin.json,
                                              .agents/plugins/marketplace.json, package.json (Pi fields)
 ```
@@ -39,7 +37,7 @@ Content-Hash: blake3:…
 -->
 ```
 
-Twenty-eight of the 69 have no such header — the outputs that are not Markdown:
+Twenty-eight of the 59 have no such header — the outputs that are not Markdown:
 `.agents/plugins/marketplace.json`, `.claude-plugin/marketplace.json`,
 `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `package.json`, `config.md.example`, `decisions.md.example`, `steps.yaml`,
 `checks/status-check-context.sh`, `checks/hcp-apply-scope.sh`, `checks/gcp-wif-trust.sh`,
@@ -52,7 +50,7 @@ Twenty-eight of the 69 have no such header — the outputs that are not Markdown
 `templates/terraform-apply.yml`, `templates/terraform-plan.yml`, and
 `templates/terraform-destroy.cjs` — so a missing header proves nothing.
 
-`.ai-rulez-generated.json` is the authoritative list — 69 paths today. If a file is in
+`.ai-rulez-generated.json` is the authoritative list — 59 paths today. If a file is in
 there, edit its source instead.
 
 #### What is *not* generated
@@ -64,7 +62,7 @@ Hand-authored, and safe to edit directly:
 | `plugin.json` | Antigravity manifest; `ai-rulez` does not generate this surface |
 | `scripts/validate.py`, `tests/` | The repository's own validators |
 | `hooks/` | The SessionStart hook; `ai-rulez` has no hook support, so these are hand-authored |
-| `agents/` | The `infra-auditor` subagent; `ai-rulez` has no agent surface. Which host this directory's dialect serves, and why the others go without, are recorded in [`hosts.md`](.ai-rulez/skills/infra-copilot/references/hosts.md) |
+| `agents/` | The `infra-auditor` subagent; `ai-rulez` has no agent surface. Which host this directory's dialect serves, and why the others go without, are recorded in [`hosts.md`](.ai-rulez/skills/infra/references/hosts.md) |
 | `.github/workflows/`, `scripts/` | CI and the shell helpers |
 | `.config/root-components.json` | The root components this repo ships on purpose (see below) |
 | `README.md`, `CONTRIBUTING.md`, `AGENTS.md`, `docs/` | Documentation |
@@ -91,8 +89,8 @@ Generated files are committed on purpose, so users can install the plugin withou
 ### Root components shipped on purpose
 
 Both catalogs install the repository root, so `scripts/check-repo.mjs` fails on any path a host
-loads from an installed plugin. This repo ships three deliberately, and lists each with its
-reason in `.config/root-components.json`: `hooks/`, `agents/` and `commands/`. Adding another
+loads from an installed plugin. This repo ships two deliberately, and lists each with its
+reason in `.config/root-components.json`: `hooks/` and `agents/`. Adding another
 needs an entry there with a reason; the check rejects an unknown name or an empty reason.
 
 ### Checks
@@ -133,7 +131,7 @@ Every `SKILL.md` addresses four concerns, and `npm run check:all` fails if one i
 Matching is lenient — any H2 mentioning the word counts, so `## Example report` satisfies
 `example`. The point is that each concern is findable, not that headings be identical.
 
-The `infra-copilot` router is exempt from `example` only: it selects a skill and performs
+The `infra` router is exempt from `example` only: it selects a skill and performs
 no work, so it has nothing to demonstrate.
 
 Use **one** name per concern across skills. `setup` once said `Done signal` while `import`
@@ -191,14 +189,14 @@ must pass on the PR's head.
 
 ### Adapters
 
-Behavior belongs in `.ai-rulez/skills/`; host manifests and commands are **adapters only** and must
-not become a second source of truth. Claude-specific `allowed-tools` values live in command
+Behavior belongs in `.ai-rulez/skills/`; host manifests are **adapters only** and must
+not become a second source of truth. Claude-specific `allowed-tools` values live in skill
 frontmatter; workflow bodies stay host-neutral.
 
 ### Backend operation contracts
 
 Action skill bodies outside `setup` use the named contracts in
-[operations.md](.ai-rulez/skills/infra-copilot/references/operations.md).
+[operations.md](.ai-rulez/skills/infra/references/operations.md).
 The manifest records an `operation` and `implementation` for every backend-dependent
 step. Several ordered members can implement one operation; preserve actor handoffs,
 phase boundaries, per-provider iteration and tri-state outcomes. Status groups members

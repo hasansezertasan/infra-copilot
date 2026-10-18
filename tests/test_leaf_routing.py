@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCES = ROOT / '.ai-rulez/skills/infra-copilot/references'
+REFERENCES = ROOT / '.ai-rulez/skills/infra/references'
 
 
 @unittest.skipUnless(os.name == 'posix' and shutil.which('jq'), 'POSIX shell and jq required')
@@ -29,7 +29,7 @@ class LeafRoutingTests(unittest.TestCase):
             'BACKEND': 'hcp',
             'LEAF_BACKENDS': '{"github":"object-storage"}',
             'ADDITIONAL_PROVIDER_NAMES': '[]',
-            'INFRA_COPILOT_REFERENCES': str(REFERENCES),
+            'INFRA_REFERENCES': str(REFERENCES),
         }
 
     def execute_check(self, script_name: str) -> subprocess.CompletedProcess[str]:

@@ -1,11 +1,11 @@
 {
-  "name": "infra-copilot",
+  "name": "infra-skills",
   "interface": {
-    "displayName": "infra-copilot"
+    "displayName": "infra-skills"
   },
   "plugins": [
     {
-      "name": "infra-copilot",
+      "name": "infra-skills",
       "source": {
         "source": "local",
         "path": "./"

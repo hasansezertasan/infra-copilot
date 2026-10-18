@@ -10,7 +10,7 @@ from pathlib import Path
 
 from test_new_provider_flow import literal_check, phase_six_steps
 
-REFERENCES = Path(__file__).resolve().parents[1] / ".ai-rulez/skills/infra-copilot/references"
+REFERENCES = Path(__file__).resolve().parents[1] / ".ai-rulez/skills/infra/references"
 CHECK = REFERENCES / "checks/provider-requirements.sh"
 LOCK = ('provider "registry.terraform.io/hashicorp/google" {\n'
         '  version = "6.0.0"\n  hashes = [\n    "h1:fixture",\n  ]\n}\n')
@@ -63,7 +63,7 @@ done
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                 "ORIGINAL_LEAF": str(leaf), "CAPTURE": str(root / "capture"),
                 "QUERY_STATUS": str(status), "QUERY_PROVIDERS": providers,
-                "NEW_PROVIDER": "gcp", "INFRA_COPILOT_REFERENCES": str(REFERENCES),
+                "NEW_PROVIDER": "gcp", "INFRA_REFERENCES": str(REFERENCES),
                 "TF_DATA_DIR": str(leaf / ".terraform"), "TF_WORKSPACE": "production",
                 "TF_CLI_ARGS": "-invalid", "TF_CLI_ARGS_providers": "-invalid",
             }
@@ -134,10 +134,10 @@ done
                 self.assertEqual(result.returncode, 2, result.stderr)
 
 
-REAL_TERRAFORM = os.environ.get("INFRA_COPILOT_TEST_TERRAFORM")
+REAL_TERRAFORM = os.environ.get("INFRA_TEST_TERRAFORM")
 
 
-@unittest.skipUnless(REAL_TERRAFORM, "set INFRA_COPILOT_TEST_TERRAFORM for CLI integration")
+@unittest.skipUnless(REAL_TERRAFORM, "set INFRA_TEST_TERRAFORM for CLI integration")
 class RealTerraformProviderRequirementsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.env = os.environ | {
@@ -223,7 +223,7 @@ class RealTerraformProviderRequirementsTests(unittest.TestCase):
                                         capture_output=True, text=True, env=self.env)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("registry.terraform.io/hashicorp/random", result.stdout)
-                env = self.env | {"NEW_PROVIDER": "gcp", "INFRA_COPILOT_REFERENCES": str(REFERENCES)}
+                env = self.env | {"NEW_PROVIDER": "gcp", "INFRA_REFERENCES": str(REFERENCES)}
                 lock_check = subprocess.run(
                     ["sh", "-c", literal_check(phase_six_steps()["new-provider-lock"])],
                     cwd=root, env=env, capture_output=True, text=True,

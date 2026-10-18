@@ -11,7 +11,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-REFERENCES = Path(__file__).resolve().parents[1] / '.ai-rulez/skills/infra-copilot/references'
+REFERENCES = Path(__file__).resolve().parents[1] / '.ai-rulez/skills/infra/references'
 
 
 @unittest.skipUnless(os.name == 'posix', 'credential checks require POSIX shell')
@@ -46,7 +46,7 @@ class CredentialTierTests(unittest.TestCase):
                             'commit', '-qm', 'fixture'], cwd=root, check=True)
             return subprocess.run(['sh', '-c', script], cwd=root, capture_output=True, text=True,
                                   env={**os.environ, 'PATH': f'{root / "bin"}{os.pathsep}{os.environ["PATH"]}',
-                                       'INFRA_COPILOT_REFERENCES': str(root), 'REPO': 'owner/repo',
+                                       'INFRA_REFERENCES': str(root), 'REPO': 'owner/repo',
                                        'REPO_NAMES': '\n'.join(repo_names), 'ENV_NAMES': '\n'.join(env_names),
                                        'ORG_NAMES': '\n'.join(org_names or []), 'ORG_STATUS': str(org_status),
                                        'OWNER_TYPE': owner_type,

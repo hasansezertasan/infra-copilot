@@ -12,21 +12,21 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-STEPS = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+STEPS = REPO_ROOT / ".ai-rulez/skills/infra/references/steps.yaml"
 LEAF_CLOUD = (
     REPO_ROOT
-    / ".ai-rulez/skills/infra-copilot/references/checks/leaf-cloud.sh"
+    / ".ai-rulez/skills/infra/references/checks/leaf-cloud.sh"
 )
-ADD = REPO_ROOT / ".ai-rulez/skills/add/SKILL.md"
-CONFIG = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/config.md"
-HCP = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/hcp.md"
+ADD = REPO_ROOT / ".ai-rulez/skills/infra-add/SKILL.md"
+CONFIG = REPO_ROOT / ".ai-rulez/skills/infra/references/config.md"
+HCP = REPO_ROOT / ".ai-rulez/skills/infra/references/hcp.md"
 HCP_CURRENT_PLAN = (
     REPO_ROOT
-    / ".ai-rulez/skills/infra-copilot/references/checks/hcp-current-plan.sh"
+    / ".ai-rulez/skills/infra/references/checks/hcp-current-plan.sh"
 )
-STATUS = REPO_ROOT / ".ai-rulez/skills/status/SKILL.md"
+STATUS = REPO_ROOT / ".ai-rulez/skills/infra-status/SKILL.md"
 STATUS_RUNBOOK = (
-    REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/hcp-status.md"
+    REPO_ROOT / ".ai-rulez/skills/infra/references/hcp-status.md"
 )
 
 
@@ -162,7 +162,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 **self.env,
                 "ADDITIONAL_PROVIDER_WORKSPACES": '["gcp"]',
                 "HCP_LEAVES": '["cloudflare","github","gcp"]',
-                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
             untracked = subprocess.run(
                 ["/bin/sh", "-c", literal_check(inventory)],
@@ -192,7 +192,7 @@ class NewProviderFlowTests(unittest.TestCase):
             )
             base_env = {
                 **self.env,
-                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
             module_only = subprocess.run(
                 ["/bin/sh", "-c", literal_check(inventory)],
@@ -233,7 +233,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 **self.env,
                 "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
                 "ADDITIONAL_PROVIDER_MISE_TOOLS": "[]",
-                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
             missing = subprocess.run(
                 ["/bin/sh", "-c", literal_check(inventory)],
@@ -250,7 +250,7 @@ class NewProviderFlowTests(unittest.TestCase):
         env = {
             **self.env,
             "ADDITIONAL_PROVIDER_WORKSPACES": '["extra"]',
-            "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+            "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
         }
         for name in ("cloudflare", "github", "modules"):
             result = subprocess.run(
@@ -591,7 +591,7 @@ class NewProviderFlowTests(unittest.TestCase):
     def test_explicit_adoption_bootstraps_an_empty_inventory(self) -> None:
         protocol = (
             REPO_ROOT
-            / ".ai-rulez/skills/infra-copilot/references/protocol.md"
+            / ".ai-rulez/skills/infra/references/protocol.md"
         ).read_text(encoding="utf-8")
         self.assertIn("new-provider-decision` once in bootstrap mode", protocol)
         self.assertIn("must never\ndiscard an explicit adoption request", protocol)
@@ -921,7 +921,7 @@ terraform {
                 "NEW_PROVIDER": "gcp",
                 "NEW_PROVIDER_WORKSPACE": "gcp",
                 "ORG": "acme",
-                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
             valid = subprocess.run(
                 ["/bin/sh", "-c", literal_check(lock_check)], cwd=root, env=env,
@@ -1220,8 +1220,8 @@ terraform {
         inventory = self.steps["new-provider-inventory"]
         self.assertIn("ADDITIONAL_PROVIDER_MISE_TOOLS", inventory)
         self.assertIn("mise config get --file ./mise.toml tools", inventory)
-        self.assertIn("infra-copilot:provider-cli", inventory)
-        self.assertIn("infra-copilot:general-tool", inventory)
+        self.assertIn("infra-skills:provider-cli", inventory)
+        self.assertIn("infra-skills:general-tool", inventory)
         self.assertIn(
             "terraform|gh|jq|github:cloudflare/cf-terraforming", inventory
         )
@@ -1237,8 +1237,8 @@ terraform {
             (root / "terraform").mkdir()
             (root / "mise.toml").write_text(
                 '[tools]\nterraform = "1.14.0"\ngh = "2.80.0"\n'
-                'jq = "1.8.1"\n# infra-copilot:general-tool node\nnode = "24.0.0"\n'
-                '# infra-copilot:provider-cli gcloud\ngcloud = "551.0.0"\n',
+                'jq = "1.8.1"\n# infra-skills:general-tool node\nnode = "24.0.0"\n'
+                '# infra-skills:provider-cli gcloud\ngcloud = "551.0.0"\n',
                 encoding="utf-8",
             )
             fake_mise = bin_dir / "mise"
@@ -1258,7 +1258,7 @@ terraform {
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                 "ADDITIONAL_PROVIDER_NAMES": "[]",
                 "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
-                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
             omitted = subprocess.run(
                 ["/bin/sh", "-c", literal_check(inventory)],
@@ -1276,7 +1276,7 @@ terraform {
             )
             (root / "mise.toml").write_text(
                 '[tools]\nterraform = "1.14.0"\ngh = "2.80.0"\n'
-                'jq = "1.8.1"\n# infra-copilot:general-tool node\nnode = "24.0.0"\n',
+                'jq = "1.8.1"\n# infra-skills:general-tool node\nnode = "24.0.0"\n',
                 encoding="utf-8",
             )
             before_scaffolding = subprocess.run(
@@ -1323,7 +1323,7 @@ terraform {
                     "ADDITIONAL_PROVIDER_NAMES": "[]",
                     "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
                     "ADDITIONAL_PROVIDER_MISE_TOOLS": "[]",
-                    "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                    "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
                 },
                 capture_output=True,
                 text=True,
@@ -1333,7 +1333,7 @@ terraform {
     def test_provider_preflight_is_activated_by_the_reviewed_entry(self) -> None:
         manifest = STEPS.read_text(encoding="utf-8")
         gcloud = manifest.split("  - tool: gcloud\n", 1)[1].split(
-            "  - tool: infra-copilot-references\n", 1
+            "  - tool: infra-references\n", 1
         )[0]
         self.assertIn("NEW_PROVIDER_MISE_TOOLS", gcloud)
         self.assertNotIn("test -d terraform/gcp", gcloud)

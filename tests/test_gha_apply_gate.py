@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / '.ai-rulez/skills/infra-copilot/references/checks/gha-apply-gate.sh'
+SCRIPT = ROOT / '.ai-rulez/skills/infra/references/checks/gha-apply-gate.sh'
 
 # Routes `gh api <path> [-q filter]` to env-provided JSON; FAIL_<KEY>=1 forces an error.
 STUB = r'''#!/bin/sh

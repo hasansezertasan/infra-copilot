@@ -24,7 +24,7 @@ if [ "$actual" != "$expected" ]; then
   echo "smoke-opencode: installed $actual SKILL.md, expected $expected (one per skills/*/)" >&2
   exit 1
 fi
-test -f .agents/skills/infra-copilot/references/protocol.md
-test -f .agents/skills/infra-copilot/references/decisions.md.example
-test -f .agents/skills/infra-copilot/references/hosts.md
+test -f .agents/skills/infra/references/protocol.md
+test -f .agents/skills/infra/references/decisions.md.example
+test -f .agents/skills/infra/references/hosts.md
 echo "smoke-opencode: $actual skills installed, references present"

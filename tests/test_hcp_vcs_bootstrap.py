@@ -10,7 +10,7 @@ import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-REFS = ROOT / ".ai-rulez/skills/infra-copilot/references"
+REFS = ROOT / ".ai-rulez/skills/infra/references"
 HCP = REFS / "hcp.md"
 
 
@@ -69,7 +69,7 @@ else:
                    "TERRAFORM_VERSION": "1.14.0",
                    "HCP_BOOTSTRAP_LEAVES": '["cloudflare","github"]',
                    "HCP_LEAVES": '["cloudflare","github","gcp"]',
-                   "INFRA_COPILOT_REFERENCES": str(REFS)}
+                   "INFRA_REFERENCES": str(REFS)}
             for key in ("OAUTH_TOKEN_ID", "GITHUB_APP_INSTALLATION_ID"):
                 env.pop(key, None)
             env.update(overrides or {})

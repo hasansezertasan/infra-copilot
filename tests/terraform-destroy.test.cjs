@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { spawnSync } = require('node:child_process');
-const modulePath = require.resolve('../.ai-rulez/skills/infra-copilot/references/templates/terraform-destroy.cjs');
+const modulePath = require.resolve('../.ai-rulez/skills/infra/references/templates/terraform-destroy.cjs');
 const { destructiveChanges, warning, summaryWarning, commentBody, readPlan, readInput, enforce } = require(modulePath);
 
 const resource = (address, actions) => ({ address, change: { actions, before: { secret: 'sensitive-sentinel' } } });
@@ -87,7 +87,7 @@ test('saved reader uses the exact plan and sanitized piped subprocess output', (
 
 test('comments and UTF-8 summaries respect GitHub limits', () => {
   const changes = Array.from({ length: 10000 }, (_, index) => ({ address: `example.resource["${index}-${'é'.repeat(100)}"]`, actions: ['delete'] }));
-  const body = commentBody({ marker: '<!-- infra-copilot-plan:example -->', leaf: 'example', head: 'head',
+  const body = commentBody({ marker: '<!-- infra-skills-plan:example -->', leaf: 'example', head: 'head',
     sha: 'sha', run: 'https://github.com/owner/repo/actions/runs/1', plan: 'p'.repeat(100000), changes });
   assert.ok(body.length <= 65000);
   assert.ok(body.indexOf('Deletes / replacements (10000)') < body.indexOf('<details>'));

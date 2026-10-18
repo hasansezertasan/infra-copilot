@@ -158,7 +158,7 @@ class AgentTests(unittest.TestCase):
         document = root / AGENT_PATH
         document.write_text(
             document.read_text(encoding="utf-8")
-            + "\nAlso read skills/infra-copilot/references/status.md directly.\n",
+            + "\nAlso read skills/infra/references/status.md directly.\n",
             encoding="utf-8",
         )
         self.assertTrue(
@@ -240,7 +240,7 @@ class AgentTests(unittest.TestCase):
             '---\nname: infra-auditor\ndescription: "Read-only scan."\n'
             "mode: subagent\ntools:\n  read: true\n  grep: true\n  glob: true\n"
             "  bash: true\n  skill: true\n---\n"
-            "Invoke the `infra-copilot` skill, then follow status.md.\n",
+            "Invoke the `infra` skill, then follow status.md.\n",
             encoding="utf-8",
         )
         self.assertEqual(validate_host_dialects(root), [])
@@ -438,12 +438,12 @@ class CoverageAndGrantTests(unittest.TestCase):
         )
 
     def test_a_negated_instruction_is_not_delegation(self) -> None:
-        """"Never invoke `infra-copilot` or `status.md`" carried both names and
+        """"Never invoke `infra-skills` or `status.md`" carried both names and
         told every delegated run not to load the canonical workflow."""
         root = self._root(
-            "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+            "Invoke the `infra` skill, then follow its `references/` links to\n"
             "`status.md`, `protocol.md`, and `steps.yaml`.",
-            "Never invoke `infra-copilot` or `status.md`.",
+            "Never invoke `infra-skills` or `status.md`.",
             AGENT_PATH,
         )
         self.assertTrue(
@@ -473,7 +473,7 @@ class CoverageAndGrantTests(unittest.TestCase):
             "---\nname: infra-auditor\ndescription: \"Read-only scan.\"\n"
             "mode: subagent\ntools:\n  read: true\n"
             "  grep: true\n  glob: true\n  bash: true\n  skill: true\n---\n"
-            "Invoke the `infra-copilot` skill, then follow status.md.\n",
+            "Invoke the `infra` skill, then follow status.md.\n",
             encoding="utf-8",
         )
         self.assertEqual(validate_host_dialects(root), [])
@@ -519,14 +519,14 @@ class AmbiguityTests(unittest.TestCase):
         return root
 
     def test_a_negated_imperative_is_not_a_directive(self) -> None:
-        """"Never Invoke the infra-copilot skill" matched the imperative."""
+        """"Never Invoke the infra skill" matched the imperative."""
         for phrase in (
-            "Never Invoke the `infra-copilot` skill, nor follow",
-            "Do not Invoke the `infra-copilot` skill, nor follow",
+            "Never Invoke the `infra` skill, nor follow",
+            "Do not Invoke the `infra` skill, nor follow",
         ):
             with self.subTest(phrase=phrase):
                 root = self._root(
-                    "Invoke the `infra-copilot` skill, then follow", phrase, AGENT_PATH
+                    "Invoke the `infra` skill, then follow", phrase, AGENT_PATH
                 )
                 self.assertTrue(
                     any("no instruction to invoke" in e for e in validate_host_dialects(root))
@@ -543,7 +543,7 @@ class AmbiguityTests(unittest.TestCase):
         shipped.mkdir(parents=True)
         (shipped / f"{AGENT_STEM}.toml").write_text(
             'name = "infra-auditor"\nname = "wrong-agent"\n'
-            'developer_instructions = """Invoke the infra-copilot skill, then follow status.md."""\n',
+            'developer_instructions = """Invoke the infra skill, then follow status.md."""\n',
             encoding="utf-8",
         )
         self.assertTrue(
@@ -670,7 +670,7 @@ class DialectAndShapeTests(unittest.TestCase):
             "---\nname: infra-auditor\ndescription: \"Read-only scan.\"\n"
             "mode: subagent\ntools:\n  read: true\n"
             "  grep: true\n  glob: true\n  bash: true\n  skill: true\n  write: true\n"
-            "---\nInvoke the `infra-copilot` skill, then follow status.md.\n",
+            "---\nInvoke the `infra` skill, then follow status.md.\n",
             encoding="utf-8",
         )
         self.assertTrue(any("write" in e for e in validate_host_dialects(root)))
@@ -678,9 +678,9 @@ class DialectAndShapeTests(unittest.TestCase):
     def test_a_negated_runbook_directive_is_rejected(self) -> None:
         """"then do not follow status.md" named the runbook and skipped it."""
         root = self._root(
-            "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+            "Invoke the `infra` skill, then follow its `references/` links to\n"
             "`status.md`, `protocol.md`, and `steps.yaml`.",
-            "Invoke the `infra-copilot` skill, then do not follow `status.md`.",
+            "Invoke the `infra` skill, then do not follow `status.md`.",
             AGENT_PATH,
         )
         self.assertTrue(
@@ -788,9 +788,9 @@ class DirectiveAndFrontmatterTests(unittest.TestCase):
     def test_a_descriptive_mention_is_not_a_directive(self) -> None:
         """"The file status.md exists" named the runbook and instructed nothing."""
         root = self._agent(
-            "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+            "Invoke the `infra` skill, then follow its `references/` links to\n"
             "`status.md`, `protocol.md`, and `steps.yaml`.",
-            "Invoke the `infra-copilot` skill. The file `status.md` exists.",
+            "Invoke the `infra` skill. The file `status.md` exists.",
         )
         self.assertTrue(
             any("un-negated instruction" in e for e in validate_host_dialects(root))
@@ -905,7 +905,7 @@ class RecordedValueTests(unittest.TestCase):
         (shipped / f"{AGENT_STEM}.md").write_text(
             '---\nname: infra-auditor\ndescription: "Scan."\nmode: primary\n'
             "tools:\n  read: true\n  grep: true\n  glob: true\n  bash: true\n"
-            "  skill: true\n---\nInvoke the `infra-copilot` skill, then follow status.md.\n",
+            "  skill: true\n---\nInvoke the `infra` skill, then follow status.md.\n",
             encoding="utf-8",
         )
         self.assertTrue(validate_host_dialects(root))
@@ -921,7 +921,7 @@ class RecordedValueTests(unittest.TestCase):
             (
                 "valid",
                 'name = "infra-auditor"\ndeveloper_instructions = """Invoke the '
-                'infra-copilot skill, then follow status.md."""\n',
+                'infra-skills skill, then follow status.md."""\n',
                 True,
             ),
         ):
@@ -993,7 +993,7 @@ class RootedAndBodyTests(unittest.TestCase):
         root = build_root(directory.name)
         (root / AGENT_PATH).write_text(
             "---\nname: infra-auditor\n"
-            'description: "Invoke the infra-copilot skill and follow status.md."\n'
+            'description: "Invoke the infra skill and follow status.md."\n'
             "tools: Read, Bash, Glob, Grep, Skill\n---\n\nDo nothing.\n",
             encoding="utf-8",
         )
@@ -1049,7 +1049,7 @@ class SixthRoundTests(unittest.TestCase):
         shipped = root / ".codex/agents"
         shipped.mkdir(parents=True)
         (shipped / f"{AGENT_STEM}.toml").write_text(
-            "# Invoke the infra-copilot skill, then follow status.md.\n"
+            "# Invoke the infra skill, then follow status.md.\n"
             'name = "infra-auditor"\ndeveloper_instructions = "Do nothing."\n',
             encoding="utf-8",
         )
@@ -1224,7 +1224,7 @@ class SeventhRoundTests(unittest.TestCase):
         (shipped / f"{AGENT_STEM}.md").write_text(
             '---\nname: infra-auditor\ndescription: "Scan."\ntools:\n  - view_file\n'
             "  - grep_search\n  - find_by_name\n  - run_command\n---\n"
-            "Invoke the `infra-copilot` skill, then follow status.md.\n",
+            "Invoke the `infra` skill, then follow status.md.\n",
             encoding="utf-8",
         )
         self.assertTrue(
@@ -1400,7 +1400,7 @@ class TenthRoundTests(unittest.TestCase):
         shipped.mkdir(parents=True)
         (shipped / f"{AGENT_STEM}.toml").write_text(
             'name = "infra-auditor"\ndeveloper_instructions = """Invoke the '
-            'infra-copilot skill, then follow status.md."""\n',
+            'infra-skills skill, then follow status.md."""\n',
             encoding="utf-8",
         )
         self.assertTrue(
@@ -1415,7 +1415,7 @@ class TenthRoundTests(unittest.TestCase):
             document = root / relative
             document.write_text(
                 document.read_text(encoding="utf-8").replace(
-                    "**`status` and only `status`**", "**any skill**"
+                    "**`infra-status` and only `infra-status`**", "**any skill**"
                 ),
                 encoding="utf-8",
             )
@@ -1436,9 +1436,9 @@ class CrossArtifactTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         return build_root(directory.name)
 
-    def test_the_invocation_tool_must_be_granted_to_the_status_command(self) -> None:
+    def test_the_invocation_tool_must_be_granted_to_the_status_skill(self) -> None:
         """Renaming the capability here while `allowed-tools` lists the old one
-        leaves /infra-status silently falling back to an inline scan."""
+        leaves infra-status silently falling back to an inline scan."""
         root = self._root()
         document = root / HOSTS_DOCUMENT
         document.write_text(
@@ -1753,9 +1753,9 @@ class EleventhRoundTests(unittest.TestCase):
         """The lookback was 24 characters, so the inversion only had to be wordy:
         this manifest tells every delegated run not to load the runbook."""
         root = self._agent(
-            "Invoke the `infra-copilot` skill",
+            "Invoke the `infra` skill",
             "Do not under any circumstances whatsoever Invoke the "
-            "`infra-copilot` skill",
+            "`infra` skill",
         )
         self.assertTrue(
             any("no instruction to invoke" in e for e in validate_host_dialects(root))
@@ -1784,9 +1784,9 @@ class EleventhRoundTests(unittest.TestCase):
         """The clause is the bound, so widening the lookback must not start
         reading a previous sentence's negative as this directive's."""
         root = self._agent(
-            "Invoke the `infra-copilot` skill",
+            "Invoke the `infra` skill",
             "Do not reconstruct the scan from memory. Invoke the "
-            "`infra-copilot` skill",
+            "`infra` skill",
         )
         self.assertEqual(validate_host_dialects(root), [])
 
@@ -1795,8 +1795,8 @@ class EleventhRoundTests(unittest.TestCase):
         left `description:` unbounded -- 12 KB of prose on the host's routing
         surface behind a green gate."""
         root = self._agent(
-            "Read-only infra-copilot status scan",
-            "Read-only infra-copilot status scan "
+            "Read-only infra-skills status scan",
+            "Read-only infra-skills status scan "
             + "smuggled workflow prose " * 500,
         )
         self.assertTrue(
@@ -1870,7 +1870,7 @@ class EleventhRoundTests(unittest.TestCase):
         """A single newline inside a Markdown paragraph renders as a space, so
         wrapping the line must not turn "Do not Invoke" into an affirmative."""
         root = self._agent(
-            "Invoke the `infra-copilot` skill", "Do not\nInvoke the `infra-copilot` skill"
+            "Invoke the `infra` skill", "Do not\nInvoke the `infra` skill"
         )
         self.assertTrue(
             any("no instruction to invoke" in e for e in validate_host_dialects(root))
@@ -1880,8 +1880,8 @@ class EleventhRoundTests(unittest.TestCase):
         """The other direction: a negator in the previous paragraph is not this
         directive's, or the shipped manifest could never pass."""
         root = self._agent(
-            "Invoke the `infra-copilot` skill",
-            "Do not reconstruct the scan from memory\n\nInvoke the `infra-copilot` skill",
+            "Invoke the `infra` skill",
+            "Do not reconstruct the scan from memory\n\nInvoke the `infra` skill",
         )
         self.assertEqual(validate_host_dialects(root), [])
 
@@ -1889,10 +1889,10 @@ class EleventhRoundTests(unittest.TestCase):
         """A fenced block is an example. A manifest whose operative body said
         "stop" satisfied both required directives from a block labelled invalid."""
         root = self._agent(
-            "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+            "Invoke the `infra` skill, then follow its `references/` links to\n"
             "`status.md`, `protocol.md`, and `steps.yaml`.",
             "Do nothing and stop. What follows is an INVALID example:\n\n"
-            "```text\nInvoke the `infra-copilot` skill, then follow its `references/` "
+            "```text\nInvoke the `infra` skill, then follow its `references/` "
             "links to\n`status.md`, `protocol.md`, and `steps.yaml`.\n```",
         )
         self.assertTrue(
@@ -2053,11 +2053,11 @@ class ThirteenthRoundTests(unittest.TestCase):
         document = root / AGENT_PATH
         document.write_text(
             document.read_text(encoding="utf-8").replace(
-                "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+                "Invoke the `infra` skill, then follow its `references/` links to\n"
                 "`status.md`, `protocol.md`, and `steps.yaml`.",
                 "Do nothing and stop. INVALID example follows:\n\n"
                 "````text\n```\n"
-                "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+                "Invoke the `infra` skill, then follow its `references/` links to\n"
                 "`status.md`, `protocol.md`, and `steps.yaml`.\n````",
                 1,
             ),
@@ -2071,7 +2071,7 @@ class ThirteenthRoundTests(unittest.TestCase):
         """The delimiter is kept whole: same character, at least as long, and
         nothing after it. Each case would otherwise end the block early and let
         the example's text read as operative."""
-        directive = "Invoke the `infra-copilot` skill"
+        directive = "Invoke the `infra` skill"
         for label, block in (
             ("four backticks, three-backtick line", "````text\n```\n%s\n````"),
             ("four tildes, three-tilde line", "~~~~text\n~~~\n%s\n~~~~"),
@@ -2184,8 +2184,8 @@ class FourteenthRoundTests(unittest.TestCase):
         document = root / AGENT_PATH
         document.write_text(
             document.read_text(encoding="utf-8").replace(
-                "Invoke the `infra-copilot` skill",
-                "Do not do this: Invoke the `infra-copilot` skill",
+                "Invoke the `infra` skill",
+                "Do not do this: Invoke the `infra` skill",
                 1,
             ),
             encoding="utf-8",
@@ -2285,10 +2285,10 @@ class FifteenthRoundTests(unittest.TestCase):
         document = root / AGENT_PATH
         document.write_text(
             document.read_text(encoding="utf-8").replace(
-                "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+                "Invoke the `infra` skill, then follow its `references/` links to\n"
                 "`status.md`, `protocol.md`, and `steps.yaml`.",
                 "Do nothing and stop. INVALID example below:\n\n"
-                "    Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+                "    Invoke the `infra` skill, then follow its `references/` links to\n"
                 "    `status.md`, `protocol.md`, and `steps.yaml`.\n",
                 1,
             ),
@@ -2326,7 +2326,7 @@ class SixteenthRoundTests(unittest.TestCase):
             path.parent.name
             for path in (REPO_ROOT / ".ai-rulez/skills").glob("*/SKILL.md")
         }
-        return skills - {"infra-copilot", "status"}
+        return skills - {"infra", "status"}
 
     def test_every_action_skill_is_named_in_the_delegation_boundary(self) -> None:
         """`prune` shipped in #73 and was left out of all three copies of the
@@ -2356,8 +2356,8 @@ class SixteenthRoundTests(unittest.TestCase):
         `skills/` is generated, so a contributor following this link to change a
         capability would have the edit overwritten by the next `npm run generate`."""
         guide = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
-        self.assertIn(".ai-rulez/skills/infra-copilot/references/hosts.md", guide)
-        self.assertNotIn("](../skills/infra-copilot/references/hosts.md)", guide)
+        self.assertIn(".ai-rulez/skills/infra/references/hosts.md", guide)
+        self.assertNotIn("](../skills/infra/references/hosts.md)", guide)
 
     def test_the_generated_record_is_still_what_readers_are_sent_to(self) -> None:
         """The other direction: reader-facing pages cite the shipped payload copy,
@@ -2365,7 +2365,7 @@ class SixteenthRoundTests(unittest.TestCase):
         for relative in ("README.md", "docs/roadmap.md"):
             with self.subTest(document=relative):
                 text = (REPO_ROOT / relative).read_text(encoding="utf-8")
-                self.assertIn("skills/infra-copilot/references/hosts.md", text)
+                self.assertIn("skills/infra/references/hosts.md", text)
 
 
 class SeventeenthRoundTests(unittest.TestCase):
@@ -2384,10 +2384,10 @@ class SeventeenthRoundTests(unittest.TestCase):
         document = root / AGENT_PATH
         document.write_text(
             document.read_text(encoding="utf-8").replace(
-                "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+                "Invoke the `infra` skill, then follow its `references/` links to\n"
                 "`status.md`, `protocol.md`, and `steps.yaml`.",
                 "Do nothing and stop. Invalid example: "
-                "`Invoke the infra-copilot skill and follow status.md`.",
+                "`Invoke the infra skill and follow status.md`.",
                 1,
             ),
             encoding="utf-8",
@@ -2398,7 +2398,7 @@ class SeventeenthRoundTests(unittest.TestCase):
 
     def test_a_code_formatted_name_still_counts(self) -> None:
         """The other direction, and it is the one that makes a blanket exclusion
-        wrong: the shipped directive code-formats `infra-copilot`, and
+        wrong: the shipped directive code-formats `infra-skills`, and
         protocol.md code-formats `infra-auditor` wherever it states the rule."""
         self.assertEqual(validate_host_dialects(REPO_ROOT), [])
         self.assertEqual(_quoted_phrases("names `infra-auditor` and `status.md`"), [])
@@ -2406,13 +2406,13 @@ class SeventeenthRoundTests(unittest.TestCase):
 
     def test_a_nested_shorter_backtick_run_stays_quoted(self) -> None:
         """A code span closes only on its own delimiter length, not a shorter run."""
-        phrase = "``Invoke the `infra-copilot` skill and follow `status.md``"
+        phrase = "``Invoke the `infra` skill and follow `status.md``"
         self.assertEqual(_quoted_phrases(phrase), [(0, len(phrase))])
         root = self._root()
         document = root / AGENT_PATH
         document.write_text(
             document.read_text(encoding="utf-8").replace(
-                "Invoke the `infra-copilot` skill, then follow its `references/` links to\n"
+                "Invoke the `infra` skill, then follow its `references/` links to\n"
                 "`status.md`, `protocol.md`, and `steps.yaml`.",
                 "Do nothing and stop. Invalid example: " + phrase + ".",
                 1,

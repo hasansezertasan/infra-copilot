@@ -73,9 +73,9 @@ class SessionHookTests(unittest.TestCase):
                 if not (host_env or {}).get(unset):
                     env.pop(unset, None)
             if disabled:
-                env["INFRA_COPILOT_HOOK_DISABLE"] = "1"
+                env["INFRA_HOOK_DISABLE"] = "1"
             else:
-                env.pop("INFRA_COPILOT_HOOK_DISABLE", None)
+                env.pop("INFRA_HOOK_DISABLE", None)
             result = subprocess.run(
                 ["sh", str(HOOK)], cwd=root, env=env, capture_output=True, text=True
             )

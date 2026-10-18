@@ -17,8 +17,8 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-STEPS = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
-RUNBOOK = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/docs/hcp-prune.md"
+STEPS = REPO_ROOT / ".ai-rulez/skills/infra/references/steps.yaml"
+RUNBOOK = REPO_ROOT / ".ai-rulez/skills/infra/references/docs/hcp-prune.md"
 
 
 def step(step_id: str) -> str:
@@ -127,8 +127,8 @@ class PruneStepTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("generated_dns.tf", result.stdout + result.stderr)
         # Both readings are named, because the check cannot tell them apart.
-        self.assertIn("infra-copilot:prune", result.stderr)
-        self.assertIn("infra-copilot:import", result.stderr)
+        self.assertIn("infra-skills:infra-prune", result.stderr)
+        self.assertIn("infra-skills:infra-import", result.stderr)
 
     def test_red_for_a_json_leaf_too(self) -> None:
         """Phase 6 accepts `*.tf.json` as leaf configuration; so must this."""
@@ -629,7 +629,7 @@ class MigrateImportCheckTests(unittest.TestCase):
             workflow_directory.mkdir(parents=True)
             for workflow_name in ('terraform-plan.yml', 'terraform-apply.yml'):
                 (workflow_directory / workflow_name).write_text(
-                    (REPO_ROOT / '.ai-rulez/skills/infra-copilot/references/templates' / workflow_name).read_text(),
+                    (REPO_ROOT / '.ai-rulez/skills/infra/references/templates' / workflow_name).read_text(),
                     encoding='utf-8',
                 )
             env = {
@@ -646,7 +646,7 @@ class MigrateImportCheckTests(unittest.TestCase):
                 "CLOUDFLARE_BACKEND": "object-storage",
                 "LEAF_BACKENDS": "{}",
                 "ADDITIONAL_PROVIDER_NAMES": "[]",
-                "INFRA_COPILOT_REFERENCES": str(REPO_ROOT / '.ai-rulez/skills/infra-copilot/references'),
+                "INFRA_REFERENCES": str(REPO_ROOT / '.ai-rulez/skills/infra/references'),
                 "REPO": "o/r",
             }
             for cmd in (["git", "init", "-q"], ["git", "add", "-A"],

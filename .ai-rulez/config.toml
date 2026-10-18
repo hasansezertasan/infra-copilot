@@ -2,7 +2,7 @@
 # Edit files under .ai-rulez/, then run `npm run generate`.
 # Docs: https://github.com/Goldziher/ai-rulez
 version = "5.0"
-name = "infra-copilot"
+name = "infra-skills"
 # Generated files are committed; .gitignore is not touched.
 gitignore = false
 
@@ -35,7 +35,7 @@ AR014 = "off"
 # AR028: the same calls pass the token as an `-H "$H_AUTH"` header to
 # app.terraform.io, which the rule reads as a credential in the URL or body.
 AR028 = "off"
-# AR030: the infra-copilot hub is the runbook behind the destructive `prune` and
+# AR030: the infra hub is the runbook behind the destructive `prune` and
 # the network-bound checks; destroy is gated by human approval and the
 # destroy-guard helper, not by splitting the skill.
 AR030 = "off"
@@ -50,12 +50,12 @@ allowed_tools = ["Bash"]
 # The version is read from package.json, the one file release-please bumps;
 # it is the sole version source, so do not add a literal `version` here.
 [plugin]
-name = "infra-copilot"
+name = "infra-skills"
 version_from = "package.json"
-homepage = "https://github.com/hasansezertasan/infra-copilot"
+homepage = "https://github.com/hasansezertasan/infra-skills"
 license = "MIT"
 description = "Agent-first, human-in-the-loop workflows for infrastructure maintenance."
-repository = "https://github.com/hasansezertasan/infra-copilot"
+repository = "https://github.com/hasansezertasan/infra-skills"
 keywords = ["terraform", "infrastructure", "cloudflare", "github"]
 runtimes = ["claude", "codex", "pi"]
 category = "Development"
@@ -65,11 +65,11 @@ content_root = ".ai-rulez"
 name = "hasansezertasan"
 
 [plugin.interface]
-display_name = "infra-copilot"
+display_name = "infra-skills"
 short_description = "Agent-first, human-in-the-loop workflows for infrastructure maintenance."
 category = "Development"
 capabilities = ["Read", "Write"]
-default_prompt = ["Use infra-copilot to report the current infrastructure setup status."]
+default_prompt = ["Use infra-skills to report the current infrastructure setup status."]
 long_description = "Agent-first, human-in-the-loop workflows to bootstrap, audit and change infrastructure repositories, whatever the infrastructure is."
 developer_name = "hasansezertasan"
 
@@ -86,4 +86,4 @@ skills_dir = "skills"
 package_json = "merge"
 
 [marketplace]
-name = "infra-copilot"
+name = "infra-skills"

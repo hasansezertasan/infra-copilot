@@ -1,0 +1,377 @@
+# Terraform Plan workflow for object-storage backend mode
+# Copy to .github/workflows/terraform-plan.yml and customize for your setup
+# Copy terraform-destroy.cjs to .github/scripts/terraform-destroy.cjs too.
+name: Terraform Plan
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  TF_IN_AUTOMATION: true
+  TF_INPUT: false
+  # Set each literal to the resolved config.md backend (object-storage or hcp)
+  # in the same reviewed cutover PR; HCP leaves run only through HCP checks.
+  CLOUDFLARE_BACKEND: object-storage
+  GITHUB_BACKEND: object-storage
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      cloudflare: ${{ steps.route.outputs.cloudflare }}
+      github: ${{ steps.route.outputs.github }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            cloudflare:
+              - 'terraform/cloudflare/**'
+              - 'terraform/modules/**'
+              - 'mise.toml'
+              - 'mise.lock'
+              - '.infra-copilot/config.md'
+              - '.github/workflows/terraform-*.yml'
+              - '.github/scripts/terraform-destroy.cjs'
+            github:
+              - 'terraform/github/**'
+              - 'terraform/modules/**'
+              - 'mise.toml'
+              - 'mise.lock'
+              - '.infra-copilot/config.md'
+              - '.github/workflows/terraform-*.yml'
+              - '.github/scripts/terraform-destroy.cjs'
+
+      - name: Route object-storage leaves
+        id: route
+        env:
+          CLOUDFLARE_CHANGED: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.cloudflare }}
+          GITHUB_CHANGED: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.github }}
+        run: |
+          cloudflare=false
+          github=false
+          if [ "$CLOUDFLARE_BACKEND" = "object-storage" ] && [ "$CLOUDFLARE_CHANGED" = "true" ]; then
+            cloudflare=true
+          fi
+          if [ "$GITHUB_BACKEND" = "object-storage" ] && [ "$GITHUB_CHANGED" = "true" ]; then
+            github=true
+          fi
+          echo "cloudflare=$cloudflare" >> "$GITHUB_OUTPUT"
+          echo "github=$github" >> "$GITHUB_OUTPUT"
+
+  plan-cloudflare:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    needs: changes
+    if: needs.changes.outputs.cloudflare == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+
+      # Authenticate to cloud provider for state access
+      # Uncomment and configure for your backend:
+      #
+      # GCS:
+      # - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
+      #   with:
+      #     workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      #     service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      #
+      # S3:
+      # - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+      #   with:
+      #     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+      #     aws-region: us-east-1
+      #
+      # Azure:
+      # - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
+      #   with:
+      #     client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      #     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      #     subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init
+        working-directory: terraform/cloudflare
+        run: terraform init
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: terraform/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_READ }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN_READ }}
+        run: |
+          # The plan identity can read state but cannot create a lock.
+          set +e
+          terraform plan -lock=false -no-color -out=tfplan 2>&1 | tee plan.txt
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            terraform show -json tfplan | node "$GITHUB_WORKSPACE/.github/scripts/terraform-destroy.cjs" > destroys.json
+          fi
+
+      - name: Summarize Destructive Changes
+        id: inventory
+        if: steps.plan.outputs.exitcode == '0' && steps.plan.outcome == 'success'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { summaryWarning } = require('./.github/scripts/terraform-destroy.cjs');
+            const changes = JSON.parse(fs.readFileSync('terraform/cloudflare/destroys.json', 'utf8'));
+            const notice = summaryWarning(changes);
+            if (notice) await core.summary.addRaw(notice).write();
+
+      - name: Post Plan to PR
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        if: always() && github.event_name == 'pull_request'
+        env:
+          EXITCODE: ${{ steps.plan.outputs.exitcode }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          INVENTORY_OUTCOME: ${{ steps.inventory.outcome }}
+        with:
+          script: |
+            const { data: pull } = await github.rest.pulls.get({
+              ...context.repo,
+              pull_number: context.issue.number
+            });
+            if (pull.head.sha !== context.payload.pull_request.head.sha) {
+              core.notice('Skipping plan comment for an outdated PR head.');
+              return;
+            }
+            const fs = require('fs');
+            let plan = fs.existsSync('terraform/cloudflare/plan.txt')
+              ? fs.readFileSync('terraform/cloudflare/plan.txt', 'utf8') : 'Terraform plan did not complete; see run logs.';
+            const marker = '<!-- infra-skills-plan:cloudflare -->';
+            const { commentBody } = require('./.github/scripts/terraform-destroy.cjs');
+            const failed = process.env.EXITCODE !== '0' || process.env.PLAN_OUTCOME !== 'success' || process.env.INVENTORY_OUTCOME !== 'success';
+            if (failed) plan = 'Plan or destructive inspection failed; see run logs.\n\n' + plan;
+            const changes = failed ? [] : JSON.parse(fs.readFileSync('terraform/cloudflare/destroys.json', 'utf8'));
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = commentBody({ marker, leaf: 'cloudflare', head: context.payload.pull_request.head.sha,
+              sha: context.sha, run, plan, changes, failed });
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...context.repo,
+              issue_number: context.issue.number,
+              per_page: 100
+            });
+            const previous = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker));
+            const args = { ...context.repo, body };
+            if (previous) {
+              await github.rest.issues.updateComment({ ...args, comment_id: previous.id });
+            } else {
+              await github.rest.issues.createComment({ ...args, issue_number: context.issue.number });
+            }
+
+      - name: Check Plan Status
+        if: steps.plan.outputs.exitcode != '0'
+        run: exit 1
+
+  plan-github:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    needs: changes
+    if: needs.changes.outputs.github == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+
+      # Authenticate to cloud provider for state access
+      # IMPORTANT: Auth is job-scoped - each job needs its own auth step
+      # Uncomment and configure for your backend:
+      #
+      # GCS:
+      # - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
+      #   with:
+      #     workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      #     service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      #
+      # S3:
+      # - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+      #   with:
+      #     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+      #     aws-region: us-east-1
+      #
+      # Azure:
+      # - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
+      #   with:
+      #     client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      #     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      #     subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init
+        working-directory: terraform/github
+        run: terraform init
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: terraform/github
+        env:
+          GITHUB_APP_ID: ${{ secrets.GH_APP_READ_ID }}
+          GITHUB_APP_INSTALLATION_ID: ${{ secrets.GH_APP_READ_INSTALLATION_ID }}
+          GITHUB_APP_PEM_FILE: ${{ secrets.GH_APP_READ_PEM }}
+          TF_VAR_github_app_id: ${{ secrets.GH_APP_READ_ID }}
+          TF_VAR_github_app_installation_id: ${{ secrets.GH_APP_READ_INSTALLATION_ID }}
+          TF_VAR_github_app_pem: ${{ secrets.GH_APP_READ_PEM }}
+          TF_VAR_github_owner: ${{ vars.TF_GITHUB_OWNER || github.repository_owner }}
+        run: |
+          # Read-only Apps cannot read merge settings or ruleset bypass actors accurately.
+          # Compare config to last-applied state; merge-time apply still refreshes live drift.
+          set +e
+          terraform plan -lock=false -refresh=false -no-color -out=tfplan 2>&1 | tee plan.txt
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            terraform show -json tfplan | node "$GITHUB_WORKSPACE/.github/scripts/terraform-destroy.cjs" > destroys.json
+          fi
+
+      - name: Summarize Destructive Changes
+        id: inventory
+        if: steps.plan.outputs.exitcode == '0' && steps.plan.outcome == 'success'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { summaryWarning } = require('./.github/scripts/terraform-destroy.cjs');
+            const changes = JSON.parse(fs.readFileSync('terraform/github/destroys.json', 'utf8'));
+            const notice = summaryWarning(changes);
+            if (notice) await core.summary.addRaw(notice).write();
+
+      - name: Post Plan to PR
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        if: always() && github.event_name == 'pull_request'
+        env:
+          EXITCODE: ${{ steps.plan.outputs.exitcode }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          INVENTORY_OUTCOME: ${{ steps.inventory.outcome }}
+        with:
+          script: |
+            const { data: pull } = await github.rest.pulls.get({
+              ...context.repo,
+              pull_number: context.issue.number
+            });
+            if (pull.head.sha !== context.payload.pull_request.head.sha) {
+              core.notice('Skipping plan comment for an outdated PR head.');
+              return;
+            }
+            const fs = require('fs');
+            let plan = fs.existsSync('terraform/github/plan.txt')
+              ? fs.readFileSync('terraform/github/plan.txt', 'utf8') : 'Terraform plan did not complete; see run logs.';
+            const marker = '<!-- infra-skills-plan:github -->';
+            const { commentBody } = require('./.github/scripts/terraform-destroy.cjs');
+            const failed = process.env.EXITCODE !== '0' || process.env.PLAN_OUTCOME !== 'success' || process.env.INVENTORY_OUTCOME !== 'success';
+            if (failed) plan = 'Plan or destructive inspection failed; see run logs.\n\n' + plan;
+            const changes = failed ? [] : JSON.parse(fs.readFileSync('terraform/github/destroys.json', 'utf8'));
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = commentBody({ marker, leaf: 'github', head: context.payload.pull_request.head.sha,
+              sha: context.sha, run, plan, changes, failed });
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...context.repo,
+              issue_number: context.issue.number,
+              per_page: 100
+            });
+            const previous = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker));
+            const args = { ...context.repo, body };
+            if (previous) {
+              await github.rest.issues.updateComment({ ...args, comment_id: previous.id });
+            } else {
+              await github.rest.issues.createComment({ ...args, issue_number: context.issue.number });
+            }
+
+      - name: Check Plan Status
+        if: steps.plan.outputs.exitcode != '0'
+        run: exit 1
+
+  # Validation jobs run for all PRs including forks (no secrets needed)
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        leaf: [cloudflare, github]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+
+      - name: Terraform Format
+        run: terraform fmt -check -recursive terraform/
+
+      - name: Terraform Init (no backend)
+        working-directory: terraform/${{ matrix.leaf }}
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        working-directory: terraform/${{ matrix.leaf }}
+        run: terraform validate
+
+  # Aggregate status check for branch protection
+  plan:
+    needs: [changes, plan-cloudflare, plan-github, validate]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate prerequisite job statuses
+        env:
+          CLOUDFLARE_CHANGED: ${{ needs.changes.outputs.cloudflare }}
+          GITHUB_CHANGED: ${{ needs.changes.outputs.github }}
+        run: |
+          # Check for failures and cancellations
+          failures=$(echo '${{ toJson(needs) }}' | jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key')
+          if [ -n "$failures" ]; then
+            echo "Prerequisite job(s) failed or cancelled: $failures"
+            exit 1
+          fi
+          # Filtered outputs require plans only for changed object-storage leaves.
+          # HCP-only changes are covered by HCP checks, not these Actions jobs.
+          plan_cloudflare_result=$(echo '${{ toJson(needs) }}' | jq -r '.["plan-cloudflare"].result // "skipped"')
+          plan_github_result=$(echo '${{ toJson(needs) }}' | jq -r '.["plan-github"].result // "skipped"')
+          if [ "$CLOUDFLARE_CHANGED" = "true" ] && [ "$plan_cloudflare_result" != "success" ]; then
+            echo "Error: terraform/cloudflare changed but plan-cloudflare did not succeed (result: $plan_cloudflare_result)"
+            echo "The leaf plan did not succeed. Check its logs for init, authentication, or plan errors; fork PRs cannot run authenticated plans."
+            exit 1
+          fi
+          if [ "$GITHUB_CHANGED" = "true" ] && [ "$plan_github_result" != "success" ]; then
+            echo "Error: terraform/github changed but plan-github did not succeed (result: $plan_github_result)"
+            echo "The leaf plan did not succeed. Check its logs for init, authentication, or plan errors; fork PRs cannot run authenticated plans."
+            exit 1
+          fi
+          # IMPORTANT: When adopting additional providers, add similar checks here:
+          # 1. Add the provider to changes job outputs
+          # 2. Add the provider to this job's env block
+          # 3. Add a success check similar to cloudflare/github above
+          # Example for a "gcp" provider:
+          #   if [ "$GCP_CHANGED" = "true" ] && [ "$plan_gcp_result" != "success" ]; then
+          #     echo "Error: terraform/gcp changed but plan-gcp did not succeed"
+          #     exit 1
+          #   fi
+          echo "All plan and validation checks passed."

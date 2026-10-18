@@ -11,7 +11,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-REFERENCES = Path(__file__).resolve().parents[1] / '.ai-rulez/skills/infra-copilot/references'
+REFERENCES = Path(__file__).resolve().parents[1] / '.ai-rulez/skills/infra/references'
 
 
 @unittest.skipUnless(os.name == 'posix', 'state guard requires POSIX shell')
@@ -153,13 +153,13 @@ class PlanCommentTests(unittest.TestCase):
                 harness = '''
 const assert = require('node:assert/strict');
 const leaf = LEAF;
-const marker = `<!-- infra-copilot-plan:${leaf} -->`;
+const marker = `<!-- infra-skills-plan:${leaf} -->`;
 const context = { repo: { owner: 'owner', repo: 'infra' }, issue: { number: 107 }, sha: 'planned-merge',
   payload: { pull_request: { head: { sha: 'current-head' } } } };
 const core = { notice: () => {} };
 const comments = [
   { id: 1, body: `${marker}\\nspoof`, user: { login: 'contributor' } },
-  { id: 2, body: '<!-- infra-copilot-plan:other -->', user: { login: 'github-actions[bot]' } },
+  { id: 2, body: '<!-- infra-skills-plan:other -->', user: { login: 'github-actions[bot]' } },
   { id: 3, body: null, user: { login: 'github-actions[bot]' } }
 ];
 let calls = [];

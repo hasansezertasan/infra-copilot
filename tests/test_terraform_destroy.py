@@ -24,7 +24,7 @@ class DestructiveApplyTests(unittest.TestCase):
 @unittest.skipUnless(os.name == 'posix', 'label resume check requires POSIX shell')
 class DestructiveLabelTests(unittest.TestCase):
     def test_label_and_locked_decision_are_both_required(self) -> None:
-        manifest = (ROOT / '.ai-rulez/skills/infra-copilot/references/steps.yaml').read_text()
+        manifest = (ROOT / '.ai-rulez/skills/infra/references/steps.yaml').read_text()
         body = manifest.split('  - id: gha-destroy-label\n', 1)[1].split('\n  - id:', 1)[0]
         match = re.search(r'^    check: \|\n((?:      .*\n|\n)+)', body, re.M)
         script = textwrap.dedent(match.group(1))

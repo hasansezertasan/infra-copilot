@@ -1,0 +1,44 @@
+# infra-skills decisions
+
+Durable provider, authentication, state, and safety choices for this consuming repository.
+Copy this file to `.infra-copilot/decisions.md`, replace the example rows, and commit it.
+Keep the two `infra-copilot:customization` comments around the table: a re-scaffold
+preserves everything between them verbatim, and stops rather than guessing if they are
+missing or unbalanced.
+
+<!-- infra-copilot:customization start -->
+
+| Decision | Choice | Status | Rationale |
+|---|---|---|---|
+| Terraform backend | HCP Terraform | locked | Managed remote state and locking |
+| Toolchain | Exact pins in `mise.toml` + committed `mise.lock` | locked | Same versions locally, in CI (see [`docs/ci.md`](docs/ci.md#toolchain-in-ci)), and for Terraform in HCP; installs use locked metadata |
+
+<!-- infra-copilot:customization end -->
+
+Adopting a provider adds two locked rows inside the table above: `Provider: <name>` with
+choice `adopt`, and `<name> authentication` naming the credential mechanism, so a
+long-lived key is never the unexamined default. The Phase 6 decision check requires
+both. For GCP (see `references/gcp.md`) that is a
+`Provider: gcp` / `adopt` / `locked` row plus a `GCP authentication` /
+`Workload Identity Federation` / `locked` row whose rationale names the HCP organization
+and workspace the trust is scoped to.
+
+Object-storage repositories that cannot use GitHub Environment required reviewers (private
+repositories outside GitHub Enterprise) lock an `Apply gate` row whose choice is
+`merge-approval` or `dispatch`; the `gha-environments` check reads it. See
+`references/docs/object-storage-ci.md#github-environments`.
+
+Object-storage setup also locks a `Destructive apply` row with choice `allow-destroy`.
+Its rationale must explain that the label is intent, not authorization, and opts into
+every delete in the refreshed saved plan, including drift. The producing merged PR must
+match the exact commit; older PR labels do not carry forward.
+
+Statuses:
+
+- `proposed` — under discussion; workflows must not assume it.
+- `locked` — authoritative until explicitly superseded.
+- `superseded` — retained for history; link or name the replacement decision.
+
+Do not put secrets, tokens, private keys, or credentials in this file. If migrating from a
+legacy `CLAUDE.md` locked-decisions table, preserve the choices and rationale, then remove
+the duplicated legacy table.

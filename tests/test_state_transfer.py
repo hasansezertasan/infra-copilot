@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-REFERENCES = Path(__file__).resolve().parents[1] / '.ai-rulez/skills/infra-copilot/references'
+REFERENCES = Path(__file__).resolve().parents[1] / '.ai-rulez/skills/infra/references'
 
 
 @unittest.skipUnless(os.name == 'posix' and shutil.which('jq'), 'POSIX shell and jq required')

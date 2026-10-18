@@ -15,13 +15,13 @@ mkdir "$tmp/repo"
 tar --exclude node_modules -cf - . | tar -xf - -C "$tmp/repo"
 rm -rf "$tmp/repo/.agents/skills" "$tmp/repo/skills-lock.json"
 cd "$tmp/repo"
-closure=$(python3 scripts/validate.py --closure status)
+closure=$(python3 scripts/validate.py --closure infra-status)
 # shellcheck disable=SC2086 # the closure is a list of arguments, split on purpose
 skills add . --agent opencode $closure -y --copy
 installed=$(find .agents/skills -name SKILL.md -exec dirname {} \; | xargs -n1 basename | sort | tr '\n' ' ')
-if [ "$installed" != "infra-copilot status " ]; then
-  echo "smoke-closure: $closure installed '$installed', expected 'infra-copilot status '" >&2
+if [ "$installed" != "infra infra-status " ]; then
+  echo "smoke-closure: $closure installed '$installed', expected 'infra infra-status '" >&2
   exit 1
 fi
-test -f .agents/skills/infra-copilot/references/protocol.md
+test -f .agents/skills/infra/references/protocol.md
 echo "smoke-closure: $closure resolves to $installed"
