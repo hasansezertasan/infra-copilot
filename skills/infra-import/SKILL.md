@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9692ce099225d41343d347abde498327541089c4a2fc5c12f6323ddca32b32d4
-Source-Hash: blake3:86b0b32bc3ae5a04473d61c44690e1fc745e6e3667ccba75207f90e72416fd5e
+Content-Hash: blake3:6255e8775f0b275ae074d7c0c1485ee533a9ca34fa668683f85b02e1bbbd5022
+Source-Hash: blake3:533ee191f27317c1f801c38b67c672ff157de8d0a2df9e23de6271b3bad98418
 Schema-Version: v1
 -->
 
@@ -31,8 +31,9 @@ preflight — lives in [`../infra/references/protocol.md`](../infra/references/p
 ## Guardrails
 
 `infra-skills:infra-setup` phases 0–4 are green: the target leaf's execution, credential
-storage and first plan are proven. Otherwise run `setup` first. A repo that pre-dates the
-Template has no answers file, so adopt the Template first (`template-adopt` below). Obtain plans through
+storage and first plan are proven. Otherwise run `setup` first. The exception is the
+Template itself: a repo that pre-dates it cannot have run setup, so `template-adopt` (below)
+comes first. Obtain plans through
 [get-plan](../infra/references/operations.md#get-plan), and verify adoption through
 [import-resources](../infra/references/operations.md#import-resources).
 
@@ -83,8 +84,9 @@ this import applies.
 1. **Adopt the Template, then read config** (shared protocol, Step 0). On a repo with
    no answers file and no Config block, run `template-adopt` first. Then read config and
    export the org vars — [`../infra/references/config.md`](../infra/references/config.md).
-2. **Resume scan** over `template-adopt`, `migrate-discovery-token` and `migrate-import` in
-   [`../infra/references/steps.yaml`](../infra/references/steps.yaml) — **those three steps only**, not all of
+2. **Resume scan** over `template-adopt`, `template-contract`, `migrate-discovery-token` and
+   `migrate-import` in
+   [`../infra/references/steps.yaml`](../infra/references/steps.yaml) — **those four steps only**, not all of
    phase 5. `prune-spent-imports` is red for the whole of a correct import and belongs to
    another skill; scanning it here would make the shared protocol resume at it and run the
    prune procedure before this apply has landed. The

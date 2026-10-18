@@ -24,8 +24,9 @@ preflight — lives in [`../infra/references/protocol.md`](../infra/references/p
 ## Guardrails
 
 `infra-skills:infra-setup` phases 0–4 are green: the target leaf's execution, credential
-storage and first plan are proven. Otherwise run `setup` first. A repo that pre-dates the
-Template has no answers file, so adopt the Template first (`template-adopt` below). Obtain plans through
+storage and first plan are proven. Otherwise run `setup` first. The exception is the
+Template itself: a repo that pre-dates it cannot have run setup, so `template-adopt` (below)
+comes first. Obtain plans through
 [get-plan](../infra/references/operations.md#get-plan), and verify adoption through
 [import-resources](../infra/references/operations.md#import-resources).
 
@@ -76,8 +77,9 @@ this import applies.
 1. **Adopt the Template, then read config** (shared protocol, Step 0). On a repo with
    no answers file and no Config block, run `template-adopt` first. Then read config and
    export the org vars — [`../infra/references/config.md`](../infra/references/config.md).
-2. **Resume scan** over `template-adopt`, `migrate-discovery-token` and `migrate-import` in
-   [`../infra/references/steps.yaml`](../infra/references/steps.yaml) — **those three steps only**, not all of
+2. **Resume scan** over `template-adopt`, `template-contract`, `migrate-discovery-token` and
+   `migrate-import` in
+   [`../infra/references/steps.yaml`](../infra/references/steps.yaml) — **those four steps only**, not all of
    phase 5. `prune-spent-imports` is red for the whole of a correct import and belongs to
    another skill; scanning it here would make the shared protocol resume at it and run the
    prune procedure before this apply has landed. The

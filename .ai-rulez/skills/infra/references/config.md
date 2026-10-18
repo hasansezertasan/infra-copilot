@@ -280,7 +280,8 @@ Before running ANY step's `check` or `run`, the agent MUST:
 2. Read `README.md` from the current repo (CWD) and extract the fenced YAML between
    `<!-- infra:config start -->` and `<!-- infra:config end -->`.
 3. If the README or that block is **missing**, treat this as a `HUMAN` step: emit the
-   handoff block, print this schema, and wait. Never guess values. Rendering the block
+   handoff block, print this schema, and wait. The one exception is `infra-import`, which
+   runs `template-adopt` first and reads config afterwards. Never guess values. Rendering the block
    belongs to the Template, so point the user at it rather than hand-writing the README.
    If the block is **present**, edits to it must respect the customization markers, see
    [Editing the Config block](#editing-the-config-block).
@@ -456,8 +457,10 @@ anywhere else.
 
 A repo that still has `.infra-copilot/` or `.claude/infra-copilot.local.md` predates the
 README Config block. Both are unsupported and there is no migration code. When either
-exists, every skill reports that and stops before preflight, any `when` evaluation, check
-or run:
+exists, every skill, `infra-import` included, reports that and stops before preflight, any
+`when` evaluation, check or run. The human moves the values and deletes the path, then the
+skill restarts; a repo made from the old `infra-template` GitHub template reaches
+`template-adopt` that way:
 
 ```text
 ┌─ HUMAN ACTION NEEDED ─────────────────────────────

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:0a627c48c104c5c1ebf5fdcbe60f57462b03b70e38deb17efa17cbee5415bda8
-Source-Hash: blake3:86b0b32bc3ae5a04473d61c44690e1fc745e6e3667ccba75207f90e72416fd5e
+Content-Hash: blake3:37d9aff2035451a9e2a3a9ccde888111c9af3344b53d61e7100a11c7c1655d0a
+Source-Hash: blake3:533ee191f27317c1f801c38b67c672ff157de8d0a2df9e23de6271b3bad98418
 Schema-Version: v1
 -->
 
@@ -21,12 +21,14 @@ adopts the Template before any import (the `template-adopt` step), so the Config
 and a later `copier update` has an answers file to merge from. A human reviews every
 conflicting file; nothing the repo already has is overwritten silently.
 
-1. **Old template first.** A `.infra-copilot/` directory or `.claude/infra-copilot.local.md`
-   is the old state layout and is unsupported. Copy its identifiers (orgs, apex domain, account
-   and zone IDs, managed repos) somewhere you can read them, delete it in its own reviewed
-   commit, and restart. Its values become the answers below.
+1. **Legacy state first.** A repo made from `infra-template` may carry `.infra-copilot/` or
+   `.claude/infra-copilot.local.md`. Those are unsupported and the skill stops before this
+   step, without reading them ([config.md](../config.md#unsupported-legacy-state)). You move
+   the values you want to keep (orgs, apex domain, account and zone IDs, managed repos) out of
+   it yourself, delete it in its own reviewed commit and restart. Those values are the answers
+   to the Template's questions below.
 2. **Render into a scratch directory, never into the repo.** Use the pinned Copier, at the
-   Template's newest release tag, with the answers from step 1:
+   Template's newest release tag, with those answers:
 
    ```sh
    uv run --no-project --with-requirements "$INFRA_REFERENCES/copier-requirements.txt" \
@@ -36,20 +38,37 @@ conflicting file; nothing the repo already has is overwritten silently.
 
    `copier copy` straight into the repo is the wrong move. With no terminal it stops at the
    first conflicting file, after writing the files before it and before writing the answers
-   file; with `--overwrite` it replaces the human's files. Both leave the repo half-adopted.
+   file; with `--overwrite` it replaces your files. Both leave the repo half-adopted.
 3. **Reconcile** the scratch render into the repo, file by file. Absent in the repo: copy it.
    Identical: skip it. Different: show the human the diff and take their choice, as a
-   conflict. `README.md` always differs; take the Template's Config block and Decisions
-   table and keep the human's prose around them.
+   conflict. `README.md` is always a conflict: show the human the diff before writing it,
+   take the Template's Config block and Decisions table, and keep their prose around them.
 4. **Copy `.copier-answers.yml` last** and read its `_src_path`: it must be
    `gh:hasansezertasan/copier-infra`. A local checkout used as the source records its own
-   path, which `template-contract` rejects. Commit the adoption, then check that the recorded
-   `_commit` is a release tag at or above the minimum (the Template contract).
-5. **Plan before importing.** Adoption can change `terraform/` files the human accepted from
+   path, which `template-contract` rejects. Commit the adoption.
+5. **Check the contract.** Run `template-contract`: the recorded `_commit` must be a release
+   tag at or above the minimum. An older tag proposes `copier update`.
+6. **Plan before importing.** Adoption can change `terraform/` files the human accepted from
    the Template. Obtain a plan; the resource import below runs exactly as before.
 
 Later, `copier update` three-way merges against the recorded `_commit`, so every file the
 human kept differently shows as their change rather than being overwritten.
+
+### Fixture run (2026-10-19)
+
+Exercised once on a fixture repo (a hand-written `README.md`, `mise.toml` and
+`terraform/cloudflare/versions.tf`, no answers file) with Copier 9.19.1 and Template `v0.1.0`:
+
+- A direct `copier copy` into the fixture, with no terminal, stopped at the conflicting
+  `versions.tf` with "Interactive session required". It had already written
+  `backend.tf` and `main.tf`, left the answers file unwritten and exited 0.
+- Rendering into a scratch directory from `gh:hasansezertasan/copier-infra` recorded
+  `_src_path: gh:hasansezertasan/copier-infra` and `_commit: v0.1.0`. The same render from a
+  local checkout recorded the local path instead, which `template-contract` rejects.
+- Reconciling gave three conflicts: `README.md`, `mise.toml` and `versions.tf`. Taking the
+  Template's `README.md` Config block and `versions.tf` and keeping the human's `mise.toml`,
+  then committing, turned `template-adopt` and `template-contract` green.
+- `copier update` then ran on the adopted repo and kept `v0.1.0`.
 
 ## Discovery token
 

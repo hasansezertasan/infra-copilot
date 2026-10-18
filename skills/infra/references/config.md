@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:901095e370b99fd5ff756ba1f9b38e995cfc31458e68fa8a3338ad9c9a4216fa
-Source-Hash: blake3:86b0b32bc3ae5a04473d61c44690e1fc745e6e3667ccba75207f90e72416fd5e
+Content-Hash: blake3:3e9f716e1682ef1857f3f239ebca66e74d35375077ade995c92bd8fcdfd09389
+Source-Hash: blake3:533ee191f27317c1f801c38b67c672ff157de8d0a2df9e23de6271b3bad98418
 Schema-Version: v1
 -->
 
@@ -287,7 +287,8 @@ Before running ANY step's `check` or `run`, the agent MUST:
 2. Read `README.md` from the current repo (CWD) and extract the fenced YAML between
    `<!-- infra:config start -->` and `<!-- infra:config end -->`.
 3. If the README or that block is **missing**, treat this as a `HUMAN` step: emit the
-   handoff block, print this schema, and wait. Never guess values. Rendering the block
+   handoff block, print this schema, and wait. The one exception is `infra-import`, which
+   runs `template-adopt` first and reads config afterwards. Never guess values. Rendering the block
    belongs to the Template, so point the user at it rather than hand-writing the README.
    If the block is **present**, edits to it must respect the customization markers, see
    [Editing the Config block](#editing-the-config-block).
@@ -463,8 +464,10 @@ anywhere else.
 
 A repo that still has `.infra-copilot/` or `.claude/infra-copilot.local.md` predates the
 README Config block. Both are unsupported and there is no migration code. When either
-exists, every skill reports that and stops before preflight, any `when` evaluation, check
-or run:
+exists, every skill, `infra-import` included, reports that and stops before preflight, any
+`when` evaluation, check or run. The human moves the values and deletes the path, then the
+skill restarts; a repo made from the old `infra-template` GitHub template reaches
+`template-adopt` that way:
 
 ```text
 ┌─ HUMAN ACTION NEEDED ─────────────────────────────

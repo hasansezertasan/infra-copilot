@@ -54,27 +54,32 @@ class AdoptStepManifestTests(unittest.TestCase):
         self.assertEqual(folded_check(self.body), folded_check(step('template-render')))
 
     def test_it_never_renders_into_the_repo_or_overwrites(self) -> None:
-        self.assertIn('Never run `copier copy` into the repo itself', self.flat)
+        self.assertIn('never `copier copy` into the repo itself', self.flat)
         self.assertIn('scratch directory', self.flat)
-        self.assertIn('never overwrite on your own', self.flat)
+        self.assertIn('never overwriting on your own', self.flat)
         self.assertIn('docs/import.md#adopt-the-template-first', self.body)
 
     def test_the_import_skill_scans_it_first(self) -> None:
         skill = re.sub(r'\s+', ' ', IMPORT_SKILL.read_text(encoding='utf-8'))
-        self.assertIn('`template-adopt`, `migrate-discovery-token` and `migrate-import`', skill)
-        self.assertIn('those three steps only', skill)
+        self.assertIn('`template-adopt`, `template-contract`, `migrate-discovery-token` and `migrate-import`', skill)
+        self.assertIn('those four steps only', skill)
 
     def test_the_runbook_covers_the_old_template_and_the_copy_trap(self) -> None:
         doc = re.sub(r'\s+', ' ', IMPORT_DOC.read_text(encoding='utf-8'))
         self.assertIn('## Adopt the Template first', doc)
         self.assertIn('`infra-template` GitHub template', doc)
         self.assertIn('`.infra-copilot/`', doc)
+        self.assertIn('### Fixture run', doc)
         self.assertIn('`copier copy` straight into the repo is the wrong move', doc)
         self.assertIn('`gh:hasansezertasan/copier-infra`', doc)
 
 
 @unittest.skipUnless(os.name == 'posix' and shutil.which('sh'), 'POSIX shell required')
 class AdoptCheckTests(unittest.TestCase):
+    ANSWERS = '_commit: v0.1.0\n_src_path: gh:hasansezertasan/copier-infra\nbackend: hcp\n'
+    README = ('# my infra\n\nhand written\n\n<!-- infra:config start -->\n```yaml\n```\n'
+              '<!-- infra:config end -->\n')
+
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -104,10 +109,6 @@ class AdoptCheckTests(unittest.TestCase):
             self.git('add', '-A')
             self.git('commit', '-q', '-m', 'adopt')
 
-    ANSWERS = '_commit: v0.1.0\n_src_path: gh:hasansezertasan/copier-infra\nbackend: hcp\n'
-    README = ('# my infra\n\nhand written\n\n<!-- infra:config start -->\n```yaml\n```\n'
-              '<!-- infra:config end -->\n')
-
     def test_a_repo_that_predates_the_template_is_red(self) -> None:
         self.assertNotEqual(self.run_check(), 0)
 
@@ -120,7 +121,7 @@ class AdoptCheckTests(unittest.TestCase):
         self.assertNotEqual(self.run_check(), 0)
 
     def test_answers_from_a_scratch_path_are_red(self) -> None:
-        self.adopt(answers=self.ANSWERS.replace('gh:hasansezertasan/copier-infra', '/tmp/scratch'),
+        self.adopt(answers=self.ANSWERS.replace('gh:hasansezertasan/copier-infra', '/scratch/render'),
                    readme=self.README)
         self.assertNotEqual(self.run_check(), 0)
 

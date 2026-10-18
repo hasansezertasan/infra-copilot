@@ -31,8 +31,7 @@ Before any resume scan, check for a legacy `.infra-copilot/` directory or
 `.claude/infra-copilot.local.md`. If either exists, report it as unsupported and stop; do not
 read, copy or migrate it. For `infra-setup` on a directory with neither a `.copier-answers.yml` nor a README Config
 block, render the Template first (`template-render` in [`steps.yaml`](steps.yaml)).
-`infra-import` adopts it instead (`template-adopt`), reconciling the human's existing files;
-every other skill stops and hands off. Run `template-contract` before trusting a
+`infra-import` adopts it instead (`template-adopt`); every other skill stops and hands off. Run `template-contract` before trusting a
 rendered repo: an older Template tag proposes `copier update`, and a bare commit hands off.
 Then read the Config block from the current repo's root
 `README.md`, the fenced YAML between `<!-- infra:config start -->` and
@@ -205,8 +204,7 @@ run created after the entire recorded UTC second and the workspace's latest `upd
 so a prior workspace run cannot prove the new least-privilege credential or reconciled
 execution settings work.
 
-`infra-import` on a repo with no answers file adopts the Template (`template-adopt`) before
-its own steps. `infra-setup` renders the Template (`template-render`, then `template-contract`) before
+`infra-setup` renders the Template (`template-render`, then `template-contract`) before
 anything else, with `INFRA_REFERENCES` exported and no config read. After that it has one
 cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the

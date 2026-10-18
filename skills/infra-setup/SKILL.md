@@ -7,7 +7,7 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:854ea255a631908d22952af72449efb33fdba6da2d7f973bb9dcb2591ea8ec28
-Source-Hash: blake3:86b0b32bc3ae5a04473d61c44690e1fc745e6e3667ccba75207f90e72416fd5e
+Source-Hash: blake3:533ee191f27317c1f801c38b67c672ff157de8d0a2df9e23de6271b3bad98418
 Schema-Version: v1
 -->
 
