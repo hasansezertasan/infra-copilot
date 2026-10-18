@@ -95,8 +95,8 @@ apply_events=$(section "$apply" on)
 dispatch_gate=false
 if awk -F '|' '
   function clean(v) { gsub(/^[[:space:]`]+|[[:space:]`]+$/, "", v); return tolower(v) }
-  /^<!-- infra:decisions start -->$/ { if (in_table || ++starts > 1) bad=1; in_table=1; next }
-  /^<!-- infra:decisions end -->$/ { if (!in_table || ++ends > 1) bad=1; in_table=0; next }
+  /^<!-- infra:decisions start -->[[:space:]]*$/ { if (in_table || ++starts > 1) bad=1; in_table=1; next }
+  /^<!-- infra:decisions end -->[[:space:]]*$/ { if (!in_table || ++ends > 1) bad=1; in_table=0; next }
   !in_table { next }
   clean($2) == "apply gate" && clean($3) == "dispatch" && clean($4) == "locked" {found=1}
   END {exit !(found && !bad && !in_table && starts == 1 && ends == 1)}

@@ -118,6 +118,12 @@ class ApplyGateTests(unittest.TestCase):
                 self.decide(row)
                 self.assertEqual(self.check().returncode, 1)
 
+    def test_crlf_line_endings_do_not_hide_a_locked_gate(self) -> None:
+        text = render(decisions='| Apply gate | merge-approval | locked | x |\n')
+        (self.root / 'README.md').write_bytes(text.replace('\n', '\r\n').encode())
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_a_row_outside_a_closed_decisions_section_does_not_count(self) -> None:
         """An unclosed, duplicated or stray-ended section is not a bounded table."""
         row = '| Apply gate | merge-approval | locked | x |\n'
