@@ -21,7 +21,7 @@ uv run --no-project --with-requirements "$INFRA_REFERENCES/copier-requirements.t
 
 A repository that already carries the committed answers file and the README Config block
 resumes instead of being re-scaffolded. Files the Template owns are never edited by hand
-afterwards; change answers with `copier update` from the repo root on a clean tree and
+afterwards; change answers with the same `uv run ... copier update` command from the repo root on a clean tree and
 review the diff. The recorded `_commit` must be a release tag at or above the minimum in
 [`../checks/template-contract.sh`](../checks/template-contract.sh) (the Template
 contract). An older tag proposes `copier update`; a bare commit hash cannot be compared,

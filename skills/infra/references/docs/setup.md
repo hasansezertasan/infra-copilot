@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:49a5f676928e95072857e55d5c9241e7cd5650b2ea23c9f33c8bc8ef332c8e10
-Source-Hash: blake3:ec321f90c37e424ead881283bf43e328ca0f817f7f198c94ce4b179b8b2fd1cf
+Content-Hash: blake3:27b903b1a01e909704e9872751b1fcde14bcb09579142af69a29d385319f9ea7
+Source-Hash: blake3:884a733938e02e72028d41884f6d605dc3f0b7e12e7e64471b5189bec6ffd06a
 Schema-Version: v1
 -->
 
@@ -28,7 +28,7 @@ uv run --no-project --with-requirements "$INFRA_REFERENCES/copier-requirements.t
 
 A repository that already carries the committed answers file and the README Config block
 resumes instead of being re-scaffolded. Files the Template owns are never edited by hand
-afterwards; change answers with `copier update` from the repo root on a clean tree and
+afterwards; change answers with the same `uv run ... copier update` command from the repo root on a clean tree and
 review the diff. The recorded `_commit` must be a release tag at or above the minimum in
 [`../checks/template-contract.sh`](../checks/template-contract.sh) (the Template
 contract). An older tag proposes `copier update`; a bare commit hash cannot be compared,
