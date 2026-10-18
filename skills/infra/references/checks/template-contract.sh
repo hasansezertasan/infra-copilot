@@ -10,6 +10,9 @@ minimum=${1:-v0.1.0}
 cannot_verify() { echo "CANNOT VERIFY Template contract: $1; hand off to the human, never assume it is compatible" >&2; exit 2; }
 
 [ -f .copier-answers.yml ] || cannot_verify 'no .copier-answers.yml, so no Template version is recorded'
+# The version is only meaningful for copier-infra; another Template's tag proves nothing.
+grep -Eq '^_src_path:.*hasansezertasan/copier-infra(\.git)?[[:space:]]*$' .copier-answers.yml ||
+    cannot_verify '_src_path in .copier-answers.yml is not hasansezertasan/copier-infra'
 recorded=$(sed -n 's/^_commit:[[:space:]]*//p' .copier-answers.yml | head -n 1 | sed 's/[[:space:]]#.*$//' | tr -d "\"'\r[:space:]")
 [ -n "$recorded" ] || cannot_verify '.copier-answers.yml has no _commit'
 

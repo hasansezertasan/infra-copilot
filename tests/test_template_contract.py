@@ -44,6 +44,15 @@ class TemplateContractTests(unittest.TestCase):
     def test_quoted_tag_passes(self) -> None:
         self.assertEqual(self.run_check('"v1.0.0"').returncode, 0)
 
+    def test_another_templates_answers_file_is_indeterminate(self) -> None:
+        self.run_check('v1.0.0')
+        answers = self.checkout / '.copier-answers.yml'
+        answers.write_text(
+            answers.read_text(encoding='utf-8').replace('hasansezertasan/copier-infra', 'someone/other'),
+            encoding='utf-8',
+        )
+        self.assertEqual(self.run_check(None).returncode, 2)
+
     def test_trailing_comment_and_crlf_are_ignored(self) -> None:
         self.assertEqual(self.run_check('v0.2.0 # pinned\r').returncode, 0)
 

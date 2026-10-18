@@ -225,6 +225,7 @@ preflight:
       loaded skill's references/ directory (the one holding config.md and checks/).
 
   - tool: uv
+    when: '[ ! -f .copier-answers.yml ]'   # only the render path runs Copier
     check: "uv --version >/dev/null"   # system-provided; runs the pinned Copier
 
   - tool: curl
@@ -256,7 +257,10 @@ steps:
       Never edit a file the Template owns afterwards; change answers with `copier update`.
       Do not trust the rendered mise.toml: `toolchain-pin` is still the human's review.
     check: >-
-      git ls-files --error-unmatch .copier-answers.yml >/dev/null 2>&1 &&
+      git ls-files --error-unmatch .copier-answers.yml README.md >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- .copier-answers.yml README.md &&
+      git diff --cached --quiet HEAD -- .copier-answers.yml README.md &&
+      grep -Eq '^_src_path:.*hasansezertasan/copier-infra(\.git)?[[:space:]]*$' .copier-answers.yml &&
       grep -q '<!-- infra:config start -->' README.md &&
       grep -q '<!-- infra:config end -->' README.md
     produces: committed .copier-answers.yml and the Template-rendered repository
