@@ -81,6 +81,13 @@ This installs into Antigravity's user plugin registry, so the skills are availab
 
 > **Unverified.** Installing from a Git URL has not been exercised against a remote; only `agy plugin validate` on a local clone has been run for this kind of repository, and it validates a source directory rather than proving an install. Confirm with `agy plugin list`, and prefer a supported runtime for production use until an install is verified.
 
+## Upgrading from infra-copilot
+
+The plugin was renamed to `infra-skills`. An existing `infra-copilot` install does not update in
+place: remove it through the host's plugin manager (on OpenCode, delete the old skill folders
+from `.agents/skills/`), then install `infra-skills` with the route above. The slash commands
+are gone; invoke the `infra-*` skills by name.
+
 ## Then use it
 
 Each request starts one skill. Say what you want in your own words.

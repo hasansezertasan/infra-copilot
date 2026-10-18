@@ -123,7 +123,7 @@ class HostRecordTests(unittest.TestCase):
             )
 
     def test_rejects_a_protocol_that_names_no_question_tool(self) -> None:
-        """The AskUserQuestion grant in commands/ had no consumer for four releases.
+        """The AskUserQuestion grant in command frontmatter had no consumer for four releases.
 
         Deleting the protocol rule would silently restore that state, so the rule's
         absence has to be an error rather than a quiet regression.
@@ -141,7 +141,7 @@ class HostRecordTests(unittest.TestCase):
                 "skills/infra/references/protocol.md: its '### Asking a "
                 "decision' section names no question tool from "
                 "skills/infra/references/hosts.md; the allowed-tools grant in "
-                "commands/ would have no consumer",
+                "skill frontmatter would have no consumer",
                 validate_host_contract(root),
             )
 
@@ -195,7 +195,7 @@ class HostRecordTests(unittest.TestCase):
                 "skills/infra/references/protocol.md: its '### Asking a "
                 "decision' section names no question tool from "
                 "skills/infra/references/hosts.md; the allowed-tools grant in "
-                "commands/ would have no consumer",
+                "skill frontmatter would have no consumer",
                 validate_host_contract(root),
             )
 
@@ -282,7 +282,7 @@ class HostRecordTests(unittest.TestCase):
                 "skills/infra/references/protocol.md: its '### Asking a "
                 "decision' section names no question tool from "
                 "skills/infra/references/hosts.md; the allowed-tools grant in "
-                "commands/ would have no consumer",
+                "skill frontmatter would have no consumer",
                 validate_host_contract(root),
             )
 

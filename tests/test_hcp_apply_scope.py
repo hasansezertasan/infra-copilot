@@ -197,7 +197,7 @@ class HcpApplyScopeTests(unittest.TestCase):
                         Path(leaf).name for leaf in (leaves if leaves is not None else DEFAULT_LEAVES)
                         if Path(leaf).name not in {"cloudflare", "github", "modules"}
                     ]),
-                    "INFRA_COPILOT_REFERENCES": str(
+                    "INFRA_REFERENCES": str(
                         REPO_ROOT / ".ai-rulez/skills/infra/references"
                     ),
                 }

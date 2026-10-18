@@ -175,7 +175,7 @@ and complete Terraform HCL.
 ### AGENT — verify the trust (read-only)
 
 The `new-provider-gcp-wif-trust` step runs
-`sh "$INFRA_COPILOT_REFERENCES/checks/gcp-wif-trust.sh"` on every resume and status scan.
+`sh "$INFRA_REFERENCES/checks/gcp-wif-trust.sh"` on every resume and status scan.
 It locates the provider and service accounts from the workspace's own non-sensitive
 `TFC_GCP_*` variables, then fails unless all of these hold:
 
@@ -354,7 +354,7 @@ paste it only during that handoff.
 ### AGENT — first commit-correlated plan (Phase 6)
 
 ```sh
-sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh" queue
+sh "$INFRA_REFERENCES/checks/hcp-current-plan.sh" queue
 ```
 
 First ensure the committed branch is pushed and has an open pull request, as the

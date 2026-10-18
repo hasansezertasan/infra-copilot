@@ -71,7 +71,7 @@ class PolicyDocTests(unittest.TestCase):
             "actions/apply",                  # hcp-api.md ships the REST recipe
             "do not govern Bash",             # Read() rules bind the Read tool only
             "compound shell strings",         # allow-lists cannot match the checks
-            "second entry point",             # /infra-setup bypasses the Skill deny
+            "second entry point",             # a typed /infra-skills:infra-setup bypasses the Skill deny
             "/tmp/cf_token",                  # the import discovery token
         ):
             with self.subTest(bypass=bypass):

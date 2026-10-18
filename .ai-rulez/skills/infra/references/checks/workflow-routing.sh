@@ -14,7 +14,7 @@ job_block() {
         jobs && inside {print}
     ' "$normalized"
 }
-routing=$(sh "${INFRA_COPILOT_REFERENCES:?}/checks/leaf-routing.sh") || exit 2
+routing=$(sh "${INFRA_REFERENCES:?}/checks/leaf-routing.sh") || exit 2
 pairs='cloudflare:CLOUDFLARE_BACKEND github:GITHUB_BACKEND'
 for provider in $(printf '%s' "$routing" | jq -r '.effective | keys[] | select(. != "cloudflare" and . != "github")'); do
     key=LEAF_$(printf '%s' "$provider" | tr '[:lower:]-' '[:upper:]_')_BACKEND

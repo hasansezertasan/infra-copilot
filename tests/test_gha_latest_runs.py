@@ -148,7 +148,7 @@ esac
                 **os.environ,
                 "REPO": repo,
                 "PATH": f"{bin_dir}:{os.environ['PATH']}",
-                "INFRA_COPILOT_REFERENCES": str(SOURCE.parent.parent),
+                "INFRA_REFERENCES": str(SOURCE.parent.parent),
                 "ADDITIONAL_PROVIDER_NAMES": "[]",
                 "LEAF_BACKENDS": "{}",
             }
@@ -384,7 +384,7 @@ class GhaLatestRunsWiringTests(unittest.TestCase):
         runbook = STATUS_RUNBOOK.read_text(encoding="utf-8")
         self.assertIn("(checks/gha-latest-runs.sh)", runbook)
         # The link alone told the agent to execute a path; give it the invocation.
-        self.assertIn('`sh "$INFRA_COPILOT_REFERENCES/checks/gha-latest-runs.sh"`', runbook)
+        self.assertIn('`sh "$INFRA_REFERENCES/checks/gha-latest-runs.sh"`', runbook)
 
     @unittest.skipUnless(os.name == "posix", "the executable bit is a POSIX mode")
     def test_both_copies_are_executable(self) -> None:

@@ -646,7 +646,7 @@ class MigrateImportCheckTests(unittest.TestCase):
                 "CLOUDFLARE_BACKEND": "object-storage",
                 "LEAF_BACKENDS": "{}",
                 "ADDITIONAL_PROVIDER_NAMES": "[]",
-                "INFRA_COPILOT_REFERENCES": str(REPO_ROOT / '.ai-rulez/skills/infra/references'),
+                "INFRA_REFERENCES": str(REPO_ROOT / '.ai-rulez/skills/infra/references'),
                 "REPO": "o/r",
             }
             for cmd in (["git", "init", "-q"], ["git", "add", "-A"],

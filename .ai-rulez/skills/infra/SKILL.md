@@ -3,7 +3,7 @@ name: infra
 description: "Route infrastructure work to the correct infra-skills workflow: setup for a greenfield bootstrap, import for existing resources, prune for the spent blocks an import leaves behind, add for new resources or providers, and status for a read-only health check. Use when the request names infra-skills generally, or the right workflow is unclear."
 ---
 
-# infra-skills
+# infra
 
 ## Workflow
 

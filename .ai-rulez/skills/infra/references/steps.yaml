@@ -53,7 +53,7 @@
 #     export REPO=<managed_repos[0]>
 #     export ADDITIONAL_PROVIDER_NAMES='<additional_providers names as compact JSON>'
 #     export ADDITIONAL_PROVIDER_MISE_TOOLS='<all entry.mise_tools flattened as compact JSON>'
-#     export INFRA_COPILOT_REFERENCES=<absolute path to references/ directory>
+#     export INFRA_REFERENCES=<absolute path to references/ directory>
 #
 # HCP service present (HAS_HCP=true, even with an object-storage default):
 #     export ORG=<hcp_org>
@@ -214,14 +214,14 @@ preflight:
       printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
       [ -n "$ver" ] && [ "$ver" = "$pin" ]
   - tool: infra-references
-    check: 'test -n "$INFRA_COPILOT_REFERENCES" && test -d "$INFRA_COPILOT_REFERENCES/checks"'
+    check: 'test -n "$INFRA_REFERENCES" && test -d "$INFRA_REFERENCES/checks"'
     why: >-
       Steps whose check is a shipped script resolve it from this path, because a check
       runs with the consuming repo as its working directory. Unset, the step runs
       sh "/checks/..." and fails with a bare shell error — and the script's own
       "export it per config.md" diagnostic is inside the file that could not be found.
     human_action: >-
-      Export INFRA_COPILOT_REFERENCES per references/config.md: the absolute path to the
+      Export INFRA_REFERENCES per references/config.md: the absolute path to the
       loaded skill's references/ directory (the one holding config.md and checks/).
 
   - tool: curl
@@ -359,7 +359,7 @@ steps:
       # Pending Phase 6 provisioning does not invalidate an established service.
       [ "$HAS_HCP_BOOTSTRAP" = true ] || readiness=--login-readiness
       HCP_TOKEN=$token \
-        sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh" $readiness \
+        sh "$INFRA_REFERENCES/checks/hcp-bootstrap-workspaces.sh" $readiness \
         >/dev/null 2>&1 && exit 0
 
       # Cold repository: phases 0 and 1 genuinely need the user credential, and a
@@ -576,7 +576,7 @@ steps:
       # workspace creation must still succeed. Narrowed tokens use the workspace
       # evidence above and do not require this user-scoped read.
       if [ "$oauth_read" = yes ]; then
-        sh "$INFRA_COPILOT_REFERENCES/checks/hcp-github-app.sh" >/dev/null
+        sh "$INFRA_REFERENCES/checks/hcp-github-app.sh" >/dev/null
         rc=$?
         case "$rc" in
           0) exit 0 ;;
@@ -619,7 +619,7 @@ steps:
       (separate toggle, no clean create-time attribute; defaults off).
     # The same complete invariant decides whether hcp-login may accept a narrowed
     # team token. Keep it in one executable source rather than duplicating jq.
-    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh"
+    check: sh "$INFRA_REFERENCES/checks/hcp-bootstrap-workspaces.sh"
     produces: configured workspaces for HCP_BOOTSTRAP_LEAVES only
     docs: docs/hcp-state.md#workspaces
 
@@ -777,7 +777,7 @@ steps:
       for name in $(printf '%s' "$OBJECT_STORAGE_BOOTSTRAP_LEAVES" | jq -er '.[]'); do
         leaf="terraform/$name"
         test -d "$leaf" || exit 1
-        sh "$INFRA_COPILOT_REFERENCES/checks/state-transfer.sh" "$name" || exit $?
+        sh "$INFRA_REFERENCES/checks/state-transfer.sh" "$name" || exit $?
         grep -q "backend \"$STATE_BACKEND\"" "$leaf"/*.tf 2>/dev/null || exit 1
         # Use -F for literal string matching (bucket names may contain regex chars like .)
         grep -Fq "$STATE_BUCKET" "$leaf"/*.tf 2>/dev/null || exit 1
@@ -938,7 +938,7 @@ steps:
       Include that helper and .github/workflows/terraform-*.yml in every leaf's plan path filter.
       Re-scaffolding must update the helper and workflows together, preserving recorded decisions.
       Commit both workflows and the helper before re-running this check.
-    check: sh "$INFRA_COPILOT_REFERENCES/checks/gha-workflows.sh"
+    check: sh "$INFRA_REFERENCES/checks/gha-workflows.sh"
     produces: GitHub Actions workflows for Terraform CI
     docs: docs/object-storage-ci.md#github-actions
 
@@ -991,7 +991,7 @@ steps:
       4. Without reviewers, lock an "Apply gate" row in .infra-copilot/decisions.md whose
          choice is "merge-approval" or "dispatch" (docs/object-storage-ci.md#github-environments)
       5. The terraform-apply workflow references this environment
-    check: sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh"
+    check: sh "$INFRA_REFERENCES/checks/gha-apply-gate.sh"
     produces: main-only GitHub Environment with reviewers or a recorded apply gate
     docs: docs/object-storage-ci.md#github-environments
 
@@ -1018,7 +1018,7 @@ steps:
       6. Delete any repository-level CLOUDFLARE_API_TOKEN after installing the environment copy.
          Never return token values to the agent. Verify plan is read-only in the token UI.
     check: |
-      sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh" || exit $?
+      sh "$INFRA_REFERENCES/checks/gha-apply-gate.sh" || exit $?
       repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 2
       env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 2
       owner_type=$(gh api "repos/$REPO" --jq '.owner.type' 2>/dev/null) || exit 2
@@ -1075,7 +1075,7 @@ steps:
          github_apps.plan_manifest_blob and github_apps.apply_manifest_blob; manifest
          changes invalidate the permission review until reviewed again.
     check: |
-      sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh" || exit $?
+      sh "$INFRA_REFERENCES/checks/gha-apply-gate.sh" || exit $?
       repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 2
       env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 2
       owner_type=$(gh api "repos/$REPO" --jq '.owner.type' 2>/dev/null) || exit 2
@@ -1111,7 +1111,7 @@ steps:
       You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR.
       Verify that the plan-cloudflare job runs and finishes successfully.
     check: |
-      sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
+      sh "$INFRA_REFERENCES/checks/workflow-routing.sh" || exit $?
       # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
       # Fail closed: if git status fails, treat as dirty rather than clean
       dirty_status=$(git status --porcelain -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
@@ -1158,7 +1158,7 @@ steps:
       You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR.
       Verify that the plan-github job runs and finishes successfully.
     check: |
-      sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
+      sh "$INFRA_REFERENCES/checks/workflow-routing.sh" || exit $?
       # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
       # Fail closed: if git status fails, treat as dirty rather than clean
       dirty_status=$(git status --porcelain -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
@@ -1208,7 +1208,7 @@ steps:
       The GitHub leaf's backend does not select the repository's protection mechanism.
       Verify the aggregate covers every object-storage leaf including additional providers.
     check: |
-      sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
+      sh "$INFRA_REFERENCES/checks/workflow-routing.sh" || exit $?
       # Verify HCL declares the required contexts
       test -f terraform/github/branch_protection.tf || exit 1
       contexts=$(sed -n '/required_status_checks/,/}/p' terraform/github/branch_protection.tf)
@@ -1360,7 +1360,7 @@ steps:
       export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r
       '.credentials["app.terraform.io"].token'
       ~/.terraform.d/credentials.tfrc.json)} &&
-      sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
+      sh "$INFRA_REFERENCES/checks/hcp-apply-scope.sh"
     produces: an agent credential with no direct apply path (not a boundary against a hostile actor — see docs/policy.md)
     docs: docs/policy.md#a-credential-that-cannot-apply
 
@@ -1428,7 +1428,7 @@ steps:
       blocks the very PR carrying this fix, so follow the break-glass sequence
       in docs/hcp-ci.md#break-glass-the-fix-cannot-merge-through-the-normal-path.
     tri_state: true   # exit 2 = could not verify; see protocol.md
-    check: sh "$INFRA_COPILOT_REFERENCES/checks/status-check-context.sh"
+    check: sh "$INFRA_REFERENCES/checks/status-check-context.sh"
     produces: proof that branch protection cannot silently block every PR
     docs: docs/hcp-ci.md#hcp-status-check-context
 
@@ -1467,7 +1467,7 @@ steps:
     # intentionally treats any 'will be created' as not-done.)
     check: |
       if [ "$CLOUDFLARE_BACKEND" = "object-storage" ]; then
-        sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
+        sh "$INFRA_REFERENCES/checks/workflow-routing.sh" || exit $?
         # In object-storage mode, verify via the GitHub Actions plan workflow
         # A real cf-terraforming adoption splits its output by zone and resource type, so
         # `generated.tf` is one possible name among several, not the name.
@@ -2133,7 +2133,7 @@ steps:
       fi
       if [ "$NEW_PROVIDER_BACKEND" = "hcp" ]; then
         # HCP mode: verify cloud block
-        settings=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" \
+        settings=$(sh "$INFRA_REFERENCES/checks/leaf-cloud.sh" \
           "terraform/$NEW_PROVIDER" all)
         printf '%s\n' "$settings" | grep -Fx "workspaces.name=$NEW_PROVIDER_WORKSPACE" >/dev/null \
           || exit 1
@@ -2142,7 +2142,7 @@ steps:
         case "$hostname" in ""|app.terraform.io) : ;; *) exit 1 ;; esac
       else
         # Object-storage mode: verify backend block with complete path validation
-        sh "$INFRA_COPILOT_REFERENCES/checks/state-transfer.sh" "$NEW_PROVIDER" || exit $?
+        sh "$INFRA_REFERENCES/checks/state-transfer.sh" "$NEW_PROVIDER" || exit $?
         grep -q "backend \"$STATE_BACKEND\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
         # Use -F for literal string matching (bucket names may contain regex chars like .)
         grep -Fq "$STATE_BUCKET" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
@@ -2240,7 +2240,7 @@ steps:
       `terraform init -backend=false` in terraform/$NEW_PROVIDER and commit the reviewed
       `.terraform.lock.hcl` before re-running this check.
     check: |
-      required_providers=$(sh "$INFRA_COPILOT_REFERENCES/checks/provider-requirements.sh" \
+      required_providers=$(sh "$INFRA_REFERENCES/checks/provider-requirements.sh" \
         "terraform/$NEW_PROVIDER") || exit 2
       printf '%s\n' "$required_providers" | while IFS= read -r provider; do
         case "$provider" in ""|terraform.io/builtin/*) continue ;; esac
@@ -2308,8 +2308,8 @@ steps:
       Commit the updated workflows before re-running this check.
     check: |
       # File existence and git tracking
-      ROUTING_PROVIDER="$NEW_PROVIDER" sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
-      sh "$INFRA_COPILOT_REFERENCES/checks/gha-workflows.sh" "$NEW_PROVIDER" || exit $?
+      ROUTING_PROVIDER="$NEW_PROVIDER" sh "$INFRA_REFERENCES/checks/workflow-routing.sh" || exit $?
+      sh "$INFRA_REFERENCES/checks/gha-workflows.sh" "$NEW_PROVIDER" || exit $?
       test -f .github/workflows/terraform-plan.yml || exit 1
       test -f .github/workflows/terraform-apply.yml || exit 1
       git ls-files --error-unmatch \
@@ -2434,7 +2434,7 @@ steps:
       before replying `done`; the repository-derived inventory then verifies that it
       can plan but cannot apply or update any workspace.
     tri_state: true
-    check: HCP_SCOPE_WORKSPACE="$NEW_PROVIDER_WORKSPACE" sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
+    check: HCP_SCOPE_WORKSPACE="$NEW_PROVIDER_WORKSPACE" sh "$INFRA_REFERENCES/checks/hcp-apply-scope.sh"
     produces: Plan access with no apply or workspace-update permission
     docs: docs/policy.md#a-credential-that-cannot-apply
 
@@ -2500,7 +2500,7 @@ steps:
       job must use the production environment gated by gha-environments.
       Never use pull_request_target to execute changed Terraform. Commit the workflows.
     tri_state: true
-    check: sh "$INFRA_COPILOT_REFERENCES/checks/gha-provider-safety.sh"
+    check: sh "$INFRA_REFERENCES/checks/gha-provider-safety.sh"
     produces: committed fork guard and approval-gated apply for this leaf
     docs: object-storage.md#fork-safety
 
@@ -2615,7 +2615,7 @@ steps:
       pool and service-account IAM policies (`gcloud auth login`). Reply `done`; the
       agent re-runs this check.
     tri_state: true
-    check: sh "$INFRA_COPILOT_REFERENCES/checks/gcp-wif-trust.sh"
+    check: sh "$INFRA_REFERENCES/checks/gcp-wif-trust.sh"
     produces: runs that use only the declared identity (a WIF trust only this workspace can use, or the sensitive key)
     docs: gcp.md#human--create-the-wif-trust
 
@@ -2663,13 +2663,13 @@ steps:
       contains an ingested commit whose `terraform/$NEW_PROVIDER`, shared
       `terraform/modules`, `.infra-copilot/config.md`, and `mise.toml` trees equal the
       current committed versions, then run
-      `sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh" queue` to queue a
+      `sh "$INFRA_REFERENCES/checks/hcp-current-plan.sh" queue` to queue a
       plan-only retry using that configuration version. The helper explicitly includes
       the configuration-version relationship in POST /runs; a CLI-driven or
       latest-configuration fallback run has no trustworthy commit correlation. Wait for
       the run to finish, then re-run this check.
     tri_state: true
-    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh"
+    check: sh "$INFRA_REFERENCES/checks/hcp-current-plan.sh"
     produces: safe green plan, or a safe no-create plan after the adoption has applied resources
     docs: docs/hcp-api.md
 
@@ -2755,7 +2755,7 @@ steps:
       Trigger via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR,
       and verify the plan job for $NEW_PROVIDER succeeds.
     check: |
-      ROUTING_PROVIDER="$NEW_PROVIDER" sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
+      ROUTING_PROVIDER="$NEW_PROVIDER" sh "$INFRA_REFERENCES/checks/workflow-routing.sh" || exit $?
       # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
       # Fail closed: if git status fails, treat as dirty rather than clean
       dirty_status=$(git status --porcelain -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {

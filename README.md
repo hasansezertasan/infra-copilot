@@ -56,7 +56,7 @@ working directory carries any of its markers — `.infra-copilot/config.md`, the
 a user's phrasing happening to match a skill description. It is
 deliberately static: one file-existence test, no provider calls, no `git`, and it names
 the skills rather than reporting any state, because state is re-derived by running each
-step check. Silence it with `INFRA_COPILOT_HOOK_DISABLE=1`.
+step check. Silence it with `INFRA_HOOK_DISABLE=1`.
 
 No other host ships one. Which hosts do, the discovery path each uses, and the evidence
 behind every exclusion are recorded in
@@ -188,12 +188,12 @@ host packages copy the whole hub skill so relative links remain valid everywhere
 
 | Skill | Command | Does |
 |---|---|---|
-| [`infra-skills`](skills/infra/SKILL.md) | natural language | Routes a general request to the smallest matching workflow. |
+| [`infra`](skills/infra/SKILL.md) | natural language | Routes a general request to the smallest matching workflow. |
 | [`infra-setup`](skills/infra-setup/SKILL.md) | `/infra-skills:infra-setup` | **Greenfield bootstrap** (phases 0–4): explicit backend choice, state + CI, Cloudflare token, GitHub App, first plan. |
-| [`import`](skills/infra-import/SKILL.md) | `/infra-skills:infra-import` | **Adopt existing** provider resources into Terraform without recreating them (cf-terraforming import blocks). |
-| [`prune`](skills/infra-prune/SKILL.md) | `/infra-skills:infra-prune` | **Retire the spent blocks** an adoption leaves behind — `import {}` / `moved {}` go inert once applied. Ends on `No changes.` |
-| [`add`](skills/infra-add/SKILL.md) | `/infra-skills:infra-add` | **Grow** the repo: a managed repo, a new resource, or a brand-new provider (e.g. GCP). |
-| [`status`](skills/infra-status/SKILL.md) | `/infra-skills:infra-status` | **Read-only** health check — scans every step and reports where infra stands. Changes nothing. |
+| [`infra-import`](skills/infra-import/SKILL.md) | `/infra-skills:infra-import` | **Adopt existing** provider resources into Terraform without recreating them (cf-terraforming import blocks). |
+| [`infra-prune`](skills/infra-prune/SKILL.md) | `/infra-skills:infra-prune` | **Retire the spent blocks** an adoption leaves behind — `import {}` / `moved {}` go inert once applied. Ends on `No changes.` |
+| [`infra-add`](skills/infra-add/SKILL.md) | `/infra-skills:infra-add` | **Grow** the repo: a managed repo, a new resource, or a brand-new provider (e.g. GCP). |
+| [`infra-status`](skills/infra-status/SKILL.md) | `/infra-skills:infra-status` | **Read-only** health check — scans every step and reports where infra stands. Changes nothing. |
 
 ## Usage
 

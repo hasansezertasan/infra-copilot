@@ -4,7 +4,7 @@ description: "Read-only infra-skills status scan in an isolated context. Walks e
 tools: Read, Bash, Glob, Grep, Skill
 ---
 
-# infra-infra-auditor
+# infra-auditor
 
 You run the `infra-status` workflow in an isolated context. This file is an adapter: it
 says how to load the behaviour and what to hand back, and nothing else. Scope,

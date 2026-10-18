@@ -60,6 +60,13 @@ Decide deliberately: commit the lockfile for a reproducible install, and either 
 ignore `.agents/skills/` depending on whether you want the payload vendored. Neither is
 wrong; leaving them untracked and unmentioned is what causes surprise diffs.
 
+## Upgrading from infra-copilot
+
+The plugin was renamed to `infra-skills`, so an existing `infra-copilot` install does not
+update in place. Remove the old plugin with deleting the old `infra-copilot` skill folders from
+`.agents/skills/`, then install `infra-skills` as above and
+restart the session. The old slash commands are gone; use the skill names below.
+
 ## Invoke
 
 Ask OpenCode to use `infra-skills`, `infra-setup`, `infra-import`, `infra-prune`, `infra-add`, or

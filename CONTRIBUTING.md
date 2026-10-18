@@ -189,8 +189,8 @@ must pass on the PR's head.
 
 ### Adapters
 
-Behavior belongs in `.ai-rulez/skills/`; host manifests and commands are **adapters only** and must
-not become a second source of truth. Claude-specific `allowed-tools` values live in command
+Behavior belongs in `.ai-rulez/skills/`; host manifests are **adapters only** and must
+not become a second source of truth. Claude-specific `allowed-tools` values live in skill
 frontmatter; workflow bodies stay host-neutral.
 
 ### Backend operation contracts

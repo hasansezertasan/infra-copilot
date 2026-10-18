@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:dc8e56261b1c90983c6700a5f0a341f86317fdaaf4c97661769389534ca565d0
-Source-Hash: blake3:bc3035ae93f0d480805e2aa47fc30257a53ec0a06c0ebbeb36e6fe1679fa5ebb
+Content-Hash: blake3:c27192b9b60d9469534ce08d052f117682a29b92e1b85ef1c8d42a95a7bcc5f3
+Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
 Schema-Version: v1
 -->
 
@@ -22,7 +22,7 @@ the canonical docs under [`../infra/references/`](../infra/references/).
 
 > **This is a Skill, not a script.** There is no `setup` executable. Drive it by reading
 > this file, the protocol, and the manifest, then running each step. A human invokes it
-> with `/infra-setup` or by saying "set up the infra."
+> with `/infra-skills:infra-setup` or by saying "set up the infra."
 
 ## Scope
 

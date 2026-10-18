@@ -32,7 +32,7 @@ cannot_verify() { echo "CANNOT VERIFY: $1" >&2; exit 2; }
 
 # Step 0 requires an explicit mode. Refuse an incomplete export here as well, so a
 # direct invocation cannot report a missing backend as verified HCP or query Actions.
-routing=$(sh "${INFRA_COPILOT_REFERENCES:?}/checks/leaf-routing.sh") || exit 2
+routing=$(sh "${INFRA_REFERENCES:?}/checks/leaf-routing.sh") || exit 2
 if [ "$(printf '%s' "$routing" | jq -r '.has_object_storage')" = false ]; then
     echo "not applicable: no object-storage leaves; read HCP runs per leaf"
     exit 0
@@ -82,7 +82,7 @@ report() {
         return
     fi
     route_status=0
-    sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" ".github/workflows/$2" || route_status=$?
+    sh "$INFRA_REFERENCES/checks/workflow-routing.sh" ".github/workflows/$2" || route_status=$?
     case "$route_status" in
         0) : ;;
         1) echo "$prefix  ✗ broken: workflow routing disagrees with effective config"; failed=1 ;;

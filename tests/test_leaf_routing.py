@@ -29,7 +29,7 @@ class LeafRoutingTests(unittest.TestCase):
             'BACKEND': 'hcp',
             'LEAF_BACKENDS': '{"github":"object-storage"}',
             'ADDITIONAL_PROVIDER_NAMES': '[]',
-            'INFRA_COPILOT_REFERENCES': str(REFERENCES),
+            'INFRA_REFERENCES': str(REFERENCES),
         }
 
     def execute_check(self, script_name: str) -> subprocess.CompletedProcess[str]:

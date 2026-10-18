@@ -730,7 +730,7 @@ class ShippedCheckPathTests(unittest.TestCase):
             manifest.parent.mkdir(parents=True)
             manifest.write_text(
                 'preflight:\n  - tool: infra-references\n'
-                'steps:\n  - check: sh "$INFRA_COPILOT_REFERENCES/checks/gone.sh"\n',
+                'steps:\n  - check: sh "$INFRA_REFERENCES/checks/gone.sh"\n',
                 encoding="utf-8",
             )
 
@@ -738,7 +738,7 @@ class ShippedCheckPathTests(unittest.TestCase):
                 validate_shipped_check_paths(repository),
                 [
                     "skills/infra/references/steps.yaml: check references "
-                    "$INFRA_COPILOT_REFERENCES/checks/gone.sh, which does not exist"
+                    "$INFRA_REFERENCES/checks/gone.sh, which does not exist"
                 ],
             )
 
@@ -757,7 +757,7 @@ class ShippedCheckPathTests(unittest.TestCase):
                     (references / "checks").mkdir(parents=True)
                     (references / "steps.yaml").write_text(
                         "preflight:\n  - tool: infra-references\n"
-                        f'steps:\n  - check: sh "$INFRA_COPILOT_REFERENCES/{payload}"\n',
+                        f'steps:\n  - check: sh "$INFRA_REFERENCES/{payload}"\n',
                         encoding="utf-8",
                     )
 
@@ -774,7 +774,7 @@ class ShippedCheckPathTests(unittest.TestCase):
             (references / "checks").mkdir(parents=True)
             (references / "checks/present.sh").write_text("exit 0\n", encoding="utf-8")
             (references / "steps.yaml").write_text(
-                'steps:\n  - check: sh "$INFRA_COPILOT_REFERENCES/checks/present.sh"\n',
+                'steps:\n  - check: sh "$INFRA_REFERENCES/checks/present.sh"\n',
                 encoding="utf-8",
             )
 

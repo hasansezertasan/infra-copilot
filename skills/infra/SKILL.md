@@ -5,12 +5,12 @@ description: "Route infrastructure work to the correct infra-skills workflow: se
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:8407b396918408a062213aaa0658ae48a7df9c1cffe83807409aefd58f1fa866
-Source-Hash: blake3:bc3035ae93f0d480805e2aa47fc30257a53ec0a06c0ebbeb36e6fe1679fa5ebb
+Content-Hash: blake3:d4ca4a3b1b8c035d0e9e8cf2ede54424c683c62bd288b88ca35db5a60a9f978b
+Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
 Schema-Version: v1
 -->
 
-# infra-skills
+# infra
 
 ## Workflow
 

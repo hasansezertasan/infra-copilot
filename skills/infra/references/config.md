@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:930f2613a1752bb1d73780750f7bbded1fc53e55483fda7f41777fcfa49d138c
-Source-Hash: blake3:bc3035ae93f0d480805e2aa47fc30257a53ec0a06c0ebbeb36e6fe1679fa5ebb
+Content-Hash: blake3:bbb4765252dac8d5b3dc89d60268e061e3a9c4e416d815733e23385bbfab449d
+Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
 Schema-Version: v1
 -->
 
@@ -300,10 +300,10 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export REPO=<managed_repos[0]>
    export ADDITIONAL_PROVIDER_NAMES='<additional_providers names as compact JSON>'
    export ADDITIONAL_PROVIDER_MISE_TOOLS='<all additional_providers mise_tools flattened as compact JSON>'
-   export INFRA_COPILOT_REFERENCES=<absolute path to this references/ directory>
+   export INFRA_REFERENCES=<absolute path to this references/ directory>
    ```
 
-   Run `sh "$INFRA_COPILOT_REFERENCES/checks/leaf-routing.sh"`; exit 2 stops startup.
+   Run `sh "$INFRA_REFERENCES/checks/leaf-routing.sh"`; exit 2 stops startup.
    Cold-start exception: if reviewed `jq` is not installed yet, derive the same public
    inventory directly from the validated config for the `toolchain-pin` HUMAN handoff
    only. Do not execute service checks. After that handoff installs the reviewed toolchain,
@@ -413,7 +413,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    `mise.toml` yet. Preflight bootstraps and validates the toolchain first, then exports
    the version from the exact committed repository file for Phase 1.
 
-`INFRA_COPILOT_REFERENCES` is the absolute path to the `references/` directory of the
+`INFRA_REFERENCES` is the absolute path to the `references/` directory of the
 loaded skill — the directory holding this file. Steps whose `check` is a shipped script
 resolve it from there, because a check runs with the consuming repo as its working
 directory and cannot otherwise find files that ship with the skill.

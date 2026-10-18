@@ -20,6 +20,13 @@ agy plugin install https://github.com/hasansezertasan/infra-skills
 Reinstall the plugin with the same command, then **restart**. There is no in-place
 `update` verb — reinstalling is the update path.
 
+## Upgrading from infra-copilot
+
+The plugin was renamed to `infra-skills`, so an existing `infra-copilot` install does not
+update in place. Remove the old plugin with the host's plugin manager, then install `infra-skills`
+as above and
+restart the session. The old slash commands are gone; use the skill names below.
+
 ## Invoke
 
 `/infra-skills:infra-setup`, `/infra-skills:infra-import`, `/infra-skills:infra-prune`,

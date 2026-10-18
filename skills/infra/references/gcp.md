@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:bf7f2eda30a3ac1cbfab10779e2032bc30fc9f63ccd24a988342d2c8c8ae73a0
-Source-Hash: blake3:bc3035ae93f0d480805e2aa47fc30257a53ec0a06c0ebbeb36e6fe1679fa5ebb
+Content-Hash: blake3:fad481b65819fafb4bb78926b8c9d7749133550a8eb8c57ca5632f54563f3b04
+Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
 Schema-Version: v1
 -->
 
@@ -182,7 +182,7 @@ and complete Terraform HCL.
 ### AGENT — verify the trust (read-only)
 
 The `new-provider-gcp-wif-trust` step runs
-`sh "$INFRA_COPILOT_REFERENCES/checks/gcp-wif-trust.sh"` on every resume and status scan.
+`sh "$INFRA_REFERENCES/checks/gcp-wif-trust.sh"` on every resume and status scan.
 It locates the provider and service accounts from the workspace's own non-sensitive
 `TFC_GCP_*` variables, then fails unless all of these hold:
 
@@ -361,7 +361,7 @@ paste it only during that handoff.
 ### AGENT — first commit-correlated plan (Phase 6)
 
 ```sh
-sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh" queue
+sh "$INFRA_REFERENCES/checks/hcp-current-plan.sh" queue
 ```
 
 First ensure the committed branch is pushed and has an open pull request, as the

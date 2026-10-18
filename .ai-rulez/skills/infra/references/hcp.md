@@ -1,7 +1,7 @@
 
 # HCP bootstrap + workspaces (agent-first)
 
-Deep dive for Phases 0–1 of the [`setup`](../../infra-setup/SKILL.md) skill. Canonical detail:
+Deep dive for Phases 0–1 of the [`infra-setup`](../../infra-setup/SKILL.md) skill. Canonical detail:
 [`docs/setup.md#1`](docs/setup.md#1-hcp-terraform--organization),
 [`docs/setup.md#2`](docs/setup.md#2-hcp-terraform--workspaces),
 [`docs/state.md`](docs/state.md).
@@ -89,7 +89,7 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
       return 0
     fi
     if [ -n "${GITHUB_APP_INSTALLATION_ID:-}" ]; then
-      app=$(sh "$INFRA_COPILOT_REFERENCES/checks/hcp-github-app.sh") || return 1
+      app=$(sh "$INFRA_REFERENCES/checks/hcp-github-app.sh") || return 1
       VCS_CONNECTION=$(jq -n --arg id "$app" '{"github-app-installation-id":$id}')
       return 0
     fi
@@ -131,7 +131,7 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
       | .relationships["oauth-tokens"].data[].id
       | {"oauth-token-id":.}] | unique[]' "$pages" >>"$candidates" \
       || { rm -f "$pages" "$candidates"; return 1; }
-    app=$(sh "$INFRA_COPILOT_REFERENCES/checks/hcp-github-app.sh")
+    app=$(sh "$INFRA_REFERENCES/checks/hcp-github-app.sh")
     rc=$?
     case "$rc" in
       0) jq -nc --arg id "$app" '{"github-app-installation-id":$id}' >>"$candidates" ;;

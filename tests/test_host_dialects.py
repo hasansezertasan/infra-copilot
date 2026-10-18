@@ -1436,9 +1436,9 @@ class CrossArtifactTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         return build_root(directory.name)
 
-    def test_the_invocation_tool_must_be_granted_to_the_status_command(self) -> None:
+    def test_the_invocation_tool_must_be_granted_to_the_status_skill(self) -> None:
         """Renaming the capability here while `allowed-tools` lists the old one
-        leaves /infra-status silently falling back to an inline scan."""
+        leaves infra-status silently falling back to an inline scan."""
         root = self._root()
         document = root / HOSTS_DOCUMENT
         document.write_text(

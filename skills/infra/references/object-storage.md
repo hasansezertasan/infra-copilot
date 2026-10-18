@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:d1377576ac03bf563e29e723a73234281a2c4762fd52312eae8515db61680fdd
-Source-Hash: blake3:bc3035ae93f0d480805e2aa47fc30257a53ec0a06c0ebbeb36e6fe1679fa5ebb
+Content-Hash: blake3:44e36d3caafdccdb9db86e96aadf53c852c69f5e41c90ee61f4e65d616d11c2e
+Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
 Schema-Version: v1
 -->
 
@@ -82,7 +82,7 @@ Do not use `pull_request_target` to execute changed Terraform. Secrets and OIDC 
 only in those guarded jobs. Grant `id-token: write` at job scope, never workflow
 scope, so change detection and fork validation cannot request OIDC tokens. Apply jobs use the protected production environment.
 
-Run `sh "$INFRA_COPILOT_REFERENCES/checks/gha-provider-safety.sh"` with `NEW_PROVIDER` and
+Run `sh "$INFRA_REFERENCES/checks/gha-provider-safety.sh"` with `NEW_PROVIDER` and
 `REPO` exported before storing credentials. It verifies committed, clean workflows in
 the supported template syntax, credential access across all jobs, the new job's exact
 fork guard, its production environment
@@ -160,7 +160,7 @@ restore the blocks and stop. One PR per leaf, separate from the adoption PR.
 ## Read-run-status
 
 Read [latest runs](checks/gha-latest-runs.sh) using
-`sh "$INFRA_COPILOT_REFERENCES/checks/gha-latest-runs.sh"`. Export the validated config
+`sh "$INFRA_REFERENCES/checks/gha-latest-runs.sh"`. Export the validated config
 and repository/reference variables first. It reports the latest branch plan and `main`
 apply independently, including every leaf job and other failed jobs. Preserve its
 outcomes: success, failure, in progress, unknown, no runs and not installed. A result for

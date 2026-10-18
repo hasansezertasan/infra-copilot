@@ -33,6 +33,13 @@ codex plugin add infra-skills@infra-skills
 Marketplace state and the installed package cache are distinct. The first refreshes the
 catalog Codex knows about; the second installs the refreshed version. Then restart.
 
+## Upgrading from infra-copilot
+
+The plugin was renamed to `infra-skills`, so an existing `infra-copilot` install does not
+update in place. Remove the old plugin with the plugin manager (`/plugins`), then install
+`infra-skills` as above and
+restart the session. The old slash commands are gone; use the skill names below.
+
 ## Invoke
 
 **Natural language only.** Ask Codex to use infra-skills for setup, import, prune, add,

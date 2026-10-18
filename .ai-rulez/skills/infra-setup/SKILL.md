@@ -15,7 +15,7 @@ the canonical docs under [`../infra/references/`](../infra/references/).
 
 > **This is a Skill, not a script.** There is no `setup` executable. Drive it by reading
 > this file, the protocol, and the manifest, then running each step. A human invokes it
-> with `/infra-setup` or by saying "set up the infra."
+> with `/infra-skills:infra-setup` or by saying "set up the infra."
 
 ## Scope
 

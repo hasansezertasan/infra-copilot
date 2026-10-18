@@ -58,11 +58,11 @@ for required in ORG hcp_api REPO; do
     eval "value=\${$required:-}"
     [ -n "$value" ] || cannot_verify "$required is not set; export it per references/config.md"
 done
-[ -n "${INFRA_COPILOT_REFERENCES:-}" ] \
-    && [ -r "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" ] \
-    || cannot_verify "INFRA_COPILOT_REFERENCES does not contain checks/leaf-cloud.sh; export it per references/config.md"
+[ -n "${INFRA_REFERENCES:-}" ] \
+    && [ -r "$INFRA_REFERENCES/checks/leaf-cloud.sh" ] \
+    || cannot_verify "INFRA_REFERENCES does not contain checks/leaf-cloud.sh; export it per references/config.md"
 
-routing=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-routing.sh") || exit 2
+routing=$(sh "$INFRA_REFERENCES/checks/leaf-routing.sh") || exit 2
 hcp_leaves=$(printf '%s' "$routing" | jq -c '.hcp_leaves') || exit 2
 
 # Checked before the credential is resolved, let alone sent. $hcp_api comes from a
@@ -151,7 +151,7 @@ found=0
 # consumed below. Keeping it in checks/leaf-cloud.sh also lets Phase 6 inventory
 # and leaf checks use exactly the same host, organization, and workspace rules.
 leaf_cloud_settings () {  # $1 = leaf directory
-    sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" "$1" all
+    sh "$INFRA_REFERENCES/checks/leaf-cloud.sh" "$1" all
 }
 
 leaf_setting () {  # $1 = settings text, $2 = key; prints the first value

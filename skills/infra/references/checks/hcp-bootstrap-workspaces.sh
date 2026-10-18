@@ -4,7 +4,7 @@
 # workspaces-create (to decide whether reconciliation is complete).
 set -eu
 
-routing=$(sh "${INFRA_COPILOT_REFERENCES:?}/checks/leaf-routing.sh") || exit 2
+routing=$(sh "${INFRA_REFERENCES:?}/checks/leaf-routing.sh") || exit 2
 case ${1:-} in
     '') selection=hcp_bootstrap_leaves ;;
     --login-readiness) selection=hcp_leaves ;;

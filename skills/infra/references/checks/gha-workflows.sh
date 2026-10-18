@@ -11,9 +11,9 @@ required_leaf=${1:-}
 case "$required_leaf" in
   *[!a-z0-9-]*) echo 'CANNOT VERIFY: invalid requested provider' >&2; exit 2 ;;
 esac
-[ -n "${INFRA_COPILOT_REFERENCES:-}" ] &&
-  [ -r "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" ] || {
-    echo 'CANNOT VERIFY: export INFRA_COPILOT_REFERENCES per references/config.md' >&2
+[ -n "${INFRA_REFERENCES:-}" ] &&
+  [ -r "$INFRA_REFERENCES/templates/terraform-apply.yml" ] || {
+    echo 'CANNOT VERIFY: export INFRA_REFERENCES per references/config.md' >&2
     exit 2
   }
 root=$(git --no-optional-locks rev-parse --show-toplevel) || exit 2
@@ -21,11 +21,11 @@ cd "$root"
 plan=.github/workflows/terraform-plan.yml
 apply=.github/workflows/terraform-apply.yml
 helper=.github/scripts/terraform-destroy.cjs
-[ -r "$INFRA_COPILOT_REFERENCES/templates/terraform-destroy.cjs" ] || exit 2
+[ -r "$INFRA_REFERENCES/templates/terraform-destroy.cjs" ] || exit 2
 git cat-file -e "HEAD:$helper" 2>/dev/null || exit 1
 dirty=$(git --no-optional-locks status --porcelain -- "$helper") || exit 2
 [ -z "$dirty" ] || exit 1
-cmp -s "$helper" "$INFRA_COPILOT_REFERENCES/templates/terraform-destroy.cjs" || exit 1
+cmp -s "$helper" "$INFRA_REFERENCES/templates/terraform-destroy.cjs" || exit 1
 for file in "$plan" "$apply"; do
   git cat-file -e "HEAD:$file" 2>/dev/null || exit 1
   dirty=$(git --no-optional-locks status --porcelain -- "$file") || exit 2
@@ -42,7 +42,7 @@ for file in "$plan" "$apply"; do
   [ "$(grep -Ec '^on:[[:space:]]*$' "$file" || true)" = 1 ] || exit 1
   [ "$(grep -Ec '^jobs:[[:space:]]*$' "$file" || true)" = 1 ] || exit 1
 done
-sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
+sh "$INFRA_REFERENCES/checks/workflow-routing.sh" || exit $?
 section() {
   awk -v key="$2" '
     {sub(/\r$/, "")}
@@ -135,13 +135,13 @@ filter=$(printf '%s\n' "$changes" | awk '
 [ "$(printf '%s\n' "$filter" | grep -c '^        id: filter$' || true)" = 1 ] || exit 1
 [ "$(printf '%s\n' "$filter" | grep -c '^        if:' || true)" = 1 ] || exit 1
 printf '%s\n' "$filter" | grep -Fxq "        if: github.event_name == 'pull_request'" || exit 1
-expected_guard=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
+expected_guard=$(job "$INFRA_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
   step "Refuse to apply a commit that is not main's tip")
 [ -n "$expected_guard" ] || exit 2
-expected_destroy=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
+expected_destroy=$(job "$INFRA_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
   step 'Refuse destructive apply without opt-in')
 [ -n "$expected_destroy" ] || exit 2
-expected_apply_run=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
+expected_apply_run=$(job "$INFRA_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
   step 'Terraform Apply' | run_body)
 [ -n "$expected_apply_run" ] || exit 2
 section "$apply" jobs | awk '
@@ -174,7 +174,7 @@ for name in $names; do
   saved_plan=$(printf '%s\n' "$block" | step 'Terraform Plan')
   printf '%s\n' "$saved_plan" | grep -Fxq "        working-directory: terraform/$leaf" || exit 1
   printf '%s\n' "$saved_plan" | grep -Fxq '        run: terraform plan -lock=true -refresh=true -no-color -out=tfplan' || exit 1
-  expected_saved_plan=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
+  expected_saved_plan=$(job "$INFRA_REFERENCES/templates/terraform-apply.yml" apply-cloudflare |
     step 'Terraform Plan' | run_body)
   actual_saved_plan=$(printf '%s\n' "$saved_plan" | run_body)
   [ "$actual_saved_plan" = "$expected_saved_plan" ] || exit 1
@@ -277,20 +277,20 @@ for name in $names; do
   printf '%s\n' "$pr_plan" | grep -Eq '^        (if|continue-on-error):' && exit 1
   template_leaf=cloudflare
   [ "$leaf" != github ] || template_leaf=github
-  expected_plan_body=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-plan.yml" "plan-$template_leaf" |
+  expected_plan_body=$(job "$INFRA_REFERENCES/templates/terraform-plan.yml" "plan-$template_leaf" |
     step 'Terraform Plan' | run_body)
   actual_plan_body=$(printf '%s\n' "$pr_plan" | run_body)
   [ "$actual_plan_body" = "$expected_plan_body" ] || exit 1
   inventory=$(printf '%s\n' "$plan_job" | step 'Summarize Destructive Changes')
-  expected_inventory=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-plan.yml" plan-cloudflare |
+  expected_inventory=$(job "$INFRA_REFERENCES/templates/terraform-plan.yml" plan-cloudflare |
     step 'Summarize Destructive Changes' | sed "s/cloudflare/$leaf/g")
   [ "$inventory" = "$expected_inventory" ] || exit 1
   report=$(printf '%s\n' "$plan_job" | step 'Post Plan to PR')
-  expected_report=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-plan.yml" plan-cloudflare |
+  expected_report=$(job "$INFRA_REFERENCES/templates/terraform-plan.yml" plan-cloudflare |
     step 'Post Plan to PR' | sed "s/cloudflare/$leaf/g")
   [ "$report" = "$expected_report" ] || exit 1
   status=$(printf '%s\n' "$plan_job" | step 'Check Plan Status')
-  expected_status=$(job "$INFRA_COPILOT_REFERENCES/templates/terraform-plan.yml" plan-cloudflare |
+  expected_status=$(job "$INFRA_REFERENCES/templates/terraform-plan.yml" plan-cloudflare |
     step 'Check Plan Status')
   [ "$status" = "$expected_status" ] || exit 1
   printf '%s\n' "$plan_job" | awk '

@@ -78,7 +78,7 @@ This has happened. A second OAuth client was created; HCP publishes one aggregat
 The warning above did not prevent it, because prose cannot. The `status-check-context` step in [`../steps.yaml`](../steps.yaml) now asserts it: every required `Terraform Cloud/…` context must appear among the contexts HCP actually posted on a recent commit.
 
 ```sh
-sh "$INFRA_COPILOT_REFERENCES/checks/status-check-context.sh"
+sh "$INFRA_REFERENCES/checks/status-check-context.sh"
 ```
 
 **Read the replacement context out of that output** rather than picking a commit yourself.

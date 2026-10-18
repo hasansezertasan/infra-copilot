@@ -158,7 +158,7 @@ class VcsConnectCheckTests(unittest.TestCase):
             environment["CALLS"] = str(calls)
             environment.update(
                 {
-                    "INFRA_COPILOT_REFERENCES": str(MANIFEST.parent),
+                    "INFRA_REFERENCES": str(MANIFEST.parent),
                     "ORG": "acme",
                     "REPO": repo,
                     "HCP_TOKEN": "token",

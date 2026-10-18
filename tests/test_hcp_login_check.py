@@ -135,7 +135,7 @@ class HcpLoginCheckTests(unittest.TestCase):
                     "LEAF_BACKENDS": "{}",
                     "ADDITIONAL_PROVIDER_NAMES": additional_names,
                     "HAS_HCP_BOOTSTRAP": "true",
-                    "INFRA_COPILOT_REFERENCES": str(
+                    "INFRA_REFERENCES": str(
                         REPO_ROOT / ".ai-rulez/skills/infra/references"
                     ),
                 }

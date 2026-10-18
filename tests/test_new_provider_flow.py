@@ -162,7 +162,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 **self.env,
                 "ADDITIONAL_PROVIDER_WORKSPACES": '["gcp"]',
                 "HCP_LEAVES": '["cloudflare","github","gcp"]',
-                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
             untracked = subprocess.run(
                 ["/bin/sh", "-c", literal_check(inventory)],
@@ -192,7 +192,7 @@ class NewProviderFlowTests(unittest.TestCase):
             )
             base_env = {
                 **self.env,
-                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
             module_only = subprocess.run(
                 ["/bin/sh", "-c", literal_check(inventory)],
@@ -233,7 +233,7 @@ class NewProviderFlowTests(unittest.TestCase):
                 **self.env,
                 "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
                 "ADDITIONAL_PROVIDER_MISE_TOOLS": "[]",
-                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
             missing = subprocess.run(
                 ["/bin/sh", "-c", literal_check(inventory)],
@@ -250,7 +250,7 @@ class NewProviderFlowTests(unittest.TestCase):
         env = {
             **self.env,
             "ADDITIONAL_PROVIDER_WORKSPACES": '["extra"]',
-            "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+            "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
         }
         for name in ("cloudflare", "github", "modules"):
             result = subprocess.run(
@@ -921,7 +921,7 @@ terraform {
                 "NEW_PROVIDER": "gcp",
                 "NEW_PROVIDER_WORKSPACE": "gcp",
                 "ORG": "acme",
-                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
             valid = subprocess.run(
                 ["/bin/sh", "-c", literal_check(lock_check)], cwd=root, env=env,
@@ -1258,7 +1258,7 @@ terraform {
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                 "ADDITIONAL_PROVIDER_NAMES": "[]",
                 "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
-                "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
             }
             omitted = subprocess.run(
                 ["/bin/sh", "-c", literal_check(inventory)],
@@ -1323,7 +1323,7 @@ terraform {
                     "ADDITIONAL_PROVIDER_NAMES": "[]",
                     "ADDITIONAL_PROVIDER_WORKSPACES": "[]",
                     "ADDITIONAL_PROVIDER_MISE_TOOLS": "[]",
-                    "INFRA_COPILOT_REFERENCES": str(LEAF_CLOUD.parent.parent),
+                    "INFRA_REFERENCES": str(LEAF_CLOUD.parent.parent),
                 },
                 capture_output=True,
                 text=True,

@@ -44,7 +44,7 @@ esac
 ''')
         gh_command.chmod(0o755)
         self.environment = {**os.environ, 'PATH': f'{self.checkout / "bin"}{os.pathsep}{os.environ["PATH"]}',
-                            'INFRA_COPILOT_REFERENCES': str(self.checkout / 'references'),
+                            'INFRA_REFERENCES': str(self.checkout / 'references'),
                             'REPO': 'acme/infra', 'NEW_PROVIDER': 'gcp',
                             'TEST_LIST_EXIT': '0', 'TEST_VIEW_EXIT': '0',
                             'TEST_RUN_INFO': json.dumps({'databaseId': 123, 'headSha': head,

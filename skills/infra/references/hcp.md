@@ -1,14 +1,14 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:f620f3b27c9db7c23badd012871078c148d4c08395c7b8884e0df2b50826473d
-Source-Hash: blake3:bc3035ae93f0d480805e2aa47fc30257a53ec0a06c0ebbeb36e6fe1679fa5ebb
+Content-Hash: blake3:87144e0b61dfc000d960639f95c6a018f03296e803f04e5a05f662e934b55a2e
+Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
 Schema-Version: v1
 -->
 
 
 # HCP bootstrap + workspaces (agent-first)
 
-Deep dive for Phases 0–1 of the [`setup`](../../infra-setup/SKILL.md) skill. Canonical detail:
+Deep dive for Phases 0–1 of the [`infra-setup`](../../infra-setup/SKILL.md) skill. Canonical detail:
 [`docs/setup.md#1`](docs/setup.md#1-hcp-terraform--organization),
 [`docs/setup.md#2`](docs/setup.md#2-hcp-terraform--workspaces),
 [`docs/state.md`](docs/state.md).
@@ -96,7 +96,7 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
       return 0
     fi
     if [ -n "${GITHUB_APP_INSTALLATION_ID:-}" ]; then
-      app=$(sh "$INFRA_COPILOT_REFERENCES/checks/hcp-github-app.sh") || return 1
+      app=$(sh "$INFRA_REFERENCES/checks/hcp-github-app.sh") || return 1
       VCS_CONNECTION=$(jq -n --arg id "$app" '{"github-app-installation-id":$id}')
       return 0
     fi
@@ -138,7 +138,7 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
       | .relationships["oauth-tokens"].data[].id
       | {"oauth-token-id":.}] | unique[]' "$pages" >>"$candidates" \
       || { rm -f "$pages" "$candidates"; return 1; }
-    app=$(sh "$INFRA_COPILOT_REFERENCES/checks/hcp-github-app.sh")
+    app=$(sh "$INFRA_REFERENCES/checks/hcp-github-app.sh")
     rc=$?
     case "$rc" in
       0) jq -nc --arg id "$app" '{"github-app-installation-id":$id}' >>"$candidates" ;;

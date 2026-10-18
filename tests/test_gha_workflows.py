@@ -43,7 +43,7 @@ class WorkflowSetupTests(unittest.TestCase):
         self.git('commit', '--allow-empty', '-qm', 'test: record workflows')
 
     def check(self, *, references: bool = True) -> subprocess.CompletedProcess[str]:
-        env = {**os.environ, 'INFRA_COPILOT_REFERENCES': str(REFERENCES) if references else '',
+        env = {**os.environ, 'INFRA_REFERENCES': str(REFERENCES) if references else '',
                'BACKEND': 'object-storage', 'ADDITIONAL_PROVIDER_NAMES': '[]',
                'ADDITIONAL_PROVIDER_SECRETS': '[{"name":"aws","credential_secrets":[{"name":"READ_TOKEN","scope":"plan","required":true},{"name":"WRITE_TOKEN","scope":"apply","required":true}]}]'}
         return subprocess.run(['sh', str(SCRIPT)], cwd=self.root, env=env,
@@ -259,7 +259,7 @@ class WorkflowSetupTests(unittest.TestCase):
         match = re.search(r'^    check: \|\n((?:      .*\n|\n)+)', body, re.M)
         script = textwrap.dedent(match.group(1))
         return subprocess.run(['sh', '-c', script], cwd=self.root,
-                               env={**os.environ, 'INFRA_COPILOT_REFERENCES': str(REFERENCES),
+                               env={**os.environ, 'INFRA_REFERENCES': str(REFERENCES),
                                     'NEW_PROVIDER': provider, 'BACKEND': 'object-storage',
                                     'ADDITIONAL_PROVIDER_NAMES': json.dumps([provider]),
                                     'NEW_PROVIDER_SECRETS': '[{"name":"READ_TOKEN","scope":"plan","required":true},{"name":"WRITE_TOKEN","scope":"apply","required":true}]'}, capture_output=True, text=True)
@@ -380,7 +380,7 @@ class WorkflowSetupTests(unittest.TestCase):
         self.assertEqual(self.new_provider_check().returncode, 0)
         self.apply.write_text(apply_original)
         self.commit()
-        env = {**os.environ, 'INFRA_COPILOT_REFERENCES': str(REFERENCES),
+        env = {**os.environ, 'INFRA_REFERENCES': str(REFERENCES),
                'BACKEND': 'object-storage',
                'ADDITIONAL_PROVIDER_NAMES': json.dumps(['aws']),
                'ADDITIONAL_PROVIDER_SECRETS': '[{"name":"aws","credential_secrets":[{"name":"READ_TOKEN","scope":"plan","required":true},{"name":"WRITE_TOKEN","scope":"apply","required":true}]}]'}

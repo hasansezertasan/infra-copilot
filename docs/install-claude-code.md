@@ -36,6 +36,13 @@ disabling entry from that file.
 Then **restart the session**. Skill descriptions are read into the prompt at session
 start, so a running session keeps the versions it started with.
 
+## Upgrading from infra-copilot
+
+The plugin was renamed to `infra-skills`, so an existing `infra-copilot` install does not
+update in place. Remove the old plugin with `claude plugin uninstall infra-copilot` (and remove its
+marketplace entry), then install `infra-skills` as above and
+restart the session. The old slash commands are gone; use the skill names below.
+
 ## Invoke
 
 `/infra-skills:infra-setup`, `/infra-skills:infra-import`, `/infra-skills:infra-prune`,
@@ -44,7 +51,7 @@ natural language ("use infra-skills to check where infra stands").
 
 A `SessionStart` hook announces the plugin when the working directory carries
 `.infra-copilot/config.md`, the legacy `.claude/infra-copilot.local.md`, or a
-`terraform/` tree. Silence it with `INFRA_COPILOT_HOOK_DISABLE=1`.
+`terraform/` tree. Silence it with `INFRA_HOOK_DISABLE=1`.
 
 ## Verify
 
