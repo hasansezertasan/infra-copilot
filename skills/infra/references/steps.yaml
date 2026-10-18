@@ -247,8 +247,8 @@ steps:
       Run `copier copy` only when the destination is empty apart from `.git`; any other
       content, tracked or not, is a hand-off, because Copier would overwrite it and the
       render commit would absorb it. Otherwise:
-      0. Export INFRA_REFERENCES first (config.md), require `uv` on the path (a HUMAN
-         install if absent), and run `git init` if the directory is not a repository.
+      0. Export INFRA_REFERENCES first (config.md), require `uv` and `mise` on the path (a
+         HUMAN install if either is absent; step 3 needs `mise`, so check before copying), and run `git init` if the directory is not a repository.
       1. Clone the Template at its newest release tag into a scratch directory and read its
          copier.yml: those are the questions to ask, never a remembered set. A question with
          `choices` is a decision per protocol.md, the Template's default first; a free-form

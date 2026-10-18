@@ -65,14 +65,17 @@ class TemplateContractTests(unittest.TestCase):
     def test_source_must_be_an_exact_alias_not_a_substring(self) -> None:
         for crafted in ('gh:attacker/hasansezertasan/copier-infra',
                         'gh:someone/evil # gh:hasansezertasan/copier-infra',
-                        'gh:hasansezertasan/copier-infra-fork'):
+                        'gh:hasansezertasan/copier-infra-fork',
+                        'gh:hasan sezertasan/copier-infra',
+                        '"gh:hasansezertasan/copier-infra'):
             with self.subTest(crafted=crafted):
                 self.write_answers(f'_commit: v1.0.0\n_src_path: {crafted}\n')
                 self.assertEqual(self.run_check(None).returncode, 2)
 
     def test_canonical_aliases_pass(self) -> None:
         for alias in ('gh:hasansezertasan/copier-infra.git', '"https://github.com/hasansezertasan/copier-infra"',
-                      'git@github.com:hasansezertasan/copier-infra.git # pinned'):
+                      'git@github.com:hasansezertasan/copier-infra.git # pinned',
+                      "'gh:hasansezertasan/copier-infra'"):
             with self.subTest(alias=alias):
                 self.write_answers(f'_commit: v1.0.0\n_src_path: {alias}\n')
                 self.assertEqual(self.run_check(None).returncode, 0)
