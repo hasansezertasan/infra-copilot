@@ -102,7 +102,9 @@ between the `# infra:customization` comments inside the block and refuse to edit
 renders a consuming repo shaped for this contract: the README Config block and
 Decisions table with an explicit `backend:` and its matching fields, a `backend.tf` per Terraform root,
 `mise.toml` and `mise.lock` at the repo root, plus `AGENTS.md`. It asks
-only for the public identifiers in the config above.
+only for the public identifiers in the config above. The Template has no release tag yet, so
+`uvx copier copy` renders its main branch, which already emits these README sections and no
+legacy `.infra-copilot/` directory.
 
 ```sh
 uvx copier copy gh:hasansezertasan/copier-infra infra
