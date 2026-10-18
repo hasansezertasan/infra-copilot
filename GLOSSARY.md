@@ -2,6 +2,9 @@
 
 Agent skills that bootstrap and maintain an infrastructure repository, paired with a Copier template that renders that repository's starting shape. The two promote each other.
 
+Target vocabulary for the rename tracked in #130. Until it lands, the plugin is still named
+infra-copilot and the Template contract is not yet enforced.
+
 ## Language
 
 **Infra repo**:
