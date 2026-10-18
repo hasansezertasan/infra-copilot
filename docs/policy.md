@@ -1,4 +1,4 @@
-# Restricting what infra-copilot can do
+# Restricting what infra-skills can do
 
 **Claude Code's command-level permission rules cannot meaningfully constrain this
 plugin.** That is the conclusion of trying, and it is worth more than the profile this
@@ -9,7 +9,7 @@ Claude Code is the only grammar analysed here. The other hosts are
 mechanism, which is the category this page says can work, so do not read the conclusion as
 covering it.
 
-If you need to bound what infra-copilot can do, the boundary has to be *tool-level* or
+If you need to bound what infra-skills can do, the boundary has to be *tool-level* or
 *sandbox-level*, not command-level. The rest of this page is the evidence, because every
 bypass below is one the plugin's own documentation supplies — so anyone writing rules
 without knowing them will believe they have protections they do not have.
@@ -89,19 +89,12 @@ wrapping, REST, the Read tool's scope, the command surface, and subprocess file 
 What does hold regardless is that enumerating what such checks spawn would grant `rm` and
 `sed` broadly, which is a poor trade whatever the matcher does.
 
-**5. The slash command is a second entry point.** `commands/infra-setup.md` describes
-itself as *"the same procedure, two surfaces"*, and its frontmatter grants broad tools:
-
-```yaml
-allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
-```
-
-Invoking `/infra-setup` does not require Claude to call the `Skill` tool, so
-`Skill(infra-copilot:setup)` does not cover it. Every action skill has a matching command
-— `/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add` — so a rule set denying
-only the skills leaves the primary invocation path open. If your host exposes a rule type
-for command invocation, deny both surfaces; check its documentation rather than assuming
-one exists.
+**5. The slash invocation is a second entry point.** A person who types
+`/infra-skills:infra-setup` loads the skill directly, without Claude calling the `Skill` tool,
+so a `Skill(infra-skills:infra-setup)` rule may not cover it. Every action skill can be reached
+this way — `infra-setup`, `infra-import`, `infra-prune`, `infra-add` — so a rule set denying only
+the tool call leaves the person-typed path open. Check your host's documentation for how a
+rule type treats a typed invocation rather than assuming one does.
 
 **6. Secret files are readable by any subprocess.** Worth stating separately from bypass
 3: `Read(./.env)` and friends constrain the Read tool, so `cat .env`, `cat .env.local`,
@@ -114,7 +107,7 @@ write Read denies anyway, cover the variants — `./.env`, `./.env.*`, `./**/.en
 
 | Rule | Holds? |
 |---|---|
-| `Skill(infra-copilot:setup)` etc. | No — `/infra-setup` is a second entry point |
+| `Skill(infra-skills:infra-setup)` etc. | No — `/infra-skills:infra-setup` is a second entry point |
 | `Bash(terraform apply)` | No — `mise exec --`, and REST |
 | `Read(./**/*.tfvars)` | No — any Bash subprocess |
 | `Edit(**)` / `Write(**)` | No — Bash writes files |
@@ -165,11 +158,11 @@ runs shell checks from a manifest, including API reads and shipped scripts. It n
 and bypass 3 above establishes that `Bash` writes files. Remove `Bash` and the scan cannot
 run at all. So the subagent reduces the surface for an accident; only a sandboxed
 command runner turns it into a boundary. Which hosts have it is recorded in
-[`hosts.md`](../skills/infra-copilot/references/hosts.md), not here.
+[`hosts.md`](../skills/infra/references/hosts.md), not here.
 
 ## A credential that cannot apply
 
-The `hcp-apply-scope` step in [`steps.yaml`](../.ai-rulez/skills/infra-copilot/references/steps.yaml)
+The `hcp-apply-scope` step in [`steps.yaml`](../.ai-rulez/skills/infra/references/steps.yaml)
 owns this. It is a `HUMAN` step, and it stays red until someone does the work — like
 `new-provider-decision` for a configured adoption, a red here is a standing to-do rather
 than a software fault.
@@ -263,7 +256,7 @@ the same fact and cannot change anything.
 
 | Limit | Consequence |
 |---|---|
-| The `discard` and `cancel` recipes in [`docs/hcp-api.md`](../.ai-rulez/skills/infra-copilot/references/docs/hcp-api.md) are operator reference, not manifest checks. `Plan` does not include them. | A plan-only identity cannot discard or cancel a run. Nothing in `steps.yaml` needs it; a human with the user token still can. |
+| The `discard` and `cancel` recipes in [`docs/hcp-api.md`](../.ai-rulez/skills/infra/references/docs/hcp-api.md) are operator reference, not manifest checks. `Plan` does not include them. | A plan-only identity cannot discard or cancel a run. Nothing in `steps.yaml` needs it; a human with the user token still can. |
 | **The check cannot prove the team holds no organization permissions.** A team with `Manage Workspaces` or `Manage Teams` shows plan-only workspace rights while being able to grant itself `Write` through organization-scoped APIs. Reading that back needs `GET /organizations/<org>/teams`, which the credential should not be able to call — so the check cannot confirm the absence of a permission whose presence is what would let it look. | Getting step 1 of the procedure right — a team with **no** organization permissions — is not machine-verified. The check does catch the two elevation paths it can see: `can-update` on a workspace (settings include auto-apply) and `auto-apply` already enabled. |
 | `vcs-connect`'s check reads `/organizations/<org>/oauth-clients`, which is organization-scoped and unreadable by the plan-only credential. | Handled rather than tolerated: the step is tri-state and falls back to workspace-scoped evidence — a workspace connected to `$REPO`, which is the connection actually in use and a stronger signal. Only if neither is readable does it report `?`. Without this, a resume scan stopped at the first non-zero check and `setup` could not get past phase 1 after the handoff. **Do not** grant the team "Manage version control settings" to turn it green — that is an organization permission, and organization permissions are the self-elevation risk above. |
 | `vcs-connect`'s workspace-scoped fallback cannot establish the VCS **provider family**. A workspace's `vcs-repo` carries no `service-provider` field, and resolving its `oauth-token-id` to a client needs an organization-scoped read the narrowed credential does not have. | An organization holding a GitLab workspace with the same `owner/name` would satisfy the fallback. Accepted deliberately: the primary path checks GitHub specifically, and on a 401/403 the fallback runs only after the handoff, when phase 1 is complete and was verified under the user token. The fallback also runs when the organization *is* readable but has no GitHub OAuth client (an HCP GitHub App–only organization); there it counts only a non-empty `github-app-installation-id`, which only a GitHub connection carries. Before a workspace exists, it accepts a unique user-visible App installation matching the GitHub owner in `REPO`, optionally selected by `GITHUB_APP_INSTALLATION_ID`. This proves installation and user authorization, not repository access; workspace creation must still succeed. No org-scoped App list is assumed. |

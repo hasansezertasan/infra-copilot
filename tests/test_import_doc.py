@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-IMPORT_DOC = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/docs/import.md"
+IMPORT_DOC = REPO_ROOT / ".ai-rulez/skills/infra/references/docs/import.md"
 
 
 class ImportDocTests(unittest.TestCase):

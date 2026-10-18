@@ -1,5 +1,4 @@
 {
   "hooks": "Claude Code SessionStart hook that announces the plugin in a managed infra repo; ai-rulez has no hook support",
-  "agents": "The read-only infra-auditor subagent in Claude's dialect; ai-rulez has no agent support",
-  "commands": "The five slash commands ai-rulez generates from .ai-rulez/commands/"
+  "agents": "The read-only infra-auditor subagent in Claude's dialect; ai-rulez has no agent support"
 }

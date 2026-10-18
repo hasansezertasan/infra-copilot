@@ -32,7 +32,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "scripts/upstream.json"
-REFERENCES = ROOT / "skills/infra-copilot/references"
+REFERENCES = ROOT / "skills/infra/references"
 TIMEOUT_SECONDS = 20
 
 
@@ -339,7 +339,7 @@ def fetch_json(url: str) -> dict[str, object]:
     try:
         result = subprocess.run(
             ["curl", "-sSfL", "--max-time", str(TIMEOUT_SECONDS),
-             "-H", "User-Agent: infra-copilot-upstream-check", url],
+             "-H", "User-Agent: infra-skills-upstream-check", url],
             capture_output=True, text=True, check=True,
         )
     except FileNotFoundError as error:

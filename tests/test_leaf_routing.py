@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCES = ROOT / '.ai-rulez/skills/infra-copilot/references'
+REFERENCES = ROOT / '.ai-rulez/skills/infra/references'
 
 
 @unittest.skipUnless(os.name == 'posix' and shutil.which('jq'), 'POSIX shell and jq required')

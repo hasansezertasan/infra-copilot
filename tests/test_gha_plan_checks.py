@@ -10,7 +10,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-REFERENCES = Path(__file__).resolve().parents[1] / '.ai-rulez/skills/infra-copilot/references'
+REFERENCES = Path(__file__).resolve().parents[1] / '.ai-rulez/skills/infra/references'
 MEMBERS = ('plan-cloudflare-gha', 'plan-github-gha', 'new-provider-plan-gha')
 
 

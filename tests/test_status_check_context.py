@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / "skills/infra-copilot/references/checks/status-check-context.sh"
+SCRIPT = REPO_ROOT / "skills/infra/references/checks/status-check-context.sh"
 
 HCP_OLD = "Terraform Cloud/acme/repo-id-111"
 HCP_NEW = "Terraform Cloud/acme/repo-id-222"

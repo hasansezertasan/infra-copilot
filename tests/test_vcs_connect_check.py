@@ -28,7 +28,7 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+MANIFEST = REPO_ROOT / ".ai-rulez/skills/infra/references/steps.yaml"
 
 GITHUB_CLIENT = '{"data":[{"attributes":{"service-provider":"github_app"}}]}'
 

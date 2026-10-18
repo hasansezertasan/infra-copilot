@@ -16,9 +16,9 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / "skills/infra-copilot/references/checks/gha-latest-runs.sh"
-SOURCE = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/checks/gha-latest-runs.sh"
-STATUS_RUNBOOK = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/object-storage.md"
+SCRIPT = REPO_ROOT / "skills/infra/references/checks/gha-latest-runs.sh"
+SOURCE = REPO_ROOT / ".ai-rulez/skills/infra/references/checks/gha-latest-runs.sh"
+STATUS_RUNBOOK = REPO_ROOT / ".ai-rulez/skills/infra/references/object-storage.md"
 
 
 def run(
@@ -71,7 +71,7 @@ class GhaLatestRunsTests(unittest.TestCase):
             for path in (bin_dir, data, work / ".github/workflows"):
                 path.mkdir(parents=True)
             for name in workflows:
-                workflow_text = (REPO_ROOT / '.ai-rulez/skills/infra-copilot/references/templates' / name).read_text()
+                workflow_text = (REPO_ROOT / '.ai-rulez/skills/infra/references/templates' / name).read_text()
                 if name == "terraform-apply.yml":
                     workflow_text = workflow_text.replace('GITHUB_BACKEND: object-storage', f'GITHUB_BACKEND: {apply_route}')
                 (work / ".github/workflows" / name).write_text(
@@ -345,7 +345,7 @@ esac
         self.assertEqual(self.gh_calls, "")
 
     def test_unenterable_root_cannot_verify(self) -> None:
-        result = self.run_helper(toplevel="/nonexistent/infra-copilot-root")
+        result = self.run_helper(toplevel="/nonexistent/infra-skills-root")
         self.assertEqual(result.returncode, 2)
         self.assertIn("CANNOT VERIFY: could not enter the repository root", result.stderr)
         self.assertEqual(self.gh_calls, "")

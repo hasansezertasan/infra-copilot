@@ -13,10 +13,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 POLICY = REPO_ROOT / "docs/policy.md"
-MANIFEST = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
-ADD_SKILL = REPO_ROOT / ".ai-rulez/skills/add/SKILL.md"
-PROTOCOL = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/protocol.md"
-GCP = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/gcp.md"
+MANIFEST = REPO_ROOT / ".ai-rulez/skills/infra/references/steps.yaml"
+ADD_SKILL = REPO_ROOT / ".ai-rulez/skills/infra-add/SKILL.md"
+PROTOCOL = REPO_ROOT / ".ai-rulez/skills/infra/references/protocol.md"
+GCP = REPO_ROOT / ".ai-rulez/skills/infra/references/gcp.md"
 
 
 class PolicyDocTests(unittest.TestCase):

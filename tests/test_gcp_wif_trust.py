@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / "skills/infra-copilot/references/checks/gcp-wif-trust.sh"
+SCRIPT = REPO_ROOT / "skills/infra/references/checks/gcp-wif-trust.sh"
 
 POOL = "projects/123/locations/global/workloadIdentityPools/hcp-terraform"
 PROVIDER_NAME = f"{POOL}/providers/hcp-terraform"

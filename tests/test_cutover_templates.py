@@ -12,7 +12,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-TEMPLATES = Path(__file__).resolve().parents[1] / ".ai-rulez/skills/infra-copilot/references/templates"
+TEMPLATES = Path(__file__).resolve().parents[1] / ".ai-rulez/skills/infra/references/templates"
 LEAVES = ("cloudflare", "github")
 
 
@@ -162,12 +162,12 @@ class CutoverTemplateTests(unittest.TestCase):
         harness = r"""
 const fs = require('fs');
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
-const marker = `<!-- infra-copilot-plan:${input.leaf} -->`;
+const marker = `<!-- infra-skills-plan:${input.leaf} -->`;
 const bot = {login: 'github-actions[bot]', type: 'Bot'};
 const impostors = [
   {id: 1, body: marker, user: {login: 'contributor', type: 'User'}},
   {id: 2, body: marker, user: {login: 'other[bot]', type: 'Bot'}},
-  {id: 4, body: '<!-- infra-copilot-plan:other -->', user: bot},
+  {id: 4, body: '<!-- infra-skills-plan:other -->', user: bot},
   {id: 5, body: null, user: bot},
   {id: 6, body: marker, user: null}
 ];
@@ -244,7 +244,7 @@ const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
                 self.assertEqual(mutation["owner"], "owner")
                 self.assertEqual(mutation["repo"], "repo")
                 self.assertEqual(mutation["comment_id" if existing else "issue_number"], 107)
-                self.assertTrue(mutation["body"].startswith(f"<!-- infra-copilot-plan:{leaf_name} -->"))
+                self.assertTrue(mutation["body"].startswith(f"<!-- infra-skills-plan:{leaf_name} -->"))
                 self.assertIn("PR head: `current-head`", mutation["body"])
                 self.assertIn("Planned commit: `planned-merge`", mutation["body"])
                 self.assertLess(len(mutation["body"]), 65536)

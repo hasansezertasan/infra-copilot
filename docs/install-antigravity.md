@@ -1,7 +1,7 @@
-# Installing infra-copilot on Antigravity
+# Installing infra-skills on Antigravity
 
 Per-host capabilities — question tool, slash-command support — live in
-[`hosts.md`](../skills/infra-copilot/references/hosts.md). This page covers install only.
+[`hosts.md`](../skills/infra/references/hosts.md). This page covers install only.
 
 There is no `.antigravity/` directory in this repository: Antigravity installs the plugin
 straight from the Git URL, so no host-specific manifest is generated for it.
@@ -12,7 +12,7 @@ Antigravity's plugin installer currently has no project-scope option; this insta
 plugin into Antigravity's user plugin registry, so it is available across repositories.
 
 ```sh
-agy plugin install https://github.com/hasansezertasan/infra-copilot
+agy plugin install https://github.com/hasansezertasan/infra-skills
 ```
 
 ## Update
@@ -22,11 +22,12 @@ Reinstall the plugin with the same command, then **restart**. There is no in-pla
 
 ## Invoke
 
-`/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add`, `/infra-status`, or natural
+`/infra-skills:infra-setup`, `/infra-skills:infra-import`, `/infra-skills:infra-prune`,
+`/infra-skills:infra-add`, `/infra-skills:infra-status`, or natural
 language.
 
 ## Verify
 
-Run `/infra-status` in any directory. In a repo with no config it reports the config as
-missing and stops, naming `setup` as the skill that creates one — `status` is read-only
+Run `/infra-skills:infra-status` in any directory. In a repo with no config it reports the config as
+missing and stops, naming `infra-setup` as the skill that creates one — `infra-status` is read-only
 and never offers to scaffold. That report is a working install.

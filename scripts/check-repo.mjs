@@ -298,7 +298,7 @@ const ROOT_COMPONENTS = [
   "themes",
   "monitors",
 ];
-// Opt-in for a repo that ships a root component deliberately (infra-copilot's
+// Opt-in for a repo that ships a root component deliberately (infra-skills's
 // SessionStart hook and subagent). `.config/root-components.json` is repo-owned
 // and absent by default: an object mapping each allowed component to the reason
 // it ships. An unknown name or an empty reason is an error, so a typo or a bare

@@ -1,13 +1,13 @@
-# Installing infra-copilot on Claude Code
+# Installing infra-skills on Claude Code
 
 Per-host capabilities — question tool, slash-command support — live in
-[`hosts.md`](../skills/infra-copilot/references/hosts.md). This page covers install only.
+[`hosts.md`](../skills/infra/references/hosts.md). This page covers install only.
 
 ## Install
 
 ```sh
-claude plugin marketplace add hasansezertasan/infra-copilot --scope project
-claude plugin install infra-copilot --scope project
+claude plugin marketplace add hasansezertasan/infra-skills --scope project
+claude plugin install infra-skills --scope project
 ```
 
 Two steps: the first registers the marketplace, the second installs the plugin from it.
@@ -21,7 +21,7 @@ remove the disabling entry there; a more-specific `local` setting overrides `pro
 For example, if the diagnostic names project settings:
 
 ```sh
-claude plugin enable infra-copilot@infra-copilot --scope project
+claude plugin enable infra-skills@infra-skills --scope project
 ```
 
 If it names `.claude/settings.local.json`, use `--scope local` instead, or remove the
@@ -30,7 +30,7 @@ disabling entry from that file.
 ## Update
 
 ```text
-/plugin update infra-copilot
+/plugin update infra-skills
 ```
 
 Then **restart the session**. Skill descriptions are read into the prompt at session
@@ -38,8 +38,9 @@ start, so a running session keeps the versions it started with.
 
 ## Invoke
 
-`/infra-setup`, `/infra-import`, `/infra-prune`, `/infra-add`, `/infra-status`, or plain
-natural language ("use infra-copilot to check where infra stands").
+`/infra-skills:infra-setup`, `/infra-skills:infra-import`, `/infra-skills:infra-prune`,
+`/infra-skills:infra-add`, `/infra-skills:infra-status`, or plain
+natural language ("use infra-skills to check where infra stands").
 
 A `SessionStart` hook announces the plugin when the working directory carries
 `.infra-copilot/config.md`, the legacy `.claude/infra-copilot.local.md`, or a
@@ -47,7 +48,7 @@ A `SessionStart` hook announces the plugin when the working directory carries
 
 ## Verify
 
-Run `/infra-status` in any directory. In a repo with no config it reports the config as
-missing and stops, naming `setup` as the skill that creates one — `status` is read-only
+Run `/infra-skills:infra-status` in any directory. In a repo with no config it reports the config as
+missing and stops, naming `infra-setup` as the skill that creates one — `infra-status` is read-only
 and never offers to scaffold. That report is a working install; a silent no-op or an
 unknown-command error is not.

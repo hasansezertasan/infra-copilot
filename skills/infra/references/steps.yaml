@@ -1,0 +1,2788 @@
+# Machine-readable manifest shared by the infra-skills skills
+# (setup/import/prune/add/status).
+#
+# Read this alongside protocol.md and whichever action skill (setup/import/prune/add/status)
+# routes into it. An agent walks these steps
+# top-to-bottom. On every run it FIRST executes each step's `check` to find where
+# setup already is (resume protocol), then resumes at the first red check.
+#
+# Field contract
+#   id        stable slug, referenced by SKILL.md
+#   operation backend-neutral contract slug; see operations.md
+#   implementation hcp | object-storage | both (shared implementation)
+#   not_applicable explicit reason; report N/A, never treat as proved safety
+#   phase     0..6, matches SKILL.md phases
+#   provider  hcp | cloudflare | github | gcp | repo
+#   actor     AGENT  -> agent executes directly
+#             HUMAN  -> agent STOPS, emits the handoff block (see SKILL.md), waits
+#                       for "done", then runs `check` before continuing
+#   title     one line
+#   why       what this unblocks (goes in the handoff block's "Why:")
+#   run       AGENT steps: the command(s) the agent runs
+#             HUMAN steps: the human_action text (browser instructions)
+#   when      optional shell condition. If present and evaluates false, skip this step.
+#             Use the scope-specific selectors in operations.md, never $BACKEND.
+#   refresh_credentials optional. Refresh selected config exports after this member
+#             passes, before checking its next member (never wait for the whole operation).
+#   tri_state optional. `true` means this check reserves exit 2 for "could not verify"
+#             (see protocol.md). Absent/false: any non-zero exit is red, which is the
+#             default because ordinary tools use 2 for their own errors — jq exits 2 on
+#             a missing input file.
+#   check     command whose success (exit 0) means the step is DONE. Idempotent.
+#             `null` means "no scriptable check — prove it via the next plan".
+#   produces  the artifact/credential this step yields
+#   docs      canonical section to read for the fine print — a path relative to
+#             references/ (this file's dir), e.g. docs/setup.md#... or cloudflare.md
+#
+# RUNNER SETUP — the fields below (org, hcp_api, …) are YAML metadata, NOT shell
+# variables. Before running any `check`/`run`, the agent MUST source the repo-local
+# config per config.md's Step 0: read .infra-copilot/config.md from the consuming
+# repo and export the vars every command below actually references.
+#
+# Common vars (both modes):
+#     export BACKEND=<backend>  # required: hcp | object-storage
+#     export LEAF_BACKENDS='<validated optional map as JSON, {} when absent>'
+# Resolve checks/leaf-routing.sh per config.md before preflight. Export its effective
+# map, service flags HAS_HCP/HAS_OBJECT_STORAGE, bootstrap flags/leaf arrays,
+# CLOUDFLARE_BACKEND/GITHUB_BACKEND and each entry's NEW_PROVIDER_BACKEND.
+# BACKEND remains the repository default; both service export sections apply in mixed mode.
+#     export GITHUB_ORG=<github_org>
+#     export DOMAIN=<apex_domain>
+#     export CF_ACCOUNT_ID=<cloudflare_account_id>
+#     export CF_ZONE_ID=<cloudflare_zone_id>
+#     export REPO=<managed_repos[0]>
+#     export ADDITIONAL_PROVIDER_NAMES='<additional_providers names as compact JSON>'
+#     export ADDITIONAL_PROVIDER_MISE_TOOLS='<all entry.mise_tools flattened as compact JSON>'
+#     export INFRA_COPILOT_REFERENCES=<absolute path to references/ directory>
+#
+# HCP service present (HAS_HCP=true, even with an object-storage default):
+#     export ORG=<hcp_org>
+#     export HCP_STATUS_CHECK_ID=<hcp_status_check_id>
+#     export ADDITIONAL_PROVIDER_WORKSPACES='<only HCP-routed entry.workspace values as compact JSON>'
+#     export hcp_api=https://app.terraform.io/api/v2
+#     export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
+#
+# Object-storage service present (HAS_OBJECT_STORAGE=true, even with an HCP default):
+#     export STATE_BACKEND=<state_backend>  # gcs | s3 | azurerm | ...
+#     export STATE_BUCKET=<state_bucket>
+#     export STATE_PREFIX=<state_prefix>
+#     export STATE_LOCK_TABLE=<state_lock_table>  # for S3
+#     export STATE_REGION=<state_region>  # for S3/azurerm
+#     export ADDITIONAL_PROVIDER_SECRETS='<only object-storage-routed [entry: {name, credential_secrets}, ...] as compact JSON>'
+#
+# Step 0 must stop and hand off if backend is missing, empty, or invalid, before
+# preflight or any when/check/run. Never infer a mode from an empty BACKEND.
+# Steps with `when` conditions are skipped when the condition evaluates false.
+#
+# Phase 6 runs its inventory once, then instantiates the remaining steps per entry.
+# Common exports for both modes:
+#     export NEW_PROVIDER=<entry.name>
+#     export NEW_PROVIDER_BACKEND=<effective backend for entry.name, never the unexamined default>
+#     export NEW_PROVIDER_MISE_TOOLS='<entry.mise_tools as compact JSON>'
+#     export NEW_PROVIDER_MISE_CONFIG_BLOB=<entry.mise_config_blob>
+#     export NEW_PROVIDER_MISE_LOCK_BLOB=<entry.mise_lock_blob>
+#     export NEW_PROVIDER_CREDENTIALS_VERIFIED_AT=<entry.credentials_verified_at>
+#     export NEW_PROVIDER_CREDENTIALS_BACKEND=<entry.credentials_backend; hcp only when legacy field absent>
+# The once-per-phase inventory also receives every declared provider tool:
+#     export ADDITIONAL_PROVIDER_MISE_TOOLS='<all entry.mise_tools flattened as compact JSON>'
+#
+# Effective HCP entry Phase 6 exports:
+#     export NEW_PROVIDER_WORKSPACE=<entry.workspace>
+#     export NEW_PROVIDER_FORK_PLANS_DISABLED=<entry.fork_speculative_plans_disabled>
+#     export NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID=<entry.fork_speculative_plans_workspace_id>
+#     export NEW_PROVIDER_CREDENTIALS='<entry.credential_variables as compact JSON>'
+#
+# Effective object-storage entry Phase 6 exports:
+#     export NEW_PROVIDER_SECRETS='<entry.credential_secrets as compact JSON>'
+# Preflight exports TERRAFORM_VERSION from the validated repository pin before any
+# Phase 1 workspace check or run uses it.
+# Never guess or invent these values — if the config file is missing, treat it as a
+# HUMAN step per config.md. See the "Configuring for your org" section in SKILL.md.
+org: $ORG  # sourced from config — see config.md
+domain: $DOMAIN  # sourced from config — see config.md
+hcp_api: https://app.terraform.io/api/v2
+# managed_repos come from .infra-copilot/config.md (see config.md) — not hardcoded here.
+
+# TOOLCHAIN CONTRACT — pinned, not merely present.
+#
+# The requirement: the consuming repo pins its tool versions in `mise.toml`, commits
+# that file and `mise.lock`, and matches what HCP runs. The checks read the named
+# repository file explicitly; `mise current` is intentionally not used because it
+# reports active user/global configuration as well as repository configuration.
+#
+#   pin    exact key in the committed file that records the pin.
+#   check  exit 0 == the running binary exactly matches that committed pin.
+#
+# The lock check enumerates the `[tools]` keys of the committed file and dry-runs a
+# locked install over exactly those. Naming a fixed list would leave conditionally
+# added tools (gcloud, cf-terraforming) unvalidated, and running `mise install`
+# with no tool arguments would pull in user/global config — the same leak that
+# rules out `mise current`.
+#
+# It also asserts every configured *value* is an exact version. The per-tool checks
+# below only cover terraform/gh/jq/gcloud, so without this an import-added pin such
+# as cf-terraforming could sit at `latest` or a range, pass a refreshed lock, and
+# still report a healthy exact-pin contract. Any value this cannot read as an exact
+# version fails closed — a table-form entry has to be rewritten as a plain pin.
+#
+# `mise trust --show` has no machine-readable mode, and since 2026.9 it prints a path
+# under $HOME as `~/…` (and $HOME itself as `~`). The trust match accepts that form
+# alongside the absolute path, abbreviating only on a whole-component $HOME prefix, as
+# mise does. mise strips $HOME as a literal string, so a trailing slash in $HOME yields
+# `~repo`, not `~/repo`; the match reproduces that rather than normalising $HOME.
+preflight:
+  - tool: mise
+    check: >-
+      mise --version >/dev/null &&
+      git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- mise.toml mise.lock &&
+      git diff --cached --quiet HEAD -- mise.toml mise.lock &&
+      repo_dir=$(pwd -P) &&
+      shown_dir=$repo_dir &&
+      case $HOME in ''|/) ;;
+      */) case $repo_dir in "$HOME"*) shown_dir="~${repo_dir#"$HOME"}" ;; esac ;;
+      *) case $repo_dir in "$HOME") shown_dir="~" ;;
+      "$HOME"/*) shown_dir="~${repo_dir#"$HOME"}" ;; esac ;; esac &&
+      mise trust --show 2>/dev/null |
+      grep -Fx -e "$repo_dir: trusted" -e "$shown_dir: trusted" >/dev/null &&
+      tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
+      [ -n "$tools" ] &&
+      pinned=$(printf '%s\n' "$tools" |
+      sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
+      [ -n "$pinned" ] &&
+      ! printf '%s\n' "$tools" |
+      sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
+      grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      printf '%s\n' "$pinned" |
+      while IFS= read -r tool; do
+      [ -z "$tool" ] && continue;
+      MISE_LOCKED=1 mise install --dry-run "$tool" >/dev/null 2>&1 || exit 1;
+      done
+  - tool: terraform
+    pin: mise.toml#tools.terraform
+    check: >-
+      ver=$(terraform version -json 2>/dev/null | jq -r '.terraform_version // empty');
+      pin=$(mise config get --file ./mise.toml tools.terraform 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
+  - tool: gh
+    pin: mise.toml#tools.gh
+    check: >-
+      ver=$(gh --version 2>/dev/null | head -1 | awk '{print $3}');
+      pin=$(mise config get --file ./mise.toml tools.gh 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
+  - tool: jq
+    pin: mise.toml#tools.jq
+    check: >-
+      ver=$(jq --version 2>/dev/null | sed 's/^jq-//');
+      pin=$(mise config get --file ./mise.toml tools.jq 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
+  - tool: gcloud
+    when: >-
+      printf '%s' "${NEW_PROVIDER_MISE_TOOLS:-[]}" |
+      jq -e 'index("gcloud") != null' >/dev/null ||
+      { [ "$HAS_OBJECT_STORAGE" = "true" ] && [ "$STATE_BACKEND" = "gcs" ]; }
+    pin: mise.toml#tools.gcloud
+    check: >-
+      needs_gcloud=false;
+      printf '%s' "${NEW_PROVIDER_MISE_TOOLS:-[]}" | jq -e 'index("gcloud") != null' >/dev/null && needs_gcloud=true;
+      [ "$HAS_OBJECT_STORAGE" = "true" ] && [ "$STATE_BACKEND" = "gcs" ] && needs_gcloud=true;
+      [ "$needs_gcloud" = "false" ] && exit 0;
+      ver=$(gcloud version --format=json 2>/dev/null |
+      jq -r '."Google Cloud SDK" // empty' | tr -d '[:space:]');
+      pin=$(mise config get --file ./mise.toml tools.gcloud 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
+  - tool: aws
+    when: '[ "$HAS_OBJECT_STORAGE" = "true" ] && [ "$STATE_BACKEND" = "s3" ]'
+    pin: mise.toml#tools.awscli
+    check: >-
+      [ "$HAS_OBJECT_STORAGE" != "true" ] || [ "$STATE_BACKEND" != "s3" ] && exit 0;
+      ver=$(aws --version 2>&1 | sed -n 's|^aws-cli/\([0-9.]*\).*|\1|p' | head -1);
+      pin=$(mise config get --file ./mise.toml tools.awscli 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
+  - tool: az
+    when: '[ "$HAS_OBJECT_STORAGE" = "true" ] && [ "$STATE_BACKEND" = "azurerm" ]'
+    pin: mise.toml#tools.azure-cli
+    check: >-
+      [ "$HAS_OBJECT_STORAGE" != "true" ] || [ "$STATE_BACKEND" != "azurerm" ] && exit 0;
+      ver=$(az version --query '"azure-cli"' -o tsv 2>/dev/null | tr -d '[:space:]');
+      pin=$(mise config get --file ./mise.toml tools.azure-cli 2>/dev/null | tr -d '[:space:]');
+      printf '%s' "$pin" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      [ -n "$ver" ] && [ "$ver" = "$pin" ]
+  - tool: infra-references
+    check: 'test -n "$INFRA_COPILOT_REFERENCES" && test -d "$INFRA_COPILOT_REFERENCES/checks"'
+    why: >-
+      Steps whose check is a shipped script resolve it from this path, because a check
+      runs with the consuming repo as its working directory. Unset, the step runs
+      sh "/checks/..." and fails with a bare shell error — and the script's own
+      "export it per config.md" diagnostic is inside the file that could not be found.
+    human_action: >-
+      Export INFRA_COPILOT_REFERENCES per references/config.md: the absolute path to the
+      loaded skill's references/ directory (the one holding config.md and checks/).
+
+  - tool: curl
+    check: "curl --version >/dev/null"   # system-provided; pinning it buys nothing
+
+steps:
+  # ── Phase 0 — Common bootstrap ──────────────────────────────────────────
+  - id: toolchain-pin
+    phase: 0
+    provider: repo
+    actor: HUMAN
+    title: Create and commit the pinned mise.toml + mise.lock
+    why: Preflight and every per-tool check compare installed binaries against these pins; nothing else creates them.
+    run: |
+      1. Follow docs/setup.md#6-local-development to choose exact tool versions and
+         author mise.toml. Choosing the versions is a project decision, not a lookup.
+      2. Review the entire mise.toml before trusting it; repository config can enable
+         templates, plugins, and other executable behavior.
+      3. Trust it, initialize and populate mise.lock, install the locked pins, and
+         activate the installed toolchain using the exact sequence in that guide.
+      4. Commit mise.toml and mise.lock together, then reply `done` so the agent can
+         re-run this check.
+    # Keep this byte-for-byte identical to the mise preflight check. The repository
+    # validator enforces that invariant so the step and fail-fast gate cannot drift.
+    check: >-
+      mise --version >/dev/null &&
+      git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- mise.toml mise.lock &&
+      git diff --cached --quiet HEAD -- mise.toml mise.lock &&
+      repo_dir=$(pwd -P) &&
+      shown_dir=$repo_dir &&
+      case $HOME in ''|/) ;;
+      */) case $repo_dir in "$HOME"*) shown_dir="~${repo_dir#"$HOME"}" ;; esac ;;
+      *) case $repo_dir in "$HOME") shown_dir="~" ;;
+      "$HOME"/*) shown_dir="~${repo_dir#"$HOME"}" ;; esac ;; esac &&
+      mise trust --show 2>/dev/null |
+      grep -Fx -e "$repo_dir: trusted" -e "$shown_dir: trusted" >/dev/null &&
+      tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
+      [ -n "$tools" ] &&
+      pinned=$(printf '%s\n' "$tools" |
+      sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
+      [ -n "$pinned" ] &&
+      ! printf '%s\n' "$tools" |
+      sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
+      grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      printf '%s\n' "$pinned" |
+      while IFS= read -r tool; do
+      [ -z "$tool" ] && continue;
+      MISE_LOCKED=1 mise install --dry-run "$tool" >/dev/null 2>&1 || exit 1;
+      done
+    produces: committed mise.toml + mise.lock
+    docs: docs/setup.md#6-local-development
+
+  - id: repo-config-sync
+    operation: sync-execution-config
+    implementation: both
+    phase: 0
+    provider: repo
+    actor: HUMAN
+    title: Synchronize repository configuration
+    why: A template helper may need to copy canonical public identifiers into tool-required literal fields, but repository-controlled code must be reviewed before it runs.
+    run: |
+      1. If `./scripts/sync-config.sh` or `.infra-copilot/config.md` is absent, there is nothing to synchronize.
+      2. Review `./scripts/sync-config.sh` in full before trusting it.
+      3. Run it yourself from the repository root.
+      4. Review the resulting diff, then commit `.infra-copilot/config.md` and both
+         Terraform `versions.tf` files together.
+      5. Reply `done`; the agent verifies the committed synchronized state.
+    check: >-
+      if test ! -x ./scripts/sync-config.sh || test ! -f .infra-copilot/config.md; then exit 0; fi;
+      git ls-files --error-unmatch .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf &&
+      git diff --cached --quiet HEAD -- .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf &&
+      if [ "$HAS_HCP_BOOTSTRAP" = "true" ]; then
+        for name in $(printf '%s' "$HCP_BOOTSTRAP_LEAVES" | jq -er '.[]'); do
+          config_file="terraform/$name/versions.tf"
+          test -f "$config_file" && grep -Eq "^[[:space:]]*organization[[:space:]]*=[[:space:]]*\"$ORG\"[[:space:]]*$" "$config_file" || exit 1;
+        done
+      fi
+    produces: committed repository literals synchronized from `.infra-copilot/config.md`
+    docs: config.md
+
+  # ── Phase 0 — HCP bootstrap (backend: hcp only) ──────────────────────────
+  - id: hcp-login
+    refresh_credentials: true
+    operation: bootstrap-state
+    implementation: hcp
+    phase: 0
+    provider: hcp
+    actor: HUMAN
+    when: '[ "$HAS_HCP" = "true" ]'
+    title: Sign up and terraform login (mint the pivot HCP token)
+    why: This browser login yields the API token needed to verify the organization and drive every later API step.
+    run: |
+      1. If needed, sign up at https://app.terraform.io/ (free tier is enough to start).
+      2. Run locally: terraform login
+      3. Approve in the browser tab it opens. The token is written to
+         ~/.terraform.d/credentials.tfrc.json. This is the last interactive HCP CLI
+         authentication; later providers still require their own human authorization or credential entry.
+      4. Reply `done`; the agent re-exports HCP_TOKEN before checking the next step.
+    # Accepts either credential source, in terraform's own precedence order. A
+    # file-only check marked phase 0 red for anyone following hcp-apply-scope's
+    # environment-variable route, and setup then told them to run `terraform login`
+    # again -- recreating the apply-capable user token that step exists to remove.
+    #
+    # Presence alone is not enough. On a machine already narrowed by
+    # hcp-apply-scope, the plan-only team token satisfied a presence test, so
+    # bootstrapping a SECOND repository skipped this handoff -- and then
+    # vcs-connect could not read oauth-clients while no workspace existed yet for
+    # its fallback, so setup stalled with no way to ask for the user credential.
+    # /account/details exists only for a user token, so it distinguishes them.
+    # Only a definitive negative turns this red: a transport failure leaves the
+    # presence result standing rather than blocking a cold bootstrap offline.
+    check: |
+      token=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' \
+        ~/.terraform.d/credentials.tfrc.json 2>/dev/null)}
+      [ -n "$token" ] && [ "$token" != null ] || exit 1
+
+      # Never send the credential to an unexpected endpoint. This check runs
+      # earliest of all, so a repo-local config pointing $hcp_api elsewhere would
+      # disclose the token before vcs-connect or hcp-apply-scope get to refuse
+      # it. Degrade to the presence result instead of sending it: those two are
+      # tri-state and will reject the endpoint loudly.
+      if [ "$hcp_api" != "https://app.terraform.io/api/v2" ]; then
+        echo "note: \$hcp_api is '$hcp_api', not https://app.terraform.io/api/v2, so the credential kind was not checked — vcs-connect and hcp-apply-scope will refuse that endpoint" >&2
+        exit 0
+      fi
+
+      # A narrowed token is the intended steady state only after the complete
+      # Phase 1 invariant is green. Names alone are insufficient: drift in the
+      # version, VCS target, execution mode, or safety toggles still requires the
+      # user credential so workspaces-create can reconcile it. Both steps call
+      # one shared check so their definitions of "provisioned" cannot diverge.
+      readiness=''
+      # Pending Phase 6 provisioning does not invalidate an established service.
+      [ "$HAS_HCP_BOOTSTRAP" = true ] || readiness=--login-readiness
+      HCP_TOKEN=$token \
+        sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh" $readiness \
+        >/dev/null 2>&1 && exit 0
+
+      # Cold repository: phases 0 and 1 genuinely need the user credential, and a
+      # team token cannot read organization VCS settings or complete the OAuth
+      # flow. /account/details exists only for a user token. Only a definitive
+      # negative is red; a transport failure or any other status leaves the
+      # presence result standing so a bootstrap is not blocked offline.
+      code=$(curl -s -o /dev/null -w '%{http_code}' "$hcp_api/account/details" \
+        -H "Authorization: Bearer $token") || exit 0
+      case "$code" in
+        200) exit 0 ;;
+        401|403|404)
+          echo "this repository's complete Phase 1 workspace configuration is not visible and green, and the HCP credential in use is not a user token (account/details returned $code). Phases 0 and 1 need the user credential from 'terraform login': a team token cannot read organization VCS settings, complete the OAuth flow, create a missing workspace, or reconcile drift. Unset TF_TOKEN_app_terraform_io, or run 'terraform login' for this bootstrap and re-apply hcp-apply-scope afterwards." >&2
+          exit 1
+          ;;
+        *) exit 0 ;;
+      esac
+    produces: an HCP account and an API token terraform can use
+    docs: docs/setup.md#1-hcp-terraform--organization
+
+  - id: hcp-signup
+    operation: bootstrap-state
+    implementation: hcp
+    phase: 0
+    provider: hcp
+    actor: HUMAN
+    when: '[ "$HAS_HCP" = "true" ]'
+    title: Create HCP Terraform org and project
+    why: HCP holds state and provider variables for HCP-routed leaves; those leaves need the organization.
+    run: |
+      1. Open https://app.terraform.io/ after completing hcp-login.
+      2. Create an organization named exactly `<your ORG slug>` (see config.md).
+      3. Inside it, create a project named `infra`.
+    # Assert the project too, not just the org: this step produces both, and an org
+    # without `infra` fails later workspace work with a far less obvious error.
+    # filter[names] is case-insensitive, so re-assert the exact name in jq.
+    check: |
+      test -n "$HCP_TOKEN" || exit 1
+      [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || exit 1
+      curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" \
+        | jq -e '.data.id' >/dev/null || exit 1
+      curl -sf "$hcp_api/organizations/$ORG/projects?filter%5Bnames%5D=infra" \
+        -H "Authorization: Bearer $HCP_TOKEN" \
+        | jq -e '[.data[] | select(.attributes.name == "infra")] | any' >/dev/null
+    produces: HCP org `$ORG`, project `infra`
+    docs: docs/setup.md#1-hcp-terraform--organization
+
+  - id: hcp-verify
+    operation: bootstrap-state
+    implementation: hcp
+    phase: 0
+    provider: hcp
+    actor: AGENT
+    when: '[ "$HAS_HCP" = "true" ]'
+    title: Confirm HCP API reachable
+    why: Gate for the HCP implementation's API calls, including HCP-routed additional providers.
+    run: |
+      # Same precedence as config.md Step 0. Reading only the credentials file
+      # sent an empty bearer token when TF_TOKEN_app_terraform_io was the only
+      # credential, which hcp-apply-scope's environment route makes a real case.
+      export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)}
+      curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e '.data.id'
+    check: '[ "$hcp_api" = "https://app.terraform.io/api/v2" ] && curl -sf "$hcp_api/organizations/$ORG" -H "Authorization: Bearer $HCP_TOKEN" | jq -e ".data.id"'
+    produces: verified API access
+    docs: docs/hcp-state.md#api-access
+
+  # ── Phase 1 — HCP workspaces (backend: hcp only) ─────────────────────────
+  - id: vcs-connect
+    operation: provision-execution
+    implementation: hcp
+    phase: 1
+    provider: hcp
+    actor: HUMAN
+    when: '[ "$HAS_HCP" = "true" ]'
+    title: Connect GitHub to HCP via OAuth or the GitHub App
+    why: Workspaces need a VCS provider to run speculative plans on PRs.
+    run: |
+      In HCP -> org Settings -> Version Control / VCS Providers, connect GitHub via OAuth,
+      scoped to this repo only, or install the HCP Terraform GitHub App for $REPO and
+      authorize it on the bootstrap user's GitHub account. The agent discovers the
+      installation by $REPO's GitHub owner using that user token. Select an ambiguous
+      connection with OAUTH_TOKEN_ID or GITHUB_APP_INSTALLATION_ID (HCP ghain- id,
+      not GitHub's numeric installation id); never export both.
+      After the handoff, keep that selection exported for workspace creation.
+    # Assert a GitHub-family VCS provider specifically, not just "any oauth client" —
+    # otherwise a pre-existing GitLab/Bitbucket connection would false-green this step.
+    # Tri-state, because this endpoint is organization-scoped and the plan-only
+    # credential hcp-apply-scope installs cannot read it. Without the distinction a
+    # resume scan stops here on the first non-zero check and re-emits the OAuth
+    # handoff, so `setup` could never resume past phase 1 after that handoff -- and
+    # the human would be told to redo a step that is already done. A 403 proves
+    # nothing about whether the VCS connection exists, which is exactly a 2.
+    tri_state: true   # exit 2 = could not verify; see protocol.md
+    check: |
+      # Checked before any credential is sent. $hcp_api is exported by Step 0, so
+      # a mistyped or edited value would put a bearer token in a request to an
+      # arbitrary host -- in plaintext if the scheme were http. hcp-apply-scope
+      # guards this for its own requests; these are separate ones.
+      [ "$hcp_api" = "https://app.terraform.io/api/v2" ] \
+        || { echo "CANNOT VERIFY: \$hcp_api is '$hcp_api', not https://app.terraform.io/api/v2; refusing to send an HCP credential to an unexpected endpoint" >&2; exit 2; }
+      body=$(mktemp); trap 'rm -f "$body"' EXIT
+      # Paginated: an organization with enough VCS clients pushes its GitHub one
+      # onto a later page, and reading only the first concluded "no GitHub
+      # client" and re-emitted the OAuth handoff for a connection that exists.
+      oauth_page=1
+      oauth_read=no
+      while : ; do
+        code=$(curl -s -o "$body" -w '%{http_code}' \
+          "$hcp_api/organizations/$ORG/oauth-clients?page%5Bsize%5D=100&page%5Bnumber%5D=$oauth_page" \
+          -H "Authorization: Bearer $HCP_TOKEN") \
+          || { echo "CANNOT VERIFY: the request for $ORG's oauth-clients did not complete (curl exit $?) — DNS, TLS, a timeout, or an unwritable temporary file" >&2; exit 2; }
+        [ "$code" = 200 ] || break
+        # jq -e exits 4 on empty input and 5 on invalid JSON, and this step is
+        # tri-state: protocol.md honours 0, 1 and 2 only, so `exit $?` would
+        # surface those as an unexpected code instead of a stated cause.
+        jq -e '[.data[] | select(.attributes["service-provider"] | test("github"))] | length > 0' \
+          "$body" >/dev/null 2>&1
+        rc=$?
+        case "$rc" in
+          0) exit 0 ;;
+          1) : ;;   # not on this page; keep paging
+          *) echo "CANNOT VERIFY: $ORG's oauth-clients response could not be parsed (jq exit $rc)" >&2; exit 2 ;;
+        esac
+        # A page shorter than the requested size is the last one, whatever the
+        # metadata says -- so total-pages is only consulted when a page comes
+        # back full. meta.pagination is not a required field in HCP's schema,
+        # and demanding it unconditionally would have reported CANNOT VERIFY for
+        # every organization whose response omits it.
+        oauth_count=$(jq -e '.data | length' "$body" 2>/dev/null) \
+          || { echo "CANNOT VERIFY: $ORG's oauth-clients response was not the expected JSON" >&2; exit 2; }
+        [ "$oauth_count" -eq 100 ] || { oauth_read=yes; break; }   # last page, no GitHub client
+        oauth_pages=$(jq -er '.meta.pagination["total-pages"]
+                      | if type == "number" and . == floor and . > 0
+                        then (floor | tostring) else empty end' "$body" 2>/dev/null) \
+          || { echo "CANNOT VERIFY: $ORG's oauth-clients list filled a page but carried no positive-integer total-pages, so later pages could not be reached" >&2; exit 2; }
+        [ "$oauth_page" -lt "$oauth_pages" ] || { oauth_read=yes; break; }   # every page read
+        oauth_page=$((oauth_page + 1))
+      done
+      # Every page read and no GitHub client is not yet a verdict: a workspace
+      # connected through the HCP GitHub App needs no OAuth client at all, so an
+      # organization using only the App has an empty list and every workspace
+      # connected. Exiting 1 there kept the step permanently red. That path falls
+      # through to the workspace evidence below, but accepts only the App
+      # installation id: with the full client list read and no GitHub client in
+      # it, an oauth-token-id can only belong to another provider's client.
+      if [ "$oauth_read" = yes ]; then
+        cause="$ORG has no GitHub OAuth client"
+      else
+        case "$code" in
+          401|403) ;;   # fall through to the workspace-scoped evidence below
+          *) echo "CANNOT VERIFY: reading $ORG's oauth-clients returned $code" >&2; exit 2 ;;
+        esac
+        cause="this credential may not read $ORG's VCS settings ($code)"
+      fi
+      # On 401/403: the plan-only credential from hcp-apply-scope cannot read organization VCS
+      # settings, and stopping here would leave `setup` unable to resume past phase 1
+      # after that handoff. A workspace connected to $REPO is stronger evidence of the
+      # same fact anyway -- it is the connection actually being used -- and it is
+      # workspace-scoped, so the narrowed credential can read it. Only available once
+      # workspaces exist, which on a resume they do.
+      # Without $REPO there is nothing to match, so the readable path below could
+      # only conclude "not connected" -- a verdict it has no evidence for.
+      [ "$oauth_read" = no ] || [ -n "${REPO:-}" ] \
+        || { echo "CANNOT VERIFY: $cause, and \$REPO is unset so no workspace can be matched" >&2; exit 2; }
+      page=1
+      while : ; do
+        curl -sf "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page" \
+          -H "Authorization: Bearer $HCP_TOKEN" >"$body" \
+          || { echo "CANNOT VERIFY: $cause, and page $page of the workspace list could not be read either" >&2; exit 2; }
+        # Require an actual VCS connection, by either mechanism -- or, when the
+        # organization has no GitHub OAuth client, by the App alone. hcp.md
+        # supports both mechanisms; a resume preserves either connection.
+        #
+        # This cannot establish the provider family: a workspace's vcs-repo
+        # carries no service-provider field, and resolving the oauth token to its
+        # client needs an organization-scoped read the narrowed credential does
+        # not have. So an organization holding a GitLab workspace with the same
+        # owner/name would satisfy this. Accepted deliberately: the primary path
+        # above does check GitHub specifically, and the 401/403 branch runs only
+        # after the handoff, when phase 1 is complete and was verified under the
+        # user token. Recorded in docs/policy.md's limits. The no-GitHub-client
+        # branch does not share the gap: it counts only the App installation id,
+        # which only a GitHub connection carries.
+        if jq -e --arg repo "${REPO:-}" --arg app_only "$oauth_read" --argjson leaves "$HCP_LEAVES" \
+             '[.data[] | select(.attributes["vcs-repo"].identifier == $repo)
+                       | select(.attributes["working-directory"] as $dir
+                                | $leaves | map("terraform/" + .) | index($dir) != null)
+                       | select(((.attributes["vcs-repo"]["github-app-installation-id"] // "") != "")
+                                or ($app_only != "yes"
+                                    and .attributes["vcs-repo"]["oauth-token-id"] != null))]
+              | length > 0' "$body" >/dev/null 2>&1; then
+          exit 0
+        fi
+        # `arrays` makes a body without a .data array (an errors object, null)
+        # fail here rather than read as an empty last page.
+        ws_count=$(jq -e '.data | arrays | length' "$body" 2>/dev/null) \
+          || { echo "CANNOT VERIFY: $cause, and page $page of the workspace list was not the expected JSON" >&2; exit 2; }
+        pages=$(jq -er '.meta.pagination["total-pages"]
+                        | if type == "number" and . == floor and . > 0
+                          then (floor | tostring) else empty end' "$body" 2>/dev/null) \
+          || pages=
+        # total-pages decides when present. Only when it is absent does a short
+        # page count as the last one, as for oauth-clients above: otherwise a
+        # missing meta.pagination would turn a clean red into CANNOT VERIFY.
+        if [ -z "$pages" ]; then
+          [ "$ws_count" -eq 100 ] || break
+          echo "CANNOT VERIFY: $cause, and the workspace list carried no positive-integer total-pages so later pages could not be reached" >&2; exit 2
+        fi
+        [ "$page" -lt "$pages" ] || break
+        page=$((page + 1))
+      done
+      # Before the first workspace exists, check user-scoped App installations.
+      # Installation and user authorization do not prove repository access:
+      # workspace creation must still succeed. Narrowed tokens use the workspace
+      # evidence above and do not require this user-scoped read.
+      if [ "$oauth_read" = yes ]; then
+        sh "$INFRA_COPILOT_REFERENCES/checks/hcp-github-app.sh" >/dev/null
+        rc=$?
+        case "$rc" in
+          0) exit 0 ;;
+          1|3|4) echo "$cause, and no unique GitHub App installation for $REPO; finish authorization or select GITHUB_APP_INSTALLATION_ID" >&2; exit 1 ;;
+          *) echo "CANNOT VERIFY: $cause, and user-scoped GitHub App installations could not be read" >&2; exit 2 ;;
+        esac
+      fi
+      echo "CANNOT VERIFY: $cause, and no VCS-connected workspace for ${REPO:-<REPO unset>} is visible; if the plan-only identity is in use, phase 1 was verified under the user token" >&2
+      exit 2
+    produces: GitHub<->HCP VCS connection
+    docs: docs/setup.md#2-hcp-terraform--workspaces
+
+  - id: workspaces-create
+    operation: provision-execution
+    implementation: hcp
+    phase: 1
+    provider: hcp
+    actor: AGENT
+    when: '[ "$HAS_HCP_BOOTSTRAP" = "true" ]'
+    title: Create the HCP-routed bootstrap workspaces
+    why: One workspace per leaf; carries working dir, path filter, safety toggles.
+    run: |
+      SOURCE OF TRUTH: the `create_ws` helper in hcp.md (Phase 1). Run that.
+      Iterate only HCP_BOOTSTRAP_LEAVES, never the historical fixed pair. Do not
+      reconnect, recreate, or reconcile an object-storage-routed leaf's workspace.
+      The summary below is a reminder, not a second copy to maintain — if it disagrees
+      with hcp.md, hcp.md wins. A POST to
+      $hcp_api/organizations/$ORG/workspaces per workspace with:
+        working-directory:   terraform/cloudflare  (and terraform/github)
+        file-triggers-enabled: true
+        trigger-patterns:    ["terraform/cloudflare/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]  (and terraform/github/** plus the shared paths)
+        execution-mode:      remote
+        terraform-version:   $TERRAFORM_VERSION  # exact committed mise.toml pin
+        auto-apply:          false
+        auto-destroy-at:     null
+        auto-destroy-activity-duration: null
+        speculative-enabled: true       # plans on PRs
+        vcs-repo:            identifier $REPO, selected oauth-token-id OR github-app-installation-id, branch main
+      Then in each workspace's UI -> Version Control, confirm FORK speculative plans are OFF
+      (separate toggle, no clean create-time attribute; defaults off).
+    # The same complete invariant decides whether hcp-login may accept a narrowed
+    # team token. Keep it in one executable source rather than duplicating jq.
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-bootstrap-workspaces.sh"
+    produces: configured workspaces for HCP_BOOTSTRAP_LEAVES only
+    docs: docs/hcp-state.md#workspaces
+
+  # ── Phase 0 — Object-storage bootstrap (backend: object-storage only) ───
+  - id: state-bucket
+    operation: bootstrap-state
+    implementation: object-storage
+    phase: 0
+    provider: repo
+    actor: HUMAN
+    when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
+    title: Create the state storage bucket
+    why: Terraform state needs a durable, versioned bucket before any init.
+    run: |
+      Create the bucket specified in config.md's `state_bucket` field. Requirements:
+      - Versioning enabled (state history for recovery)
+      - Private access only (state contains sensitive data)
+      - For GCS: native locking is automatic
+      - For S3: create a DynamoDB table for locking (record in `state_lock_table`)
+      - For azurerm: native locking is automatic
+
+      Example for GCS:
+        gcloud storage buckets create gs://$STATE_BUCKET \
+          --location=us --uniform-bucket-level-access --versioning
+
+      Example for S3:
+        # us-east-1:
+        aws s3api create-bucket --bucket "$STATE_BUCKET" --region us-east-1
+        # Other regions require LocationConstraint:
+        # aws s3api create-bucket --bucket "$STATE_BUCKET" --region "$STATE_REGION" \
+        #   --create-bucket-configuration LocationConstraint="$STATE_REGION"
+        aws s3api put-bucket-versioning --bucket "$STATE_BUCKET" \
+          --versioning-configuration Status=Enabled
+        aws s3api put-public-access-block --bucket "$STATE_BUCKET" \
+          --public-access-block-configuration \
+          "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+        aws dynamodb create-table --table-name "$STATE_LOCK_TABLE" \
+          --region "$STATE_REGION" \
+          --attribute-definitions AttributeName=LockID,AttributeType=S \
+          --key-schema AttributeName=LockID,KeyType=HASH \
+          --billing-mode PAY_PER_REQUEST
+
+      Example for azurerm:
+        az group create --name "$AZURE_RESOURCE_GROUP" --location "$STATE_REGION"
+        az storage account create --name "$AZURE_STORAGE_ACCOUNT" --resource-group "$AZURE_RESOURCE_GROUP" --sku Standard_LRS --encryption-services blob
+        az storage account blob-service-properties update --account-name "$AZURE_STORAGE_ACCOUNT" --enable-versioning true
+        az storage container create --account-name "$AZURE_STORAGE_ACCOUNT" --name "$STATE_BUCKET" --public-access off
+    check: |
+      case "$STATE_BACKEND" in
+        gcs)
+          gcloud storage buckets describe "gs://$STATE_BUCKET" --format='value(name)' 2>/dev/null \
+            | grep -Fxq "$STATE_BUCKET" || exit 1
+          gcloud storage buckets describe "gs://$STATE_BUCKET" \
+            --format='value(iamConfiguration.uniformBucketLevelAccess.enabled)' 2>/dev/null \
+            | grep -Fxq "True" || exit 1
+          # Verify object versioning is enabled
+          gcloud storage buckets describe "gs://$STATE_BUCKET" \
+            --format='value(versioning.enabled)' 2>/dev/null | grep -Fxiq "true" || exit 1
+          # Require Public Access Prevention to be enforced (blocks inherited project-level grants)
+          pap=$(gcloud storage buckets describe "gs://$STATE_BUCKET" \
+            --format='value(iamConfiguration.publicAccessPrevention)' 2>/dev/null)
+          if [ "$pap" = "enforced" ]; then
+            : # Public Access Prevention enforced - bucket is private
+          else
+            # Fall back to checking bucket-level IAM (may miss inherited grants)
+            iam_policy=$(gcloud storage buckets get-iam-policy "gs://$STATE_BUCKET" \
+              --format='value(bindings.members)' 2>/dev/null) || exit 1
+            ! printf '%s' "$iam_policy" | grep -Eq '(allUsers|allAuthenticatedUsers)' || {
+              echo "Warning: Public Access Prevention not enforced and public members found" >&2
+              exit 1
+            }
+          fi
+          ;;
+        s3)
+          [ -n "$STATE_LOCK_TABLE" ] || exit 1
+          aws s3api head-bucket --bucket "$STATE_BUCKET" 2>/dev/null || exit 1
+          aws s3api get-bucket-versioning --bucket "$STATE_BUCKET" --query "Status" --output text 2>/dev/null \
+            | grep -Fxq "Enabled" || exit 1
+          # Verify table exists, is active, and has correct key schema (LockID string)
+          # Use --output json to avoid depending on user's AWS CLI default output format
+          table_info=$(aws dynamodb describe-table --table-name "$STATE_LOCK_TABLE" --region "$STATE_REGION" --output json 2>/dev/null) || exit 1
+          printf '%s' "$table_info" | jq -e '.Table.TableStatus == "ACTIVE"' >/dev/null || exit 1
+          printf '%s' "$table_info" | jq -e '.Table.KeySchema == [{"AttributeName":"LockID","KeyType":"HASH"}]' >/dev/null || exit 1
+          printf '%s' "$table_info" | jq -e '.Table.AttributeDefinitions | any(.AttributeName == "LockID" and .AttributeType == "S")' >/dev/null || exit 1
+          # Verify all public-access-block settings are enabled
+          pab=$(aws s3api get-public-access-block --bucket "$STATE_BUCKET" --output json 2>/dev/null)
+          printf '%s' "$pab" | grep -q '"BlockPublicAcls": true' || exit 1
+          printf '%s' "$pab" | grep -q '"IgnorePublicAcls": true' || exit 1
+          printf '%s' "$pab" | grep -q '"BlockPublicPolicy": true' || exit 1
+          printf '%s' "$pab" | grep -q '"RestrictPublicBuckets": true' || exit 1
+          ;;
+        azurerm)
+          [ -n "$AZURE_STORAGE_ACCOUNT" ] || exit 1
+          az storage container show --name "$STATE_BUCKET" --account-name "$AZURE_STORAGE_ACCOUNT" --query name -o tsv 2>/dev/null \
+            | grep -Fxq "$STATE_BUCKET" || exit 1
+          az storage container show --name "$STATE_BUCKET" --account-name "$AZURE_STORAGE_ACCOUNT" --query "properties.publicAccess" -o tsv 2>/dev/null \
+            | grep -Eq '^(null|None)?$' || exit 1
+          # Verify blob versioning is enabled on the storage account
+          az storage account blob-service-properties show --account-name "$AZURE_STORAGE_ACCOUNT" \
+            --query "isVersioningEnabled" -o tsv 2>/dev/null | grep -Fxq "true" || exit 1
+          ;;
+        *)
+          echo "Unsupported state backend: $STATE_BACKEND" >&2; exit 1
+          ;;
+      esac
+    produces: versioned, private state bucket
+    docs: docs/object-storage-state.md#object-storage-backend
+
+  - id: backend-config
+    operation: bootstrap-state
+    implementation: object-storage
+    phase: 0
+    provider: repo
+    actor: AGENT
+    tri_state: true
+    when: '[ "$HAS_OBJECT_STORAGE_BOOTSTRAP" = "true" ]'
+    title: Configure Terraform backend blocks
+    why: Each leaf needs a backend block pointing to the state bucket with a unique key.
+    run: |
+      Only configure leaves in OBJECT_STORAGE_BOOTSTRAP_LEAVES; leave HCP-routed leaves alone.
+      For an existing HCP leaf, stop and follow the authoritative HUMAN-gated cutover
+      in docs/object-storage-state.md#migrating-from-hcp. The agent prepares the PR;
+      the human locks that leaf's HCP workspace before pulling state, scans for secrets,
+      uploads without overwriting and verifies bytes, serial, lineage and resource
+      membership BEFORE merging the backend PR. Include the leaf_backends override,
+      synchronized workflow routing literals, CI and required-check changes in that PR.
+      After merge, disconnect only that migrated workspace, retire its nonterminal runs
+      using advertised discard/cancel actions, verify Actions applies, then retire old
+      credentials without revoking credentials still needed by HCP-routed leaves.
+      Backend-block presence or a green mixed-backend scan does not prove state transfer
+      or completion of those human cutover gates. Do not substitute a state pull/copy
+      recipe or treat an empty destination as a fresh leaf. Complete the documented
+      migration and verification before accepting backend-config or any plan/apply evidence.
+      For a genuinely new leaf with no existing state, create a backend.tf with:
+        terraform {
+          backend "<state_backend>" {
+            # For GCS:
+            bucket = "<state_bucket>"
+            prefix = "<state_prefix>/<leaf>"
+            # For S3:
+            bucket         = "<state_bucket>"
+            key            = "<state_prefix>/<leaf>/terraform.tfstate"
+            region         = "<state_region>"
+            dynamodb_table = "<state_lock_table>"
+            # For azurerm:
+            resource_group_name  = "<azure_resource_group>"
+            storage_account_name = "<azure_storage_account>"
+            container_name       = "<state_bucket>"
+            key                  = "<state_prefix>/<leaf>/terraform.tfstate"
+            use_azuread_auth     = true  # Required for federated identity (no access keys)
+          }
+        }
+      The prefix/key ensures each leaf has isolated state within the shared bucket.
+    check: |
+      for name in $(printf '%s' "$OBJECT_STORAGE_BOOTSTRAP_LEAVES" | jq -er '.[]'); do
+        leaf="terraform/$name"
+        test -d "$leaf" || exit 1
+        sh "$INFRA_COPILOT_REFERENCES/checks/state-transfer.sh" "$name" || exit $?
+        grep -q "backend \"$STATE_BACKEND\"" "$leaf"/*.tf 2>/dev/null || exit 1
+        # Use -F for literal string matching (bucket names may contain regex chars like .)
+        grep -Fq "$STATE_BUCKET" "$leaf"/*.tf 2>/dev/null || exit 1
+        # Ensure old HCP cloud block is removed (cannot have both backend and cloud)
+        ! grep -q 'cloud[[:space:]]*{' "$leaf"/*.tf 2>/dev/null || exit 1
+        if [ "$STATE_BACKEND" = "s3" ]; then
+          grep -Fq "$STATE_LOCK_TABLE" "$leaf"/*.tf 2>/dev/null || exit 1
+        elif [ "$STATE_BACKEND" = "azurerm" ]; then
+          grep -Fq "$AZURE_STORAGE_ACCOUNT" "$leaf"/*.tf 2>/dev/null || exit 1
+          # Require Azure AD auth for federated identity (no access keys)
+          grep -q 'use_azuread_auth[[:space:]]*=[[:space:]]*true' "$leaf"/*.tf 2>/dev/null || exit 1
+        fi
+        leaf_name=$(basename "$leaf")
+        # Verify complete prefix/key including STATE_PREFIX
+        # Escape regex special chars in STATE_PREFIX (e.g., + . *)
+        escaped_prefix=$(printf '%s' "$STATE_PREFIX" | sed 's/[.+*?^$[\]\\|(){}]/\\&/g')
+        if [ "$STATE_BACKEND" = "gcs" ]; then
+          grep -E "prefix[[:space:]]*=[[:space:]]*\"$escaped_prefix/$leaf_name\"" "$leaf"/*.tf 2>/dev/null || exit 1
+        else
+          grep -E "key[[:space:]]*=[[:space:]]*\"$escaped_prefix/$leaf_name/terraform\\.tfstate\"" "$leaf"/*.tf 2>/dev/null || exit 1
+        fi
+      done
+    produces: backend blocks in each Terraform leaf
+    docs: docs/object-storage-state.md#object-storage-backend
+
+  - id: backend-identity
+    operation: bootstrap-state
+    implementation: object-storage
+    phase: 0
+    provider: repo
+    actor: HUMAN
+    when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
+    title: Configure cloud identity for backend state access
+    why: GitHub Actions needs to authenticate to the state backend; the agent cannot create cloud-side federation or install secrets.
+    run: |
+      Configure Workload Identity Federation (or equivalent) so GitHub Actions can access
+      the state bucket. This varies by backend:
+
+      **GCS (Workload Identity Federation):**
+      1. Create a dedicated Workload Identity Pool for this repo (never share pools across repos)
+      2. Create plan and apply providers pinning repository_id, repository_owner_id, workflows, and environment
+         (see docs/object-storage-ci.md#gcp-workload-identity-federation for HCL, trust conditions, and ID retrieval)
+      3. Grant tf-plan roles/storage.objectViewer on the state bucket; grant only tf-apply
+         roles/storage.objectAdmin. Remove any old plan objectAdmin grants, including inherited ones.
+         Plans run -lock=false; applies retain locking. Review effective IAM, not just secret names.
+      4. Create GitHub secrets:
+         - Repository secrets (for plan runs):
+           - GCP_WORKLOAD_IDENTITY_PROVIDER: projects/<project-number>/locations/global/workloadIdentityPools/<pool>/providers/plan
+           - GCP_SERVICE_ACCOUNT: tf-plan@<project>.iam.gserviceaccount.com
+         - Environment secrets under "production" (for apply runs; create the "production" environment under Settings -> Environments first if needed):
+           - GCP_WORKLOAD_IDENTITY_PROVIDER: projects/<project-number>/locations/global/workloadIdentityPools/<pool>/providers/apply
+           - GCP_SERVICE_ACCOUNT: tf-apply@<project>.iam.gserviceaccount.com
+
+      **S3 (OIDC assume-role):**
+      1. Create an IAM OIDC provider for GitHub Actions
+      2. Create separate plan and apply IAM roles with distinct trust policies (see docs/object-storage-ci.md).
+         Plan can ListBucket/GetObject for state, never PutObject/DeleteObject or lock writes.
+         Apply can read/write state and acquire/release the configured S3 or DynamoDB lock.
+      3. Create GitHub secrets:
+         - Repository AWS_ROLE_ARN: arn:aws:iam::<account>:role/<plan-role>
+         - Production environment AWS_ROLE_ARN: arn:aws:iam::<account>:role/<apply-role>
+         - AWS_REGION (optional, defaults to state_region)
+
+      **Azure (Federated credentials):**
+      1. Create separate plan/apply App Registrations and service principals with separate federated credentials
+      2. Grant plan Storage Blob Data Reader and apply Storage Blob Data Contributor on the state container
+      3. Create GitHub secrets:
+         - Repository AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID for plan
+         - Production environment copies for the separate apply identity
+
+      The production environment must allow exactly main before installing apply credentials.
+      For cloud resource leaves, also grant narrow per-service refresh roles to plan, never
+      broad roles/viewer, secret-value access, resource writes, or apply impersonation.
+      Follow docs/object-storage-ci.md for the GCP viewer set and AWS/Azure trust rules.
+
+      Reply `done` after installing the secrets.
+    check: |
+      # Verify secrets exist in the repo (exact name match)
+      repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
+      env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 1
+      case "$STATE_BACKEND" in
+        gcs)
+          printf '%s\n' "$repo_secrets" | grep -Fxq "GCP_WORKLOAD_IDENTITY_PROVIDER" || exit 1
+          printf '%s\n' "$repo_secrets" | grep -Fxq "GCP_SERVICE_ACCOUNT" || exit 1
+          env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 1
+          printf '%s\n' "$env_secrets" | grep -Fxq "GCP_WORKLOAD_IDENTITY_PROVIDER" || exit 1
+          printf '%s\n' "$env_secrets" | grep -Fxq "GCP_SERVICE_ACCOUNT" || exit 1
+          ;;
+        s3)
+          printf '%s\n' "$repo_secrets" | grep -Fxq "AWS_ROLE_ARN" || exit 1
+          printf '%s\n' "$env_secrets" | grep -Fxq "AWS_ROLE_ARN" || exit 1
+          ;;
+        azurerm)
+          printf '%s\n' "$repo_secrets" | grep -Fxq "AZURE_CLIENT_ID" || exit 1
+          printf '%s\n' "$repo_secrets" | grep -Fxq "AZURE_TENANT_ID" || exit 1
+          printf '%s\n' "$repo_secrets" | grep -Fxq "AZURE_SUBSCRIPTION_ID" || exit 1
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            printf '%s\n' "$env_secrets" | grep -Fxq "$name" || exit 1
+          done
+          ;;
+      esac
+    produces: Cloud identity federation and GitHub secrets for backend access
+    docs: docs/object-storage-ci.md#gcp-workload-identity-federation
+
+  - id: backend-identity-trust
+    operation: bootstrap-state
+    implementation: object-storage
+    phase: 0
+    provider: repo
+    actor: HUMAN
+    when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
+    title: Review effective backend IAM and initialize fresh state
+    why: Secret names cannot prove read-only IAM, especially when resuming a legacy installation.
+    run: |
+      Review both backend identities and all effective/inherited grants on every resume.
+      Plan can only read state and must not write locks, resources, or impersonate apply.
+      Remove old GCS plan objectAdmin grants; verify equivalent S3/Azure read-only permissions.
+      Verify separate plan/apply trust paths and the exact-main production deployment policy.
+      For a genuinely new state destination, follow docs/object-storage-state.md#fresh-leaf-bootstrap
+      to initialize empty state before the first branch plan. Existing unmanaged resources
+      require an import-only first plan. Never create empty state instead of transferring
+      existing managed state. Verify the actual state object exists.
+      Reply done after reviewing IAM and state readiness; never return credential values.
+      This review is ephemeral: repeat it on resume; matching secret names is not evidence.
+    check: ~
+    produces: HUMAN-verified read-only backend plan identity and initialized leaf state
+    docs: docs/object-storage-state.md#fresh-leaf-bootstrap
+
+  # ── Phase 1 — GitHub Actions CI (backend: object-storage only) ──────────
+  - id: gha-workflows
+    operation: provision-execution
+    implementation: object-storage
+    phase: 1
+    provider: github
+    actor: AGENT
+    tri_state: true
+    when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
+    title: Create GitHub Actions workflows for plan and apply
+    why: CI replaces HCP's VCS integration — plan on PR, apply on merge.
+    run: |
+      Create .github/workflows/terraform-plan.yml:
+        - Triggers on pull_request and workflow_dispatch
+        - Filters only PR paths; plans changed object-storage leaves on PRs and every object-storage leaf on dispatch
+        - Configures state-backend authentication for $STATE_BACKEND (GCS Workload Identity, AWS assume-role, or Azure login)
+        - Posts plan output as PR comment, with deletes/replacements above the collapsed plan
+        - Emits aggregate plan check
+
+      Create .github/workflows/terraform-apply.yml:
+        - Triggers on every main push without path filters and workflow_dispatch; omit push for a locked dispatch gate
+        - Uses the protected production environment and serializes workflow runs by ref
+        - Backend-only routing selects every object-storage leaf on every run; never use leaf-change conditions for apply
+        - Refuses non-main refs and stale commits immediately before each apply
+        - Retry by dispatching on main; commit both workflows before rechecking
+        - Saves a fresh tfplan, inspects it for deletes/replacements using the shared helper, then applies that same tfplan
+        - Requires allow-destroy on the producing merged PR for any action containing delete; forget-only removals stay allowed
+        - Retry failed applies by dispatching the workflow on main
+      Copy templates/terraform-destroy.cjs to .github/scripts/terraform-destroy.cjs alongside both workflow templates.
+      Include that helper and .github/workflows/terraform-*.yml in every leaf's plan path filter.
+      Re-scaffolding must update the helper and workflows together, preserving recorded decisions.
+      Commit both workflows and the helper before re-running this check.
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/gha-workflows.sh"
+    produces: GitHub Actions workflows for Terraform CI
+    docs: docs/object-storage-ci.md#github-actions
+
+  - id: gha-destroy-label
+    operation: provision-execution
+    implementation: object-storage
+    phase: 1
+    provider: github
+    actor: HUMAN
+    when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
+    title: Create the destructive apply intent label
+    why: Deletes and replacements require explicit intent on the producing merged PR.
+    run: |
+      Explain that allow-destroy is an intent marker, not authorization: any writer can add it,
+      and it opts into all deletes in the refreshed apply plan, including drift.
+      Obtain explicit approval before creating the label in $REPO:
+        gh label create allow-destroy --repo "$REPO" --color B60205 --description "Explicit opt-in to Terraform deletes and replacements"
+      Do not overwrite an existing label. Record a locked "Destructive apply" decision with
+      choice "allow-destroy" and the intent-marker limitations in .infra-copilot/decisions.md.
+    tri_state: true
+    check: |
+      labels=$(gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name') || exit 2
+      printf '%s\n' "$labels" | grep -Fxq 'allow-destroy' || exit 1
+      awk -F '|' '
+        function clean(v) { gsub(/^[[:space:]`]+|[[:space:]`]+$/, "", v); return tolower(v) }
+        clean($2) == "destructive apply" && clean($3) == "allow-destroy" && clean($4) == "locked" {found=1}
+        END {exit !found}
+      ' .infra-copilot/decisions.md 2>/dev/null
+    produces: allow-destroy label and a locked destructive apply decision
+    docs: docs/object-storage-ci.md#destructive-apply-opt-in
+
+  - id: gha-environments
+    operation: provision-execution
+    implementation: object-storage
+    phase: 1
+    provider: github
+    actor: HUMAN
+    when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
+    tri_state: true   # exit 2 = could not verify; see protocol.md
+    title: Configure GitHub Environments for apply approval
+    why: >-
+      The production environment holds the apply credentials. A main-only branch policy
+      stops other branches from using it; reviewers or a recorded gate supply the human
+      approval HCP's confirm button gave.
+    run: |
+      1. Go to repo Settings -> Environments and create an environment named "production"
+      2. Deployment branches and tags: "Selected branches and tags", add exactly "main"
+      3. Required reviewers: enable and add approvers if GitHub offers them (public repos,
+         or GitHub Enterprise for private ones; Free/Pro/Team reject the rule with a 422)
+      4. Without reviewers, lock an "Apply gate" row in .infra-copilot/decisions.md whose
+         choice is "merge-approval" or "dispatch" (docs/object-storage-ci.md#github-environments)
+      5. The terraform-apply workflow references this environment
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh"
+    produces: main-only GitHub Environment with reviewers or a recorded apply gate
+    docs: docs/object-storage-ci.md#github-environments
+
+  # ── Phase 2 — Cloudflare credentials (backend: object-storage) ──────────
+  - id: cf-token-gha
+    operation: store-cloudflare-credential
+    implementation: object-storage
+    phase: 2
+    provider: cloudflare
+    actor: HUMAN
+    tri_state: true
+    when: '[ "$CLOUDFLARE_BACKEND" = "object-storage" ]'
+    title: Mint Cloudflare token and add as GitHub Actions secret
+    why: The Terraform workflow authenticates to Cloudflare with this token.
+    run: |
+      First verify the production main-only gate from gha-environments.
+      1. https://dash.cloudflare.com/profile/api-tokens -> Create Token -> Custom token.
+      2. Mint a plan token with Zone·DNS·Read, Zone·Zone Settings·Read; add only resource-specific
+         Read permissions as the leaf grows. Scope to your account and specific zone <apex-domain>.
+      3. Store it as repository secret CLOUDFLARE_API_TOKEN_READ.
+      4. Mint a separate apply token with Zone·DNS·Edit, Zone·Zone Settings·Edit (add resource-specific
+         permissions as needed), scoped to the same account/zone.
+      5. Store CLOUDFLARE_API_TOKEN only in production: gh secret set CLOUDFLARE_API_TOKEN --repo "$REPO" --env production.
+      6. Delete any repository-level CLOUDFLARE_API_TOKEN after installing the environment copy.
+         Never return token values to the agent. Verify plan is read-only in the token UI.
+    check: |
+      sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh" || exit $?
+      repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 2
+      env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 2
+      owner_type=$(gh api "repos/$REPO" --jq '.owner.type' 2>/dev/null) || exit 2
+      case "$owner_type" in
+        Organization) org_secrets=$(gh api --paginate "repos/$REPO/actions/organization-secrets" --jq '.secrets[].name' 2>/dev/null) || exit 2 ;;
+        User) org_secrets='' ;; # personal repositories cannot inherit organization secrets
+        *) exit 2 ;;
+      esac
+      printf '%s\n' "$repo_secrets" | grep -Fxq CLOUDFLARE_API_TOKEN_READ || exit 1
+      if printf '%s\n' "$repo_secrets" | grep -Fxq CLOUDFLARE_API_TOKEN; then exit 1; fi
+      if printf '%s\n' "$org_secrets" | grep -Fxq CLOUDFLARE_API_TOKEN; then exit 1; fi
+      printf '%s\n' "$env_secrets" | grep -Fxq CLOUDFLARE_API_TOKEN
+    produces: read-only repository token and production-only edit token
+    docs: cloudflare.md
+
+  # ── Phase 3 — GitHub App credentials (backend: object-storage) ──────────
+  - id: gh-app-gha
+    operation: store-github-credential
+    implementation: object-storage
+    phase: 3
+    provider: github
+    actor: HUMAN
+    tri_state: true
+    when: '[ "$GITHUB_BACKEND" = "object-storage" ]'
+    title: Configure GitHub App credentials in GitHub Actions secrets
+    why: The Terraform workflow authenticates to GitHub with these App credentials.
+    run: |
+      1. Copy templates/apps/terraform-plan.json and terraform-apply.json to .github/apps/.
+         Customize and review permissions using github.md#versioned-app-manifests.
+         Plan has only Read permissions; apply has the writes needed for managed settings
+         and memberships, including Contents (R/W) to read merge settings accurately on apply refresh.
+         Set unique names and human-controlled homepage/callback URLs.
+         The HUMAN performs manifest submission/code conversion and keeps PEMs private.
+         Never reuse the write App's PEM for plan. Create and install a
+         second App scoped to the same managed repos, with only Read permissions; that is the plan App.
+         Apply App permissions: Repository Administration (R/W), Actions (R), Contents (R/W), Metadata (R),
+         Pull requests (R/W); Organization Members (R/W), Administration (R/W).
+         Actions (R) reads environments and deployment branch policies on refresh. Members (R/W)
+         is required when Terraform manages organization or team membership.
+         The plan App uses the same scopes with Read only; it never has a write permission.
+      2. Install each App only on managed_repos; record each App and installation ID.
+      3. Store the read-only plan App's GH_APP_READ_ID, GH_APP_READ_INSTALLATION_ID,
+         GH_APP_READ_PEM in repository Actions secrets. Store the apply App's
+         GH_APP_ID, GH_APP_INSTALLATION_ID, GH_APP_PEM
+         only in the production environment, after verifying its exact-main
+         deployment policy. Use
+         `gh secret set <name> --repo "$REPO" --env production`; delete repository copies.
+      4. Verify both live App permission sets and secret scopes privately before replying done.
+         Record the distinct public IDs in config.github_apps.plan_app_id/apply_app_id
+         and current strict UTC timestamp in github_apps.reviewed_at only after reviewing
+         both live permissions and secret stores. Commit that evidence. Re-review after
+         any secret update or live App permission change.
+         Record git hash-object for the two customized committed manifest files as
+         github_apps.plan_manifest_blob and github_apps.apply_manifest_blob; manifest
+         changes invalidate the permission review until reviewed again.
+    check: |
+      sh "$INFRA_COPILOT_REFERENCES/checks/gha-apply-gate.sh" || exit $?
+      repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 2
+      env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 2
+      owner_type=$(gh api "repos/$REPO" --jq '.owner.type' 2>/dev/null) || exit 2
+      case "$owner_type" in
+        Organization) org_secrets=$(gh api --paginate "repos/$REPO/actions/organization-secrets" --jq '.secrets[].name' 2>/dev/null) || exit 2 ;;
+        User) org_secrets='' ;;
+        *) exit 2 ;;
+      esac
+      for name in GH_APP_READ_ID GH_APP_READ_INSTALLATION_ID GH_APP_READ_PEM; do
+        printf '%s\n' "$repo_secrets" | grep -Fxq "$name" || exit 1
+      done
+      for name in GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PEM; do
+        if printf '%s\n' "$repo_secrets" | grep -Fxq "$name"; then exit 1; fi
+        if printf '%s\n' "$org_secrets" | grep -Fxq "$name"; then exit 1; fi
+        printf '%s\n' "$env_secrets" | grep -Fxq "$name" || exit 1
+      done
+    produces: GitHub Actions secrets for GitHub App authentication
+    docs: github.md
+
+  # ── Phase 4 — First plan (backend: object-storage) ──────────────────────
+  - id: plan-cloudflare-gha
+    operation: plan-cloudflare
+    implementation: object-storage
+    phase: 4
+    provider: cloudflare
+    actor: AGENT
+    tri_state: true
+    when: '[ "$CLOUDFLARE_BACKEND" = "object-storage" ]'
+    title: verify plan for cloudflare via GitHub Actions
+    why: Proves the Cloudflare token and backend configuration end-to-end via CI.
+    run: |
+      Trigger or inspect the GitHub Actions plan workflow for terraform/cloudflare.
+      You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR.
+      Verify that the plan-cloudflare job runs and finishes successfully.
+    check: |
+      sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
+      # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
+      # Fail closed: if git status fails, treat as dirty rather than clean
+      dirty_status=$(git status --porcelain -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
+        echo "git status failed - cannot verify working tree state" >&2
+        exit 1
+      }
+      if [ -n "$dirty_status" ]; then
+        echo "Uncommitted, staged, or untracked changes in relevant paths - commit before accepting plan evidence" >&2
+        exit 1
+      fi
+      # Find the newest commit that changed relevant paths
+      target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml 2>/dev/null)
+      [ -n "$target_sha" ] || exit 1
+      # Get the newest run on the current branch (workflow_dispatch runs at HEAD, not target_sha)
+      branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)
+      run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --branch "$branch" --limit 10 \
+        --json databaseId,conclusion,event,headSha \
+        -q '[.[] | select(.event=="pull_request" or .event=="workflow_dispatch")][0]' 2>/dev/null) || exit 2
+      [ -n "$run_info" ] && [ "$run_info" != null ] || exit 1
+      run_id=$(printf '%s' "$run_info" | jq -er '.databaseId | select(type == "number")') || exit 2
+      run_sha=$(printf '%s' "$run_info" | jq -er '.headSha | select(type == "string" and length > 0)') || exit 2
+      conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion') || exit 2
+      # Verify the run includes the relevant changes (target_sha is ancestor of or equals run_sha)
+      git merge-base --is-ancestor "$target_sha" "$run_sha" || exit 1
+      [ "$conclusion" = "success" ] || exit 1
+      jobs=$(gh run view "$run_id" --repo "$REPO" --json jobs \
+        -q '.jobs[] | select(.name=="plan-cloudflare" and .conclusion=="success") | .name' 2>/dev/null) || exit 2
+      printf '%s\n' "$jobs" | grep -Fxq 'plan-cloudflare'
+    produces: green plan for cloudflare in GitHub Actions
+    docs: docs/object-storage-ci.md#github-actions
+
+  - id: plan-github-gha
+    operation: plan-github
+    implementation: object-storage
+    phase: 4
+    provider: github
+    actor: AGENT
+    tri_state: true
+    when: '[ "$GITHUB_BACKEND" = "object-storage" ]'
+    title: verify plan for github via GitHub Actions
+    why: Proves the GitHub App credentials and backend configuration end-to-end via CI.
+    run: |
+      Trigger or inspect the GitHub Actions plan workflow for terraform/github.
+      You can dispatch it via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR.
+      Verify that the plan-github job runs and finishes successfully.
+    check: |
+      sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
+      # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
+      # Fail closed: if git status fails, treat as dirty rather than clean
+      dirty_status=$(git status --porcelain -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
+        echo "git status failed - cannot verify working tree state" >&2
+        exit 1
+      }
+      if [ -n "$dirty_status" ]; then
+        echo "Uncommitted, staged, or untracked changes in relevant paths - commit before accepting plan evidence" >&2
+        exit 1
+      fi
+      # Find the newest commit that changed relevant paths
+      target_sha=$(git log --format=%H -1 -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml 2>/dev/null)
+      [ -n "$target_sha" ] || exit 1
+      # Get the newest run on the current branch (workflow_dispatch runs at HEAD, not target_sha)
+      branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)
+      run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --branch "$branch" --limit 10 \
+        --json databaseId,conclusion,event,headSha \
+        -q '[.[] | select(.event=="pull_request" or .event=="workflow_dispatch")][0]' 2>/dev/null) || exit 2
+      [ -n "$run_info" ] && [ "$run_info" != null ] || exit 1
+      run_id=$(printf '%s' "$run_info" | jq -er '.databaseId | select(type == "number")') || exit 2
+      run_sha=$(printf '%s' "$run_info" | jq -er '.headSha | select(type == "string" and length > 0)') || exit 2
+      conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion') || exit 2
+      # Verify the run includes the relevant changes (target_sha is ancestor of or equals run_sha)
+      git merge-base --is-ancestor "$target_sha" "$run_sha" || exit 1
+      [ "$conclusion" = "success" ] || exit 1
+      jobs=$(gh run view "$run_id" --repo "$REPO" --json jobs \
+        -q '.jobs[] | select(.name=="plan-github" and .conclusion=="success") | .name' 2>/dev/null) || exit 2
+      printf '%s\n' "$jobs" | grep -Fxq 'plan-github'
+    produces: green plan for github in GitHub Actions
+    docs: docs/object-storage-ci.md#github-actions
+
+  - id: status-check-gha
+    operation: required-check-context
+    implementation: object-storage
+    phase: 4
+    provider: github
+    actor: AGENT
+    tri_state: true
+    when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
+    title: Required status checks match GitHub Actions job names
+    why: Branch protection must reference the actual job names from the workflows.
+    run: |
+      In terraform/github/branch_protection.tf, ensure required_status_checks
+      includes the published job contexts: "validate (cloudflare)", "validate (github)",
+      and "plan" (the aggregate check from terraform-plan.yml).
+      In mixed mode retain the HCP context for remaining HCP leaves as well.
+      The GitHub leaf's backend does not select the repository's protection mechanism.
+      Verify the aggregate covers every object-storage leaf including additional providers.
+    check: |
+      sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
+      # Verify HCL declares the required contexts
+      test -f terraform/github/branch_protection.tf || exit 1
+      contexts=$(sed -n '/required_status_checks/,/}/p' terraform/github/branch_protection.tf)
+      echo "$contexts" | grep -q '"plan"' || exit 1
+      echo "$contexts" | grep -q '"validate (cloudflare)"' || exit 1
+      echo "$contexts" | grep -q '"validate (github)"' || exit 1
+      # Live verification is deferred to workflow execution - if protection isn't applied,
+      # PRs will merge without required checks which is immediately visible.
+      # The HCL source-of-truth above ensures the Terraform run will configure it correctly.
+    produces: branch protection references GitHub Actions job names
+    docs: docs/object-storage-ci.md#branch-protection
+
+  # ── Phase 2 — Cloudflare credentials (backend: hcp) ──────────────────────
+  - id: cf-token
+    operation: store-cloudflare-credential
+    implementation: hcp
+    phase: 2
+    provider: cloudflare
+    actor: HUMAN
+    when: '[ "$CLOUDFLARE_BACKEND" = "hcp" ]'
+    title: Mint Cloudflare token and paste into HCP
+    why: The cloudflare workspace authenticates to Cloudflare with this token.
+    run: |
+      1. https://dash.cloudflare.com/profile/api-tokens -> Create Token -> Custom token.
+      2. Permissions: Zone·DNS·Edit, Zone·Zone Settings·Edit  (add more as resources grow).
+      3. Account Resources: your account. Zone Resources: Specific zone -> <apex-domain>.
+      4. Copy the token (shown once).
+      5. HCP -> workspace `cloudflare` -> Variables -> add `cloudflare_api_token`
+         as a TERRAFORM variable, mark SENSITIVE, paste the value.
+    check: |
+      WS_ID=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/cloudflare" -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
+      curl -sf "$hcp_api/workspaces/$WS_ID/vars" -H "Authorization: Bearer $HCP_TOKEN" \
+        | jq -e '[.data[]
+            | select(.attributes.key == "cloudflare_api_token")
+            | .attributes.category == "terraform" and .attributes.sensitive == true] | any' >/dev/null
+    produces: sensitive var `cloudflare_api_token`
+    docs: cloudflare.md
+
+  # ── Phase 3 — GitHub App credentials (backend: hcp) ──────────────────────
+  - id: gh-app
+    operation: store-github-credential
+    implementation: hcp
+    phase: 3
+    provider: github
+    actor: HUMAN
+    when: '[ "$GITHUB_BACKEND" = "hcp" ]'
+    title: Create + install GitHub App, paste creds into HCP
+    why: The github-org workspace authenticates as a GitHub App (not a PAT).
+    run: |
+      1. Create the App under your org: https://github.com/organizations/<your-org>/settings/apps/new
+         Permissions: Repo Administration(RW), Actions(R), Contents(R), Metadata(R), Pull requests(RW);
+         Actions(R) reads environments and deployment branch policies on refresh.
+         Org Members(RW), Administration(RW). Members(RW) is needed when Terraform manages org or team
+         membership; Members(R) only lets the provider inspect memberships. Install: only on this account.
+      2. Note the App ID. Generate a private key (.pem).
+      3. Install on your org scoped to the repos in managed_repos (see config.md);
+         note the Installation ID from the install URL.
+      4. HCP -> workspace `github-org` -> Variables, add as TERRAFORM vars:
+         github_owner=<your-org> (not sensitive),
+         github_app_id (sensitive), github_app_installation_id (sensitive),
+         github_app_pem = full PEM incl. BEGIN/END lines (sensitive).
+    check: |
+      WS_ID=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/github-org" -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
+      curl -sf "$hcp_api/workspaces/$WS_ID/vars" -H "Authorization: Bearer $HCP_TOKEN" | jq -e '
+        [.data[] | select(.attributes.category == "terraform") | .attributes] as $tf
+        | ($tf | map(.key)) as $keys
+        | ($tf | map(select(.sensitive == true) | .key)) as $sensitive
+        | ((["github_app_id", "github_app_installation_id", "github_app_pem"] - $sensitive) | length) == 0
+          and ((["github_owner"] - $keys) | length) == 0' >/dev/null
+    produces: sensitive vars github_app_id / _installation_id / _pem, plus github_owner
+    docs: github.md
+
+  # ── Phase 4 — First plan (backend: hcp) ──────────────────────────────────
+  - id: hcp-apply-scope
+    operation: plan-access
+    implementation: hcp
+    phase: 4
+    provider: hcp
+    actor: HUMAN
+    when: '[ "$HAS_HCP" = "true" ]'
+    title: The HCP credential this repo uses cannot apply
+    why: >-
+      docs/policy.md works through every host-level permission control and finds
+      that none of them constrain this plugin: Bash denies are wrapped by
+      `mise exec --`, Read denies do not govern subprocesses, and a Skill deny is
+      reached around by the command. Narrowing the credential is the strongest
+      control left, and `terraform login` mints a user token that can apply
+      anything the operator can. It is not a boundary against a hostile actor:
+      HCP treats plan as security-equivalent to write, because a plan runs the
+      configuration's code with access to workspace variables and state. What it
+      buys is the removal of the direct apply path, so an accidental apply takes
+      deliberate steps. Nothing here applies — setup stops at speculative plans — but
+      a repo bootstrapped by this plugin leaves its agent apply rights on
+      production until someone narrows them. First step of phase 4, so the plan
+      steps that follow already run under the narrowed credential — and, like
+      every other HUMAN step, the scan stops here and hands off rather than
+      continuing past it.
+    run: |
+      Replace the credential this machine offers HCP with a plan-only one. Do not
+      merely export a second token: `terraform` never reads $HCP_TOKEN. It reads
+      TF_TOKEN_app_terraform_io, or failing that
+      ~/.terraform.d/credentials.tfrc.json, and the environment variable wins. A
+      plan-only $HCP_TOKEN beside an apply-capable credentials file leaves the
+      Terraform CLI fully able to apply, which is the path that matters.
+
+      HCP separates the rights: a workspace's Plan permission covers "read, queue,
+      and comment on Terraform plans" and excludes apply. A team token carries its
+      team's workspace permissions, so:
+
+        1. Create a team (Organization Settings -> Teams) with NO organization
+           permissions.
+        2. Grant it the *Plan* permission on every workspace this repo manages —
+           not Write, which includes apply. Repeat this whenever `add` creates a
+           new workspace, or plans there will fail for the plan-only identity.
+        3. Create its token (Organization Settings -> API Tokens -> Team Tokens,
+           or POST /teams/<id>/authentication-token).
+        4. Put that token where terraform will find it — overwrite the token in
+           ~/.terraform.d/credentials.tfrc.json, or export
+           TF_TOKEN_app_terraform_io — and keep the user token off this machine.
+           Step 0 resolves HCP_TOKEN in terraform's own order, preferring
+           TF_TOKEN_app_terraform_io and falling back to the credentials file, so
+           either route survives later runs and both agree with what `terraform`
+           itself uses. Exporting the variable in one shell only is not enough:
+           put it somewhere the agent's environment gets it every time.
+
+      Phases 0 and 1 need the user token: a team token authenticates as a
+      synthetic service account that cannot complete the personal OAuth flow
+      `vcs-connect` requires. So this is a one-time handoff after phase 1, not a
+      token you swap per command.
+
+      `vcs-connect` handles this credential already. Its check reads
+      /organizations/<org>/oauth-clients, which is organization-scoped and
+      unreadable by a team token, so it falls back to looking for a workspace
+      connected to $REPO — the connection actually in use. Expect it to stay
+      green, or to report `?` if neither signal can be read; it will not go red
+      merely because the credential narrowed.
+
+      Do NOT grant the team "Manage version control settings" to turn it green.
+      That is an organization permission, and organization permissions are the
+      self-elevation risk this whole step exists to avoid — a team that can
+      administer VCS settings is a team that can be given more. Re-verify phase 1
+      with the user token if you need to, and leave the team's organization access
+      empty.
+    tri_state: true   # exit 2 = could not verify; see protocol.md
+    # The credentials-file route replaces a file but cannot update the current
+    # process environment. Resolve HCP_TOKEN again here so a user token exported
+    # during Step 0 cannot create a false SPLIT-BRAIN verdict after the handoff.
+    check: >-
+      export HCP_TOKEN=${TF_TOKEN_app_terraform_io:-$(jq -r
+      '.credentials["app.terraform.io"].token'
+      ~/.terraform.d/credentials.tfrc.json)} &&
+      sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
+    produces: an agent credential with no direct apply path (not a boundary against a hostile actor — see docs/policy.md)
+    docs: docs/policy.md#a-credential-that-cannot-apply
+
+  - id: gha-plan-access
+    operation: plan-access
+    implementation: object-storage
+    phase: 4
+    provider: repo
+    actor: AGENT
+    when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
+    not_applicable: No local execution-service API token; execution is confined to protected runners, not the agent credential.
+    title: Record execution-specific non-applicability
+    why: The shared operation must account for both implementations.
+    run: Follow object-storage.md's safety contract; do not invent a local credential.
+    check: 'true'
+    produces: documented not-applicable result
+    docs: object-storage.md#plan-access
+
+  - id: plan-cloudflare
+    operation: plan-cloudflare
+    implementation: hcp
+    phase: 4
+    provider: cloudflare
+    actor: AGENT
+    when: '[ "$CLOUDFLARE_BACKEND" = "hcp" ]'
+    title: init + speculative plan (terraform/cloudflare)
+    why: Proves the Cloudflare token end-to-end.
+    run: "cd terraform/cloudflare && terraform init && terraform plan"
+    check: "cd terraform/cloudflare && terraform init -input=false >/dev/null && terraform plan -input=false >/dev/null"
+    produces: green speculative plan for cloudflare
+    docs: docs/hcp-api.md
+
+  - id: plan-github
+    operation: plan-github
+    implementation: hcp
+    phase: 4
+    provider: github
+    actor: AGENT
+    when: '[ "$GITHUB_BACKEND" = "hcp" ]'
+    title: init + speculative plan (terraform/github)
+    why: Proves the GitHub App credentials end-to-end.
+    run: "cd terraform/github && terraform init && terraform plan"
+    check: "cd terraform/github && terraform init -input=false >/dev/null && terraform plan -input=false >/dev/null"
+    produces: green speculative plan for github-org
+    docs: docs/hcp-api.md
+
+  - id: status-check-context
+    operation: required-check-context
+    implementation: hcp
+    phase: 4
+    provider: github
+    actor: AGENT
+    when: '[ "$HAS_HCP" = "true" ]'
+    title: Required status check context matches what HCP publishes
+    why: >-
+      A required context HCP no longer posts blocks every PR on
+      "Expected — Waiting for status to be reported", forever, while every other
+      check stays green.
+    run: >-
+      Read the context HCP actually published, then in
+      terraform/github/branch_protection.tf replace ONLY the stale
+      "Terraform Cloud/…" entry with it. Keep every other required context —
+      terraform fmt and both terraform validate checks — exactly as they are;
+      dropping them would allow merges with no CI at all. The stale context
+      blocks the very PR carrying this fix, so follow the break-glass sequence
+      in docs/hcp-ci.md#break-glass-the-fix-cannot-merge-through-the-normal-path.
+    tri_state: true   # exit 2 = could not verify; see protocol.md
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/status-check-context.sh"
+    produces: proof that branch protection cannot silently block every PR
+    docs: docs/hcp-ci.md#hcp-status-check-context
+
+  # ── Phase 5 — Migration (only if resources pre-exist) ───────────────────
+  - id: migrate-discovery-token
+    phase: 5
+    provider: cloudflare
+    actor: HUMAN
+    title: Mint short-lived read-only Cloudflare discovery token
+    why: cf-terraforming reads existing resources; use a throwaway READ token, not the HCP edit token.
+    run: |
+      https://dash.cloudflare.com/profile/api-tokens -> Custom token -> READ scopes on each
+      resource type to discover (DNS·Read, etc.), zone <apex-domain>, TTL a few hours. Copy the value.
+    check: ~   # YAML null — ephemeral credential, no scriptable check (see header contract)
+    produces: throwaway read token (deleted after import)
+    docs: docs/import.md#discovery-token
+
+  - id: migrate-import
+    operation: import-resources
+    implementation: both
+    phase: 5
+    provider: cloudflare
+    actor: AGENT
+    tri_state: true   # exit 2 = could not verify; see protocol.md
+    title: Generate HCL + import blocks, verify plan imports (not creates)
+    why: Bring existing zone/records under management without recreating them.
+    run: |
+      Follow docs/import.md: cf-terraforming generate + import (--modern-import-block)
+      into terraform/cloudflare/generated.tf, then verify plan shows imports only.
+      In HCP mode: run terraform plan locally (credentials are in HCP workspace vars).
+      In object-storage mode: commit generated.tf, push, trigger the plan workflow via
+      `gh workflow run terraform-plan.yml --ref "$(git branch --show-current)"`, and inspect the workflow run logs.
+    # One plan, captured once to a private mktemp file (0600, auto-removed), not a fixed
+    # world-readable /tmp path. Success = at least one import AND zero creates. (If a change
+    # legitimately adds a new resource alongside the import, review by hand — this check
+    # intentionally treats any 'will be created' as not-done.)
+    check: |
+      if [ "$CLOUDFLARE_BACKEND" = "object-storage" ]; then
+        sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
+        # In object-storage mode, verify via the GitHub Actions plan workflow
+        # A real cf-terraforming adoption splits its output by zone and resource type, so
+        # `generated.tf` is one possible name among several, not the name.
+        [ -n "$(git --no-optional-locks ls-files -- ':/terraform/cloudflare/generated*.tf')" ] || exit 1
+        # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
+        # Fail closed: if git status fails, treat as dirty rather than clean
+        dirty_status=$(git status --porcelain -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
+          echo "git status failed - cannot verify working tree state" >&2
+          exit 1
+        }
+        if [ -n "$dirty_status" ]; then
+          echo "Uncommitted, staged, or untracked changes in relevant paths - commit before accepting plan evidence" >&2
+          exit 1
+        fi
+        # Find the newest commit that changed relevant paths
+        target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml 2>/dev/null)
+        [ -n "$target_sha" ] || exit 1
+        # Get the newest run on the current branch (workflow_dispatch runs at HEAD, not target_sha)
+        branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)
+        # gh's own status, separately from what it returned: `gh help exit-codes` gives 1
+        # for any failure and 4 for authentication, so an outage or an expired login is
+        # indistinguishable from "no run" unless the code is read. Reporting either as a
+        # failed step would route someone to corrective work on no evidence at all.
+        run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --branch "$branch" --limit 10 \
+          --json databaseId,conclusion,event,headSha \
+          -q '[.[] | select(.event=="pull_request" or .event=="workflow_dispatch")][0]' 2>/dev/null)
+        gh_rc=$?
+        [ "$gh_rc" -eq 0 ] || {
+          echo "gh run list failed (exit $gh_rc) - cannot verify the plan" >&2
+          exit 2
+        }
+        [ -n "$run_info" ] || {
+          echo "no plan run for this branch - cannot verify the plan" >&2
+          exit 2
+        }
+        run_id=$(printf '%s' "$run_info" | jq -r '.databaseId')
+        run_sha=$(printf '%s' "$run_info" | jq -r '.headSha')
+        conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion')
+        # Verify the run includes the relevant changes (target_sha is ancestor of or equals run_sha)
+        # --is-ancestor gives 0/1 for yes/no and >1 for "could not evaluate" -- a shallow
+        # clone need not hold an older commit at all. Collapsing those into "no" reports
+        # an unreadable history as an unfinished import.
+        git merge-base --is-ancestor "$target_sha" "$run_sha" 2>/dev/null
+        anc_rc=$?
+        [ "$anc_rc" -le 1 ] || {
+          echo "cannot evaluate ancestry (git exit $anc_rc; shallow clone?) - cannot verify" >&2
+          exit 2
+        }
+        [ "$anc_rc" -eq 0 ] || exit 1
+        [ "$conclusion" = "success" ] || exit 1
+        # Get the job ID for plan-cloudflare
+        job_id=$(gh run view "$run_id" --repo "$REPO" --json jobs \
+          -q '.jobs[] | select(.name=="plan-cloudflare" and .conclusion=="success") | .databaseId' 2>/dev/null)
+        gh_rc=$?
+        [ "$gh_rc" -eq 0 ] || {
+          echo "gh run view failed (exit $gh_rc) - cannot verify the plan" >&2
+          exit 2
+        }
+        [ -n "$job_id" ] || {
+          echo "no successful plan-cloudflare job in run $run_id - cannot verify" >&2
+          exit 2
+        }
+        # Get logs for the specific job (avoids parsing issues with full run logs)
+        job_logs=$(gh run view "$run_id" --repo "$REPO" --job "$job_id" --log 2>/dev/null)
+        gh_rc=$?
+        [ "$gh_rc" -eq 0 ] && [ -n "$job_logs" ] || {
+          echo "could not read the plan log (gh exit $gh_rc) - cannot verify" >&2
+          exit 2
+        }
+        # Completion predicate:
+        # - Reject if plan creates or destroys resources (import must be additive-only)
+        # - Accept if 'will be imported' (pending) OR 'No changes' (done - post-apply no-op)
+        if printf '%s' "$job_logs" | grep -q 'will be created'; then
+          echo "Import check failed: plan would create resources" >&2
+          exit 1
+        fi
+        if printf '%s' "$job_logs" | grep -qE 'will be destroyed|will be deleted'; then
+          echo "Import check failed: plan would destroy resources" >&2
+          exit 1
+        fi
+        # Reject state-forget actions (removed { destroy = false })
+        if printf '%s' "$job_logs" | grep -qE 'will no longer be managed|will be forgotten'; then
+          echo "Import check failed: plan would forget resources from state" >&2
+          exit 1
+        fi
+        # Accept pending imports
+        if printf '%s' "$job_logs" | grep -q 'will be imported'; then
+          exit 0  # Pending imports - ready for apply
+        fi
+        # Accept no-op plan only if imports were actually applied (check apply workflow)
+        if printf '%s' "$job_logs" | grep -qE 'No changes|Your infrastructure matches the configuration'; then
+          # Verify imports were applied by checking for a successful apply-cloudflare run
+          # this revision descends from. NOT one that descends from target_sha: on a prune
+          # branch target_sha IS the prune commit, and nothing can have applied it before
+          # the merge -- which would report every valid prune PR as an unfinished import.
+          # The weaker test is still safe here, because a plan with pending imports says
+          # 'will be imported' and a premature prune says 'will be created'; both are
+          # rejected above, so only a genuinely realized leaf reaches this point.
+          # --limit caps what is FETCHED, before any filtering, and the apply workflow
+          # runs for every terraform/** push -- so ten runs of history can easily predate
+          # nothing at all. A prune deferred by a couple of weeks needs to still find the
+          # import's apply. --status success spends the budget only on runs that can
+          # match; beyond 100, this reports red and a human confirms the apply.
+          apply_runs=$(gh run list --repo "$REPO" --workflow terraform-apply.yml --branch main \
+            --status success --limit 100 \
+            --json databaseId,conclusion,headSha \
+            -q '[.[] | select(.conclusion=="success")]' 2>/dev/null)
+          gh_rc=$?
+          [ "$gh_rc" -eq 0 ] || {
+            echo "gh run list failed (exit $gh_rc) - cannot verify the apply" >&2
+            exit 2
+          }
+          found_valid_apply=false
+          for apply_run in $(printf '%s' "$apply_runs" | jq -r '.[] | @base64'); do
+            apply_sha=$(printf '%s' "$apply_run" | base64 -d | jq -r '.headSha')
+            apply_id=$(printf '%s' "$apply_run" | base64 -d | jq -r '.databaseId')
+            # Verify this revision descends from the applied commit
+            git merge-base --is-ancestor "$apply_sha" HEAD 2>/dev/null
+            anc_rc=$?
+            [ "$anc_rc" -le 1 ] || {
+              echo "cannot evaluate ancestry (git exit $anc_rc; shallow clone?) - cannot verify" >&2
+              exit 2
+            }
+            if [ "$anc_rc" -eq 0 ]; then
+              apply_job=$(gh run view "$apply_id" --repo "$REPO" --json jobs \
+                -q '.jobs[] | select(.name=="apply-cloudflare" and .conclusion=="success") | .databaseId' 2>/dev/null)
+              gh_rc=$?
+              [ "$gh_rc" -eq 0 ] || {
+                echo "gh run view failed (exit $gh_rc) - cannot verify the apply" >&2
+                exit 2
+              }
+              if [ -n "$apply_job" ]; then
+                found_valid_apply=true
+                break
+              fi
+            fi
+          done
+          if [ "$found_valid_apply" = "true" ]; then
+            exit 0  # Import completed - apply workflow ran for the import commit
+          fi
+          echo "Import check: plan shows 'No changes' but this revision descends from no successful apply-cloudflare run" >&2
+          echo "Run terraform-apply workflow to complete the import" >&2
+          exit 1
+        fi
+        echo "Import check failed: expected 'will be imported' or 'No changes'" >&2
+        exit 1
+      else
+        # HCP mode: local terraform plan. Accept EITHER pending imports OR a no-op plan:
+        # once the import applies -- and especially once prune-spent-imports removes the
+        # spent blocks -- the plan reads 'No changes.', which is the correct terminal
+        # state. Demanding 'will be imported' made this step green only while work was
+        # outstanding and permanently red once it was finished.
+        # Committed HCL first, for BOTH outcomes below. A local plan reads the working
+        # tree, so uncommitted generated HCL plans pending imports that no run can ever
+        # apply -- and prune-spent-imports, which reads HEAD, would be green too, leaving
+        # phase 5 all green with nothing committed. For the no-op outcome the same file is
+        # what separates "everything was adopted" from "nothing ever was". Root-anchored,
+        # because the plan below runs from inside the leaf.
+        [ -n "$(git --no-optional-locks ls-files -- ':/terraform/cloudflare/generated*.tf')" ] || exit 1
+        # Tracked is not committed: an edit to a tracked file still plans locally while
+        # HEAD -- the thing CI applies, and the thing prune-spent-imports reads -- knows
+        # nothing about it. Fail closed if the status read itself fails, as the
+        # object-storage branch above does.
+        # Same paths the object-storage branch above rejects on: a working-tree config.md
+        # picks the backend and workspace this very check reads, and mise pins the
+        # terraform that runs the plan -- so either one dirty means the plan came from a
+        # configuration the commit does not describe.
+        dirty=$(git --no-optional-locks status --porcelain -- ':/terraform/cloudflare' \
+          ':/terraform/modules' ':/.infra-copilot/config.md' ':/mise.toml' ':/mise.lock') || {
+          echo "git status failed - cannot verify the plan matches the commit" >&2
+          exit 1
+        }
+        [ -z "$dirty" ] || {
+          echo "uncommitted changes under terraform/cloudflare, the config, or the tool pins - commit before the plan is evidence" >&2
+          exit 1
+        }
+        cd terraform/cloudflare
+        p=$(mktemp)
+        trap 'rm -f "$p"' EXIT
+        terraform plan -input=false -no-color >"$p" 2>&1 || exit 1
+        grep -q 'will be created' "$p" && exit 1
+        grep -qE 'will be destroyed|will be deleted' "$p" && exit 1
+        grep -qE 'will no longer be managed|will be forgotten' "$p" && exit 1
+        grep -q 'will be imported' "$p" && exit 0
+        grep -qE 'No changes|Your infrastructure matches the configuration' "$p"
+      fi
+    # Green means the COMMITTED config has no pending imports -- never that the provider
+    # holds nothing else worth adopting: Terraform cannot see an unmanaged object, so a
+    # second adoption request plans `No changes.` exactly like a finished one. An explicit
+    # import run re-runs discovery regardless of this check; only the resume scan for work
+    # already written into the config may trust it.
+    produces: committed generated*.tf; a plan showing imports, or none left to make
+    docs: migration.md
+
+  - id: prune-spent-imports
+    operation: prune-blocks
+    implementation: both
+    phase: 5
+    provider: repo
+    actor: AGENT
+    title: No spent one-shot import/moved blocks left committed
+    why: >-
+      import/moved blocks execute once and go inert; nothing else removes them, so they
+      accumulate in the consuming repo and the manifest cannot see them.
+    run: |
+      Follow docs/prune.md, one leaf per PR. It owns the procedure **and** which evidence
+      each backend allows — how many plans, where they run, and whether a local
+      `terraform state list` is available at all. Do not restate those mechanics here or
+      in a router; they have changed twice and every copy drifted.
+      Success is `No changes.` — capture it for the PR body.
+      If a block is still pending the apply has not landed: stop, and finish the import.
+    # Pure git read: no terraform, no network, nothing written -- so status may run it
+    # directly, unlike the migrate-import check above.
+    #
+    # It greps HEAD, not the working tree, because the claim is "still committed": a file
+    # deleted on disk but not yet committed is a prune in progress, not a finished one.
+    # The pathspec is root-anchored (`:/`) so the answer does not depend on the working
+    # directory -- migrate-import above ends with a bare `cd terraform/cloudflare`, and a
+    # runner that shares one shell across checks would otherwise silently scan one leaf.
+    #
+    # Deliberate ceiling: this asserts the blocks are GONE, not that the ones present are
+    # spent, because spent-ness needs `terraform state list` (an init, i.e. a mutating
+    # check status could not run). So a repo mid-import -- blocks written, apply not yet
+    # landed -- also reads red here; the message names both readings, and the prune skill
+    # itself refuses to remove a block whose address is missing from state. Tighten only
+    # by teaching status to read state membership without touching the working tree.
+    tri_state: true   # exit 2 = could not verify; see protocol.md
+    check: |
+      # Not a repository, or one whose metadata cannot be read: that is ignorance, not
+      # evidence, so it is exit 2 rather than a red step routing anyone to prune.
+      git --no-optional-locks rev-parse --git-dir >/dev/null 2>&1 || exit 2
+      # A repository with no commits yet: nothing CAN be committed, so nothing is left.
+      git --no-optional-locks rev-parse --verify --quiet HEAD >/dev/null || exit 0
+      # Structure is parsed, not pattern-matched: each committed blob is read once, `jq`
+      # decides JSON and a single string-aware awk pass decides HCL. Both surfaces,
+      # because phase 6 already accepts `*.tf.json` as leaf configuration.
+      #
+      # ONE primitive does the work: knowing whether a position is inside a quoted string.
+      # Seven review rounds were spent adding special cases instead -- an end-of-line
+      # anchor, a comment strip, an expression-position allow-list of `= ( , : [`, a
+      # bounded header-comment state, and a rule against tracking /* */ at all -- and each
+      # one was correct in isolation while the next context kept arriving: `#` inside a
+      # string, `//` inside a string, `/*` inside `target = "example.com/*"`, `<<EOF`
+      # inside `"cat <<EOF"`, a heredoc after `?`. They are all the same question. `scan()`
+      # answers it once, and every one of those special cases is gone: no allow-list (so a
+      # conditional arm opens a heredoc like any other expression), and /* */ is tracked
+      # generally again (safe now, because a `/*` inside a string is not a comment).
+      #
+      # Consequence worth stating: dead HCL inside /* */ is a comment, so it is NOT
+      # reported. That is a deliberate reversal -- it used to report, as the price of not
+      # tracking regions -- and it is the correct reading of the file.
+      #
+      # Facts measured against terraform, not assumed, because the docs mislead on two:
+      #   - the delimiter grammar is `[A-Za-z_][A-Za-z0-9_-]*`: `<<END-JSON` is valid,
+      #     `<<END.JSON` and `<<1EOT` are rejected (1.16.1), and `checks/leaf-cloud.sh`
+      #     already accepts the same class;
+      #   - an indented terminator ends BOTH `<<EOT` and `<<-EOT`, so the trim is
+      #     unconditional: a plain `<<EOT` body holding an indented `EOT` plus more text
+      #     fails to parse with the error ON the following text (1.15.9 and 1.16.1);
+      #   - a heredoc tag is never quoted -- `<<"EOT"` is shell, not HCL;
+      #   - the opener brace ENDS its line: `import { to = x` with `id` on the next line is
+      #     rejected as an "Invalid single-argument block definition" (1.15.9 and 1.16.1).
+      #     HCL does allow a one-line single-argument block (`workspaces { name = "x" }`,
+      #     see tests/test_hcp_apply_scope.py), but `import` and `moved` each require two
+      #     arguments, so neither can take that form. Anchoring the opener at end of line
+      #     is therefore complete, not a simplification.
+      #
+      # ponytail: a scanner, not an HCL parser, and the line is now a rule rather than a
+      # list. A finding of the form "marker X inside context Y" is answered by `scan()` or
+      # declined -- never by another special case, which is what turned this into seven
+      # rounds. Declining is cheap: nothing destructive hangs off this step. It routes
+      # status, it does not gate a deletion; a false positive sends someone to a runbook
+      # that finds nothing, a false negative leaves inert blocks unflagged. The gate that
+      # matters is the plan pair in docs/prune.md, which Terraform itself evaluates.
+      # Known residual: `"${f(a, "b")}"` nests quotes inside interpolation, which this
+      # counts naively. Reach for a real parser only if this ever gates something written.
+      #
+      # terraform/modules/ is excluded: one-shot blocks there are not this step's to call
+      # leftover. Each consuming state reads them separately, so `moved` is the module's
+      # upgrade path -- Terraform calls removing one a breaking change and recommends
+      # retaining historical module moves -- and `import`, while genuinely spent once
+      # applied, is spent only per consumer, a set no scan here can close. docs/prune.md
+      # refuses both, so counting them would hold phase 5 red over work with no runbook.
+      # ponytail: module blocks are left to a human; lift this when consumers are
+      # enumerable (a lockfile of consuming states) rather than grepped for.
+      # https://developer.hashicorp.com/terraform/language/modules/develop/refactoring
+      command -v jq >/dev/null 2>&1 || {
+        echo "jq is required to read Terraform JSON leaves - cannot verify" >&2
+        exit 2
+      }
+      # A directory prefix, not a glob: ls-tree matches paths by prefix and takes no
+      # :(exclude) magic, so extensions and terraform/modules/ are filtered in the loop.
+      # --full-name and the root-anchored `:/` keep the answer independent of the working
+      # directory -- migrate-import above ends with a bare `cd terraform/cloudflare`.
+      list=$(mktemp) || exit 2
+      found=$(mktemp) || exit 2
+      trap 'rm -f "$list" "$found"' EXIT
+      git --no-optional-locks ls-tree -r --full-name --name-only HEAD -- ':/terraform' >"$list" || {
+        echo "git ls-tree failed - cannot verify what is committed" >&2
+        exit 2
+      }
+      # An `import`/`moved` block opener, ignoring heredoc bodies and comments. HCL has no
+      # nested one-shot blocks, so any surviving opener is top-level by definition.
+      hcl_scan='
+        # One string-aware pass. `q` (in a string) resets per line -- HCL strings do not
+        # span lines; `c` (in a block comment) and `h` (in a heredoc) do not.
+        function scan(s,   i, n, ch, out) {
+          out = ""; n = length(s); i = 1
+          while (i <= n) {
+            ch = substr(s, i, 1)
+            if (c) { if (ch == "*" && substr(s, i+1, 1) == "/") { c = 0; i += 2; out = out " " }
+                     else i++
+                     continue }
+            if (q) { if (ch == "\\") { i += 2; continue }
+                     if (ch == "\"") { q = 0; out = out "\""; i++; continue }
+                     i++; continue }
+            if (ch == "\"") { q = 1; out = out "\""; i++; continue }
+            if (ch == "#") break
+            if (ch == "/" && substr(s, i+1, 1) == "/") break
+            if (ch == "/" && substr(s, i+1, 1) == "*") { c = 1; i += 2; out = out " "; continue }
+            out = out ch; i++ }
+          return out }
+        { sub(/\r$/, "") }
+        h != "" { t=$0; sub(/^[ \t]+/,"",t); sub(/[ \t]+$/,"",t); if (t == h) h=""; next }
+        { q = 0; code = code scan($0)
+          if (c) next                     # comment still open: one logical line continues
+          if (code ~ /^[ \t]*(import|moved)[ \t]*\{[ \t]*$/) { f=1; exit }
+          if (match(code, /<<[-~]?[A-Za-z_][A-Za-z0-9_-]*[ \t]*$/)) {
+            m = substr(code, RSTART, RLENGTH)
+            sub(/^<<[-~]?/, "", m); sub(/[ \t]*$/, "", m); h = m }
+          code = "" }
+        END { exit !f }'
+      # Both lists are files, not shell strings: a literal newline inside a string -- or a
+      # heredoc terminator, which must sit at column 0 -- dedents out of this YAML block
+      # scalar and truncates the check. Redirecting a file in also keeps the loop out of a
+      # pipeline subshell, where `exit 2` would exit only the subshell.
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        case "$f" in *.tf|*.tf.json) ;; *) continue ;; esac
+        # Exactly what docs/prune.md discovers: root-level files of a leaf. A nested
+        # `terraform/<leaf>/modules/...` is a module directory the runbook does not offer
+        # as a candidate, so scanning it would hold phase 5 red with nothing to prune.
+        rest=${f#terraform/}
+        case "$rest" in */*) ;; *) continue ;; esac   # terraform/main.tf has no leaf
+        case "${rest%%/*}" in modules) continue ;; esac
+        case "${rest#*/}" in */*) continue ;; esac
+        blob=$(git --no-optional-locks show "HEAD:$f") || {
+          echo "cannot read HEAD:$f - cannot verify what is committed" >&2
+          exit 2
+        }
+        case "$f" in
+          *.tf.json)
+            # A .tf.json that does not parse is not evidence either way: terraform would
+            # reject it too, so say so rather than calling the leaf clean.
+            printf '%s' "$blob" | jq -e . >/dev/null 2>&1 || {
+              echo "$f is not valid JSON - cannot verify what is committed" >&2
+              exit 2
+            }
+            # `has()` is true for `"import": []`, which is a key with no block under it.
+            printf '%s' "$blob" | jq -e '[.import, .moved] | map(select(. != null))
+              | map(if type == "array" then length else 1 end) | (add // 0) > 0' \
+              >/dev/null 2>&1 && printf '%s\n' "$f" >>"$found"
+            ;;
+          *)
+            printf '%s' "$blob" | awk "$hcl_scan" && printf '%s\n' "$f" >>"$found"
+            ;;
+        esac
+      done <"$list"
+      [ -s "$found" ] || exit 0
+      echo "one-shot import/moved blocks still committed in:" >&2
+      cat "$found" >&2
+      echo "If their apply has landed they are spent: infra-skills:infra-prune removes them." >&2
+      echo "If it has not, they are still pending: finish infra-skills:infra-import first." >&2
+      exit 1
+    produces: a leaf whose plan is `No changes.` with no inert instruction blocks left
+    docs: docs/prune.md
+
+  # ── Phase 6 — additional providers (parameterized; optional) ────────────
+  # Run the inventory once, then instantiate the remaining sequence once per
+  # config.md `additional_providers` entry.
+  - id: new-provider-inventory
+    operation: provider-inventory
+    implementation: both
+    phase: 6
+    provider: repo
+    actor: HUMAN
+    title: Every additional Terraform leaf has a provider-adoption record
+    why: An untracked leaf may be an interrupted adoption and must not disappear from resume scans.
+    run: |
+      For every terraform/<leaf> other than cloudflare and github, add a matching
+      `additional_providers` entry to .infra-copilot/config.md. Record the decision
+      and credential inventory there; never delete an entry to hide red state.
+    check: |
+      # Validate provider names (common to both modes)
+      jq -ne --argjson names "$ADDITIONAL_PROVIDER_NAMES" '
+        $names | type == "array"
+          and all(.[]; type == "string" and test("^[a-z0-9][a-z0-9-]*$"))
+          and length == (unique | length)
+          and index("cloudflare") == null
+          and index("github") == null
+          and index("modules") == null' >/dev/null || exit 1
+      # HCP mode: also validate workspaces
+      if [ "$HAS_HCP" = "true" ]; then
+        jq -ne --argjson leaves "$HCP_LEAVES" \
+          --argjson workspaces "$ADDITIONAL_PROVIDER_WORKSPACES" '
+            ($workspaces | type == "array"
+              and all(.[]; type == "string" and test("^[a-z0-9][a-z0-9-]*$"))
+              and length == (unique | length)
+              and index("cloudflare") == null
+              and index("github-org") == null)
+            and ($leaves | map(select(. != "cloudflare" and . != "github")) | length)
+              == ($workspaces | length)' >/dev/null || exit 1
+      fi
+      declared_tools=$(printf '%s' "${ADDITIONAL_PROVIDER_MISE_TOOLS:-[]}" | jq -ce '
+        select(type == "array")
+        | select(all(.[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:/+-]*$")))
+        | unique') || exit 1
+      if test -f mise.toml; then
+        tools=$(mise config get --file ./mise.toml tools 2>/dev/null) || exit 1
+        pinned=$(printf '%s\n' "$tools" |
+          sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p')
+        provider_tools=$(sed -n \
+          's/^[[:space:]]*#[[:space:]]*infra-skills:provider-cli[[:space:]]\{1,\}\([A-Za-z0-9][A-Za-z0-9_-]*\)[[:space:]]*$/\1/p' \
+          mise.toml)
+        general_tools=$(sed -n \
+          's/^[[:space:]]*#[[:space:]]*infra-skills:general-tool[[:space:]]\{1,\}\([^[:space:]]\{1,\}\)[[:space:]]*$/\1/p' \
+          mise.toml)
+        test "$(printf '%s\n' "$provider_tools" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')" \
+          = "$(printf '%s\n' "$provider_tools" | sed '/^$/d' | wc -l | tr -d ' ')" || exit 1
+        test "$(printf '%s\n' "$general_tools" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')" \
+          = "$(printf '%s\n' "$general_tools" | sed '/^$/d' | wc -l | tr -d ' ')" || exit 1
+        classified_tools=$(printf '%s\n%s\n' "$provider_tools" "$general_tools" | sed '/^$/d')
+        test "$(printf '%s\n' "$classified_tools" | sort -u | wc -l | tr -d ' ')" \
+          = "$(printf '%s\n' "$classified_tools" | wc -l | tr -d ' ')" || exit 1
+        printf '%s\n' "$classified_tools" | while IFS= read -r tool; do
+          test -z "$tool" && continue
+          printf '%s\n' "$pinned" | grep -Fx "$tool" >/dev/null || exit 1
+        done || exit 1
+        printf '%s\n' "$pinned" | while IFS= read -r tool; do
+          test -z "$tool" && continue
+          case "$tool" in terraform|gh|jq|github:cloudflare/cf-terraforming) continue ;; esac
+          printf '%s\n' "$classified_tools" | grep -Fx "$tool" >/dev/null || exit 1
+        done || exit 1
+        actual_tools=$(printf '%s\n' "$provider_tools" |
+          jq -Rsc 'split("\n") | map(select(length > 0)) | unique') || exit 1
+        jq -ne --argjson declared "$declared_tools" --argjson actual "$actual_tools" \
+          '($actual - $declared | length) == 0' >/dev/null || exit 1
+      fi
+      for leaf in terraform/*/; do
+        test -d "$leaf" || continue
+        name=${leaf%/}; name=${name##*/}
+        case "$name" in cloudflare|github|modules) continue ;; esac
+        printf '%s' "$ADDITIONAL_PROVIDER_NAMES" \
+          | jq -e --arg name "$name" 'index($name) != null' >/dev/null || exit 1
+      done
+    produces: complete durable inventory for every additional Terraform leaf
+    docs: config.md
+
+  - id: new-provider-decision
+    operation: provider-decision
+    implementation: both
+    phase: 6
+    provider: repo
+    actor: HUMAN
+    title: Record the new-provider decision and its verification inventory
+    why: A provider changes a locked design decision, and later runs need durable names for every check.
+    run: |
+      1. Add a row to .infra-copilot/decisions.md whose decision is exactly
+         `Provider: <provider>`, choice is `adopt`, and status is `locked`, and a second
+         locked row whose decision is exactly `<provider> authentication` and whose
+         choice names the credential mechanism (e.g. `Workload Identity Federation` or
+         `service-account key`). Auth is a decision of its own so a long-lived key is
+         never the unexamined default. With effective backend hcp, for a GCP entry (one whose
+         inventory has TFC_GCP_*, GOOGLE_*, GCLOUD_*, or CLOUDSDK_* keys, whose mise tools
+         include gcloud, or whose choice is a service-account key), the choice must be exactly `Workload Identity Federation`
+         (inventory declares TFC_GCP_PROVIDER_AUTH) or `service-account key` (inventory
+         declares GOOGLE_CREDENTIALS as a sensitive env variable and not
+         TFC_GCP_PROVIDER_AUTH).
+      2. Add terraform/<provider> to terraform/README.md.
+      3. For effective backend hcp:
+         Add an `additional_providers` entry to .infra-copilot/config.md with its
+         lowercase name, HCP workspace, and every authentication variable's key,
+         category, and sensitive flag. Inventory every workspace variable so undeclared
+         credentials cannot survive a reused workspace. Record provider mise tools (or
+         `[]`) and set `mise_config_blob: ""` and `mise_lock_blob: ""` until the HUMAN
+         reviews the toolchain. Set
+         `fork_speculative_plans_disabled: false` until that HUMAN check is performed.
+         Set `fork_speculative_plans_workspace_id: ""` until the same check binds the
+         attestation to the immutable HCP workspace identity.
+         Set `credentials_verified_at: ""` until the credential handoff is complete.
+         Never put a credential value in the repo.
+         For effective backend object-storage:
+         Add an `additional_providers` entry to .infra-copilot/config.md with its
+         lowercase name, provider mise tools (or `[]`), and `credential_secrets` list
+         with `name`, `required`, and `scope` (plan or apply) for every GitHub Actions secret.
+         Plan names are read-only repository secrets; apply names are distinct and production-only.
+         Set `mise_config_blob: ""` and `mise_lock_blob: ""`.
+         Set `credentials_verified_at: ""` until the secret handoff is complete.
+      4. Reply `done`:
+         For effective backend hcp: the agent reloads config, exports NEW_PROVIDER and NEW_PROVIDER_BACKEND,
+         NEW_PROVIDER_WORKSPACE, and NEW_PROVIDER_CREDENTIALS, then re-runs this check.
+         For effective backend object-storage: the agent reloads config, exports NEW_PROVIDER and NEW_PROVIDER_BACKEND
+         and NEW_PROVIDER_SECRETS, then re-runs this check.
+    check: |
+      printf '%s' "$NEW_PROVIDER" | grep -Eq '^[a-z0-9][a-z0-9-]*$' || exit 1
+      printf '%s' "$NEW_PROVIDER_MISE_TOOLS" | jq -e '
+        type == "array"
+        and all(.[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9_-]*$"))
+        and length == (unique | length)' >/dev/null || exit 1
+      if test -n "$NEW_PROVIDER_MISE_CONFIG_BLOB"; then
+        printf '%s\n' "$NEW_PROVIDER_MISE_CONFIG_BLOB" \
+          | grep -Eq '^[0-9a-f]{40}([0-9a-f]{24})?$' || exit 1
+      fi
+      if test -n "$NEW_PROVIDER_MISE_LOCK_BLOB"; then
+        printf '%s\n' "$NEW_PROVIDER_MISE_LOCK_BLOB" \
+          | grep -Eq '^[0-9a-f]{40}([0-9a-f]{24})?$' || exit 1
+      fi
+      if test -n "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT"; then
+        printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \
+          | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' || exit 1
+        printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" | jq -Re '
+          . as $raw
+          | (try fromdateiso8601 catch null) as $epoch
+          | ($epoch != null)
+            and (($epoch | strftime("%Y-%m-%dT%H:%M:%SZ")) == $raw)
+            and ($epoch <= now)' >/dev/null || exit 1
+      fi
+      if [ "$NEW_PROVIDER_BACKEND" = "object-storage" ]; then
+        printf '%s' "$NEW_PROVIDER_SECRETS" | jq -e '
+          type == "array"
+          and all(.[];
+            (.name | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$"))
+            and (.required | type == "boolean")
+            and (.scope == "plan" or .scope == "apply"))
+          and length == (map(.name | ascii_upcase) | unique | length)' \
+          >/dev/null || exit 1
+      else
+        printf '%s' "$NEW_PROVIDER_WORKSPACE" | grep -Eq '^[a-z0-9][a-z0-9-]*$' || exit 1
+        case "$NEW_PROVIDER_FORK_PLANS_DISABLED" in true|false) : ;; *) exit 1 ;; esac
+        if test -n "$NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID"; then
+          printf '%s\n' "$NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID" \
+            | grep -Eq '^ws-[A-Za-z0-9]+$' || exit 1
+        fi
+        printf '%s' "$NEW_PROVIDER_CREDENTIALS" | jq -e '
+          type == "array" and length > 0
+          and all(.[];
+            (.key | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$"))
+            and (.category == "env" or .category == "terraform")
+            and (.sensitive | type == "boolean"))
+          and length == (map(.category + "\u0000" + .key) | unique | length)' \
+          >/dev/null || exit 1
+      fi
+      auth_choice=$(awk -F '|' -v provider="$NEW_PROVIDER" '
+        function clean(value) {
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+          return tolower(value)
+        }
+        BEGIN { found=0; auth=0; expected="provider: " tolower(provider)
+          auth_expected=tolower(provider) " authentication" }
+        clean($2) == expected && clean($3) == "adopt" && clean($4) == "locked" { found=1 }
+        clean($2) == auth_expected && clean($3) != "" && clean($4) == "locked" {
+          auth++; choice=clean($3)
+        }
+        # Exactly one locked authentication row: two would be simultaneously
+        # authoritative, and "last one wins" would make row order the decision.
+        END { if (found && auth == 1) print choice; exit !(found && auth == 1) }
+      ' .infra-copilot/decisions.md) || exit 1
+      # The recorded mechanism must be the one the inventory actually installs, in both
+      # directions: a locked keyless decision over a key inventory would otherwise skip
+      # the WIF trust check and go green on the key it rejected.
+      # Scoped to GCP inventories — any key in a family the Google provider or SDK reads
+      # (TFC_GCP_*, GOOGLE_*, GCLOUD_*, CLOUDSDK_*). Other providers use the same words
+      # for their own federation (Azure's ARM_USE_OIDC, say) and must not be held to a
+      # GCP variable; a GCLOUD_KEYFILE_JSON inventory under a WIF decision must. Case
+      # is ignored: a terraform-category google_credentials is the same family.
+      # An entry is also GCP when it pins gcloud or chooses a service-account key, so a
+      # key stored under a custom name (GCP_KEY) cannot skip these rules.
+      is_gcp=false
+      printf '%s' "$NEW_PROVIDER_CREDENTIALS" \
+        | jq -e 'any(.[]; .key | test("^(TFC_GCP_|GOOGLE_|GCLOUD_|CLOUDSDK_)"; "i"))' >/dev/null \
+        && is_gcp=true
+      printf '%s' "$NEW_PROVIDER_MISE_TOOLS" | jq -e 'index("gcloud") != null' >/dev/null \
+        && is_gcp=true
+      case "$auth_choice" in "service-account key"|"service account key") is_gcp=true ;; esac
+      if [ "$NEW_PROVIDER_BACKEND" = "hcp" ] && [ "$is_gcp" = true ]; then
+        # Exactly one of the two documented mechanisms, never free text reduced to a
+        # keyword: "do not use workload identity federation" is not a WIF decision.
+        case "$auth_choice" in
+          "workload identity federation") choice_wif=true ;;
+          "service-account key"|"service account key") choice_wif=false ;;
+          *) exit 1 ;;
+        esac
+        inventory_wif=false
+        printf '%s' "$NEW_PROVIDER_CREDENTIALS" \
+          | jq -e 'any(.[]; .key == "TFC_GCP_PROVIDER_AUTH")' >/dev/null && inventory_wif=true
+        test "$choice_wif" = "$inventory_wif" || exit 1
+        # The key must stay a sensitive env variable: declared non-sensitive, the vars
+        # API would hand its value to the plan-only agent.
+        # ...and it must be the only credential: an extra GOOGLE_OAUTH_ACCESS_TOKEN or
+        # GCLOUD_KEYFILE_JSON could authenticate instead (and, non-sensitive, be read by
+        # the agent). Only identity-free location settings may sit beside it.
+        if [ "$choice_wif" = false ]; then
+          printf '%s' "$NEW_PROVIDER_CREDENTIALS" | jq -e 'any(.[];
+            .key == "GOOGLE_CREDENTIALS" and .category == "env" and .sensitive == true)' \
+            >/dev/null || exit 1
+          printf '%s' "$NEW_PROVIDER_CREDENTIALS" | jq -e 'all(.[];
+            (.key | test("^(TFC_GCP_|GOOGLE_|GCLOUD_|CLOUDSDK_)"; "i") | not)
+            or .key == "GOOGLE_CREDENTIALS"
+            or (.key | IN("GOOGLE_PROJECT", "GOOGLE_REGION", "GOOGLE_ZONE",
+                          "GOOGLE_CLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT")))' \
+            >/dev/null || exit 1
+        fi
+      fi
+      grep -Eq "(^|[^A-Za-z0-9_-])terraform/$NEW_PROVIDER(/|[^A-Za-z0-9_-]|$)" \
+        terraform/README.md || exit 1
+      git ls-files --error-unmatch .infra-copilot/config.md \
+        .infra-copilot/decisions.md terraform/README.md >/dev/null 2>&1 || exit 1
+      git diff --quiet HEAD -- .infra-copilot/config.md \
+        .infra-copilot/decisions.md terraform/README.md || exit 1
+      git diff --cached --quiet HEAD -- .infra-copilot/config.md \
+        .infra-copilot/decisions.md terraform/README.md
+    produces: locked provider and authentication decisions plus a non-secret verification inventory
+    docs: config.md
+
+  - id: new-provider-leaf
+    operation: provider-leaf
+    implementation: both
+    phase: 6
+    provider: repo
+    actor: AGENT
+    tri_state: true
+    title: Create the new Terraform leaf
+    why: The backend and plan need committed provider configuration to target.
+    run: |
+      Create terraform/$NEW_PROVIDER with its versions, provider, and initial resource
+      configuration. Do not create resources before new-provider-decision is green.
+      - HCP mode: Its cloud block must select workspace $NEW_PROVIDER_WORKSPACE by name.
+      - Object-storage mode: Its backend block must point to $STATE_BUCKET with a unique prefix.
+      If the leaf's committed history contains an HCP backend, stop for the ordered
+      HUMAN cutover in docs/object-storage-state.md#migrating-from-hcp and record its
+      checked state_transfers evidence. Never treat a missing attestation as a fresh leaf.
+      If the provider runbook requires a new CLI, add `# infra-skills:provider-cli <key>`
+      immediately before its exact same-name mise pin and refresh the lock, but
+      do not execute the CLI or any later runbook commands until new-provider-toolchain is green.
+      Commit the completed leaf, including the provider selections written to
+      `.terraform.lock.hcl` by `terraform init -backend=false`, before re-running this check.
+      Whenever HAS_OBJECT_STORAGE=true, add this leaf to the Actions backend-neutral
+      validate matrix even if its own backend is HCP; credentialed jobs remain scoped.
+    check: |
+      test -d "terraform/$NEW_PROVIDER" || exit 1
+      if [ "${HAS_OBJECT_STORAGE:-false}" = true ]; then
+        git ls-files --error-unmatch .github/workflows/terraform-plan.yml >/dev/null 2>&1 || exit 1
+        git diff --quiet HEAD -- .github/workflows/terraform-plan.yml || exit 1
+        git diff --cached --quiet HEAD -- .github/workflows/terraform-plan.yml || exit 1
+        matrix=$(awk '
+          /^  validate:/ {inside=1; next}
+          inside && /^  [^[:space:]#]/ {exit}
+          inside && /^        leaf: \[/ {print}
+        ' .github/workflows/terraform-plan.yml) || exit 1
+        matrix=$(printf '%s\n' "$matrix" | sed 's/#.*//; s/^[[:space:]]*leaf:[[:space:]]*//; s/[[:space:]]*$//')
+        printf '%s\n' "$matrix" | grep -Eq '^\[[a-z0-9, -]+\]$' || exit 1
+        printf '%s\n' "$matrix" | tr -d '[]' | tr ', ' '\n' | grep -Fxq "$NEW_PROVIDER" || exit 1
+      fi
+      if [ "$NEW_PROVIDER_BACKEND" = "hcp" ]; then
+        # HCP mode: verify cloud block
+        settings=$(sh "$INFRA_COPILOT_REFERENCES/checks/leaf-cloud.sh" \
+          "terraform/$NEW_PROVIDER" all)
+        printf '%s\n' "$settings" | grep -Fx "workspaces.name=$NEW_PROVIDER_WORKSPACE" >/dev/null \
+          || exit 1
+        printf '%s\n' "$settings" | grep -Fx "organization=$ORG" >/dev/null || exit 1
+        hostname=$(printf '%s\n' "$settings" | sed -n 's/^hostname=//p' | head -1)
+        case "$hostname" in ""|app.terraform.io) : ;; *) exit 1 ;; esac
+      else
+        # Object-storage mode: verify backend block with complete path validation
+        sh "$INFRA_COPILOT_REFERENCES/checks/state-transfer.sh" "$NEW_PROVIDER" || exit $?
+        grep -q "backend \"$STATE_BACKEND\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+        # Use -F for literal string matching (bucket names may contain regex chars like .)
+        grep -Fq "$STATE_BUCKET" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+        # Validate complete prefix/key path matches backend-config convention
+        # Escape regex special chars in STATE_PREFIX (e.g., + . *)
+        escaped_prefix=$(printf '%s' "$STATE_PREFIX" | sed 's/[.+*?^$[\]\\|(){}]/\\&/g')
+        case "$STATE_BACKEND" in
+          gcs)
+            # GCS uses prefix = "STATE_PREFIX/NEW_PROVIDER"
+            grep -E "prefix[[:space:]]*=[[:space:]]*\"$escaped_prefix/$NEW_PROVIDER\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+            ;;
+          s3|azurerm)
+            # S3/Azure uses key = "STATE_PREFIX/NEW_PROVIDER/terraform.tfstate"
+            grep -E "key[[:space:]]*=[[:space:]]*\"$escaped_prefix/$NEW_PROVIDER/terraform\\.tfstate\"" "terraform/$NEW_PROVIDER"/*.tf 2>/dev/null || exit 1
+            ;;
+        esac
+      fi
+      git ls-files "terraform/$NEW_PROVIDER/*.tf" \
+        "terraform/$NEW_PROVIDER/*.tf.json" | grep -q . || exit 1
+      git ls-files --error-unmatch \
+        "terraform/$NEW_PROVIDER/.terraform.lock.hcl" >/dev/null 2>&1 || exit 1
+      test -z "$(git --no-optional-locks status --porcelain -- "terraform/$NEW_PROVIDER")"
+    produces: terraform/$NEW_PROVIDER leaf with appropriate backend configuration
+    docs: protocol.md#resume-protocol
+
+  - id: new-provider-toolchain
+    phase: 6
+    provider: repo
+    actor: HUMAN
+    title: Review and trust the provider's changed executable toolchain
+    why: A newly pinned provider CLI changes executable configuration after the initial setup trust gate.
+    run: |
+      Review the complete mise.toml diff and mise.lock URLs. If they are expected, record
+      `git hash-object mise.toml` as this provider's `mise_config_blob` and
+      `git hash-object mise.lock` as its `mise_lock_blob`, commit all four reviewed files,
+      run `mise trust mise.toml`, then install every
+      configured tool with `MISE_LOCKED=1` as documented in docs/setup.md. Reply
+      `done`; the agent re-runs this check. Once every provider toolchain gate is
+      green, it runs the complete preflight once per provider entry, exporting that
+      entry's NEW_PROVIDER_MISE_TOOLS so its conditional provider CLI is verified.
+    check: >-
+      mise --version >/dev/null &&
+      git ls-files --error-unmatch mise.toml mise.lock .infra-copilot/config.md >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- mise.toml mise.lock .infra-copilot/config.md &&
+      git diff --cached --quiet HEAD -- mise.toml mise.lock .infra-copilot/config.md &&
+      current_mise_blob=$(git hash-object -- mise.toml) &&
+      current_mise_lock_blob=$(git hash-object -- mise.lock) &&
+      [ "$NEW_PROVIDER_MISE_CONFIG_BLOB" = "$current_mise_blob" ] &&
+      [ "$NEW_PROVIDER_MISE_LOCK_BLOB" = "$current_mise_lock_blob" ] &&
+      repo_dir=$(pwd -P) &&
+      shown_dir=$repo_dir &&
+      case $HOME in ''|/) ;;
+      */) case $repo_dir in "$HOME"*) shown_dir="~${repo_dir#"$HOME"}" ;; esac ;;
+      *) case $repo_dir in "$HOME") shown_dir="~" ;;
+      "$HOME"/*) shown_dir="~${repo_dir#"$HOME"}" ;; esac ;; esac &&
+      mise trust --show 2>/dev/null |
+      grep -Fx -e "$repo_dir: trusted" -e "$shown_dir: trusted" >/dev/null &&
+      tools=$(mise config get --file ./mise.toml tools 2>/dev/null) &&
+      [ -n "$tools" ] &&
+      pinned=$(printf '%s\n' "$tools" |
+      sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
+      [ -n "$pinned" ] &&
+      ! printf '%s\n' "$tools" |
+      sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
+      grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      printf '%s' "$NEW_PROVIDER_MISE_TOOLS" | jq -r '.[]' |
+      while IFS= read -r tool; do
+      [ -z "$tool" ] && continue;
+      printf '%s\n' "$pinned" | grep -Fx "$tool" >/dev/null || exit 1;
+      MISE_LOCKED=1 mise install --dry-run-code "$tool" >/dev/null 2>&1 || exit 1;
+      pin=$(mise config get --file ./mise.toml "tools.$tool" 2>/dev/null | tr -d '[:space:]');
+      active=$(MISE_LOCKED=1 mise which "$tool" --version 2>/dev/null | tr -d '[:space:]');
+      resolved=$(MISE_LOCKED=1 mise which "$tool" 2>/dev/null) || exit 1;
+      [ -n "$pin" ] && [ "$active" = "$pin" ] && [ -x "$resolved" ] || exit 1;
+      MISE_LOCKED=1 mise exec "$tool" -- sh -c
+      '[ "$(command -v "$1")" = "$2" ]' sh "$tool" "$resolved" || exit 1;
+      done
+    produces: human-reviewed, trusted, locked provider toolchain; complete preflight green
+    docs: docs/setup.md#6-local-development
+
+  - id: new-provider-lock
+    phase: 6
+    provider: repo
+    actor: AGENT
+    title: Verify committed selections for every required provider
+    tri_state: true
+    why: The trust gate must activate Terraform before lock validation, while HCP must not invent missing selections remotely.
+    run: |
+      After new-provider-toolchain and the complete preflight are green, inspect the
+      committed dependency lock. The check enumerates configuration requirements in a
+      disposable copy without backend initialization, state reads, or HCP access; it
+      never writes .terraform/ or the lock in the checkout. Exit 2 means requirements
+      could not be enumerated (including unavailable child modules); exit 1 means a
+      required selection or checksum is missing. If a selection is missing, run
+      `terraform init -backend=false` in terraform/$NEW_PROVIDER and commit the reviewed
+      `.terraform.lock.hcl` before re-running this check.
+    check: |
+      required_providers=$(sh "$INFRA_COPILOT_REFERENCES/checks/provider-requirements.sh" \
+        "terraform/$NEW_PROVIDER") || exit 2
+      printf '%s\n' "$required_providers" | while IFS= read -r provider; do
+        case "$provider" in ""|terraform.io/builtin/*) continue ;; esac
+        awk -v target="$provider" '
+          $1 == "provider" {
+            address=$2; gsub(/^"|"$/, "", address)
+            selected=(address == target); version=0; in_hashes=0; checksum=0
+          }
+          selected && $1 == "version" && $2 == "=" && $3 ~ /^"[^"]+"$/ { version=1 }
+          selected && $1 == "hashes" && $2 == "=" && $3 == "[" { in_hashes=1 }
+          selected && in_hashes && $1 ~ /^"(h1:|zh:)[^"]+",?$/ { checksum=1 }
+          selected && /^}/ { complete=(version && checksum); selected=0 }
+          END { exit !complete }
+        ' "terraform/$NEW_PROVIDER/.terraform.lock.hcl" || exit 1
+      done
+    produces: committed lock selections and checksums for every required provider
+    docs: protocol.md#resume-protocol
+
+  - id: new-provider-workflow-gha
+    operation: provision-provider-execution
+    implementation: object-storage
+    phase: 6
+    provider: github
+    actor: AGENT
+    tri_state: true
+    when: '[ "$NEW_PROVIDER_BACKEND" = "object-storage" ]'
+    title: Update GitHub Actions workflows for the new provider
+    why: The plan and apply workflows must include the new leaf.
+    run: |
+      Update .github/workflows/terraform-plan.yml and terraform-apply.yml to:
+      1. In terraform-plan.yml only, add a path filter for terraform/$NEW_PROVIDER/** AND shared inputs:
+         - terraform/modules/**
+         - mise.toml
+         - mise.lock
+         - .infra-copilot/config.md
+         - .github/workflows/terraform-*.yml
+         - .github/scripts/terraform-destroy.cjs
+      2. Add plan/apply jobs for the new leaf
+      3. Pass only scope=plan secrets from NEW_PROVIDER_SECRETS to plan and scope=apply
+         secrets to apply as environment variables. Use -lock=false on every plan;
+         keep locking and refresh enabled on apply. Use separate keyless identities too.
+      4. Add the provider-specific authentication step before terraform init (e.g., google-github-actions/auth for GCP, aws-actions/configure-aws-credentials for AWS, azure/login for Azure)
+      5. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
+      6. Add plan-$NEW_PROVIDER to the aggregate `plan` job's `needs` list
+      7. Wire up routed outputs and job conditions for $NEW_PROVIDER in both workflows.
+         The plan route input is workflow_dispatch=true OR the PR path filter output.
+         The apply route input is static 'true': converge every object-storage leaf on
+         every run, with the main-tip guard immediately before apply. Never path-filter apply.
+      8. Add a top-level static LEAF_<UPPERCASE_PROVIDER_SLUG_WITH_UNDERSCORES>_BACKEND
+         literal in both workflows, equal to NEW_PROVIDER_BACKEND. Route the changes
+         output only when this literal is object-storage AND its route input is true,
+         just like the bootstrap outputs. Auth/init/plan/apply must consume
+         only that routed output; validation still covers HCP leaves. Update the literal
+         together with config when cutting over an existing provider.
+         Include BOTH workflow paths in every leaf's plan filters.
+         Keep the route script in the supported template shape: bootstrap leaves first,
+         additional leaves in lexical order, all false initializers, then guarded true
+         decisions, then output writes. Use shell-safe leaf_<slug_with_underscores>
+         variables and LEAF_<SLUG>_CHANGED inputs for additional leaves, even digit-leading names.
+         Use bracket expression access for digit-leading output keys, e.g.
+         needs.changes.outputs['1password'] and steps.route.outputs['1password'].
+      9. Copy the saved-plan destructive guard and its read-only PR permission to the new apply job;
+         inspect that same tfplan and apply it, never compute another plan after the guard
+      10. Copy destructive JSON extraction and prominent plan-comment reporting to the new plan job
+      Commit the updated workflows before re-running this check.
+    check: |
+      # File existence and git tracking
+      ROUTING_PROVIDER="$NEW_PROVIDER" sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
+      sh "$INFRA_COPILOT_REFERENCES/checks/gha-workflows.sh" "$NEW_PROVIDER" || exit $?
+      test -f .github/workflows/terraform-plan.yml || exit 1
+      test -f .github/workflows/terraform-apply.yml || exit 1
+      git ls-files --error-unmatch \
+        .github/workflows/terraform-plan.yml \
+        .github/workflows/terraform-apply.yml >/dev/null 2>&1 || exit 1
+      # Workflows are committed (no uncommitted changes)
+      git diff --quiet HEAD -- .github/workflows/terraform-plan.yml \
+        .github/workflows/terraform-apply.yml || exit 1
+      # YAML syntax validation skipped - workflow execution will catch malformed files
+      # Basic job existence for the new provider
+      grep -q "plan-$NEW_PROVIDER:" .github/workflows/terraform-plan.yml || exit 1
+      grep -q "apply-$NEW_PROVIDER:" .github/workflows/terraform-apply.yml || exit 1
+      # Path filter mentions the new provider (either form)
+      grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-plan.yml || exit 1
+      grep -q "terraform/$NEW_PROVIDER" .github/workflows/terraform-apply.yml || exit 1
+      # Environment protection verified by gha-environments (phase 1): a main-only
+      # production environment with reviewers or a recorded apply gate. New provider jobs
+      # should copy the environment: production setting from apply-cloudflare/apply-github.
+    produces: GitHub Actions workflows updated for new provider
+    docs: docs/object-storage-ci.md#github-actions
+
+  - id: new-provider-workspace-bootstrap
+    operation: provision-provider-execution
+    implementation: hcp
+    phase: 6
+    provider: hcp
+    actor: HUMAN
+    when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
+    title: Create the workspace and make it visible to the plan-only team
+    why: A missing or invisible workspace is expected setup work, not an unverifiable terminal state.
+    run: |
+      Using a user token yourself (required for GitHub App connections), load hcp.md's
+      helpers, resolve the repository-specific VCS connection, create/configure the workspace, and grant the
+      plan-only team `Plan` (never `Write`):
+
+        load_tf_version
+        resolve_vcs_connection
+        create_ws "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+        set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+
+      Restore the plan-only credential before replying `done`; this check distinguishes
+      the expected missing/invisible state from network, authentication, and API failures.
+    tri_state: true
+    check: |
+      test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
+      code=$(curl -sS -o /dev/null -w '%{http_code}' \
+        "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+      case "$code" in
+        200) exit 0 ;;
+        404) exit 1 ;;
+        *) exit 2 ;;
+      esac
+    produces: workspace exists and is visible to the restored plan-only credential
+    docs: docs/policy.md#a-credential-that-cannot-apply
+
+  - id: new-provider-workspace
+    operation: provision-provider-execution
+    implementation: hcp
+    phase: 6
+    provider: hcp
+    actor: HUMAN
+    when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
+    title: Create and safely configure the new HCP workspace
+    why: The leaf needs a remote, VCS-backed workspace with path-scoped plans and auto-apply disabled.
+    run: |
+      If this verification finds drift after Plan access is established, use a user
+      token yourself and run hcp.md's set_workspace_config helper. It preserves the
+      existing VCS connection and reconciles every asserted setting:
+
+        load_tf_version
+        set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+
+      If the helper reports a mismatched existing working directory, inspect the named
+      workspace ID first. Export `CONFIRM_WORKSPACE_ID` to that exact ID only when it is
+      truly this provider's workspace; otherwise choose a different workspace name.
+      Restore the plan-only credential before replying `done` so the agent can verify
+      the settings without receiving your privileged token.
+    check: |
+      test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
+      body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+      printf '%s' "$body" \
+        | jq -e --arg dir "terraform/$NEW_PROVIDER" --arg repo "$REPO" --arg tf_version "$TERRAFORM_VERSION" '
+            .data.attributes as $a
+            | ($a["working-directory"] == $dir)
+              and ($a["execution-mode"] == "remote")
+              and ($a["terraform-version"] == $tf_version)
+              and ($a["auto-apply"] == false)
+              and ($a["auto-destroy-at"] == null)
+              and ($a["auto-destroy-activity-duration"] == null)
+              and ($a["speculative-enabled"] == true)
+              and ($a["file-triggers-enabled"] == true)
+              and ($a["queue-all-runs"] == false)
+              and ($a["global-remote-state"] == false)
+              and ((($a["trigger-patterns"] // []) | sort)
+                   == ([$dir + "/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"] | sort))
+              and (($a["vcs-repo"].identifier // "") == $repo)
+              and (($a["vcs-repo"].branch // "") == "main")' >/dev/null
+      rc=$?
+      case "$rc" in
+        0) exit 0 ;;
+        1) exit 1 ;;
+        *) exit 2 ;;
+      esac
+    tri_state: true
+    produces: configured HCP workspace visible to the plan-only credential
+    docs: hcp.md#phase-1--workspaces
+
+  - id: new-provider-plan-access
+    operation: provider-plan-access
+    implementation: hcp
+    phase: 6
+    provider: hcp
+    actor: HUMAN
+    when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
+    title: Verify the plan-only team has Plan access and nothing stronger
+    why: Workspace visibility alone does not prove that the credential can plan without applying or reconfiguring workspaces.
+    run: |
+      Using a user or organization token yourself, grant the plan-only team `Plan`
+      (never `Write`) on $NEW_PROVIDER_WORKSPACE. Restore the plan-only credential
+      before replying `done`; the repository-derived inventory then verifies that it
+      can plan but cannot apply or update any workspace.
+    tri_state: true
+    check: HCP_SCOPE_WORKSPACE="$NEW_PROVIDER_WORKSPACE" sh "$INFRA_COPILOT_REFERENCES/checks/hcp-apply-scope.sh"
+    produces: Plan access with no apply or workspace-update permission
+    docs: docs/policy.md#a-credential-that-cannot-apply
+
+  - id: new-provider-fork-safety
+    operation: provider-fork-safety
+    implementation: hcp
+    phase: 6
+    provider: hcp
+    actor: HUMAN
+    when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
+    title: Confirm fork speculative plans are disabled before adding credentials
+    why: The fork-specific UI toggle can expose sensitive workspace variables to untrusted fork code.
+    run: |
+      In HCP workspace $NEW_PROVIDER_WORKSPACE, open Settings -> Version Control and
+      confirm speculative plans from forks are disabled. This is separate from the API's
+      `speculative-enabled` attribute. Then set this provider entry's
+      `fork_speculative_plans_disabled` value to `true` and record the workspace's
+      immutable `ws-...` ID as `fork_speculative_plans_workspace_id`. Commit config.md,
+      reload it, and reply `done` so the agent re-runs this durable attestation check.
+    check: |
+      test "$NEW_PROVIDER_FORK_PLANS_DISABLED" = "true" || exit 1
+      git ls-files --error-unmatch .infra-copilot/config.md >/dev/null 2>&1 || exit 1
+      git diff --quiet HEAD -- .infra-copilot/config.md || exit 1
+      git diff --cached --quiet HEAD -- .infra-copilot/config.md || exit 1
+      test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
+      body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+      actual_id=$(printf '%s' "$body" \
+        | jq -er '.data.id | select(type == "string" and test("^ws-[A-Za-z0-9]+$"))' \
+          2>/dev/null) || exit 2
+      test "$NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID" = "$actual_id"
+    tri_state: true
+    produces: durable human attestation that fork plans cannot receive provider credentials
+    docs: docs/setup.md#2-hcp-terraform--workspaces
+
+  - id: new-provider-plan-access-gha
+    operation: provider-plan-access
+    implementation: object-storage
+    phase: 6
+    provider: repo
+    actor: AGENT
+    when: '[ "$NEW_PROVIDER_BACKEND" = "object-storage" ]'
+    not_applicable: No local workspace team grant; use the protected runner and approval contract in provision-provider-execution.
+    title: Record execution-specific non-applicability
+    why: The shared operation must account for both implementations.
+    run: Follow object-storage.md's safety contract; do not invent a local credential.
+    check: 'true'
+    produces: documented not-applicable result
+    docs: object-storage.md#plan-access
+
+  - id: new-provider-fork-safety-gha
+    operation: provider-fork-safety
+    implementation: object-storage
+    phase: 6
+    provider: repo
+    actor: AGENT
+    when: '[ "$NEW_PROVIDER_BACKEND" = "object-storage" ]'
+    title: Verify fork rejection and protected apply before storing credentials
+    why: Untrusted fork code must not execute with provider or state credentials.
+    run: |
+      Provision the new provider execution first using object-storage.md, without storing
+      provider credentials. The plan job must reject forks at job scope, and the apply
+      job must use the production environment gated by gha-environments.
+      Never use pull_request_target to execute changed Terraform. Commit the workflows.
+    tri_state: true
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/gha-provider-safety.sh"
+    produces: committed fork guard and approval-gated apply for this leaf
+    docs: object-storage.md#fork-safety
+
+  - id: new-provider-credentials
+    operation: store-provider-credential
+    implementation: hcp
+    phase: 6
+    provider: hcp
+    actor: HUMAN
+    when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
+    title: Put the provider credential configuration in HCP
+    why: The first plan must authenticate without exposing credential values to the agent or repository.
+    run: |
+      Mint or configure the provider's least-privilege credential as its runbook
+      requires. In HCP workspace $NEW_PROVIDER_WORKSPACE, reconcile every variable to
+      the exact NEW_PROVIDER_CREDENTIALS inventory by key, category, and sensitive flag;
+      delete undeclared leftovers before continuing. Detach any effective variable sets
+      first; their inherited variables cannot be proven by this workspace-local inventory.
+      Paste secret values yourself; never send them to the agent. Reply `done` so
+      the agent can verify metadata through the vars API. After every declared variable
+      is installed, record `credentials_backend: hcp` and the current UTC time as
+      `credentials_verified_at` in config.md
+      using strict `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and then reply `done`.
+    check: |
+      [ "${NEW_PROVIDER_CREDENTIALS_BACKEND-hcp}" = hcp ] || exit 1
+      test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
+      workspace_body=$(curl -sf \
+        "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+      WS_ID=$(printf '%s' "$workspace_body" \
+        | jq -er '.data.id | select(type == "string" and length > 0)' 2>/dev/null) \
+        || exit 2
+      varset_body=$(curl -sf \
+        "$hcp_api/workspaces/$WS_ID/varsets?page%5Bsize%5D=1&page%5Bnumber%5D=1" \
+        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+      varset_count=$(printf '%s' "$varset_body" \
+        | jq -er '.data | select(type == "array") | length' 2>/dev/null) || exit 2
+      test "$varset_count" -eq 0 || exit 1
+      # The workspace vars endpoint is not paginated: HCP's OpenAPI spec gives it no
+      # page parameters and no meta in its response, so one response is the whole
+      # list. Requiring meta.pagination left this step CANNOT VERIFY for every
+      # workspace. Should HCP start paginating it, a next page would mean the list
+      # below is partial, so that fails closed rather than judging half an inventory.
+      body=$(curl -sf "$hcp_api/workspaces/$WS_ID/vars" \
+        -H "Authorization: Bearer $HCP_TOKEN") || exit 2
+      printf '%s' "$body" | jq -e '
+        (.data | type == "array")
+        and (.meta.pagination["next-page"] == null)' >/dev/null 2>&1 \
+        || exit 2
+      printf '%s' "$body" | jq -e --argjson expected "$NEW_PROVIDER_CREDENTIALS" '
+        [.data[] | .attributes
+          | {key: .key, category: .category, sensitive: .sensitive}]
+          | sort_by(.category, .key) as $actual
+        | ($expected
+            | map({key: .key, category: .category, sensitive: .sensitive})
+            | sort_by(.category, .key)) as $wanted
+        | ($expected | type == "array" and length > 0)
+          and ($actual == $wanted)' >/dev/null || exit 1
+      printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \
+        | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' || exit 1
+      printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" | jq -Re '
+        . as $raw
+        | (try fromdateiso8601 catch null) as $epoch
+        | ($epoch != null)
+          and (($epoch | strftime("%Y-%m-%dT%H:%M:%SZ")) == $raw)
+          and ($epoch <= now)' >/dev/null || exit 1
+      git ls-files --error-unmatch .infra-copilot/config.md >/dev/null 2>&1 || exit 1
+      git diff --quiet HEAD -- .infra-copilot/config.md || exit 1
+      git diff --cached --quiet HEAD -- .infra-copilot/config.md
+    tri_state: true
+    produces: exact declared workspace-variable metadata in HCP
+    docs: docs/secrets.md
+
+  - id: new-provider-gcp-wif-trust
+    operation: provider-identity-trust
+    implementation: hcp
+    phase: 6
+    provider: gcp
+    actor: HUMAN
+    # Runs for every GCP entry — WIF or key — keyed on the inventory, tools, and
+    # decision rather than the provider's name. Skipped only when the inventory is
+    # provably a list with no Google-family key, the entry does not pin gcloud, and no
+    # locked WIF row exists; an unreadable inventory runs the check.
+    when: >-
+      [ "$NEW_PROVIDER_BACKEND" = "hcp" ] &&
+      { ! printf '%s' "$NEW_PROVIDER_CREDENTIALS" |
+        jq -e 'type == "array" and all(.[]; .key | test("^(TFC_GCP_|GOOGLE_|GCLOUD_|CLOUDSDK_)"; "i") | not)' >/dev/null 2>&1 ||
+        printf '%s' "${NEW_PROVIDER_MISE_TOOLS:-[]}" | jq -e 'index("gcloud") != null' >/dev/null 2>&1 ||
+        awk -F '|' -v provider="$NEW_PROVIDER" '
+          function clean(v) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return tolower(v) }
+          clean($2) == tolower(provider) " authentication" &&
+          clean($3) == "workload identity federation" && clean($4) == "locked" { found=1 }
+          END { exit !found }' .infra-copilot/decisions.md 2>/dev/null; }
+    title: Verify the GCP run identity (WIF trust scope, or key-only configuration)
+    why: >-
+      Every HCP customer shares the issuer, so an unconditioned or name-only trust lets
+      another organization impersonate the service account while every plan stays green.
+    run: |
+      For a key-based entry, remove any Google credential variable other than the
+      sensitive GOOGLE_CREDENTIALS and any credentials/access_token/
+      impersonate_service_account argument from the google provider blocks. For WIF,
+      using your own gcloud login, fix what the check reported, following gcp.md's
+      "create the WIF trust" section: the provider's issuer must be exactly
+      https://app.terraform.io, its attribute condition must be `&&`-joined terms in
+      the forms gcp.md lists, binding both the HCP organization and this workspace
+      (name or ws- ID), and every member holding roles/iam.workloadIdentityUser on the
+      run service accounts must be a principal of that pool, and no federated principal
+      outside it may hold any role on those accounts or an impersonation role on their
+      projects. Detach any variable sets. The TFC_GCP_* coordinates must stay
+      non-sensitive so they can be read.
+      If the check could not verify (exit 2), log in with an account that can read the
+      pool and service-account IAM policies (`gcloud auth login`). Reply `done`; the
+      agent re-runs this check.
+    tri_state: true
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/gcp-wif-trust.sh"
+    produces: runs that use only the declared identity (a WIF trust only this workspace can use, or the sensitive key)
+    docs: gcp.md#human--create-the-wif-trust
+
+  - id: new-provider-identity-trust-gha
+    operation: provider-identity-trust
+    implementation: object-storage
+    phase: 6
+    provider: repo
+    actor: HUMAN
+    when: '[ "$NEW_PROVIDER_BACKEND" = "object-storage" ]'
+    title: Review the runner identity trust before storing provider credentials
+    why: A workspace subject check does not verify the runner's cloud IAM binding.
+    run: |
+      Follow object-storage.md's provisioning trust checklist. Review the exact cloud
+      OIDC subject for this repository and branch/protected environment, the runner role
+      or service account, state key isolation and least-privilege provider permissions.
+      Require separate read-only plan and write apply identities. Verify plan cannot write
+      state/locks/resources, read secret values, or impersonate apply; cloud refresh needs
+      narrow service-specific viewer permissions. Verify the exact-main production gate.
+      For a genuinely fresh leaf, initialize empty backend state using the HUMAN procedure
+      in docs/object-storage-state.md#fresh-leaf-bootstrap before requiring its first plan.
+      Never accept a wildcard repository or fork subject. Reply done after review.
+      This review is ephemeral: repeat it when resuming rather than assume IAM is unchanged.
+    check: ~
+    produces: human-reviewed runner identity trust, without exposing credentials
+    docs: object-storage.md#provision-execution
+
+  - id: new-provider-plan
+    operation: plan-provider
+    implementation: hcp
+    phase: 6
+    provider: repo
+    actor: AGENT
+    when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
+    title: Run the first plan on the new leaf
+    why: This proves the leaf, workspace access, and provider credentials end to end.
+    run: |
+      If the newest matching HCP run is `policy_soft_failed`, stop and emit a HUMAN
+      handoff to review the policy result and either fix the configuration or explicitly
+      override/discard it; do not queue another run while that decision is pending.
+      Ensure the current non-main branch has an open pull request (a draft is enough;
+      create one with `gh pr create --draft` when absent), then push the current
+      committed branch to its configured upstream so HCP can ingest the branch tip;
+      never push a dirty or detached checkout. Wait until the workspace's VCS run list
+      contains an ingested commit whose `terraform/$NEW_PROVIDER`, shared
+      `terraform/modules`, `.infra-copilot/config.md`, and `mise.toml` trees equal the
+      current committed versions, then run
+      `sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh" queue` to queue a
+      plan-only retry using that configuration version. The helper explicitly includes
+      the configuration-version relationship in POST /runs; a CLI-driven or
+      latest-configuration fallback run has no trustworthy commit correlation. Wait for
+      the run to finish, then re-run this check.
+    tri_state: true
+    check: sh "$INFRA_COPILOT_REFERENCES/checks/hcp-current-plan.sh"
+    produces: safe green plan, or a safe no-create plan after the adoption has applied resources
+    docs: docs/hcp-api.md
+
+  # ── Phase 6 — additional providers (object-storage mode) ────────────────
+  - id: new-provider-secrets-gha
+    operation: store-provider-credential
+    implementation: object-storage
+    phase: 6
+    provider: github
+    actor: HUMAN
+    when: '[ "$NEW_PROVIDER_BACKEND" = "object-storage" ]'
+    title: Verify the provider authentication handoff for GitHub Actions
+    tri_state: true
+    why: The workflow must authenticate to the provider without exposing credentials.
+    run: |
+      If NEW_PROVIDER_SECRETS is not empty, mint separate credentials: read-only plan
+      secrets at repository scope and write apply secrets only in production. Use distinct
+      names and delete repository copies of all apply names. Verify the main-only production
+      gate before installing write credentials. Never store write keys in organization secrets
+      accessible to this repo. Verify effective permissions; secret-name checks cannot prove them.
+      For an empty inventory, verify separate read-only plan and write apply keyless
+      identities and trust instead; public identity
+      identifiers do not belong in the secret inventory. After the handoff is complete,
+      record `credentials_backend: object-storage` and a fresh current UTC time as
+      `credentials_verified_at` in config.md using strict
+      `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and reply `done`.
+    check: |
+      [ "${NEW_PROVIDER_CREDENTIALS_BACKEND:-}" != hcp ] || exit 1
+      printf '%s' "$NEW_PROVIDER_SECRETS" | jq -e '
+        type == "array" and all(.[];
+          (.name | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$"))
+          and (.required | type == "boolean") and (.scope == "plan" or .scope == "apply"))
+        and length == (map(.name | ascii_upcase) | unique | length)' >/dev/null || exit 1
+      if [ "$(printf '%s' "$NEW_PROVIDER_SECRETS" | jq 'length')" -gt 0 ]; then
+        repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 2
+        env_secrets=$(gh secret list --repo "$REPO" --env production --json name -q '.[].name' 2>/dev/null) || exit 2
+        owner_type=$(gh api "repos/$REPO" --jq '.owner.type' 2>/dev/null) || exit 2
+        case "$owner_type" in
+          Organization) org_secrets=$(gh api --paginate "repos/$REPO/actions/organization-secrets" --jq '.secrets[].name' 2>/dev/null) || exit 2 ;;
+          User) org_secrets='' ;;
+          *) exit 2 ;;
+        esac
+        printf '%s' "$NEW_PROVIDER_SECRETS" | jq -r '.[] | [.name | ascii_upcase] + [.scope, (.required | tostring)] | @tsv' |
+          while read -r name scope required; do
+            if [ "$scope" = apply ]; then
+              if printf '%s\n' "$repo_secrets" | grep -Fxq "$name"; then exit 1; fi
+              if printf '%s\n' "$org_secrets" | grep -Fxq "$name"; then exit 1; fi
+              secrets=$env_secrets
+            else
+              secrets=$repo_secrets
+            fi
+            if [ "$required" = true ]; then
+              printf '%s\n' "$secrets" | grep -Fxq "$name" || exit 1
+            fi
+          done || exit 1
+      fi
+      printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" \
+        | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' || exit 1
+      printf '%s\n' "$NEW_PROVIDER_CREDENTIALS_VERIFIED_AT" | jq -Re '
+        . as $raw
+        | (try fromdateiso8601 catch null) as $epoch
+        | ($epoch != null)
+          and (($epoch | strftime("%Y-%m-%dT%H:%M:%SZ")) == $raw)
+          and ($epoch <= now)' >/dev/null || exit 1
+      git ls-files --error-unmatch .infra-copilot/config.md >/dev/null 2>&1 || exit 1
+      git diff --quiet HEAD -- .infra-copilot/config.md || exit 1
+      git diff --cached --quiet HEAD -- .infra-copilot/config.md
+    produces: GitHub Actions secrets for provider authentication
+    docs: docs/object-storage-ci.md#github-actions
+
+  - id: new-provider-plan-gha
+    operation: plan-provider
+    implementation: object-storage
+    phase: 6
+    provider: repo
+    actor: AGENT
+    tri_state: true
+    when: '[ "$NEW_PROVIDER_BACKEND" = "object-storage" ]'
+    title: Verify plan on the new leaf in GitHub Actions
+    why: Proves the leaf, backend, and provider credentials end to end in CI.
+    run: |
+      Inspect the GitHub Actions plan workflow for terraform/$NEW_PROVIDER.
+      Trigger via `gh workflow run terraform-plan.yml --repo "$REPO" --ref "$(git branch --show-current)"` or open a PR,
+      and verify the plan job for $NEW_PROVIDER succeeds.
+    check: |
+      ROUTING_PROVIDER="$NEW_PROVIDER" sh "$INFRA_COPILOT_REFERENCES/checks/workflow-routing.sh" || exit $?
+      # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
+      # Fail closed: if git status fails, treat as dirty rather than clean
+      dirty_status=$(git status --porcelain -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
+        echo "git status failed - cannot verify working tree state" >&2
+        exit 1
+      }
+      if [ -n "$dirty_status" ]; then
+        echo "Uncommitted, staged, or untracked changes in relevant paths - commit before accepting plan evidence" >&2
+        exit 1
+      fi
+      # Find the newest commit that changed relevant paths
+      target_sha=$(git log --format=%H -1 -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml 2>/dev/null)
+      [ -n "$target_sha" ] || exit 1
+      # Get the newest run on the current branch (workflow_dispatch runs at HEAD, not target_sha)
+      branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)
+      run_info=$(gh run list --repo "$REPO" --workflow terraform-plan.yml --branch "$branch" --limit 10 \
+        --json databaseId,conclusion,event,headSha \
+        -q '[.[] | select(.event=="pull_request" or .event=="workflow_dispatch")][0]' 2>/dev/null) || exit 2
+      [ -n "$run_info" ] && [ "$run_info" != null ] || exit 1
+      run_id=$(printf '%s' "$run_info" | jq -er '.databaseId | select(type == "number")') || exit 2
+      run_sha=$(printf '%s' "$run_info" | jq -er '.headSha | select(type == "string" and length > 0)') || exit 2
+      conclusion=$(printf '%s' "$run_info" | jq -r '.conclusion') || exit 2
+      # Verify the run includes the relevant changes (target_sha is ancestor of or equals run_sha)
+      git merge-base --is-ancestor "$target_sha" "$run_sha" || exit 1
+      [ "$conclusion" = "success" ] || exit 1
+      jobs=$(gh run view "$run_id" --repo "$REPO" --json jobs \
+        -q ".jobs[] | select(.name==\"plan-$NEW_PROVIDER\" and .conclusion==\"success\") | .name" 2>/dev/null) || exit 2
+      printf '%s\n' "$jobs" | grep -Fxq "plan-$NEW_PROVIDER"
+    produces: green plan for new provider leaf in GitHub Actions
+    docs: docs/object-storage-state.md#object-storage-backend

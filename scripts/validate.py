@@ -28,21 +28,19 @@ SKILL_FRONTMATTER = re.compile(
 # touch the working tree. Granting it to them would hand three commands a capability
 # their own instructions forbid them to use -- the AskUserQuestion defect these
 # checks exist for, in reverse.
-COMMAND_TOOLS = {
-    "infra-add.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
-    "infra-import.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
-    "infra-prune.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
-    "infra-setup.md": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
-    "infra-status.md": "Read, Bash, Glob, Grep, Task",
+SKILL_TOOLS = {
+    "infra-add": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
+    "infra-import": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
+    "infra-prune": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
+    "infra-setup": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
+    "infra-status": "Read, Bash, Glob, Grep, Task",
 }
 CONFIG_PATH = ".infra-copilot/config.md"
 LEGACY_CONFIG_PATH = ".claude/infra-copilot.local.md"
 CONFIG_FALLBACK_DOCUMENTS = (
-    ".ai-rulez/commands/infra-setup.md",
-    ".ai-rulez/commands/infra-status.md",
-    ".ai-rulez/skills/setup/SKILL.md",
-    ".ai-rulez/skills/status/SKILL.md",
-    ".ai-rulez/skills/infra-copilot/references/protocol.md",
+    ".ai-rulez/skills/infra-setup/SKILL.md",
+    ".ai-rulez/skills/infra-status/SKILL.md",
+    ".ai-rulez/skills/infra/references/protocol.md",
 )
 CUSTOMIZATION_TOKEN = "infra-copilot:customization"
 # The scaffolded files a human is told to edit, each mapped to content the marker
@@ -103,7 +101,7 @@ def _marker_pattern(comment: str) -> re.Pattern[str]:
 
 
 CUSTOMIZATION_DOCUMENTS = {
-    ".ai-rulez/skills/infra-copilot/references/config.md.example": CustomizationRules(
+    ".ai-rulez/skills/infra/references/config.md.example": CustomizationRules(
         marker=_marker_pattern("yaml"),
         enclosed=(
             # Kept explicit on top of the derived keys: HCP regenerates this
@@ -114,7 +112,7 @@ CUSTOMIZATION_DOCUMENTS = {
         ),
         in_frontmatter=True,
     ),
-    ".ai-rulez/skills/infra-copilot/references/decisions.md.example": (
+    ".ai-rulez/skills/infra/references/decisions.md.example": (
         CustomizationRules(
             marker=_marker_pattern("html"),
             enclosed=("| Decision | Choice | Status | Rationale |",),
@@ -125,14 +123,14 @@ CUSTOMIZATION_DOCUMENTS = {
 # Where the preserve-or-hand-off rule is stated. The markers are inert without it:
 # they are comments, so nothing enforces them but the documented rule.
 CUSTOMIZATION_RULE_DOCUMENT = (
-    ".ai-rulez/skills/infra-copilot/references/config.md"
+    ".ai-rulez/skills/infra/references/config.md"
 )
 CUSTOMIZATION_RULE_MARKERS = (
     "verbatim",
     "Never merge by inference",
 )
 PHASE_FIVE_RULE_DOCUMENT = (
-    ".ai-rulez/skills/infra-copilot/references/status.md"
+    ".ai-rulez/skills/infra/references/status.md"
 )
 PHASE_FIVE_RULE_MARKERS = (
     # A clean run alone must never be read as "imports are done" ...
@@ -142,18 +140,18 @@ PHASE_FIVE_RULE_MARKERS = (
     # stored plan, so its import actions remain listed forever.
     "status `applied`",
 )
-TOOLCHAIN_STEPS_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/steps.yaml"
-TOOLCHAIN_HCP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/hcp.md"
+TOOLCHAIN_STEPS_DOCUMENT = ".ai-rulez/skills/infra/references/steps.yaml"
+TOOLCHAIN_HCP_DOCUMENT = ".ai-rulez/skills/infra/references/hcp.md"
 TOOLCHAIN_WORKSPACE_CHECK_DOCUMENT = (
-    ".ai-rulez/skills/infra-copilot/references/checks/hcp-bootstrap-workspaces.sh"
+    ".ai-rulez/skills/infra/references/checks/hcp-bootstrap-workspaces.sh"
 )
-TOOLCHAIN_SETUP_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/setup.md"
-TOOLCHAIN_IMPORT_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/import.md"
-TOOLCHAIN_CONFIG_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/config.md"
-TOOLCHAIN_STATUS_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/status.md"
-TOOLCHAIN_CI_DOCUMENT = ".ai-rulez/skills/infra-copilot/references/docs/ci.md"
+TOOLCHAIN_SETUP_DOCUMENT = ".ai-rulez/skills/infra/references/docs/setup.md"
+TOOLCHAIN_IMPORT_DOCUMENT = ".ai-rulez/skills/infra/references/docs/import.md"
+TOOLCHAIN_CONFIG_DOCUMENT = ".ai-rulez/skills/infra/references/config.md"
+TOOLCHAIN_STATUS_DOCUMENT = ".ai-rulez/skills/infra/references/status.md"
+TOOLCHAIN_CI_DOCUMENT = ".ai-rulez/skills/infra/references/docs/ci.md"
 TOOLCHAIN_DECISIONS_DOCUMENT = (
-    ".ai-rulez/skills/infra-copilot/references/decisions.md.example"
+    ".ai-rulez/skills/infra/references/decisions.md.example"
 )
 JSON_MANIFESTS = (
     ".agents/plugins/marketplace.json",
@@ -288,7 +286,7 @@ def validate_description_budget(root: Path = ROOT) -> list[str]:
 
 REQUIRED_SECTIONS = ("workflow", "guardrails", "validation", "example")
 #: The router selects a skill and performs no work, so it has nothing to demonstrate.
-SECTION_EXEMPTIONS = {"infra-copilot": {"example"}}
+SECTION_EXEMPTIONS = {"infra": {"example"}}
 
 
 def validate_skill_sections(root: Path = ROOT) -> list[str]:
@@ -318,10 +316,10 @@ def validate_skill_sections(root: Path = ROOT) -> list[str]:
     return errors
 
 
-def validate_command_tools() -> list[str]:
+def validate_skill_tools() -> list[str]:
     errors: list[str] = []
-    for filename, expected in COMMAND_TOOLS.items():
-        command = ROOT / ".ai-rulez/commands" / filename
+    for skill, expected in SKILL_TOOLS.items():
+        command = ROOT / ".ai-rulez/skills" / skill / "SKILL.md"
         match = SKILL_FRONTMATTER.match(command.read_text(encoding="utf-8"))
         actual_match = (
             re.search(r"^allowed-tools:\s*(.+)$", match.group("body"), re.MULTILINE)
@@ -917,7 +915,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     return errors
 
 
-SHIPPED_REFERENCES = "skills/infra-copilot/references"
+SHIPPED_REFERENCES = "skills/infra/references"
 SHIPPED_CHECK_PATTERN = re.compile(r"\$INFRA_COPILOT_REFERENCES/(?P<path>[A-Za-z0-9._/-]+)")
 
 
@@ -953,21 +951,21 @@ def validate_shipped_check_paths(root: Path = ROOT) -> list[str]:
                 f"{SHIPPED_REFERENCES}/steps.yaml: check references "
                 f"$INFRA_COPILOT_REFERENCES/{relative}, which does not exist"
             )
-    if SHIPPED_CHECK_PATTERN.search(text) and "infra-copilot-references" not in text:
+    if SHIPPED_CHECK_PATTERN.search(text) and "infra-references" not in text:
         errors.append(
             f"{SHIPPED_REFERENCES}/steps.yaml: a check resolves a shipped script but "
-            "preflight has no infra-copilot-references guard"
+            "preflight has no infra-references guard"
         )
     return errors
 
 
 #: The shipped copy is what a user actually installs, so it is the one gated. ai-rulez
 #: copies the whole references tree, and `verify --plugin` fails on drift from the source.
-HOSTS_DOCUMENT = "skills/infra-copilot/references/hosts.md"
+HOSTS_DOCUMENT = "skills/infra/references/hosts.md"
 HOSTS_BASENAME = "hosts.md"
 PROTOCOL_DOCUMENTS = (
-    ".ai-rulez/skills/infra-copilot/references/protocol.md",
-    "skills/infra-copilot/references/protocol.md",
+    ".ai-rulez/skills/infra/references/protocol.md",
+    "skills/infra/references/protocol.md",
 )
 INSTALL_GUIDE_GLOB = "install-*.md"
 #: The section that gives the AskUserQuestion grant in commands/ a consumer.
@@ -1147,12 +1145,12 @@ def validate_host_contract(root: Path = ROOT) -> list[str]:
 #: skill it does not need installed -- so matching `references/` keeps the arrow
 #: pointing the right way and the hub's closure at one node.
 SKILL_DEPENDENCY = re.compile(r"\.\./(?P<skill>[a-z0-9-]+)/references/")
-#: Skills that own no operations of their own. `infra-copilot` selects a workflow and
+#: Skills that own no operations of their own. `infra` selects a workflow and
 #: hands off, so installed alone it is a router with nothing to route to. They are
 #: valid closure *members* -- that is the whole point of the hub -- but never roots.
 #: Listed rather than derived: "nothing else depends on it" would also reject a future
 #: skill that is legitimately both an entry point and a dependency.
-ROUTER_SKILLS = frozenset({"infra-copilot"})
+ROUTER_SKILLS = frozenset({"infra"})
 
 
 def skill_closure(name: str, root: Path = ROOT) -> list[str]:
@@ -1583,8 +1581,8 @@ def validate_manifest_shape(root: Path = ROOT) -> list[str]:
     """
     errors: list[str] = []
     for relative in (
-        ".ai-rulez/skills/infra-copilot/references/steps.yaml",
-        "skills/infra-copilot/references/steps.yaml",
+        ".ai-rulez/skills/infra/references/steps.yaml",
+        "skills/infra/references/steps.yaml",
     ):
         text = read_document(root / relative)
         if text is None:
@@ -1619,12 +1617,12 @@ REQUIRED_HEADERS = {
 #: The one command allowed to delegate, whose grant must carry the recorded
 #: invocation tool -- and the host that grant belongs to.
 #:
-#: `commands/*.md` with an `allowed-tools` line is Claude's adapter format;
+#: a skill's `allowed-tools` line is Claude's adapter format;
 #: hosts.md records that Codex exposes no plugin slash commands at all and that
 #: OpenCode loads skills through its own tool. So there is no `allowed-tools`
 #: anywhere to check another host's invocation tool against, and the cross-check
 #: applies to the row whose adapter this actually is.
-STATUS_COMMAND = "infra-status.md"
+STATUS_COMMAND = "infra-status"
 STATUS_COMMAND_HOST = "Claude Code"
 AGENT_STEM = "infra-auditor"
 #: How each dialect spells a whole frontmatter block, given the tool names its
@@ -1698,17 +1696,17 @@ AGENT_FORBIDDEN_TOOLS = {
 }
 #: The agent must delegate to the runbook, and must not carry a repo-relative path
 #: to it: its working directory is the *consuming* repository, so
-#: "skills/infra-copilot/references/..." resolves into the consumer and finds
+#: "skills/infra/references/..." resolves into the consumer and finds
 #: nothing -- it only looks right from a source checkout of this repository.
-AGENT_RUNBOOK = ("infra-copilot", "status.md")
+AGENT_RUNBOOK = ("infra", "status.md")
 #: A positive directive, not a mention. The imperative and the skill name have to
 #: appear together and in that order. Backticks are optional: the TOML dialect
 #: carries its body in a plain string, where Markdown code spans do not belong.
 #:
 #: Case-sensitive on `Invoke` so the sentence has to be an instruction, and the
 #: negator guard is what makes it a *positive* one -- "Never Invoke the
-#: infra-copilot skill" matched the imperative and inverted it.
-AGENT_INVOCATION = re.compile(r"\bInvoke the `?infra-copilot`? skill\b")
+#: infra skill" matched the imperative and inverted it.
+AGENT_INVOCATION = re.compile(r"\bInvoke the `?infra`? skill\b")
 #: An instruction to use the runbook, not a sentence that mentions it. "The file
 #: status.md exists" named it and told the agent nothing.
 AGENT_RUNBOOK_DIRECTIVE = re.compile(
@@ -1719,7 +1717,7 @@ AGENT_RUNBOOK_DIRECTIVE = re.compile(
 #: The clause is the bound, and it is the *whole* clause. Earlier versions also
 #: capped the distance -- first adjacency, which "do not *follow* status.md"
 #: walked past, then 24 characters, which "Do not under any circumstances
-#: whatsoever Invoke the infra-copilot skill" walked past in turn. Any fixed
+#: whatsoever Invoke the infra skill" walked past in turn. Any fixed
 #: lookback is a padding budget for whoever wants to invert the directive, so
 #: _clause_before() hands this the text back to the last clause boundary and the
 #: length of the padding stops mattering.
@@ -1732,7 +1730,7 @@ AGENT_NEGATOR = re.compile(
 #:
 #: A bare newline does not. These manifests are Markdown, where a single newline
 #: inside a paragraph is a *soft wrap* that renders as a space -- treating it as
-#: a boundary meant "Do not\nInvoke the infra-copilot skill" read as affirmative
+#: a boundary meant "Do not\nInvoke the infra skill" read as affirmative
 #: while the agent received one sentence telling it not to load the runbook. The
 #: breaks below are the ones a reader also sees.
 AGENT_CLAUSE_BOUNDARY = re.compile(
@@ -1787,7 +1785,7 @@ HOOK_IMPLEMENTATION = "hooks/session-start.sh"
 #: from a record this file already owns. For a closed set, rendering the expected
 #: value and comparing is both shorter and complete -- every one of those
 #: spellings fails as "not equal" without a rule of its own. It is the same
-#: choice COMMAND_TOOLS already makes for `allowed-tools`.
+#: choice SKILL_TOOLS already makes for `allowed-tools`.
 #:
 #: The cost is deliberate: changing the command means changing the record in the
 #: same commit, which is the coupling this table exists to enforce.
@@ -1840,7 +1838,7 @@ HOOK_OUTPUT_BLOCK = re.compile(
 )
 #: The rest of the callback, which is identical on every host.
 HOOK_TIMEOUT = 10
-HOOK_DESCRIPTION = 'Announce that infra-copilot is installed when the working directory looks like a managed infra repo.'
+HOOK_DESCRIPTION = 'Announce that infra-skills is installed when the working directory looks like a managed infra repo.'
 
 
 #: A portable shell variable name. Anything else is not something `${X:-}` can
@@ -2156,7 +2154,7 @@ def validate_host_dialects(root: Path = ROOT) -> list[str]:
             # names. Renaming the capability here while `allowed-tools` still
             # lists the old one leaves /infra-status silently falling back.
             granted = [
-                tool.strip() for tool in COMMAND_TOOLS[STATUS_COMMAND].split(",")
+                tool.strip() for tool in SKILL_TOOLS[STATUS_COMMAND].split(",")
             ]
             if invocation not in granted:
                 errors.append(
@@ -2294,8 +2292,8 @@ DELEGATION_MARKERS = (
     # current-checkout checks the status runbook substitutes away. Every action skill
     # has to be named -- `prune` shipped in #73 and was left out of all three copies of
     # this list, which is exactly the drift an enumeration invites.
-    r"`status`\s+and\s+only\s+`status`",
-    r"`setup`,\s+`import`,\s+`prune`,?\s+and\s+`add`",
+    r"`infra-status`\s+and\s+only\s+`infra-status`",
+    r"`infra-setup`,\s+`infra-import`,\s+`infra-prune`,?\s+and\s+`infra-add`",
 )
 
 
@@ -2402,7 +2400,7 @@ def _clause_before(text: str, end: int) -> str:
     for found in AGENT_CLAUSE_BOUNDARY.finditer(text, 0, end):
         if found.group(0) == ":" and AGENT_NEGATOR.search(text[start : found.start()]):
             # A colon introduces what precedes it rather than ending it, so
-            # "Do not do this: Invoke the infra-copilot skill" is one instruction
+            # "Do not do this: Invoke the infra skill" is one instruction
             # and the negator still governs. A period or a paragraph break
             # terminates; this does not.
             continue
@@ -2425,7 +2423,7 @@ def _positive_mentions(text: str, pattern: str) -> bool:
 
     Spans that name something are exempt, because that is how every one of these
     documents writes a skill or a tool. The shipped directive is itself
-    "Invoke the [infra-copilot] skill" with the name code-formatted, and
+    "Invoke the [infra] skill" with the name code-formatted, and
     protocol.md code-formats [infra-auditor] wherever it states the rule; a
     blanket exclusion of code spans rejected both.
     """
@@ -2460,7 +2458,7 @@ def _check_agent_body(relative: str, text: str) -> list[str]:
     # the agent can read, and refusing it costs this manifest nothing.
     operative = _without_code(body)
     if not _positive_mentions(operative, AGENT_INVOCATION.pattern):
-        # Names alone were satisfied by "Never invoke `infra-copilot` or
+        # Names alone were satisfied by "Never invoke `infra` or
         # `status.md`" -- both markers present, every delegated run told not to
         # load the canonical workflow.
         errors.append(
@@ -2575,7 +2573,7 @@ def _check_hook(root: Path, relative: str, row: dict[str, str]) -> list[str]:
                     "matcher": matcher,
                     "hooks": [
                         {
-                            "name": "infra-copilot-session-start",
+                            "name": "infra-skills-session-start",
                             "type": "command",
                             "command": expected_hook_command(recorded_root),
                             "timeout": HOOK_TIMEOUT,
@@ -2640,20 +2638,20 @@ def validate_layout() -> list[str]:
         ".agents/plugins/marketplace.json",
         ".codex-plugin/plugin.json",
         "plugin.json",
-        ".ai-rulez/skills/infra-copilot/references/config.md",
-        ".ai-rulez/skills/infra-copilot/references/config.md.example",
-        ".ai-rulez/skills/infra-copilot/references/decisions.md.example",
-        ".ai-rulez/skills/infra-copilot/references/hosts.md",
-        ".ai-rulez/skills/infra-copilot/references/protocol.md",
-        ".ai-rulez/skills/infra-copilot/references/steps.yaml",
-        "skills/infra-copilot/references/config.md",
-        "skills/infra-copilot/references/config.md.example",
-        "skills/infra-copilot/references/decisions.md.example",
-        "skills/infra-copilot/references/hosts.md",
-        "skills/infra-copilot/references/protocol.md",
-        "skills/infra-copilot/references/steps.yaml",
-        "skills/infra-copilot/references/checks/status-check-context.sh",
-        ".ai-rulez/skills/infra-copilot/references/checks/status-check-context.sh",
+        ".ai-rulez/skills/infra/references/config.md",
+        ".ai-rulez/skills/infra/references/config.md.example",
+        ".ai-rulez/skills/infra/references/decisions.md.example",
+        ".ai-rulez/skills/infra/references/hosts.md",
+        ".ai-rulez/skills/infra/references/protocol.md",
+        ".ai-rulez/skills/infra/references/steps.yaml",
+        "skills/infra/references/config.md",
+        "skills/infra/references/config.md.example",
+        "skills/infra/references/decisions.md.example",
+        "skills/infra/references/hosts.md",
+        "skills/infra/references/protocol.md",
+        "skills/infra/references/steps.yaml",
+        "skills/infra/references/checks/status-check-context.sh",
+        ".ai-rulez/skills/infra/references/checks/status-check-context.sh",
     )
     return [
         f"{path}: required host artifact is missing"
@@ -2672,7 +2670,7 @@ def validate_backend_operations(root: Path = ROOT) -> list[str]:
     skills = root / ".ai-rulez/skills"
     forbidden = re.compile(r"\$\{?(?:BACKEND|[A-Z_]+_BACKEND|HAS_HCP\w*|HAS_OBJECT_STORAGE\w*|[A-Z_]*(?:HCP|OBJECT_STORAGE)_[A-Z_]*LEAVES)\b|\bHCP\b|\bGHA\b|GitHub Actions|object-storage", re.I)
     for path in sorted(skills.glob("*/SKILL.md")):
-        if path.parent.name == "setup":
+        if path.parent.name == "infra-setup":
             continue
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if forbidden.search(line):
@@ -2680,7 +2678,7 @@ def validate_backend_operations(root: Path = ROOT) -> list[str]:
                     f"{path.relative_to(root)}:{line_number}: skill outside setup "
                     "references backend details; use an operation contract"
                 )
-    manifest = skills / "infra-copilot/references/steps.yaml"
+    manifest = skills / "infra/references/steps.yaml"
     if not manifest.is_file():
         return [*errors, "steps.yaml: missing backend operation manifest"]
     text = manifest.read_text(encoding="utf-8")
@@ -2802,7 +2800,7 @@ def main(argv: list[str] | None = None) -> int:
     errors = [
         *validate_skills(),
         *validate_backend_operations(),
-        *validate_command_tools(),
+        *validate_skill_tools(),
         *validate_skill_sections(),
         *validate_description_budget(),
         *validate_config_fallbacks(),

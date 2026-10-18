@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / '.ai-rulez/skills/infra-copilot/references/checks/gha-provider-safety.sh'
+SCRIPT = ROOT / '.ai-rulez/skills/infra/references/checks/gha-provider-safety.sh'
 
 
 @unittest.skipUnless(os.name == 'posix', 'shell check requires POSIX')

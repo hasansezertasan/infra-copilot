@@ -1,20 +1,20 @@
-# infra-copilot — agent context
+# infra-skills — agent context
 
 This repository *is* a set of agent instructions. When you are asked to change it, the
 most likely way to get it wrong is to edit the wrong copy of a file.
 
 ## Rule 1: do not edit generated files
 
-`skills/`, `commands/`, `.claude-plugin/`, `.codex-plugin/`, `.agents/plugins/`, `.pi/` and the
+`skills/`, `.claude-plugin/`, `.codex-plugin/`, `.agents/plugins/` and the
 Pi fields of `package.json` are generated from
-`.ai-rulez/`. They are the obvious files to open — `skills/setup/SKILL.md` looks like the
+`.ai-rulez/`. They are the obvious files to open — `skills/infra-setup/SKILL.md` looks like the
 skill — and editing them is silently undone by the next `npm run generate`.
 
 Before editing any file under those paths, check `.ai-rulez-generated.json`. If the path
-is listed (69 are), edit its source under `.ai-rulez/` instead, then run `npm run generate`.
+is listed (59 are), edit its source under `.ai-rulez/` instead, then run `npm run generate`.
 
 Most generated files carry an `AI-RULEZ :: GENERATED FILE — DO NOT EDIT` header, but
-**28 of the 69 do not** — every non-Markdown output, because a Markdown comment is not
+**28 of the 59 do not** — every non-Markdown output, because a Markdown comment is not
 valid in them: the JSON manifests (`marketplace.json`, `plugin.json`),
 `config.md.example`, `decisions.md.example`, `steps.yaml`, shell checks
 (`gcp-wif-trust.sh`, `gha-apply-gate.sh`, `gha-latest-runs.sh`, `hcp-apply-scope.sh`,
@@ -38,10 +38,9 @@ release workflow — hand edits to generated files are still wrong.
 | To change… | Edit | Then |
 |---|---|---|
 | A skill's behavior | `.ai-rulez/skills/<name>/SKILL.md` | `npm run generate` |
-| Shared protocol, phase manifest, provider docs | `.ai-rulez/skills/infra-copilot/references/…` | `npm run generate` |
-| A host's question tool or capabilities | `.ai-rulez/skills/infra-copilot/references/hosts.md` | `npm run generate` |
+| Shared protocol, phase manifest, provider docs | `.ai-rulez/skills/infra/references/…` | `npm run generate` |
+| A host's question tool or capabilities | `.ai-rulez/skills/infra/references/hosts.md` | `npm run generate` |
 | A host's install instructions | `docs/install-<host>.md` | hand-authored — edit directly |
-| A slash command | `.ai-rulez/commands/<name>.md` | `npm run generate` |
 | Plugin identity, keywords | `.ai-rulez/config.toml` | `npm run generate` |
 | The plugin version or `CHANGELOG.md` | nothing — release-please's release PR bumps every copy | merge the release PR |
 | What gets bumped at release | `release-please-config.json` | `npm run check:all` |
@@ -72,8 +71,9 @@ it as it is.
 
 ## Architecture, in one paragraph
 
-Five action skills — `setup`, `import`, `prune`, `add`, `status` — are thin routers over one hub
-skill, `infra-copilot`, whose `references/` directory owns the behavior: `steps.yaml` (a
+Five action skills — `infra-setup`, `infra-import`, `infra-prune`, `infra-add`, `infra-status` — are
+thin routers over one hub
+skill, `infra-skills`, whose `references/` directory owns the behavior: `steps.yaml` (a
 phase-tagged step manifest with a `check` per step), `protocol.md` (the actor model, the
 handoff block, the resume scan, preflight), provider deep-dives, and runbooks. Host
 packages are adapters and must never become a second behavioral authority. State is never
@@ -97,7 +97,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full loop and
 
 ### Issue tracker
 
-Issues live as GitHub issues in `hasansezertasan/infra-copilot`, driven with the `gh` CLI.
+Issues live as GitHub issues in `hasansezertasan/infra-skills`, driven with the `gh` CLI.
 See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
 
 ### Triage labels

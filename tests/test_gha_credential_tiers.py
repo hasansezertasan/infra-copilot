@@ -11,7 +11,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-REFERENCES = Path(__file__).resolve().parents[1] / '.ai-rulez/skills/infra-copilot/references'
+REFERENCES = Path(__file__).resolve().parents[1] / '.ai-rulez/skills/infra/references'
 
 
 @unittest.skipUnless(os.name == 'posix', 'credential checks require POSIX shell')

@@ -24,7 +24,7 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+MANIFEST = REPO_ROOT / ".ai-rulez/skills/infra/references/steps.yaml"
 
 
 def extract_check() -> str:
@@ -136,7 +136,7 @@ class HcpLoginCheckTests(unittest.TestCase):
                     "ADDITIONAL_PROVIDER_NAMES": additional_names,
                     "HAS_HCP_BOOTSTRAP": "true",
                     "INFRA_COPILOT_REFERENCES": str(
-                        REPO_ROOT / ".ai-rulez/skills/infra-copilot/references"
+                        REPO_ROOT / ".ai-rulez/skills/infra/references"
                     ),
                 }
             )

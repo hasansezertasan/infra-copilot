@@ -78,7 +78,7 @@ class ValidateConfigFallbacksTests(unittest.TestCase):
 class CustomizationMarkerTests(unittest.TestCase):
     """The markers are comments, so this validator is their only enforcement."""
 
-    REFERENCES = ".ai-rulez/skills/infra-copilot/references"
+    REFERENCES = ".ai-rulez/skills/infra/references"
 
     def test_shipped_examples_carry_balanced_markers(self) -> None:
         self.assertEqual(validate_customization_markers(), [])
@@ -640,7 +640,7 @@ class ValidatePhaseFiveRuleTests(unittest.TestCase):
             repository = Path(temporary_directory)
             document = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/status.md"
+                / ".ai-rulez/skills/infra/references/status.md"
             )
             document.parent.mkdir(parents=True)
             document.write_text(
@@ -651,11 +651,11 @@ class ValidatePhaseFiveRuleTests(unittest.TestCase):
             self.assertEqual(
                 validate_phase_five_rule(repository),
                 [
-                    ".ai-rulez/skills/infra-copilot/references/status.md: phase-5 completion rule "
+                    ".ai-rulez/skills/infra/references/status.md: phase-5 completion rule "
                     "missing 'imports: 0'",
-                    ".ai-rulez/skills/infra-copilot/references/status.md: phase-5 completion rule "
+                    ".ai-rulez/skills/infra/references/status.md: phase-5 completion rule "
                     "missing 'incomplete'",
-                    ".ai-rulez/skills/infra-copilot/references/status.md: phase-5 completion rule "
+                    ".ai-rulez/skills/infra/references/status.md: phase-5 completion rule "
                     "missing 'status `applied`'",
                 ],
             )
@@ -726,10 +726,10 @@ class ShippedCheckPathTests(unittest.TestCase):
     def test_missing_script_is_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            manifest = repository / "skills/infra-copilot/references/steps.yaml"
+            manifest = repository / "skills/infra/references/steps.yaml"
             manifest.parent.mkdir(parents=True)
             manifest.write_text(
-                'preflight:\n  - tool: infra-copilot-references\n'
+                'preflight:\n  - tool: infra-references\n'
                 'steps:\n  - check: sh "$INFRA_COPILOT_REFERENCES/checks/gone.sh"\n',
                 encoding="utf-8",
             )
@@ -737,7 +737,7 @@ class ShippedCheckPathTests(unittest.TestCase):
             self.assertEqual(
                 validate_shipped_check_paths(repository),
                 [
-                    "skills/infra-copilot/references/steps.yaml: check references "
+                    "skills/infra/references/steps.yaml: check references "
                     "$INFRA_COPILOT_REFERENCES/checks/gone.sh, which does not exist"
                 ],
             )
@@ -753,10 +753,10 @@ class ShippedCheckPathTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 with tempfile.TemporaryDirectory() as temporary_directory:
                     repository = Path(temporary_directory)
-                    references = repository / "skills/infra-copilot/references"
+                    references = repository / "skills/infra/references"
                     (references / "checks").mkdir(parents=True)
                     (references / "steps.yaml").write_text(
-                        "preflight:\n  - tool: infra-copilot-references\n"
+                        "preflight:\n  - tool: infra-references\n"
                         f'steps:\n  - check: sh "$INFRA_COPILOT_REFERENCES/{payload}"\n',
                         encoding="utf-8",
                     )
@@ -770,7 +770,7 @@ class ShippedCheckPathTests(unittest.TestCase):
         """The export is the precondition; a check that needs it must be gated."""
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            references = repository / "skills/infra-copilot/references"
+            references = repository / "skills/infra/references"
             (references / "checks").mkdir(parents=True)
             (references / "checks/present.sh").write_text("exit 0\n", encoding="utf-8")
             (references / "steps.yaml").write_text(
@@ -781,8 +781,8 @@ class ShippedCheckPathTests(unittest.TestCase):
             self.assertEqual(
                 validate_shipped_check_paths(repository),
                 [
-                    "skills/infra-copilot/references/steps.yaml: a check resolves a "
-                    "shipped script but preflight has no infra-copilot-references guard"
+                    "skills/infra/references/steps.yaml: a check resolves a "
+                    "shipped script but preflight has no infra-references guard"
                 ],
             )
 
@@ -924,10 +924,10 @@ class DescriptionBudgetTests(unittest.TestCase):
         the difference is only whether the resource already exists.
         """
         descriptions = skill_descriptions()
-        self.assertIn("infra-copilot:import", descriptions["add"])
-        self.assertIn("infra-copilot:add", descriptions["import"])
-        self.assertIn("infra-copilot:import", descriptions["setup"])
-        self.assertIn("Read-only", descriptions["status"])
+        self.assertIn("infra-skills:infra-import", descriptions["infra-add"])
+        self.assertIn("infra-skills:infra-add", descriptions["infra-import"])
+        self.assertIn("infra-skills:infra-import", descriptions["infra-setup"])
+        self.assertIn("Read-only", descriptions["infra-status"])
 
 
 class GeneratedInventoryDocsTests(unittest.TestCase):
@@ -1032,7 +1032,7 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             manifest = root / relative
             manifest.parent.mkdir(parents=True, exist_ok=True)
             if relative in VERSIONLESS_MANIFESTS:
-                body = '{"name": "infra-copilot"}'
+                body = '{"name": "infra"}'
             elif "marketplace" in relative:
                 body = f'{{"plugins": [{{"version": "{version}"}}]}}'
             else:
@@ -1267,7 +1267,7 @@ class ValidateReleaseSurfacesTests(unittest.TestCase):
             self._version_fixture(repository)
             (repository / "docs").mkdir()
             (repository / "docs/install.md").write_text(
-                "# Install\n\nnpx skills add infra-copilot@9.9.9\n", encoding="utf-8"
+                "# Install\n\nnpx skills add infra-skills@9.9.9\n", encoding="utf-8"
             )
             (repository / "README.md").write_text(
                 '<img src="badge/v9.9.9">\n', encoding="utf-8"
@@ -1377,7 +1377,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
     def test_repo_config_sync_check_preserves_zsh_path(self) -> None:
         steps = (
             Path(__file__).parents[1]
-            / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            / ".ai-rulez/skills/infra/references/steps.yaml"
         ).read_text(encoding="utf-8")
         step = re.search(
             r"^  - id: repo-config-sync\n(?P<metadata>(?:(?!^  - id:).*(?:\n|\Z))*)",
@@ -1451,7 +1451,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             steps = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+                / ".ai-rulez/skills/infra/references/steps.yaml"
             )
             text = steps.read_text(encoding="utf-8")
             text = re.sub(
@@ -1476,7 +1476,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             steps = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+                / ".ai-rulez/skills/infra/references/steps.yaml"
             )
             text = steps.read_text(encoding="utf-8")
             text = text.replace(
@@ -1504,7 +1504,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             steps = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+                / ".ai-rulez/skills/infra/references/steps.yaml"
             )
             text = steps.read_text(encoding="utf-8")
             text = re.sub(
@@ -1532,7 +1532,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             steps = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+                / ".ai-rulez/skills/infra/references/steps.yaml"
             )
             text = steps.read_text(encoding="utf-8")
             start = text.index("  - id: repo-config-sync\n")
@@ -1558,7 +1558,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             steps = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+                / ".ai-rulez/skills/infra/references/steps.yaml"
             )
             text = steps.read_text(encoding="utf-8").replace(
                 "for config_file in terraform/cloudflare/versions.tf",
@@ -1583,7 +1583,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             steps = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+                / ".ai-rulez/skills/infra/references/steps.yaml"
             )
             text = steps.read_text(encoding="utf-8").replace(
                 "git diff --cached --quiet HEAD -- .infra-copilot/config.md",
@@ -1606,7 +1606,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
                 Path(__file__).parents[1] / ".ai-rulez",
                 repository / ".ai-rulez",
             )
-            hcp = repository / ".ai-rulez/skills/infra-copilot/references/hcp.md"
+            hcp = repository / ".ai-rulez/skills/infra/references/hcp.md"
             text = hcp.read_text(encoding="utf-8").replace(
                 '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]',
                 '"trigger-patterns":[$dir+"/**"]',
@@ -1630,7 +1630,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             check = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/checks/hcp-bootstrap-workspaces.sh"
+                / ".ai-rulez/skills/infra/references/checks/hcp-bootstrap-workspaces.sh"
             )
             text = check.read_text(encoding="utf-8").replace(
                 'index(".infra-copilot/config.md") != null',
@@ -1652,7 +1652,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
                 Path(__file__).parents[1] / ".ai-rulez",
                 repository / ".ai-rulez",
             )
-            hcp = repository / ".ai-rulez/skills/infra-copilot/references/hcp.md"
+            hcp = repository / ".ai-rulez/skills/infra/references/hcp.md"
             text = hcp.read_text(encoding="utf-8")
             start = text.index("  set_workspace_config () {")
             end = text.index("\n  }", start)
@@ -1680,7 +1680,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             status = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/status.md"
+                / ".ai-rulez/skills/infra/references/status.md"
             )
             text = status.read_text(encoding="utf-8").replace(
                 "  ✓ repo-config-sync", "", 1
@@ -1702,7 +1702,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             steps = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+                / ".ai-rulez/skills/infra/references/steps.yaml"
             )
             text = steps.read_text(encoding="utf-8")
             start = text.index("  - id: toolchain-pin\n")
@@ -1730,7 +1730,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             steps = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+                / ".ai-rulez/skills/infra/references/steps.yaml"
             )
             text = steps.read_text(encoding="utf-8")
             text = re.sub(
@@ -1757,7 +1757,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
             )
             steps = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+                / ".ai-rulez/skills/infra/references/steps.yaml"
             )
             text = steps.read_text(encoding="utf-8")
             portable = (
@@ -1783,20 +1783,20 @@ class ValidateToolchainContractTests(unittest.TestCase):
     def test_rejects_active_mise_state_and_unlocked_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            references = repository / ".ai-rulez/skills/infra-copilot/references"
+            references = repository / ".ai-rulez/skills/infra/references"
             steps = references / "steps.yaml"
             hcp = references / "hcp.md"
             setup = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/docs/setup.md"
+                / ".ai-rulez/skills/infra/references/docs/setup.md"
             )
             import_guide = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/docs/import.md"
+                / ".ai-rulez/skills/infra/references/docs/import.md"
             )
             config = (
                 repository
-                / ".ai-rulez/skills/infra-copilot/references/config.md"
+                / ".ai-rulez/skills/infra/references/config.md"
             )
             status = references / "status.md"
             setup.parent.mkdir(parents=True)
@@ -1828,7 +1828,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
     def test_rejects_unlocked_conditional_tools_and_unactivated_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)
-            references = repository / ".ai-rulez/skills/infra-copilot/references"
+            references = repository / ".ai-rulez/skills/infra/references"
             steps = references / "steps.yaml"
             hcp = references / "hcp.md"
             setup = references / "docs/setup.md"
@@ -1905,7 +1905,7 @@ class ValidateToolchainContractTests(unittest.TestCase):
     def test_tool_checks_reject_non_exact_selectors(self) -> None:
         steps = (
             Path(__file__).parents[1]
-            / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            / ".ai-rulez/skills/infra/references/steps.yaml"
         ).read_text(encoding="utf-8")
 
         def check_for(tool: str) -> str:
@@ -1973,7 +1973,7 @@ else cat >/dev/null; printf '%s\n' '1.15.9'; fi
         """mise 2026.9 prints `~/…` for a trusted path under $HOME (#88)."""
         steps = (
             Path(__file__).parents[1]
-            / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            / ".ai-rulez/skills/infra/references/steps.yaml"
         ).read_text(encoding="utf-8")
         match = re.search(
             r"  - tool: mise\n    check: >-\n(?P<body>(?:      [^\n]*\n)+)", steps
@@ -2072,7 +2072,7 @@ esac
         """The locked dry-run must cover conditionally added tools, not a fixed set."""
         steps = (
             Path(__file__).parents[1]
-            / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            / ".ai-rulez/skills/infra/references/steps.yaml"
         ).read_text(encoding="utf-8")
         match = re.search(
             r"  - tool: mise\n    check: >-\n(?P<body>(?:      [^\n]*\n)+)", steps
@@ -2245,7 +2245,7 @@ esac
             self.skipTest("jq is required to exercise the gcloud check")
         steps = (
             Path(__file__).parents[1]
-            / ".ai-rulez/skills/infra-copilot/references/steps.yaml"
+            / ".ai-rulez/skills/infra/references/steps.yaml"
         ).read_text(encoding="utf-8")
         match = re.search(
             r"  - tool: gcloud\n(?:(?!  - tool:).*\n)*?    check: >-\n"

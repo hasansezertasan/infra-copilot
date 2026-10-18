@@ -30,7 +30,7 @@ HOSTS_TABLE = """# Host capability records
 | Claude Code | `AskUserQuestion` | single | `docs/install-claude-code.md` |
 | Codex CLI | `request_user_input` | single | `docs/install-codex.md` |
 """
-GUIDE = "See [`hosts.md`](../skills/infra-copilot/references/hosts.md)."
+GUIDE = "See [`hosts.md`](../skills/infra/references/hosts.md)."
 PROTOCOL = """# Protocol
 
 ### Asking a decision
@@ -42,9 +42,9 @@ Use the host's tool only when [`hosts.md`](hosts.md) records `AskUserQuestion` f
 def build_repository(root: Path, **overrides: str) -> Path:
     """A minimal tree shaped like the real one, with named files overridden."""
     files = {
-        "skills/infra-copilot/references/hosts.md": HOSTS_TABLE,
-        "skills/infra-copilot/references/protocol.md": PROTOCOL,
-        ".ai-rulez/skills/infra-copilot/references/protocol.md": PROTOCOL,
+        "skills/infra/references/hosts.md": HOSTS_TABLE,
+        "skills/infra/references/protocol.md": PROTOCOL,
+        ".ai-rulez/skills/infra/references/protocol.md": PROTOCOL,
         "docs/install-claude-code.md": GUIDE,
         "docs/install-codex.md": GUIDE,
         "README.md": (
@@ -83,7 +83,7 @@ class HostRecordTests(unittest.TestCase):
             root = build_repository(Path(directory))
             (root / "docs/install-codex.md").unlink()
             self.assertIn(
-                "skills/infra-copilot/references/hosts.md: Codex CLI names "
+                "skills/infra/references/hosts.md: Codex CLI names "
                 "docs/install-codex.md, which is missing",
                 validate_host_contract(root),
             )
@@ -107,7 +107,7 @@ class HostRecordTests(unittest.TestCase):
             )
             self.assertIn(
                 "docs/install-emacs.md: install guide is not listed in "
-                "skills/infra-copilot/references/hosts.md",
+                "skills/infra/references/hosts.md",
                 validate_host_contract(root),
             )
 
@@ -132,15 +132,15 @@ class HostRecordTests(unittest.TestCase):
             root = build_repository(
                 Path(directory),
                 **{
-                    "skills/infra-copilot/references/protocol.md": (
+                    "skills/infra/references/protocol.md": (
                         "### Asking a decision\n\nRead [`hosts.md`](hosts.md)."
                     )
                 },
             )
             self.assertIn(
-                "skills/infra-copilot/references/protocol.md: its '### Asking a "
+                "skills/infra/references/protocol.md: its '### Asking a "
                 "decision' section names no question tool from "
-                "skills/infra-copilot/references/hosts.md; the allowed-tools grant in "
+                "skills/infra/references/hosts.md; the allowed-tools grant in "
                 "commands/ would have no consumer",
                 validate_host_contract(root),
             )
@@ -150,13 +150,13 @@ class HostRecordTests(unittest.TestCase):
             root = build_repository(
                 Path(directory),
                 **{
-                    "skills/infra-copilot/references/protocol.md": (
+                    "skills/infra/references/protocol.md": (
                         "### Asking a decision\n\nUse `AskUserQuestion`."
                     )
                 },
             )
             self.assertIn(
-                "skills/infra-copilot/references/protocol.md: does not link hosts.md",
+                "skills/infra/references/protocol.md: does not link hosts.md",
                 validate_host_contract(root),
             )
 
@@ -165,13 +165,13 @@ class HostRecordTests(unittest.TestCase):
             root = build_repository(
                 Path(directory),
                 **{
-                    "skills/infra-copilot/references/protocol.md": (
+                    "skills/infra/references/protocol.md": (
                         "See [`hosts.md`](hosts.md) and use `AskUserQuestion`."
                     )
                 },
             )
             self.assertIn(
-                "skills/infra-copilot/references/protocol.md: has no "
+                "skills/infra/references/protocol.md: has no "
                 "'### Asking a decision' section",
                 validate_host_contract(root),
             )
@@ -182,19 +182,19 @@ class HostRecordTests(unittest.TestCase):
             root = build_repository(
                 Path(directory),
                 **{
-                    "skills/infra-copilot/references/hosts.md": HOSTS_TABLE.replace(
+                    "skills/infra/references/hosts.md": HOSTS_TABLE.replace(
                         "`AskUserQuestion`", "`question`"
                     ).replace("`request_user_input`", "`question`"),
-                    "skills/infra-copilot/references/protocol.md": (
+                    "skills/infra/references/protocol.md": (
                         "### Asking a decision\n\nAsk a questionnaire per "
                         "[`hosts.md`](hosts.md)."
                     ),
                 },
             )
             self.assertIn(
-                "skills/infra-copilot/references/protocol.md: its '### Asking a "
+                "skills/infra/references/protocol.md: its '### Asking a "
                 "decision' section names no question tool from "
-                "skills/infra-copilot/references/hosts.md; the allowed-tools grant in "
+                "skills/infra/references/hosts.md; the allowed-tools grant in "
                 "commands/ would have no consumer",
                 validate_host_contract(root),
             )
@@ -205,7 +205,7 @@ class HostRecordTests(unittest.TestCase):
             root = build_repository(
                 Path(directory),
                 **{
-                    "skills/infra-copilot/references/hosts.md": HOSTS_TABLE.replace(
+                    "skills/infra/references/hosts.md": HOSTS_TABLE.replace(
                         "`docs/install-claude-code.md` |",
                         "`docs/install-claude-code.md` | `hooks/hooks.json` |",
                     )
@@ -223,13 +223,13 @@ class HostRecordTests(unittest.TestCase):
             root = build_repository(
                 Path(directory),
                 **{
-                    "skills/infra-copilot/references/hosts.md": HOSTS_TABLE.replace(
+                    "skills/infra/references/hosts.md": HOSTS_TABLE.replace(
                         "`request_user_input`", "request_user_input"
                     )
                 },
             )
             self.assertIn(
-                "skills/infra-copilot/references/hosts.md: Codex CLI has no question "
+                "skills/infra/references/hosts.md: Codex CLI has no question "
                 "tool in column 2; it must be a backticked identifier such as "
                 "`AskUserQuestion`",
                 validate_host_contract(root),
@@ -271,7 +271,7 @@ class HostRecordTests(unittest.TestCase):
             root = build_repository(
                 Path(directory),
                 **{
-                    "skills/infra-copilot/references/protocol.md": (
+                    "skills/infra/references/protocol.md": (
                         "# Protocol\n\n### Asking a decision\n\n"
                         "Read [`hosts.md`](hosts.md).\n\n"
                         "## Preflight\n\nHistorically we used `AskUserQuestion`.\n"
@@ -279,9 +279,9 @@ class HostRecordTests(unittest.TestCase):
                 },
             )
             self.assertIn(
-                "skills/infra-copilot/references/protocol.md: its '### Asking a "
+                "skills/infra/references/protocol.md: its '### Asking a "
                 "decision' section names no question tool from "
-                "skills/infra-copilot/references/hosts.md; the allowed-tools grant in "
+                "skills/infra/references/hosts.md; the allowed-tools grant in "
                 "commands/ would have no consumer",
                 validate_host_contract(root),
             )
@@ -292,14 +292,14 @@ class HostRecordTests(unittest.TestCase):
             root = build_repository(
                 Path(directory),
                 **{
-                    "skills/infra-copilot/references/protocol.md": (
+                    "skills/infra/references/protocol.md": (
                         "### Asking a decision\n\nSee hosts.md, then use "
                         "`AskUserQuestion`."
                     )
                 },
             )
             self.assertIn(
-                "skills/infra-copilot/references/protocol.md: does not link hosts.md",
+                "skills/infra/references/protocol.md: does not link hosts.md",
                 validate_host_contract(root),
             )
 
@@ -307,12 +307,12 @@ class HostRecordTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = build_repository(
                 Path(directory),
-                **{"skills/infra-copilot/references/hosts.md": "# no table here\n"},
+                **{"skills/infra/references/hosts.md": "# no table here\n"},
             )
             self.assertEqual(
                 validate_host_contract(root),
                 [
-                    "skills/infra-copilot/references/hosts.md: no host capability rows "
+                    "skills/infra/references/hosts.md: no host capability rows "
                     "parsed; each row needs a `tool` column and a `docs/install-*.md` "
                     "column"
                 ],
@@ -335,19 +335,19 @@ class SkillClosureTests(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.write_skill(root, "infra-copilot", "[setup](../setup/SKILL.md)")
-            self.write_skill(root, "setup", "[p](../infra-copilot/references/protocol.md)")
-            self.assertEqual(skill_closure("infra-copilot", root), ["infra-copilot"])
-            self.assertEqual(skill_closure("setup", root), ["infra-copilot", "setup"])
+            self.write_skill(root, "infra", "[setup](../infra-setup/SKILL.md)")
+            self.write_skill(root, "infra-setup", "[p](../infra/references/protocol.md)")
+            self.assertEqual(skill_closure("infra", root), ["infra"])
+            self.assertEqual(skill_closure("infra-setup", root), ["infra", "infra-setup"])
 
     def test_closure_is_transitive(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.write_skill(root, "prune", "[s](../status/references/scan.md)")
-            self.write_skill(root, "status", "[p](../infra-copilot/references/protocol.md)")
-            self.write_skill(root, "infra-copilot", "no dependencies")
+            self.write_skill(root, "infra-prune", "[s](../infra-status/references/scan.md)")
+            self.write_skill(root, "infra-status", "[p](../infra/references/protocol.md)")
+            self.write_skill(root, "infra", "no dependencies")
             self.assertEqual(
-                skill_closure("prune", root), ["infra-copilot", "prune", "status"]
+                skill_closure("infra-prune", root), ["infra", "infra-prune", "infra-status"]
             )
 
     def test_a_cycle_terminates(self) -> None:
@@ -372,10 +372,10 @@ class ShippedClosureTests(unittest.TestCase):
         )
         # Derived, not listed: `prune` shipped without being added to the literal
         # roster here or in protocol.md, so a sixth skill would have gone the same way.
-        self.assertIn("prune", action_skills)
+        self.assertIn("infra-prune", action_skills)
         for skill in action_skills:
             with self.subTest(skill=skill):
-                self.assertEqual(skill_closure(skill), sorted([skill, "infra-copilot"]))
+                self.assertEqual(skill_closure(skill), sorted([skill, "infra"]))
 
     def test_the_protocol_names_every_action_skill(self) -> None:
         """`prune` delegated to protocol.md while protocol.md disclaimed it.
@@ -384,7 +384,7 @@ class ShippedClosureTests(unittest.TestCase):
         catches the next one.
         """
         protocol = (
-            ROOT / ".ai-rulez/skills/infra-copilot/references/protocol.md"
+            ROOT / ".ai-rulez/skills/infra/references/protocol.md"
         ).read_text(encoding="utf-8")
         roster = protocol.split("runs on the same small", 1)[0]
         for skill in sorted(
@@ -399,11 +399,11 @@ class ShippedClosureTests(unittest.TestCase):
         """As a closure *member* the hub adds nothing else; as a root it is rejected.
 
         Both halves matter: routing links must not inflate an action skill's closure
-        to all five, and `--closure infra-copilot` must not hand back an install that
+        to all five, and `--closure infra-skills` must not hand back an install that
         is a router with nothing to route to.
         """
-        self.assertEqual(skill_closure("infra-copilot"), ["infra-copilot"])
-        self.assertIn("infra-copilot", ROUTER_SKILLS)
+        self.assertEqual(skill_closure("infra"), ["infra"])
+        self.assertIn("infra", ROUTER_SKILLS)
 
 
 class ClosureCommandTests(unittest.TestCase):
@@ -418,12 +418,12 @@ class ClosureCommandTests(unittest.TestCase):
         )
 
     def test_prints_install_arguments_for_an_action_skill(self) -> None:
-        result = self.run_closure("--closure", "status")
+        result = self.run_closure("--closure", "infra-status")
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.strip(), "--skill infra-copilot --skill status")
+        self.assertEqual(result.stdout.strip(), "--skill infra-skills --skill infra-status")
 
     def test_rejects_the_router_as_a_root(self) -> None:
-        result = self.run_closure("--closure", "infra-copilot")
+        result = self.run_closure("--closure", "infra")
         self.assertEqual(result.returncode, 2)
         self.assertIn("owns no operations", result.stderr)
 
@@ -434,21 +434,21 @@ class ClosureCommandTests(unittest.TestCase):
 
     def test_rejects_a_closure_whose_dependency_is_unshipped(self) -> None:
         """Only the root was checked, so an unshipped dependency was still printed."""
-        shipped = Path(__file__).resolve().parents[1] / "skills/infra-copilot/SKILL.md"
+        shipped = Path(__file__).resolve().parents[1] / "skills/infra/SKILL.md"
         moved = shipped.with_suffix(".md.moved")
         shipped.rename(moved)
         try:
-            result = self.run_closure("--closure", "status")
+            result = self.run_closure("--closure", "infra-status")
         finally:
             moved.rename(shipped)
         self.assertEqual(result.returncode, 2)
-        self.assertIn("skills/infra-copilot", result.stderr)
+        self.assertIn("skills/infra", result.stderr)
         self.assertEqual(result.stdout, "")
 
     def test_rejects_an_unrecognised_flag_instead_of_validating(self) -> None:
         """A typo'd flag used to fall through and print the success banner on stdout,
         which `npm run smoke-closure` would have captured as the closure."""
-        result = self.run_closure("--clsoure", "status")
+        result = self.run_closure("--clsoure", "infra-status")
         self.assertEqual(result.returncode, 2)
         self.assertIn("usage:", result.stderr)
         self.assertEqual(result.stdout, "")

@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCES = ROOT / '.ai-rulez/skills/infra-copilot/references'
+REFERENCES = ROOT / '.ai-rulez/skills/infra/references'
 
 
 class GitHubAppPermissionTests(unittest.TestCase):

@@ -22,7 +22,7 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / ".ai-rulez/skills/infra-copilot/references/checks/hcp-apply-scope.sh"
+SCRIPT = REPO_ROOT / ".ai-rulez/skills/infra/references/checks/hcp-apply-scope.sh"
 
 TOKEN = "plan-only.atlasv1.xxx"
 # Real HCP returns the whole permissions block; the check requires can-update too,
@@ -198,7 +198,7 @@ class HcpApplyScopeTests(unittest.TestCase):
                         if Path(leaf).name not in {"cloudflare", "github", "modules"}
                     ]),
                     "INFRA_COPILOT_REFERENCES": str(
-                        REPO_ROOT / ".ai-rulez/skills/infra-copilot/references"
+                        REPO_ROOT / ".ai-rulez/skills/infra/references"
                     ),
                 }
             )

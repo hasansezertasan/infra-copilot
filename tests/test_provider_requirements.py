@@ -10,7 +10,7 @@ from pathlib import Path
 
 from test_new_provider_flow import literal_check, phase_six_steps
 
-REFERENCES = Path(__file__).resolve().parents[1] / ".ai-rulez/skills/infra-copilot/references"
+REFERENCES = Path(__file__).resolve().parents[1] / ".ai-rulez/skills/infra/references"
 CHECK = REFERENCES / "checks/provider-requirements.sh"
 LOCK = ('provider "registry.terraform.io/hashicorp/google" {\n'
         '  version = "6.0.0"\n  hashes = [\n    "h1:fixture",\n  ]\n}\n')

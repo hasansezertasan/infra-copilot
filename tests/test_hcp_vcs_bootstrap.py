@@ -10,7 +10,7 @@ import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-REFS = ROOT / ".ai-rulez/skills/infra-copilot/references"
+REFS = ROOT / ".ai-rulez/skills/infra/references"
 HCP = REFS / "hcp.md"
 
 

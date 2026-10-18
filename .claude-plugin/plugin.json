@@ -1,12 +1,12 @@
 {
-  "name": "infra-copilot",
+  "name": "infra-skills",
   "description": "Agent-first, human-in-the-loop workflows for infrastructure maintenance.",
   "version": "0.3.0",
   "author": {
     "name": "hasansezertasan"
   },
-  "homepage": "https://github.com/hasansezertasan/infra-copilot",
-  "repository": "https://github.com/hasansezertasan/infra-copilot",
+  "homepage": "https://github.com/hasansezertasan/infra-skills",
+  "repository": "https://github.com/hasansezertasan/infra-skills",
   "license": "MIT",
   "keywords": [
     "terraform",
