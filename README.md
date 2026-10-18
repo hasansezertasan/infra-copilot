@@ -109,7 +109,10 @@ that the recorded Template release is at or above the minimum (the Template cont
 it by hand instead:
 
 ```sh
-uvx copier copy gh:hasansezertasan/copier-infra infra
+copier() { uv run --no-project --with-requirements \
+  https://raw.githubusercontent.com/hasansezertasan/infra-skills/main/skills/infra/references/copier-requirements.txt \
+  copier "$@"; }
+copier copy gh:hasansezertasan/copier-infra infra
 cd infra
 git init && git add -A && git commit -m "chore: scaffold infrastructure repository"
 ```
@@ -120,9 +123,10 @@ and `HEAD`, so commit the render first. Install infra-skills and start the agent
 invocation from the install table above (`/infra-skills:infra-setup` on Claude Code and
 Antigravity); it
 reads the committed config and resumes from where the scan reports. Change values later with
-`uvx copier update` (run from the repo root) and review the diff, rather than hand-editing
-the Config block or `backend.tf`, so the config and the Terraform literals stay aligned.
-`uvx copier recopy` re-renders over local edits; use it only for deliberate recovery, on a clean
+`copier update` (the same pinned function, run from the repo root) and review the diff,
+rather than hand-editing the Config block or `backend.tf`, so the config and the Terraform
+literals stay aligned.
+`copier recopy` re-renders over local edits; use it only for deliberate recovery, on a clean
 tree, after reading the diff.
 
 Treat any change to `backend`, `state_backend`, `state_bucket` or `state_prefix` after
