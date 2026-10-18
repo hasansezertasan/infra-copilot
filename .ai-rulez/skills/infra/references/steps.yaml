@@ -241,9 +241,11 @@ steps:
     why: The Template owns the skeleton, Terraform roots, README Config block and Decisions table; nothing else writes them, and later Template updates need the committed answers file.
     run: |
       Setup only. Red means no committed .copier-answers.yml or no README Config block.
-      An untracked answers file only needs `mise trust --untrust` and then committing, in that order; a Config block with no answers file
-      is hand-written, and a tracked answers file or README with uncommitted changes is a
-      partial render or update: hand off for review in both cases, never re-render over them.
+      An untracked answers file is a render of unknown completeness, a Config block with no
+      answers file is hand-written, and a tracked answers file or README with uncommitted
+      changes is a partial render or update: hand off for review in every case, never commit
+      or re-render over them. The human clears the directory to empty and the step restarts,
+      or verifies the whole skeleton and commits it themselves.
       Run `copier copy` only when the destination is empty apart from `.git`; any other
       content, tracked or not, is a hand-off, because Copier would overwrite it and the
       render commit would absorb it. Otherwise:
