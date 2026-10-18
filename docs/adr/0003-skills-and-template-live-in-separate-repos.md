@@ -1,7 +1,7 @@
 # The Skills and the Template live in separate repos that promote each other
 
-Status: proposed, not yet implemented; the Skills do not yet render the Template or check its
-version until the tickets under #130 land.
+Status: accepted. `infra-setup` renders the Template and checks its recorded version (#134);
+`infra-import` adopting the Template follows in #135.
 
 `infra-skills` ships the Skills and `copier-infra` ships the Template, as `scoop-bucket-skills`
 and `homebrew-tap-skills` do with their templates. The Skills render the Template and never

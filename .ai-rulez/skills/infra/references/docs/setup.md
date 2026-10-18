@@ -5,6 +5,28 @@ One-time, out-of-band steps to wire up the systems this repo manages. The Terraf
 
 Run in order. Each step explains what it produces and where the value goes.
 
+## 0. Scaffold with the Template
+
+[`copier-infra`](https://github.com/hasansezertasan/copier-infra) renders the repository
+skeleton, Terraform roots, tool pins and the README Config block and Decisions table.
+`infra-setup` renders it for you: it clones the Template at its newest release tag, reads
+that tag's `copier.yml` for the current questions, renders with the Copier version pinned
+in [`../copier-requirements.txt`](../copier-requirements.txt), and commits the answers file
+`.copier-answers.yml` before any other step. It needs `uv` on the path.
+
+```sh
+uv run --no-project --with-requirements "$INFRA_REFERENCES/copier-requirements.txt" \
+  copier copy --vcs-ref <tag> gh:hasansezertasan/copier-infra .
+```
+
+A repository that already carries the committed answers file and the README Config block
+resumes instead of being re-scaffolded. Files the Template owns are never edited by hand
+afterwards; change answers with the same `uv run ... copier update` command from the repo root on a clean tree and
+review the diff. The recorded `_commit` must be a release tag at or above the minimum in
+[`../checks/template-contract.sh`](../checks/template-contract.sh) (the Template
+contract). An older tag proposes `copier update`; a bare commit hash cannot be compared,
+so setup hands off to you.
+
 ## 1. HCP Terraform — organization
 
 1. Sign up at <https://app.terraform.io/> if needed. This workflow requires a paid tier

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:ddc88c89ba1a8a8830d3040a2f2169d5cfb607f812588cf5ca7b712ca87eb0fb
-Source-Hash: blake3:0185c7546ec1e8d9f1a3371eb98d4fcf2fb7254291dbad3543b8c4ce2e3661a6
+Content-Hash: blake3:bb4d421132132411b89d6993b94a473f8d51044a067a65381231ab0d6368f72a
+Source-Hash: blake3:576c1bd119aa63ecaa609fe520d4bbea573a4c53b6216edd6fa0739eb0a25184
 Schema-Version: v1
 -->
 
@@ -36,7 +36,11 @@ Everything else — repository changes, verification, imports, and plans — is 
 
 Before any resume scan, check for a legacy `.infra-copilot/` directory or
 `.claude/infra-copilot.local.md`. If either exists, report it as unsupported and stop; do not
-read, copy or migrate it. Then read the Config block from the current repo's root
+read, copy or migrate it. For `infra-setup` on a directory with neither a `.copier-answers.yml` nor a README Config
+block, render the Template first (`template-render` in [`steps.yaml`](steps.yaml)); every
+other skill stops and hands off instead. Run `template-contract` before trusting a
+rendered repo: an older Template tag proposes `copier update`, and a bare commit hands off.
+Then read the Config block from the current repo's root
 `README.md`, the fenced YAML between `<!-- infra:config start -->` and
 `<!-- infra:config end -->`. If the block is missing, emit the handoff block, show the
 schema and wait — never guess org/domain/IDs, and never hand-write Template-owned README
@@ -207,7 +211,9 @@ run created after the entire recorded UTC second and the workspace's latest `upd
 so a prior workspace run cannot prove the new least-privilege credential or reconciled
 execution settings work.
 
-`infra-setup` has one cold-start ordering rule: first confirm that the `mise` command itself is
+`infra-setup` renders the Template (`template-render`, then `template-contract`) before
+anything else, with `INFRA_REFERENCES` exported and no config read. After that it has one
+cold-start ordering rule: first confirm that the `mise` command itself is
 available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
 pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool
 checks) before that step has established committed pins. Once `toolchain-pin` is green,

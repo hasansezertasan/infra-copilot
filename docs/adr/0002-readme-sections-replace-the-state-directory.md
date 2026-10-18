@@ -2,9 +2,8 @@
 
 Status: accepted. The Skills read the README Config block and Decisions table, and stop on
 the old state directory (#132). The Template already renders both sections on its main branch
-(copier-infra#25) and no longer renders the old directory. Having `infra-setup` render the
-Template, and the Template contract check, follow in the remaining tickets under #130. The
-Template has no release tag yet, so until one exists `uvx copier copy` renders its main branch.
+(copier-infra#25) and no longer renders the old directory. `infra-setup` renders the
+Template and checks the Template contract (#134); the Template's first release is `v0.1.0`.
 
 An Infra repo keeps its public identifiers and human attestations in a Config block, and its
 locked choices in a Decisions table, as fixed sections of the root `README.md`. The

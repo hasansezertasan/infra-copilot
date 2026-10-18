@@ -66,7 +66,16 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 ## Workflow
 
-1. **Read config first** (shared protocol, Step 0). Load the Config block from the
+1. **Render the Template, or resume** (shared protocol, Step 0). On a directory with no
+   `.copier-answers.yml` and no README Config block, run `template-render`: read the
+   Template's current `copier.yml`, ask its questions, render with the pinned Copier and
+   commit the answers file. A repo is rendered when it has a committed answers file and
+   a README Config block; it resumes, and is never re-scaffolded. A Config block without
+   an answers file (or the reverse) is not rendered: hand off, never render over it.
+   Never edit a file the Template owns. Then run `template-contract`: an older tag
+   proposes the Template's `copier update`, a bare commit hands off.
+
+   Then **read config.** Load the Config block from the
    root `README.md` and export the org vars. A legacy `.infra-copilot/` directory or
    `.claude/infra-copilot.local.md` → unsupported, stop. No Config block → handoff, wait.
    For a new setup, recommend **object-storage** first. Explain HCP's managed runs and

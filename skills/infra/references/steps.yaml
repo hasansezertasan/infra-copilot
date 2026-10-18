@@ -224,11 +224,85 @@ preflight:
       Export INFRA_REFERENCES per references/config.md: the absolute path to the
       loaded skill's references/ directory (the one holding config.md and checks/).
 
+  - tool: uv
+    when: '[ ! -f .copier-answers.yml ]'   # only the render path runs Copier
+    check: "uv --version >/dev/null"   # system-provided; runs the pinned Copier
+
   - tool: curl
     check: "curl --version >/dev/null"   # system-provided; pinning it buys nothing
 
 steps:
   # ── Phase 0 — Common bootstrap ──────────────────────────────────────────
+  - id: template-render
+    phase: 0
+    provider: repo
+    actor: AGENT
+    title: Render the copier-infra Template and commit its answers
+    why: The Template owns the skeleton, Terraform roots, README Config block and Decisions table; nothing else writes them, and later Template updates need the committed answers file.
+    run: |
+      Setup only. Red means no committed .copier-answers.yml or no README Config block.
+      An untracked answers file is a render of unknown completeness, a Config block with no
+      answers file is hand-written, and a tracked answers file or README with uncommitted
+      changes is a partial render or update: hand off for review in every case, never commit
+      or re-render over them. The human clears the directory to empty and the step restarts,
+      or verifies the whole skeleton and commits it themselves.
+      Run `copier copy` only when the destination is empty apart from `.git`; any other
+      content, tracked or not, is a hand-off, because Copier would overwrite it and the
+      render commit would absorb it. Otherwise:
+      0. Export INFRA_REFERENCES first (config.md), require `uv` and `mise` on the path (a
+         HUMAN install if either is absent; step 3 needs `mise`, so check before copying), and run `git init` if the directory is not a repository.
+      1. Clone the Template at its newest release tag into a scratch directory and read its
+         copier.yml: those are the questions to ask, never a remembered set. A question with
+         `choices` is a decision per protocol.md, the Template's default first; a free-form
+         question (an org name, an ID) is a plain text prompt, validated against the
+         question's `validator`, with no invented candidates. Evaluate each question's `when`
+         in file order against the answers so far and ask only the ones that are true; pass
+         no answer for the rest.
+      2. Render with the pinned Copier, passing every answer with --data and --defaults:
+         uv run --no-project --with-requirements "$INFRA_REFERENCES/copier-requirements.txt" \
+           copier copy --vcs-ref <tag> --defaults --data key=value \
+           gh:hasansezertasan/copier-infra .
+      3. Run `mise trust --untrust` in the repo first: mise trust survives a change of file
+         contents, so this revokes any earlier trust of that path, and it must happen before
+         the commit below so a resumed run can never see a committed render with stale trust.
+      4. Commit the render, including .copier-answers.yml, before any other step; Copier does
+         not initialize Git and its update reads tracked files and HEAD.
+      Never edit a file the Template owns afterwards, apart from the pins `toolchain-pin` reviews; change answers with `copier update`,
+      run through the pinned Copier (the same `uv run ... copier` command, `update` in place of `copy`).
+      Do not trust the rendered mise.toml: `toolchain-pin` is still the human's review.
+    check: >-
+      git ls-files --error-unmatch .copier-answers.yml README.md >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- .copier-answers.yml README.md &&
+      git diff --cached --quiet HEAD -- .copier-answers.yml README.md &&
+      sh "$INFRA_REFERENCES/checks/template-contract.sh" --source-only &&
+      grep -q '<!-- infra:config start -->' README.md &&
+      grep -q '<!-- infra:config end -->' README.md
+    produces: committed .copier-answers.yml and the Template-rendered repository
+    docs: docs/setup.md#0-scaffold-with-the-template
+
+  - id: template-contract
+    phase: 0
+    provider: repo
+    actor: AGENT
+    tri_state: true
+    when: '[ -f .copier-answers.yml ]'
+    title: Check the recorded Template version against the minimum
+    why: The Skills accept a Template release at or above a minimum tag; an older tag needs the Template's update, and a bare commit cannot be compared so it goes to the human.
+    run: |
+      Red (exit 1, older tag): propose `copier update` run from the repo root on a clean
+      tree through the pinned Copier (`uv run --no-project --with-requirements
+      "$INFRA_REFERENCES/copier-requirements.txt" copier update`; `uv` is a HUMAN install if absent, since
+      preflight skips it once the answers file exists),
+      show the conflicts for review, resolve them with the human, and commit the result;
+      copier leaves the update uncommitted, and this check reads the working tree. Then
+      restart the scan at `template-render`, which requires a committed, clean render, before
+      re-running this check. Never overwrite silently.
+      Exit 2 (bare commit, between-tags value, no answers file): emit the handoff block
+      and wait; never assume the Template is compatible.
+    check: sh "$INFRA_REFERENCES/checks/template-contract.sh"
+    produces: a recorded Template version at or above the minimum
+    docs: docs/setup.md#0-scaffold-with-the-template
+
   - id: toolchain-pin
     phase: 0
     provider: repo
@@ -236,8 +310,10 @@ steps:
     title: Create and commit the pinned mise.toml + mise.lock
     why: Preflight and every per-tool check compare installed binaries against these pins; nothing else creates them.
     run: |
-      1. Follow docs/setup.md#6-local-development to choose exact tool versions and
-         author mise.toml. Choosing the versions is a project decision, not a lookup.
+      1. Follow docs/setup.md#6-local-development to review the exact tool versions in the
+         mise.toml and mise.lock the Template rendered, or to author them when absent. Changing
+         a rendered pin is a deliberate human decision, not a lookup, and the one place a
+         Template-owned file is edited by hand; a later `copier update` merges it.
       2. Review the entire mise.toml before trusting it; repository config can enable
          templates, plugins, and other executable behavior.
       3. Trust it, initialize and populate mise.lock, install the locked pins, and

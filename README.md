@@ -102,12 +102,17 @@ between the `# infra:customization` comments inside the block and refuse to edit
 renders a consuming repo shaped for this contract: the README Config block and
 Decisions table with an explicit `backend:` and its matching fields, a `backend.tf` per Terraform root,
 `mise.toml` and `mise.lock` at the repo root, plus `AGENTS.md`. It asks
-only for the public identifiers in the config above. The Template has no release tag yet, so
-`uvx copier copy` renders its main branch, which already emits these README sections and no
-legacy `.infra-copilot/` directory.
+only for the public identifiers in the config above. `infra-setup` renders it for you on an empty
+directory, with the Copier version pinned in
+[`copier-requirements.txt`](skills/infra/references/copier-requirements.txt), and checks
+that the recorded Template release is at or above the minimum (the Template contract). To render
+it by hand instead:
 
 ```sh
-uvx copier copy gh:hasansezertasan/copier-infra infra
+copier() { uv run --no-project --with-requirements \
+  https://raw.githubusercontent.com/hasansezertasan/infra-skills/main/skills/infra/references/copier-requirements.txt \
+  copier "$@"; }
+copier copy gh:hasansezertasan/copier-infra infra
 cd infra
 git init && git add -A && git commit -m "chore: scaffold infrastructure repository"
 ```
@@ -118,10 +123,12 @@ and `HEAD`, so commit the render first. Install infra-skills and start the agent
 invocation from the install table above (`/infra-skills:infra-setup` on Claude Code and
 Antigravity); it
 reads the committed config and resumes from where the scan reports. Change values later with
-`uvx copier update` (run from the repo root) and review the diff, rather than hand-editing
-the Config block or `backend.tf`, so the config and the Terraform literals stay aligned.
-`uvx copier recopy` re-renders over local edits; use it only for deliberate recovery, on a clean
-tree, after reading the diff.
+`copier update` and review the diff (in each new shell, define the pinned `copier()` function
+above first, or the command can resolve to an unpinned executable; run it from the repo root),
+rather than hand-editing the Config block or `backend.tf`, so the config and the Terraform
+literals stay aligned.
+With the same function defined, `copier recopy` re-renders over local edits; use it only for
+deliberate recovery, on a clean tree, after reading the diff.
 
 Treat any change to `backend`, `state_backend`, `state_bucket` or `state_prefix` after
 rendering as a state migration, not an answer change. Copier rewrites `backend.tf` but moves
@@ -187,7 +194,7 @@ host packages copy the whole hub skill so relative links remain valid everywhere
 | Skill | Command | Does |
 |---|---|---|
 | [`infra`](skills/infra/SKILL.md) | natural language | Routes a general request to the smallest matching workflow. |
-| [`infra-setup`](skills/infra-setup/SKILL.md) | `/infra-skills:infra-setup` | **Greenfield bootstrap** (phases 0–4): explicit backend choice, state + CI, Cloudflare token, GitHub App, first plan. |
+| [`infra-setup`](skills/infra-setup/SKILL.md) | `/infra-skills:infra-setup` | **Greenfield bootstrap** (phases 0–4): renders the [`copier-infra`](https://github.com/hasansezertasan/copier-infra) Template, explicit backend choice, state + CI, Cloudflare token, GitHub App, first plan. |
 | [`infra-import`](skills/infra-import/SKILL.md) | `/infra-skills:infra-import` | **Adopt existing** provider resources into Terraform without recreating them (cf-terraforming import blocks). |
 | [`infra-prune`](skills/infra-prune/SKILL.md) | `/infra-skills:infra-prune` | **Retire the spent blocks** an adoption leaves behind — `import {}` / `moved {}` go inert once applied. Ends on `No changes.` |
 | [`infra-add`](skills/infra-add/SKILL.md) | `/infra-skills:infra-add` | **Grow** the repo: a managed repo, a new resource, or a brand-new provider (e.g. GCP). |
