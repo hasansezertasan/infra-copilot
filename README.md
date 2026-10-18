@@ -51,10 +51,10 @@ routes to nothing — and the command says so rather than printing one.
 ### Session announcement
 
 On Claude Code, a `SessionStart` hook announces that the plugin is installed when the
-working directory carries any of its markers — `.infra-copilot/config.md`, the legacy
-`.claude/infra-copilot.local.md`, or a `terraform/` tree. Discovery otherwise depends on
+working directory carries any of its markers — the Config block markers in the root
+`README.md`, or a `terraform/` tree. Discovery otherwise depends on
 a user's phrasing happening to match a skill description. It is
-deliberately static: one file-existence test, no provider calls, no `git`, and it names
+deliberately static: one marker test, no provider calls, no `git`, and it names
 the skills rather than reporting any state, because state is re-derived by running each
 step check. Silence it with `INFRA_HOOK_DISABLE=1`.
 
@@ -67,17 +67,14 @@ a host graduates. See [#42](https://github.com/hasansezertasan/infra-skills/issu
 ## Configure
 
 `infra-skills` is org-agnostic — it carries no hardcoded organization, domain, or
-account IDs. The **consuming repo** (the infra repo you're bootstrapping) must carry a
-committed, non-secret config file:
-
-```text
-.infra-copilot/config.md
-```
-
-It's Markdown with a YAML frontmatter block holding only public identifiers:
+account IDs. The **Infra repo** (the repo you're bootstrapping) must carry a
+committed, non-secret Config block in its root `README.md`: one fenced YAML block between
+`<!-- infra:config start -->` and `<!-- infra:config end -->` under a `## Config` heading,
+holding only public identifiers. Its locked choices live in a Decisions table, a second
+README section between `<!-- infra:decisions start -->` and `<!-- infra:decisions end -->`.
+The [Template](#scaffolding-the-repository-with-copier-infra) renders both:
 
 ```yaml
----
 backend: object-storage       # required: hcp | object-storage; choose explicitly during setup
 github_org: <string>           # GitHub org slug
 apex_domain: <string>          # e.g. example.dev
@@ -88,23 +85,23 @@ managed_repos:                 # repos Terraform manages; first entry is the pri
 state_backend: gcs            # gcs | s3 | azurerm
 state_bucket: <string>
 state_prefix: terraform/state
----
 ```
 
-**No secrets go in this file.** Secrets (Cloudflare API token, GitHub App credentials,
+**No secrets go in the Config block.** Secrets (Cloudflare API token, GitHub App credentials,
 etc.) live in GitHub Actions secrets (object-storage mode) or HCP workspace variables
 (HCP mode) — a human saves them directly there, and the agent never sees their plaintext.
 
-Full schema, the shell-export contract, and the startup behavior when the file is
-missing: [`config.md`](skills/infra/references/config.md). A fillable template ships at
-[`config.md.example`](skills/infra/references/config.md.example).
+Full schema, the shell-export contract, and the startup behavior when the block is
+missing: [`config.md`](skills/infra/references/config.md). A reference excerpt ships at
+[`config.md.example`](skills/infra/references/config.md.example). The Skills write only
+between the `# infra:customization` comments inside the block and refuse to edit outside them.
 
 ### Scaffolding the repository with copier-infra
 
 [`copier-infra`](https://github.com/hasansezertasan/copier-infra) is a Copier template that
-renders a consuming repo shaped for this contract: `.infra-copilot/config.md` with an
-explicit `backend:` and its matching fields, a `backend.tf` per Terraform root,
-`mise.toml` and `mise.lock` at the repo root, plus `AGENTS.md` and `decisions.md`. It asks
+renders a consuming repo shaped for this contract: the README Config block and
+Decisions table with an explicit `backend:` and its matching fields, a `backend.tf` per Terraform root,
+`mise.toml` and `mise.lock` at the repo root, plus `AGENTS.md`. It asks
 only for the public identifiers in the config above.
 
 ```sh
@@ -120,10 +117,9 @@ invocation from the install table above (`/infra-skills:infra-setup` on Claude C
 Antigravity); it
 reads the committed config and resumes from where the scan reports. Change values later with
 `uvx copier update` (run from the repo root) and review the diff, rather than hand-editing
-`config.md` or `backend.tf`, so the config and the Terraform literals stay aligned.
+the Config block or `backend.tf`, so the config and the Terraform literals stay aligned.
 `uvx copier recopy` re-renders over local edits; use it only for deliberate recovery, on a clean
-tree, after reading the diff. The template ships no `scripts/sync-config.sh`, so the
-`repo-config-sync` step has nothing to synchronize.
+tree, after reading the diff.
 
 Treat any change to `backend`, `state_backend`, `state_bucket` or `state_prefix` after
 rendering as a state migration, not an answer change. Copier rewrites `backend.tf` but moves
@@ -144,13 +140,13 @@ to keep their current workflow. All action skills stop with a handoff when it is
 `infra-setup` offers to record HCP when existing `cloud {}` blocks are found. This records the
 existing mode without moving state. See the
 [migration guidance](skills/infra/references/config.md#migration-existing-configs-without-backend),
-including HCP-specific fields and the legacy config fallback.
+including HCP-specific fields.
 
-Existing `.claude/infra-copilot.local.md` files remain readable as a migration fallback.
-Move their contents unchanged to `.infra-copilot/config.md`; do not maintain both. Provider
-and authentication decisions belong in `.infra-copilot/decisions.md`; copy the shipped
-[`decisions.md.example`](skills/infra/references/decisions.md.example) and migrate
-any legacy `CLAUDE.md` decision table into it.
+The old `.infra-copilot/` directory and `.claude/infra-copilot.local.md` file are
+**unsupported**: the Skills report them and stop, and there is no migration code. Move the
+values into the README Config block and Decisions table by hand, then delete the old paths.
+Provider and authentication decisions belong in the Decisions table; the shipped
+[`decisions.md.example`](skills/infra/references/decisions.md.example) shows its rows.
 
 ## Restricting what it can do
 

@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.readme_fixture import render
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / '.ai-rulez/skills/infra/references/checks/gha-apply-gate.sh'
 
@@ -61,9 +63,8 @@ class ApplyGateTests(unittest.TestCase):
         }
 
     def decide(self, row: str) -> None:
-        (self.root / '.infra-copilot').mkdir(exist_ok=True)
-        (self.root / '.infra-copilot/decisions.md').write_text(
-            '| Decision | Choice | Status | Rationale |\n|---|---|---|---|\n' + row + '\n')
+        (self.root / 'README.md').write_text(render(decisions=(
+            '| Decision | Choice | Status | Rationale |\n|---|---|---|---|\n' + row + '\n')))
 
     def check(self) -> subprocess.CompletedProcess[str]:
         return subprocess.run(['sh', str(SCRIPT)], cwd=self.root, env=self.env,

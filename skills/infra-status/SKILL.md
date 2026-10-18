@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Glob, Grep, Task
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:3feccbbbf1a035d4f900224a21089b0313bf4161a4f659b55f884140bccb8d3b
-Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
+Content-Hash: blake3:fca82bd7ad6ee79306f280de29852bed13dcc9e5f9a2258668b4bb2b17e281c7
+Source-Hash: blake3:8f61e9c22b778040700847fb97bb1970100ac80e7328b2265d53f646f3a76e9d
 Schema-Version: v1
 -->
 
@@ -17,8 +17,9 @@ Schema-Version: v1
 
 Route the health check through the shared status runbook:
 [`../infra/references/status.md`](../infra/references/status.md). It loads
-`.infra-copilot/config.md`, with `.claude/infra-copilot.local.md` as the documented legacy
-fallback.
+the Config block from the root `README.md`, and stops with an "unsupported" message when a
+legacy `.infra-copilot/` directory or `.claude/infra-copilot.local.md`
+file is still present.
 
 That reference owns the scan, safety classification, reporting rules, and validation.
 

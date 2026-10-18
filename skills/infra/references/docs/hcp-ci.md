@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:a034bfb7830e943b7ae485cd6cd90a0da9460d36dc271bbc0f9931ef5973462c
-Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
+Content-Hash: blake3:73e579fe115953b7bf95ae3285d75b212a534dc410035bcd6af15b9dae17e6ef
+Source-Hash: blake3:8f61e9c22b778040700847fb97bb1970100ac80e7328b2265d53f646f3a76e9d
 Schema-Version: v1
 -->
 
@@ -59,7 +59,7 @@ none. If your workflow reuses a self-hosted runner with a user-level mise config
 
 ## What runs on merge to `main`
 
-- HCP creates a real run for each workspace whose path filter matches the merged commit (`terraform/cloudflare/**` for the `cloudflare` workspace, `terraform/github/**` for `github-org`, and `.infra-copilot/config.md` for both).
+- HCP creates a real run for each workspace whose path filter matches the merged commit (`terraform/cloudflare/**` for the `cloudflare` workspace, `terraform/github/**` for `github-org`, and `README.md` for both).
 - The run plans then **stops at "needs confirmation"** — applies require a human click in HCP UI (or an authenticated `POST /runs/<id>/actions/apply`).
 - Apply logs live in HCP, not GitHub Actions.
 
@@ -127,7 +127,7 @@ the HCP run that actually applies that file is only created *after* the merge, a
 waits for a human confirmation. So editing the file is necessary but not sufficient: the
 normal workflow cannot deliver it.
 
-Pick one, and record which in `.infra-copilot/decisions.md`:
+Pick one, and record which in `the README Decisions table`:
 
 **A — Relax protection out of band, then reconcile immediately (preferred).**
 

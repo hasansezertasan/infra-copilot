@@ -21,13 +21,13 @@ class ActionsPlanEvidenceTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.checkout = Path(temporary.name)
         for relative_path in ('terraform/cloudflare', 'terraform/github', 'terraform/gcp',
-                              '.infra-copilot', '.github/workflows', 'references/checks', 'bin'):
+                              '.github/workflows', 'references/checks', 'bin'):
             (self.checkout / relative_path).mkdir(parents=True)
-        (self.checkout / '.infra-copilot/config.md').write_text('backend: object-storage\n')
+        (self.checkout / 'README.md').write_text('backend: object-storage\n')
         for provider_name in ('cloudflare', 'github', 'gcp'):
             (self.checkout / f'terraform/{provider_name}/versions.tf').write_text('terraform {}\n')
         subprocess.run(['git', 'init', '-q'], cwd=self.checkout, check=True)
-        subprocess.run(['git', 'add', 'terraform', '.infra-copilot'], cwd=self.checkout, check=True)
+        subprocess.run(['git', 'add', 'terraform', 'README.md'], cwd=self.checkout, check=True)
         subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
                         'commit', '-qm', 'public plan fixture'], cwd=self.checkout, check=True)
         head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=self.checkout, check=True,

@@ -1,7 +1,8 @@
 # README sections replace the `.infra-copilot/` state directory
 
-Status: proposed, not yet implemented; the Skills still read the old state directory until
-the tickets under #130 land.
+Status: accepted. The Skills read the README Config block and Decisions table, and stop on
+the old state directory (#132). Rendering the Template and the Template contract follow in
+the remaining tickets under #130.
 
 An Infra repo keeps its public identifiers and human attestations in a Config block, and its
 locked choices in a Decisions table, as fixed sections of the root `README.md`. The

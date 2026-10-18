@@ -34,14 +34,13 @@ SKILL_TOOLS = {
     "infra-setup": "Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion",
     "infra-status": "Read, Bash, Glob, Grep, Task",
 }
-CONFIG_PATH = ".infra-copilot/config.md"
-LEGACY_CONFIG_PATH = ".claude/infra-copilot.local.md"
+LEGACY_CONFIG_PATHS = (".infra-copilot/", ".claude/infra-copilot.local.md")
 CONFIG_FALLBACK_DOCUMENTS = (
     ".ai-rulez/skills/infra-setup/SKILL.md",
     ".ai-rulez/skills/infra-status/SKILL.md",
     ".ai-rulez/skills/infra/references/protocol.md",
 )
-CUSTOMIZATION_TOKEN = "infra-copilot:customization"
+CUSTOMIZATION_TOKEN = "infra:customization"
 # The scaffolded files a human is told to edit, each mapped to content the marker
 # pair must *enclose*. A balanced pair is not enough: markers that sit together
 # above the frontmatter are balanced and in order while enclosing nothing, so a
@@ -79,14 +78,14 @@ def _looks_like_marker(line: str) -> bool:
     stripped = line.strip()
     if stripped.startswith(CUSTOMIZATION_TOKEN):
         # An edge is required here too. Without it, prose that merely opens with
-        # the token -- "infra-copilot:customization comments delimit user
+        # the token -- "infra:customization comments delimit user
         # values." -- was reported as a malformed marker and blocked the check.
         return MARKER_EDGE.match(stripped) is not None
     for prefix in ("<!--", "#"):
         if stripped.startswith(prefix):
             # Anchored to just after the prefix. Searching the whole comment
             # flagged explanatory prose that merely names the token and an edge
-            # word, such as "<!-- Use infra-copilot:customization start ... -->".
+            # word, such as "<!-- Use infra:customization start ... -->".
             return MARKER_EDGE.match(stripped[len(prefix) :].lstrip()) is not None
     return False
 
@@ -127,6 +126,9 @@ CUSTOMIZATION_RULE_DOCUMENT = (
 CUSTOMIZATION_RULE_MARKERS = (
     "verbatim",
     "Never merge by inference",
+    # The Skills write only inside the markers. Without this sentence an edit to a
+    # Template-owned key reads as allowed, because nothing else enforces the boundary.
+    "refuse to edit anything outside them",
 )
 PHASE_FIVE_RULE_DOCUMENT = (
     ".ai-rulez/skills/infra/references/status.md"
@@ -338,10 +340,13 @@ def validate_config_fallbacks(root: Path = ROOT) -> list[str]:
     for relative in CONFIG_FALLBACK_DOCUMENTS:
         document = root / relative
         text = document.read_text(encoding="utf-8")
-        for config_path in (CONFIG_PATH, LEGACY_CONFIG_PATH):
-            if config_path not in text:
+        # Every document that tells the agent where config lives must name the README
+        # Config block and the retired paths it refuses to read, so a stale pointer to
+        # the old state directory cannot survive in one skill while the others moved.
+        for phrase in ("README", "unsupported", *LEGACY_CONFIG_PATHS):
+            if phrase not in text:
                 errors.append(
-                    f"{relative}: missing config-path guidance for {config_path!r}"
+                    f"{relative}: missing config-path guidance for {phrase!r}"
                 )
     return errors
 
@@ -615,11 +620,6 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         steps,
         re.MULTILINE,
     )
-    repo_sync_step = re.search(
-        r"^  - id: repo-config-sync\n(?P<metadata>(?:(?!^  - id:).*(?:\n|\Z))*)",
-        steps,
-        re.MULTILINE,
-    )
     steps_start = steps.find("\nsteps:\n")
     first_step = (
         re.search(r"^  - id: ([^\n]+)", steps[steps_start:], re.MULTILINE)
@@ -646,25 +646,6 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     ):
         errors.append(
             f"{TOOLCHAIN_STEPS_DOCUMENT}: toolchain-pin metadata is incomplete"
-        )
-    if repo_sync_step is None or not all(
-        marker in repo_sync_step.group("metadata")
-        for marker in (
-            "    phase: 0\n",
-            "    provider: repo\n",
-            "    actor: HUMAN\n",
-            "test ! -x ./scripts/sync-config.sh || test ! -f .infra-copilot/config.md",
-            "git ls-files --error-unmatch .infra-copilot/config.md",
-            "git diff --quiet HEAD -- .infra-copilot/config.md",
-            "git diff --cached --quiet HEAD -- .infra-copilot/config.md",
-            'for name in $(printf \'%s\' "$HCP_BOOTSTRAP_LEAVES" | jq -er \'.[]\'); do',
-            'config_file="terraform/$name/versions.tf"',
-            'test -f "$config_file"',
-            '^[[:space:]]*organization[[:space:]]*=[[:space:]]*\\\"$ORG\\\"[[:space:]]*$',
-        )
-    ):
-        errors.append(
-            f"{TOOLCHAIN_STEPS_DOCUMENT}: repo-config-sync contract is incomplete"
         )
     if preflight_check is None:
         errors.append(
@@ -753,7 +734,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
                 '"file-triggers-enabled":true',
                 '"auto-destroy-at":null',
                 '"auto-destroy-activity-duration":null',
-                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]',
+                '"trigger-patterns":[$dir+"/**", "terraform/modules/**", "README.md", "mise.toml"]',
             )
         )
     ):
@@ -767,7 +748,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
     ):
         if (
             document.count(
-                'index(".infra-copilot/config.md") != null'
+                'index("README.md") != null'
             )
             < 1
             or document.count('index("terraform/modules/**") != null') < 1
@@ -790,18 +771,13 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         creation is None
         or '"auto-destroy-at":null' not in creation.group("body")
         or '"auto-destroy-activity-duration":null' not in creation.group("body")
-        or '"trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]'
+        or '"trigger-patterns":[$dir+"/**", "terraform/modules/**", "README.md", "mise.toml"]'
         not in creation.group("body")
     ):
         errors.append(
             f"{TOOLCHAIN_HCP_DOCUMENT}: workspace creation must include the shared "
             "config trigger"
         )
-    if not re.search(r"^Phase 0.*\brepo-config-sync\b", status, re.MULTILINE):
-        errors.append(
-            f"{TOOLCHAIN_STATUS_DOCUMENT}: phase-0 report must include repo-config-sync"
-        )
-
     review = setup.find("cat -- mise.toml")
     trust = setup.find("mise trust mise.toml")
     if review < 0 or trust < 0 or review > trust:

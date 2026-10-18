@@ -43,7 +43,7 @@ jobs:
               - 'terraform/modules/**'
               - 'mise.toml'
               - 'mise.lock'
-              - '.infra-copilot/config.md'
+              - 'README.md'
               - '.github/workflows/terraform-*.yml'
               - '.github/scripts/terraform-destroy.cjs'
             github:
@@ -51,7 +51,7 @@ jobs:
               - 'terraform/modules/**'
               - 'mise.toml'
               - 'mise.lock'
-              - '.infra-copilot/config.md'
+              - 'README.md'
               - '.github/workflows/terraform-*.yml'
               - '.github/scripts/terraform-destroy.cjs'
 

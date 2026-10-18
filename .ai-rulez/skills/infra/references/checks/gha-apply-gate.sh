@@ -5,7 +5,7 @@
 # A main-only deployment branch policy is required on every plan: it stops other
 # branches from running a job in `production`. Required reviewers are required where
 # GitHub offers them to this repository (public repos, Enterprise orgs). Elsewhere the
-# API rejects them, so a locked `Apply gate` row in .infra-copilot/decisions.md naming
+# API rejects them, so a locked `Apply gate` row in the README Decisions table naming
 # `merge-approval` or `dispatch` records the human gate instead.
 set -eu
 [ -n "${REPO:-}" ] || { echo 'CANNOT VERIFY: REPO is required' >&2; exit 2; }
@@ -72,9 +72,12 @@ if [ "$visibility" = public ] || [ "$plan" = enterprise ]; then
 fi
 awk -F '|' '
   function clean(v) { gsub(/^[[:space:]`]+|[[:space:]`]+$/, "", v); return tolower(v) }
+  /^<!-- infra:decisions start -->$/ { in_table=1; next }
+  /^<!-- infra:decisions end -->$/ { in_table=0; next }
+  !in_table { next }
   clean($2) == "apply gate" && (clean($3) == "merge-approval" || clean($3) == "dispatch") &&
     clean($4) == "locked" { found=1 }
-  END { exit !found }' .infra-copilot/decisions.md 2>/dev/null || {
+  END { exit !found }' README.md 2>/dev/null || {
   echo 'UNSAFE: no required reviewers and no locked "Apply gate" decision (merge-approval or dispatch)' >&2
   exit 1
 }

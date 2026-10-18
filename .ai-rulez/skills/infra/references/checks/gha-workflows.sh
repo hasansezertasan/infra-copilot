@@ -95,9 +95,12 @@ apply_events=$(section "$apply" on)
 dispatch_gate=false
 if awk -F '|' '
   function clean(v) { gsub(/^[[:space:]`]+|[[:space:]`]+$/, "", v); return tolower(v) }
+  /^<!-- infra:decisions start -->$/ { in_table=1; next }
+  /^<!-- infra:decisions end -->$/ { in_table=0; next }
+  !in_table { next }
   clean($2) == "apply gate" && clean($3) == "dispatch" && clean($4) == "locked" {found=1}
   END {exit !found}
-' .infra-copilot/decisions.md 2>/dev/null; then
+' README.md 2>/dev/null; then
   dispatch_gate=true
 fi
 if [ "$dispatch_gate" = true ]; then

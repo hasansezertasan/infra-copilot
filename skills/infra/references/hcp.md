@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:87144e0b61dfc000d960639f95c6a018f03296e803f04e5a05f662e934b55a2e
-Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
+Content-Hash: blake3:d0afbceea308610b2ed7f0564d0c88fddf98c16b17837ec2dd1c3575e7884a81
+Source-Hash: blake3:8f61e9c22b778040700847fb97bb1970100ac80e7328b2265d53f646f3a76e9d
 Schema-Version: v1
 -->
 
@@ -174,7 +174,7 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
         "terraform-version":$tf_version,
         "auto-apply":false, "auto-destroy-at":null, "auto-destroy-activity-duration":null,
         "speculative-enabled":true, "file-triggers-enabled":true,
-        "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"], "queue-all-runs":false, "global-remote-state":false,
+        "trigger-patterns":[$dir+"/**", "terraform/modules/**", "README.md", "mise.toml"], "queue-all-runs":false, "global-remote-state":false,
         "vcs-repo":({identifier:$repo, branch:"main"} + $connection)}}}' \
       | curl -s -w '\n%{http_code}' -X POST "https://app.terraform.io/api/v2/organizations/$ORG/workspaces" \
           -H "Authorization: Bearer $HCP_TOKEN" \
@@ -221,7 +221,7 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
         "terraform-version":$tf_version,
         "auto-apply":false, "auto-destroy-at":null, "auto-destroy-activity-duration":null,
         "speculative-enabled":true, "file-triggers-enabled":true,
-        "trigger-patterns":[$dir+"/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"], "queue-all-runs":false,
+        "trigger-patterns":[$dir+"/**", "terraform/modules/**", "README.md", "mise.toml"], "queue-all-runs":false,
         "global-remote-state":false,
         "vcs-repo":{identifier:$repo, branch:"main"}}}}')
     curl -sf -X PATCH "https://app.terraform.io/api/v2/workspaces/$ws_id" \
@@ -246,7 +246,7 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
   ```
 
   > `trigger-patterns` (glob) requires `file-triggers-enabled: true` — that pair is the
-  > path-scoping toggle. Both workspaces also watch the shared `.infra-copilot/config.md`
+  > path-scoping toggle. Both workspaces also watch the shared `README.md`
   > and shared `terraform/modules/**`, so public-identifier and module changes are
   > validated by both plans. They also watch `mise.toml`, so a Terraform pin change
   > cannot reuse an older plan. `speculative-enabled: true`
@@ -275,7 +275,7 @@ GitHub↔HCP connection through OAuth or the GitHub App (browser).
             and ($a["file-triggers-enabled"] == true)
             and ((($a["trigger-patterns"]) // []) | index($dir + "/**") != null)
             and ((($a["trigger-patterns"]) // []) | index("terraform/modules/**") != null)
-            and ((($a["trigger-patterns"]) // []) | index(".infra-copilot/config.md") != null)
+            and ((($a["trigger-patterns"]) // []) | index("README.md") != null)
             and ((($a["trigger-patterns"]) // []) | index("mise.toml") != null)
             and (($a["vcs-repo"].identifier // "") == $repo)
             and (($a["vcs-repo"].branch // "") == "main")' >/dev/null \
@@ -312,7 +312,7 @@ repository root, with `LEAF` set to the validated leaf name, run:
   : "${LEAF:?Select the target leaf from config first}"
   printf '%s' "$HCP_LEAVES" | jq -e --arg leaf "$LEAF" 'index($leaf) != null' >/dev/null || exit 2
   dirty=$(git --no-optional-locks status --porcelain -- "terraform/$LEAF" \
-    terraform/modules .infra-copilot/config.md mise.toml mise.lock) || exit 2
+    terraform/modules README.md mise.toml mise.lock) || exit 2
   [ -z "$dirty" ] || { echo 'Commit relevant inputs before obtaining plan evidence' >&2; exit 1; }
   cd "terraform/$LEAF" || exit 1
   terraform init -input=false || exit 1

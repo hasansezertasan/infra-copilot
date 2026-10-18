@@ -20,8 +20,7 @@ class StateTransferTests(unittest.TestCase):
         self.checkout = Path(temporary.name)
         self.execute_git('init', '-q')
         (self.checkout / 'terraform/github').mkdir(parents=True)
-        (self.checkout / '.infra-copilot').mkdir()
-        (self.checkout / '.infra-copilot/config.md').write_text('state_transfers: {}\n')
+        (self.checkout / 'README.md').write_text('state_transfers: {}\n')
         self.backend = self.checkout / 'terraform/github/backend.tf'
         self.environment = dict(os.environ)
 
@@ -31,7 +30,7 @@ class StateTransferTests(unittest.TestCase):
         return result.stdout.strip()
 
     def commit_files(self) -> None:
-        self.execute_git('add', 'terraform', '.infra-copilot')
+        self.execute_git('add', 'terraform', 'README.md')
         self.execute_git('-c', 'user.name=Test', '-c', 'user.email=test@example.com',
                          'commit', '-qm', 'cutover fixture')
 

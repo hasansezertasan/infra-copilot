@@ -229,7 +229,7 @@ class LeafRoutingTests(unittest.TestCase):
                 provider_filter = '            gcp-prod:\n' + ''.join(
                     f"              - '{pattern}'\n" for pattern in (
                         'terraform/gcp-prod/**', 'terraform/modules/**', 'mise.toml', 'mise.lock',
-                        '.infra-copilot/config.md', '.github/workflows/terraform-*.yml',
+                        'README.md', '.github/workflows/terraform-*.yml',
                         '.github/scripts/terraform-destroy.cjs'))
                 workflow_text = workflow_text.replace('            github:\n', provider_filter + '            github:\n')
                 workflow_text = workflow_text.replace(
@@ -420,7 +420,7 @@ class LeafRoutingTests(unittest.TestCase):
                 'auto-destroy-at': None, 'auto-destroy-activity-duration': None,
                 'speculative-enabled': True, 'file-triggers-enabled': True,
                 'trigger-patterns': [f'terraform/{leaf_name}/**', 'terraform/modules/**',
-                                     '.infra-copilot/config.md', 'mise.toml'],
+                                     'README.md', 'mise.toml'],
                 'vcs-repo': {'identifier': 'acme/infra', 'branch': 'main'},
                 'permissions': {'can-queue-run': True, 'can-queue-apply': False, 'can-update': False},
             }

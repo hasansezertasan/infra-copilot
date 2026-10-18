@@ -30,7 +30,7 @@ For each workspace, in Settings → Version Control:
 
 - VCS provider: GitHub (connect via OAuth or the HCP Terraform GitHub App, scope to this repo only).
 - **Terraform Working Directory**: set as above.
-- **Automatic Run Triggering**: set to **"Only trigger runs when files in specified paths change"**, with both `<working-dir>/**` (e.g. `terraform/cloudflare/**`) and `.infra-copilot/config.md`. The shared config must trigger both workspaces; otherwise either root can plan against stale public identifiers. Directory scoping still prevents a docs-only commit from spuriously planning both providers.
+- **Automatic Run Triggering**: set to **"Only trigger runs when files in specified paths change"**, with both `<working-dir>/**` (e.g. `terraform/cloudflare/**`) and `README.md`. The shared config must trigger both workspaces; otherwise either root can plan against stale public identifiers. Directory scoping still prevents a docs-only commit from spuriously planning both providers.
 - **Automatic speculative plans**: **enabled**. This is the master toggle for plans on PRs; without it, PRs get no speculative plan and the GitHub status check never appears.
 - **Speculative plans on PRs from forks**: **disabled**. This is a separate, fork-specific toggle. Without disabling it, anyone opening a fork PR can read the workspace's sensitive variables via a malicious `.tf` file. The label-gated plan flow in [`ci.md`](./ci.md) replaces it for fork PRs.
 

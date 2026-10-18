@@ -36,8 +36,8 @@
 #
 # RUNNER SETUP — the fields below (org, hcp_api, …) are YAML metadata, NOT shell
 # variables. Before running any `check`/`run`, the agent MUST source the repo-local
-# config per config.md's Step 0: read .infra-copilot/config.md from the consuming
-# repo and export the vars every command below actually references.
+# config per config.md's Step 0: read the Config block from the consuming repo's
+# README.md and export the vars every command below actually references.
 #
 # Common vars (both modes):
 #     export BACKEND=<backend>  # required: hcp | object-storage
@@ -101,7 +101,7 @@
 org: $ORG  # sourced from config — see config.md
 domain: $DOMAIN  # sourced from config — see config.md
 hcp_api: https://app.terraform.io/api/v2
-# managed_repos come from .infra-copilot/config.md (see config.md) — not hardcoded here.
+# managed_repos come from README.md (see config.md) — not hardcoded here.
 
 # TOOLCHAIN CONTRACT — pinned, not merely present.
 #
@@ -274,35 +274,6 @@ steps:
       done
     produces: committed mise.toml + mise.lock
     docs: docs/setup.md#6-local-development
-
-  - id: repo-config-sync
-    operation: sync-execution-config
-    implementation: both
-    phase: 0
-    provider: repo
-    actor: HUMAN
-    title: Synchronize repository configuration
-    why: A template helper may need to copy canonical public identifiers into tool-required literal fields, but repository-controlled code must be reviewed before it runs.
-    run: |
-      1. If `./scripts/sync-config.sh` or `.infra-copilot/config.md` is absent, there is nothing to synchronize.
-      2. Review `./scripts/sync-config.sh` in full before trusting it.
-      3. Run it yourself from the repository root.
-      4. Review the resulting diff, then commit `.infra-copilot/config.md` and both
-         Terraform `versions.tf` files together.
-      5. Reply `done`; the agent verifies the committed synchronized state.
-    check: >-
-      if test ! -x ./scripts/sync-config.sh || test ! -f .infra-copilot/config.md; then exit 0; fi;
-      git ls-files --error-unmatch .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf >/dev/null 2>&1 &&
-      git diff --quiet HEAD -- .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf &&
-      git diff --cached --quiet HEAD -- .infra-copilot/config.md terraform/cloudflare/versions.tf terraform/github/versions.tf &&
-      if [ "$HAS_HCP_BOOTSTRAP" = "true" ]; then
-        for name in $(printf '%s' "$HCP_BOOTSTRAP_LEAVES" | jq -er '.[]'); do
-          config_file="terraform/$name/versions.tf"
-          test -f "$config_file" && grep -Eq "^[[:space:]]*organization[[:space:]]*=[[:space:]]*\"$ORG\"[[:space:]]*$" "$config_file" || exit 1;
-        done
-      fi
-    produces: committed repository literals synchronized from `.infra-copilot/config.md`
-    docs: config.md
 
   # ── Phase 0 — HCP bootstrap (backend: hcp only) ──────────────────────────
   - id: hcp-login
@@ -607,7 +578,7 @@ steps:
       $hcp_api/organizations/$ORG/workspaces per workspace with:
         working-directory:   terraform/cloudflare  (and terraform/github)
         file-triggers-enabled: true
-        trigger-patterns:    ["terraform/cloudflare/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"]  (and terraform/github/** plus the shared paths)
+        trigger-patterns:    ["terraform/cloudflare/**", "terraform/modules/**", "README.md", "mise.toml"]  (and terraform/github/** plus the shared paths)
         execution-mode:      remote
         terraform-version:   $TERRAFORM_VERSION  # exact committed mise.toml pin
         auto-apply:          false
@@ -957,16 +928,19 @@ steps:
       Obtain explicit approval before creating the label in $REPO:
         gh label create allow-destroy --repo "$REPO" --color B60205 --description "Explicit opt-in to Terraform deletes and replacements"
       Do not overwrite an existing label. Record a locked "Destructive apply" decision with
-      choice "allow-destroy" and the intent-marker limitations in .infra-copilot/decisions.md.
+      choice "allow-destroy" and the intent-marker limitations in the README Decisions table.
     tri_state: true
     check: |
       labels=$(gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name') || exit 2
       printf '%s\n' "$labels" | grep -Fxq 'allow-destroy' || exit 1
       awk -F '|' '
         function clean(v) { gsub(/^[[:space:]`]+|[[:space:]`]+$/, "", v); return tolower(v) }
+        /^<!-- infra:decisions start -->$/ { in_table=1; next }
+        /^<!-- infra:decisions end -->$/ { in_table=0; next }
+        !in_table { next }
         clean($2) == "destructive apply" && clean($3) == "allow-destroy" && clean($4) == "locked" {found=1}
         END {exit !found}
-      ' .infra-copilot/decisions.md 2>/dev/null
+      ' README.md 2>/dev/null
     produces: allow-destroy label and a locked destructive apply decision
     docs: docs/object-storage-ci.md#destructive-apply-opt-in
 
@@ -988,7 +962,7 @@ steps:
       2. Deployment branches and tags: "Selected branches and tags", add exactly "main"
       3. Required reviewers: enable and add approvers if GitHub offers them (public repos,
          or GitHub Enterprise for private ones; Free/Pro/Team reject the rule with a 422)
-      4. Without reviewers, lock an "Apply gate" row in .infra-copilot/decisions.md whose
+      4. Without reviewers, lock an "Apply gate" row in the README Decisions table whose
          choice is "merge-approval" or "dispatch" (docs/object-storage-ci.md#github-environments)
       5. The terraform-apply workflow references this environment
     check: sh "$INFRA_REFERENCES/checks/gha-apply-gate.sh"
@@ -1114,7 +1088,7 @@ steps:
       sh "$INFRA_REFERENCES/checks/workflow-routing.sh" || exit $?
       # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
       # Fail closed: if git status fails, treat as dirty rather than clean
-      dirty_status=$(git status --porcelain -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
+      dirty_status=$(git status --porcelain -- terraform/cloudflare terraform/modules README.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
         echo "git status failed - cannot verify working tree state" >&2
         exit 1
       }
@@ -1123,7 +1097,7 @@ steps:
         exit 1
       fi
       # Find the newest commit that changed relevant paths
-      target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml 2>/dev/null)
+      target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules README.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
       # Get the newest run on the current branch (workflow_dispatch runs at HEAD, not target_sha)
       branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)
@@ -1161,7 +1135,7 @@ steps:
       sh "$INFRA_REFERENCES/checks/workflow-routing.sh" || exit $?
       # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
       # Fail closed: if git status fails, treat as dirty rather than clean
-      dirty_status=$(git status --porcelain -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
+      dirty_status=$(git status --porcelain -- terraform/github terraform/modules README.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
         echo "git status failed - cannot verify working tree state" >&2
         exit 1
       }
@@ -1170,7 +1144,7 @@ steps:
         exit 1
       fi
       # Find the newest commit that changed relevant paths
-      target_sha=$(git log --format=%H -1 -- terraform/github terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml 2>/dev/null)
+      target_sha=$(git log --format=%H -1 -- terraform/github terraform/modules README.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
       # Get the newest run on the current branch (workflow_dispatch runs at HEAD, not target_sha)
       branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)
@@ -1474,7 +1448,7 @@ steps:
         [ -n "$(git --no-optional-locks ls-files -- ':/terraform/cloudflare/generated*.tf')" ] || exit 1
         # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
         # Fail closed: if git status fails, treat as dirty rather than clean
-        dirty_status=$(git status --porcelain -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
+        dirty_status=$(git status --porcelain -- terraform/cloudflare terraform/modules README.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
           echo "git status failed - cannot verify working tree state" >&2
           exit 1
         }
@@ -1483,7 +1457,7 @@ steps:
           exit 1
         fi
         # Find the newest commit that changed relevant paths
-        target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml 2>/dev/null)
+        target_sha=$(git log --format=%H -1 -- terraform/cloudflare terraform/modules README.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml 2>/dev/null)
         [ -n "$target_sha" ] || exit 1
         # Get the newest run on the current branch (workflow_dispatch runs at HEAD, not target_sha)
         branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)
@@ -1636,7 +1610,7 @@ steps:
         # terraform that runs the plan -- so either one dirty means the plan came from a
         # configuration the commit does not describe.
         dirty=$(git --no-optional-locks status --porcelain -- ':/terraform/cloudflare' \
-          ':/terraform/modules' ':/.infra-copilot/config.md' ':/mise.toml' ':/mise.lock') || {
+          ':/terraform/modules' ':/README.md' ':/mise.toml' ':/mise.lock') || {
           echo "git status failed - cannot verify the plan matches the commit" >&2
           exit 1
         }
@@ -1858,7 +1832,7 @@ steps:
     why: An untracked leaf may be an interrupted adoption and must not disappear from resume scans.
     run: |
       For every terraform/<leaf> other than cloudflare and github, add a matching
-      `additional_providers` entry to .infra-copilot/config.md. Record the decision
+      `additional_providers` entry to README.md. Record the decision
       and credential inventory there; never delete an entry to hide red state.
     check: |
       # Validate provider names (common to both modes)
@@ -1935,7 +1909,7 @@ steps:
     title: Record the new-provider decision and its verification inventory
     why: A provider changes a locked design decision, and later runs need durable names for every check.
     run: |
-      1. Add a row to .infra-copilot/decisions.md whose decision is exactly
+      1. Add a row to the README Decisions table whose decision is exactly
          `Provider: <provider>`, choice is `adopt`, and status is `locked`, and a second
          locked row whose decision is exactly `<provider> authentication` and whose
          choice names the credential mechanism (e.g. `Workload Identity Federation` or
@@ -1948,7 +1922,7 @@ steps:
          TFC_GCP_PROVIDER_AUTH).
       2. Add terraform/<provider> to terraform/README.md.
       3. For effective backend hcp:
-         Add an `additional_providers` entry to .infra-copilot/config.md with its
+         Add an `additional_providers` entry to README.md with its
          lowercase name, HCP workspace, and every authentication variable's key,
          category, and sensitive flag. Inventory every workspace variable so undeclared
          credentials cannot survive a reused workspace. Record provider mise tools (or
@@ -1960,7 +1934,7 @@ steps:
          Set `credentials_verified_at: ""` until the credential handoff is complete.
          Never put a credential value in the repo.
          For effective backend object-storage:
-         Add an `additional_providers` entry to .infra-copilot/config.md with its
+         Add an `additional_providers` entry to README.md with its
          lowercase name, provider mise tools (or `[]`), and `credential_secrets` list
          with `name`, `required`, and `scope` (plan or apply) for every GitHub Actions secret.
          Plan names are read-only repository secrets; apply names are distinct and production-only.
@@ -2025,6 +1999,9 @@ steps:
           gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
           return tolower(value)
         }
+        /^<!-- infra:decisions start -->$/ { in_table=1; next }
+        /^<!-- infra:decisions end -->$/ { in_table=0; next }
+        !in_table { next }
         BEGIN { found=0; auth=0; expected="provider: " tolower(provider)
           auth_expected=tolower(provider) " authentication" }
         clean($2) == expected && clean($3) == "adopt" && clean($4) == "locked" { found=1 }
@@ -2034,7 +2011,7 @@ steps:
         # Exactly one locked authentication row: two would be simultaneously
         # authoritative, and "last one wins" would make row order the decision.
         END { if (found && auth == 1) print choice; exit !(found && auth == 1) }
-      ' .infra-copilot/decisions.md) || exit 1
+      ' README.md) || exit 1
       # The recorded mechanism must be the one the inventory actually installs, in both
       # directions: a locked keyless decision over a key inventory would otherwise skip
       # the WIF trust check and go green on the key it rejected.
@@ -2083,12 +2060,9 @@ steps:
       fi
       grep -Eq "(^|[^A-Za-z0-9_-])terraform/$NEW_PROVIDER(/|[^A-Za-z0-9_-]|$)" \
         terraform/README.md || exit 1
-      git ls-files --error-unmatch .infra-copilot/config.md \
-        .infra-copilot/decisions.md terraform/README.md >/dev/null 2>&1 || exit 1
-      git diff --quiet HEAD -- .infra-copilot/config.md \
-        .infra-copilot/decisions.md terraform/README.md || exit 1
-      git diff --cached --quiet HEAD -- .infra-copilot/config.md \
-        .infra-copilot/decisions.md terraform/README.md
+      git ls-files --error-unmatch README.md terraform/README.md >/dev/null 2>&1 || exit 1
+      git diff --quiet HEAD -- README.md terraform/README.md || exit 1
+      git diff --cached --quiet HEAD -- README.md terraform/README.md
     produces: locked provider and authentication decisions plus a non-secret verification inventory
     docs: config.md
 
@@ -2185,9 +2159,9 @@ steps:
       entry's NEW_PROVIDER_MISE_TOOLS so its conditional provider CLI is verified.
     check: >-
       mise --version >/dev/null &&
-      git ls-files --error-unmatch mise.toml mise.lock .infra-copilot/config.md >/dev/null 2>&1 &&
-      git diff --quiet HEAD -- mise.toml mise.lock .infra-copilot/config.md &&
-      git diff --cached --quiet HEAD -- mise.toml mise.lock .infra-copilot/config.md &&
+      git ls-files --error-unmatch mise.toml mise.lock README.md >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- mise.toml mise.lock README.md &&
+      git diff --cached --quiet HEAD -- mise.toml mise.lock README.md &&
       current_mise_blob=$(git hash-object -- mise.toml) &&
       current_mise_lock_blob=$(git hash-object -- mise.lock) &&
       [ "$NEW_PROVIDER_MISE_CONFIG_BLOB" = "$current_mise_blob" ] &&
@@ -2275,7 +2249,7 @@ steps:
          - terraform/modules/**
          - mise.toml
          - mise.lock
-         - .infra-copilot/config.md
+         - README.md
          - .github/workflows/terraform-*.yml
          - .github/scripts/terraform-destroy.cjs
       2. Add plan/apply jobs for the new leaf
@@ -2406,7 +2380,7 @@ steps:
               and ($a["queue-all-runs"] == false)
               and ($a["global-remote-state"] == false)
               and ((($a["trigger-patterns"] // []) | sort)
-                   == ([$dir + "/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"] | sort))
+                   == ([$dir + "/**", "terraform/modules/**", "README.md", "mise.toml"] | sort))
               and (($a["vcs-repo"].identifier // "") == $repo)
               and (($a["vcs-repo"].branch // "") == "main")' >/dev/null
       rc=$?
@@ -2456,9 +2430,9 @@ steps:
       reload it, and reply `done` so the agent re-runs this durable attestation check.
     check: |
       test "$NEW_PROVIDER_FORK_PLANS_DISABLED" = "true" || exit 1
-      git ls-files --error-unmatch .infra-copilot/config.md >/dev/null 2>&1 || exit 1
-      git diff --quiet HEAD -- .infra-copilot/config.md || exit 1
-      git diff --cached --quiet HEAD -- .infra-copilot/config.md || exit 1
+      git ls-files --error-unmatch README.md >/dev/null 2>&1 || exit 1
+      git diff --quiet HEAD -- README.md || exit 1
+      git diff --cached --quiet HEAD -- README.md || exit 1
       test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
       body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
         -H "Authorization: Bearer $HCP_TOKEN") || exit 2
@@ -2567,9 +2541,9 @@ steps:
         | ($epoch != null)
           and (($epoch | strftime("%Y-%m-%dT%H:%M:%SZ")) == $raw)
           and ($epoch <= now)' >/dev/null || exit 1
-      git ls-files --error-unmatch .infra-copilot/config.md >/dev/null 2>&1 || exit 1
-      git diff --quiet HEAD -- .infra-copilot/config.md || exit 1
-      git diff --cached --quiet HEAD -- .infra-copilot/config.md
+      git ls-files --error-unmatch README.md >/dev/null 2>&1 || exit 1
+      git diff --quiet HEAD -- README.md || exit 1
+      git diff --cached --quiet HEAD -- README.md
     tri_state: true
     produces: exact declared workspace-variable metadata in HCP
     docs: docs/secrets.md
@@ -2591,9 +2565,12 @@ steps:
         printf '%s' "${NEW_PROVIDER_MISE_TOOLS:-[]}" | jq -e 'index("gcloud") != null' >/dev/null 2>&1 ||
         awk -F '|' -v provider="$NEW_PROVIDER" '
           function clean(v) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return tolower(v) }
+          /^<!-- infra:decisions start -->$/ { in_table=1; next }
+          /^<!-- infra:decisions end -->$/ { in_table=0; next }
+          !in_table { next }
           clean($2) == tolower(provider) " authentication" &&
           clean($3) == "workload identity federation" && clean($4) == "locked" { found=1 }
-          END { exit !found }' .infra-copilot/decisions.md 2>/dev/null; }
+          END { exit !found }' README.md 2>/dev/null; }
     title: Verify the GCP run identity (WIF trust scope, or key-only configuration)
     why: >-
       Every HCP customer shares the issuer, so an unconditioned or name-only trust lets
@@ -2661,7 +2638,7 @@ steps:
       committed branch to its configured upstream so HCP can ingest the branch tip;
       never push a dirty or detached checkout. Wait until the workspace's VCS run list
       contains an ingested commit whose `terraform/$NEW_PROVIDER`, shared
-      `terraform/modules`, `.infra-copilot/config.md`, and `mise.toml` trees equal the
+      `terraform/modules`, `README.md`, and `mise.toml` trees equal the
       current committed versions, then run
       `sh "$INFRA_REFERENCES/checks/hcp-current-plan.sh" queue` to queue a
       plan-only retry using that configuration version. The helper explicitly includes
@@ -2734,9 +2711,9 @@ steps:
         | ($epoch != null)
           and (($epoch | strftime("%Y-%m-%dT%H:%M:%SZ")) == $raw)
           and ($epoch <= now)' >/dev/null || exit 1
-      git ls-files --error-unmatch .infra-copilot/config.md >/dev/null 2>&1 || exit 1
-      git diff --quiet HEAD -- .infra-copilot/config.md || exit 1
-      git diff --cached --quiet HEAD -- .infra-copilot/config.md
+      git ls-files --error-unmatch README.md >/dev/null 2>&1 || exit 1
+      git diff --quiet HEAD -- README.md || exit 1
+      git diff --cached --quiet HEAD -- README.md
     produces: GitHub Actions secrets for provider authentication
     docs: docs/object-storage-ci.md#github-actions
 
@@ -2758,7 +2735,7 @@ steps:
       ROUTING_PROVIDER="$NEW_PROVIDER" sh "$INFRA_REFERENCES/checks/workflow-routing.sh" || exit $?
       # Reject any dirty state in relevant paths (tracked changes, staged, or untracked files)
       # Fail closed: if git status fails, treat as dirty rather than clean
-      dirty_status=$(git status --porcelain -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
+      dirty_status=$(git status --porcelain -- "terraform/$NEW_PROVIDER" terraform/modules README.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml) || {
         echo "git status failed - cannot verify working tree state" >&2
         exit 1
       }
@@ -2767,7 +2744,7 @@ steps:
         exit 1
       fi
       # Find the newest commit that changed relevant paths
-      target_sha=$(git log --format=%H -1 -- "terraform/$NEW_PROVIDER" terraform/modules .infra-copilot/config.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml 2>/dev/null)
+      target_sha=$(git log --format=%H -1 -- "terraform/$NEW_PROVIDER" terraform/modules README.md mise.toml mise.lock .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml 2>/dev/null)
       [ -n "$target_sha" ] || exit 1
       # Get the newest run on the current branch (workflow_dispatch runs at HEAD, not target_sha)
       branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD)

@@ -18,7 +18,7 @@ HCP's subject cannot authenticate Actions, and its credential attestation is not
 The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml) stays
 **red** until GCP is intentionally adopted. Before writing provider code:
 
-1. Add two locked rows to `.infra-copilot/decisions.md`: decision `Provider: gcp` with
+1. Add two locked rows to `the README Decisions table`: decision `Provider: gcp` with
    choice `adopt`, and decision `GCP authentication` with choice
    `Workload Identity Federation` (or `service-account key`, with the reason WIF could
    not be arranged). Auth is a decision, not a default: a key is a long-lived secret
@@ -32,7 +32,7 @@ The provider-neutral `new-provider-decision` entry in [`steps.yaml`](steps.yaml)
    wording stays red, and so do two locked
    authentication rows — mark the old one `superseded`.
 2. Note the new leaf in `terraform/README.md`.
-3. Add GCP to `.infra-copilot/config.md`'s `additional_providers`, including every HCP
+3. Add GCP to `README.md`'s `additional_providers`, including every HCP
    variable the chosen auth needs — for WIF, those listed under
    [HCP workspace variables](#hcp-workspace-variables); for a key, only
    `GOOGLE_CREDENTIALS` (`category: env`, `sensitive: true`) — plus

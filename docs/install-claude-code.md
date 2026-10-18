@@ -49,9 +49,8 @@ restart the session. The old slash commands are gone; use the skill names below.
 `/infra-skills:infra-add`, `/infra-skills:infra-status`, or plain
 natural language ("use infra-skills to check where infra stands").
 
-A `SessionStart` hook announces the plugin when the working directory carries
-`.infra-copilot/config.md`, the legacy `.claude/infra-copilot.local.md`, or a
-`terraform/` tree. Silence it with `INFRA_HOOK_DISABLE=1`.
+A `SessionStart` hook announces the plugin when the working directory's `README.md` carries
+the Config block markers, or the directory has a `terraform/` tree. Silence it with `INFRA_HOOK_DISABLE=1`.
 
 ## Verify
 

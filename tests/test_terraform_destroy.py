@@ -9,6 +9,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
+from tests.readme_fixture import render
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -38,8 +40,7 @@ class DestructiveLabelTests(unittest.TestCase):
             with self.subTest(labels=labels, api_status=api_status, decision=decision):
                 with tempfile.TemporaryDirectory() as directory:
                     root = Path(directory)
-                    (root / '.infra-copilot').mkdir()
-                    (root / '.infra-copilot/decisions.md').write_text(decision)
+                    (root / 'README.md').write_text(render(decisions=decision))
                     result = subprocess.run(
                         ['sh', '-c', 'gh() { printf "%s" "$TEST_LABELS"; return "$TEST_STATUS"; }\n' + script],
                         cwd=root, capture_output=True, text=True,

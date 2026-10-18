@@ -38,8 +38,7 @@ class CredentialTierTests(unittest.TestCase):
                             '  *"--env production"*) printf "%s\\n" "$ENV_NAMES"; exit "$ENV_STATUS" ;;\n'
                             '  *) printf "%s\\n" "$REPO_NAMES"; exit "$REPO_STATUS" ;;\nesac\n')
             stub.chmod(0o755)
-            (root / '.infra-copilot').mkdir()
-            (root / '.infra-copilot/config.md').write_text('fixture\n')
+            (root / 'README.md').write_text('fixture\n')
             subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
             subprocess.run(['git', 'add', '.'], cwd=root, check=True)
             subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',

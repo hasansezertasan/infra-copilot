@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:c27192b9b60d9469534ce08d052f117682a29b92e1b85ef1c8d42a95a7bcc5f3
-Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
+Content-Hash: blake3:4c39fa3c87b3fffc4dee42a24e13e3e4d8ea6c38132bfd1384b970a13a1352df
+Source-Hash: blake3:8f61e9c22b778040700847fb97bb1970100ac80e7328b2265d53f646f3a76e9d
 Schema-Version: v1
 -->
 
@@ -73,9 +73,9 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 ## Workflow
 
-1. **Read config first** (shared protocol, Step 0). Load `.infra-copilot/config.md`, or
-   use `.claude/infra-copilot.local.md` as the migration fallback, and export the org
-   vars. If both are missing → handoff, offer to scaffold, wait.
+1. **Read config first** (shared protocol, Step 0). Load the Config block from the
+   root `README.md` and export the org vars. A legacy `.infra-copilot/` directory or
+   `.claude/infra-copilot.local.md` → unsupported, stop. No Config block → handoff, wait.
    For a new setup, recommend **object-storage** first. Explain HCP's managed runs and
    UI, its free tier's 500-resource limit, and this workflow's required paid tier with
    team management for the plan-only credential, even below 500 resources. Ask for the
@@ -87,8 +87,7 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 2. **Bootstrap preflight**, then **resume scan** over phases 0–4 of
    [`../infra/references/steps.yaml`](../infra/references/steps.yaml). On a cold repo, check that `mise` itself
    is available, then scan `toolchain-pin` before running the pin-dependent preflight
-   checks. Once it is green, finish preflight, handle the optional `repo-config-sync` step,
-    print `✓`, and continue through every selected service's bootstrap members. Full contract:
+   checks. Once it is green, finish preflight, print `✓`, and continue through every selected service's bootstrap members. Full contract:
    [`../infra/references/protocol.md`](../infra/references/protocol.md).
 3. **Respect the actor split.** Run `AGENT` steps yourself. On a `HUMAN` step, stop, emit
    the handoff block, wait for `done`, re-run the `check` — never fake a signup, a
@@ -149,7 +148,7 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 Setup is complete when you can report:
 
-- ✓ `.infra-copilot/config.md` explicitly records the chosen `backend`.
+- ✓ The README Config block explicitly records the chosen `backend`.
 
 **For every effective HCP leaf and the shared HCP service:**
 
@@ -209,6 +208,6 @@ Everything green means the scope is already done and there is nothing to do.
 ## Configuring for your org
 
 All org-specific values — HCP org, GitHub org, apex domain, Cloudflare account/zone IDs,
-managed repos, HCP status-check ID — live in `.infra-copilot/config.md` (schema +
-export block: [`../infra/references/config.md`](../infra/references/config.md)). Fill it in once and re-run —
+managed repos, HCP status-check ID — live in the README Config block (schema +
+export block: [`../infra/references/config.md`](../infra/references/config.md)). Fill in the customization region once and re-run —
 the resume protocol handles the rest.

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:9c5f120d0193410d5f0e0b3fff8e5c3e688c31d0bfa3d0786c2c74359ca8a734
-Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
+Content-Hash: blake3:e91d2c5bb83606a72383c087952bb1211286a9322f611bf1753e5bba1ef6711b
+Source-Hash: blake3:8f61e9c22b778040700847fb97bb1970100ac80e7328b2265d53f646f3a76e9d
 Schema-Version: v1
 -->
 
@@ -130,7 +130,7 @@ With reviewers, an apply waits for environment approval, like HCP's "confirm app
 Where reviewers are available the `gha-environments` check requires them.
 
 Where they are not, pick one of these human gates and lock it as an `Apply gate` row in
-`.infra-copilot/decisions.md` (choice `merge-approval` or `dispatch`, status `locked`):
+`the README Decisions table` (choice `merge-approval` or `dispatch`, status `locked`):
 
 - **Merge is the approval** (`merge-approval`). Apply runs automatically on push to `main`.
   The human gate is the reviewed PR plan plus the required review in `main`'s branch

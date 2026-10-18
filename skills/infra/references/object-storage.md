@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:44e36d3caafdccdb9db86e96aadf53c852c69f5e41c90ee61f4e65d616d11c2e
-Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
+Content-Hash: blake3:4b689882951981630f31cf5b72ba9aa6ceb2a060c92bafe5331e21cdce94a435
+Source-Hash: blake3:8f61e9c22b778040700847fb97bb1970100ac80e7328b2265d53f646f3a76e9d
 Schema-Version: v1
 -->
 
@@ -18,7 +18,7 @@ State provisioning, IAM and migration commands are in
 Install [plan](templates/terraform-plan.yml) and [apply](templates/terraform-apply.yml)
 workflows and [the shared destroy helper](templates/terraform-destroy.cjs), copied to
 `.github/scripts/terraform-destroy.cjs`, with one leaf job and isolated state key per provider. Include the leaf,
-`terraform/modules/**`, `.infra-copilot/config.md`, `mise.toml` and `mise.lock` in the
+`terraform/modules/**`, `README.md`, `mise.toml` and `mise.lock` in the
 path filter. Add the leaf to validation, the changes output, the aggregate plan's `needs`,
 and keep every production apply job unconditional. Include the workflow files and shared helper in
 each plan path filter. Use the committed mise lock via `jdx/mise-action`.

@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.readme_fixture import render
+
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCES = ROOT / '.ai-rulez/skills/infra/references'
 SCRIPT = REFERENCES / 'checks/gha-workflows.sh'
@@ -152,19 +154,18 @@ class WorkflowSetupTests(unittest.TestCase):
     def test_dispatch_gate_requires_a_locked_decision_and_no_auto_apply(self) -> None:
         original = self.apply.read_text()
         dispatch_only = original.replace('  push:\n    branches: [main]\n', '')
-        decisions = self.root / '.infra-copilot/decisions.md'
-        decisions.parent.mkdir()
+        decisions = self.root / 'README.md'
         for choice, status, expected in (('dispatch', 'locked', 0),
                                           ('dispatch', 'open', 1),
                                           ('merge-approval', 'locked', 1)):
             with self.subTest(choice=choice, status=status):
-                decisions.write_text(f'| Apply gate | {choice} | {status} |\n')
-                self.git('add', '.infra-copilot')
+                decisions.write_text(render(decisions=f'| Apply gate | {choice} | {status} |\n'))
+                self.git('add', 'README.md')
                 self.apply.write_text(dispatch_only)
                 self.commit()
                 self.assertEqual(self.check().returncode, expected)
-        decisions.write_text('| Apply gate | dispatch | locked |\n')
-        self.git('add', '.infra-copilot')
+        decisions.write_text(render(decisions='| Apply gate | dispatch | locked |\n'))
+        self.git('add', 'README.md')
         self.apply.write_text(original)
         self.commit()
         self.assertEqual(self.check().returncode, 1)
@@ -295,7 +296,7 @@ class WorkflowSetupTests(unittest.TestCase):
                       "              - 'terraform/modules/**'\n"
                       "              - 'mise.toml'\n"
                       "              - 'mise.lock'\n"
-                      "              - '.infra-copilot/config.md'\n"
+                      "              - 'README.md'\n"
                       "              - '.github/workflows/terraform-*.yml'\n"
                       "              - '.github/scripts/terraform-destroy.cjs'\n")
         aws_init = "          leaf_aws=false\n"

@@ -166,10 +166,10 @@ backend_file="terraform/$leaf/backend.tf"
             incomplete "backend or cloud declaration outside reviewed backend.tf: $source_file"
     fi
 done
-git ls-files --error-unmatch "$backend_file" .infra-copilot/config.md >/dev/null 2>&1 ||
+git ls-files --error-unmatch "$backend_file" README.md >/dev/null 2>&1 ||
     incomplete 'commit the destination backend and config'
-git diff --quiet HEAD -- "$backend_file" .infra-copilot/config.md || exit 1
-git diff --cached --quiet HEAD -- "$backend_file" .infra-copilot/config.md || exit 1
+git diff --quiet HEAD -- "$backend_file" README.md || exit 1
+git diff --cached --quiet HEAD -- "$backend_file" README.md || exit 1
 blob=$(git hash-object "$backend_file") || exit 2
 transfers=${STATE_TRANSFERS-'{}'}
 printf '%s' "$transfers" | jq -e --arg leaf "$leaf" --arg blob "$blob" '

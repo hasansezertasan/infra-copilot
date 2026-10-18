@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:76f2c18034852207b793b6fd59d83142d32112b675cd9bc2dddb193abb8e7523
-Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
+Content-Hash: blake3:8037cdf2b2652b32689d109809911c46cbcf44d311d7f67f7ee6a47f3dc35a93
+Source-Hash: blake3:8f61e9c22b778040700847fb97bb1970100ac80e7328b2265d53f646f3a76e9d
 Schema-Version: v1
 -->
 
@@ -37,7 +37,7 @@ For each workspace, in Settings → Version Control:
 
 - VCS provider: GitHub (connect via OAuth or the HCP Terraform GitHub App, scope to this repo only).
 - **Terraform Working Directory**: set as above.
-- **Automatic Run Triggering**: set to **"Only trigger runs when files in specified paths change"**, with both `<working-dir>/**` (e.g. `terraform/cloudflare/**`) and `.infra-copilot/config.md`. The shared config must trigger both workspaces; otherwise either root can plan against stale public identifiers. Directory scoping still prevents a docs-only commit from spuriously planning both providers.
+- **Automatic Run Triggering**: set to **"Only trigger runs when files in specified paths change"**, with both `<working-dir>/**` (e.g. `terraform/cloudflare/**`) and `README.md`. The shared config must trigger both workspaces; otherwise either root can plan against stale public identifiers. Directory scoping still prevents a docs-only commit from spuriously planning both providers.
 - **Automatic speculative plans**: **enabled**. This is the master toggle for plans on PRs; without it, PRs get no speculative plan and the GitHub status check never appears.
 - **Speculative plans on PRs from forks**: **disabled**. This is a separate, fork-specific toggle. Without disabling it, anyone opening a fork PR can read the workspace's sensitive variables via a malicious `.tf` file. The label-gated plan flow in [`ci.md`](./ci.md) replaces it for fork PRs.
 

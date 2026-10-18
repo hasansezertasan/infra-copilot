@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.readme_fixture import ReadmeFixture
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STEPS = REPO_ROOT / ".ai-rulez/skills/infra/references/steps.yaml"
@@ -96,8 +98,7 @@ class NewProviderFlowTests(unittest.TestCase):
         check = literal_check(step)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / ".infra-copilot").mkdir()
-            (root / ".infra-copilot/config.md").write_text("additional_providers: []\n")
+            ReadmeFixture(root).config("additional_providers: []\n")
             bin_dir = root / "bin"
             bin_dir.mkdir()
             gh = bin_dir / "gh"
@@ -264,7 +265,7 @@ class NewProviderFlowTests(unittest.TestCase):
 
     def test_decision_is_not_inferred_from_the_leaf_directory(self) -> None:
         decision = self.steps["new-provider-decision"]
-        self.assertIn(".infra-copilot/decisions.md", decision)
+        self.assertIn("infra:decisions start", decision)
         self.assertIn("terraform/README.md", decision)
         self.assertIn("locked", decision)
         self.assertIn('clean($2) == expected', decision)
@@ -297,26 +298,23 @@ class NewProviderFlowTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / ".infra-copilot").mkdir()
             (root / "terraform").mkdir()
             (root / "terraform/README.md").write_text(
                 "terraform/gcp\n", encoding="utf-8"
             )
-            (root / ".infra-copilot/config.md").write_text(
-                "additional_providers:\n  - name: gcp\n", encoding="utf-8"
-            )
-            decisions = root / ".infra-copilot/decisions.md"
-            decisions.write_text(
+            readme = ReadmeFixture(root)
+            readme.config("additional_providers:\n  - name: gcp\n")
+            decisions = readme.decisions
+            decisions(
                 "| Decision | Choice | Status |\n"
-                "| Use AWS, not GCP | aws | locked |\n",
-                encoding="utf-8",
+                "| Use AWS, not GCP | aws | locked |\n"
             )
             # Every case runs against a committed fixture. Uncommitted, the check fails
             # at its git cleanliness gate whatever the rows say, and the case proves
             # nothing about the row logic.
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
             subprocess.run(
-                ["git", "add", ".infra-copilot/config.md", ".infra-copilot/decisions.md",
+                ["git", "add", "README.md",
                  "terraform/README.md"],
                 cwd=root,
                 check=True,
@@ -338,10 +336,9 @@ class NewProviderFlowTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            decisions.write_text(
+            decisions(
                 "| Decision | Choice | Status |\n"
-                "| Provider: gcp | adopt | locked |\n",
-                encoding="utf-8",
+                "| Provider: gcp | adopt | locked |\n"
             )
             commit("provider row only")
             # A non-GCP inventory, so the GCP choice validation cannot be what turns
@@ -355,11 +352,10 @@ class NewProviderFlowTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            decisions.write_text(
+            decisions(
                 "| Decision | Choice | Status |\n"
                 "| Provider: gcp | adopt | locked |\n"
-                "| GCP authentication | Workload Identity Federation | locked |\n",
-                encoding="utf-8",
+                "| GCP authentication | Workload Identity Federation | locked |\n"
             )
             (root / "terraform/README.md").write_text(
                 "terraform/gcp-old\n", encoding="utf-8"
@@ -394,11 +390,10 @@ class NewProviderFlowTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            decisions.write_text(
+            decisions(
                 "| Decision | Choice | Status |\n"
                 "| Provider: gcp | adopt | locked |\n"
-                "| GCP authentication | service-account key | locked |\n",
-                encoding="utf-8",
+                "| GCP authentication | service-account key | locked |\n"
             )
             subprocess.run(
                 ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
@@ -414,11 +409,10 @@ class NewProviderFlowTests(unittest.TestCase):
                 text=True,
             )
             # Another provider's federation shares the words but not the GCP variable.
-            decisions.write_text(
+            decisions(
                 "| Decision | Choice | Status |\n"
                 "| Provider: gcp | adopt | locked |\n"
-                "| GCP authentication | Workload Identity Federation | locked |\n",
-                encoding="utf-8",
+                "| GCP authentication | Workload Identity Federation | locked |\n"
             )
             subprocess.run(
                 ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
@@ -435,11 +429,10 @@ class NewProviderFlowTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            decisions.write_text(
+            decisions(
                 "| Decision | Choice | Status |\n"
                 "| Provider: gcp | adopt | locked |\n"
-                "| GCP authentication | service-account key | locked |\n",
-                encoding="utf-8",
+                "| GCP authentication | service-account key | locked |\n"
             )
             subprocess.run(
                 ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
@@ -448,12 +441,11 @@ class NewProviderFlowTests(unittest.TestCase):
                 check=True,
             )
             # Two locked authentication rows: row order must not be the decision.
-            decisions.write_text(
+            decisions(
                 "| Decision | Choice | Status |\n"
                 "| Provider: gcp | adopt | locked |\n"
                 "| GCP authentication | Workload Identity Federation | locked |\n"
-                "| GCP authentication | service-account key | locked |\n",
-                encoding="utf-8",
+                "| GCP authentication | service-account key | locked |\n"
             )
             commit("two auth rows")
             two_auth_rows = subprocess.run(
@@ -467,11 +459,10 @@ class NewProviderFlowTests(unittest.TestCase):
             )
             # GCLOUD_/CLOUDSDK_ keys are GCP credentials too, so a WIF decision over one
             # is a mismatch, not "some other provider".
-            decisions.write_text(
+            decisions(
                 "| Decision | Choice | Status |\n"
                 "| Provider: gcp | adopt | locked |\n"
-                "| GCP authentication | Workload Identity Federation | locked |\n",
-                encoding="utf-8",
+                "| GCP authentication | Workload Identity Federation | locked |\n"
             )
             commit("wif decision over gcloud keyfile")
             gcloud_keyfile_wif = subprocess.run(
@@ -500,11 +491,10 @@ class NewProviderFlowTests(unittest.TestCase):
                 ("do not use Workload Identity Federation",
                  '[{"key":"TFC_GCP_PROVIDER_AUTH","category":"env","sensitive":false}]'),
             ):
-                decisions.write_text(
+                decisions(
                     "| Decision | Choice | Status |\n"
                     "| Provider: gcp | adopt | locked |\n"
-                    f"| GCP authentication | {choice} | locked |\n",
-                    encoding="utf-8",
+                    f"| GCP authentication | {choice} | locked |\n"
                 )
                 subprocess.run(
                     ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
@@ -519,11 +509,10 @@ class NewProviderFlowTests(unittest.TestCase):
                     capture_output=True,
                     text=True,
                 )
-            decisions.write_text(
+            decisions(
                 "| Decision | Choice | Status |\n"
                 "| Provider: gcp | adopt | locked |\n"
-                "| GCP authentication | service-account key | locked |\n",
-                encoding="utf-8",
+                "| GCP authentication | service-account key | locked |\n"
             )
             subprocess.run(
                 ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
@@ -612,14 +601,14 @@ class NewProviderFlowTests(unittest.TestCase):
             '"global-remote-state"',
             '"trigger-patterns"',
             '"vcs-repo"',
-            '".infra-copilot/config.md"',
+            '"README.md"',
             '"terraform/modules/**"',
             '"mise.toml"',
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, workspace)
         self.assertIn(
-            '== ([$dir + "/**", "terraform/modules/**", ".infra-copilot/config.md", "mise.toml"] | sort)',
+            '== ([$dir + "/**", "terraform/modules/**", "README.md", "mise.toml"] | sort)',
             workspace,
         )
         self.assertIn('($a["queue-all-runs"] == false)', workspace)
@@ -854,7 +843,7 @@ terraform {
         self.assertIn("NEW_PROVIDER_MISE_LOCK_BLOB", toolchain)
         self.assertIn("git hash-object -- mise.toml", toolchain)
         self.assertIn("git hash-object -- mise.lock", toolchain)
-        self.assertIn(".infra-copilot/config.md", toolchain)
+        self.assertIn("README.md", toolchain)
         self.assertIn("mise trust mise.toml", toolchain)
         self.assertIn("mise trust --show", toolchain)
         self.assertIn('$repo_dir: trusted', toolchain)
@@ -971,7 +960,7 @@ terraform {
         self.assertIn("NEW_PROVIDER_FORK_PLANS_WORKSPACE_ID", safety)
         self.assertIn("Version Control", safety)
         self.assertIn("fork", safety.lower())
-        self.assertIn("git diff --quiet HEAD -- .infra-copilot/config.md", safety)
+        self.assertIn("git diff --quiet HEAD -- README.md", safety)
         self.assertIn("actual_id", safety)
 
     def test_credentials_check_matches_declared_metadata(self) -> None:
@@ -992,7 +981,7 @@ terraform {
         self.assertIn("fromdateiso8601", credentials)
         self.assertIn('strftime("%Y-%m-%dT%H:%M:%SZ")', credentials)
         self.assertIn("$epoch <= now", credentials)
-        self.assertIn("git diff --quiet HEAD -- .infra-copilot/config.md", credentials)
+        self.assertIn("git diff --quiet HEAD -- README.md", credentials)
         self.assertIn("($actual == $wanted)", credentials)
         self.assertIn("/varsets?page%5Bsize%5D=1", credentials)
         self.assertIn("varset_count=", credentials)
@@ -1373,11 +1362,9 @@ terraform {
         # terraform-category google_credentials cannot hide a static key behind it.
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / ".infra-copilot").mkdir()
-            (root / ".infra-copilot/decisions.md").write_text(
+            ReadmeFixture(root).decisions(
                 "| Decision | Choice | Status |\n"
-                "| GCP authentication | Workload Identity Federation | locked |\n",
-                encoding="utf-8",
+                "| GCP authentication | Workload Identity Federation | locked |\n"
             )
             # Only the decision can trigger here: the inventory holds no Google-family
             # key and neither entry pins gcloud.
@@ -1410,7 +1397,7 @@ terraform {
         self.assertIn("destroys are\n   zero", status)
         self.assertIn("If that HUMAN trust gate is red", status)
         self.assertIn(
-            "terraform/cloudflare terraform/modules .infra-copilot/config.md mise.toml",
+            "terraform/cloudflare terraform/modules README.md mise.toml",
             status,
         )
         router = STATUS.read_text(encoding="utf-8")

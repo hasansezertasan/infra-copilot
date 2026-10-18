@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:7701f7ae7cab7e1e10d60677af9e6b10e4eb43465f2bc3304c39422b0a329f36
-Source-Hash: blake3:38aa282b91a5aa18d87830dea0171bc65c256b604a715b949c5845a8b1ce8e56
+Content-Hash: blake3:91db60a73c2802adcbdb7fa1d363235c14b7eea17b9780aaa6d08106f7df4a76
+Source-Hash: blake3:8f61e9c22b778040700847fb97bb1970100ac80e7328b2265d53f646f3a76e9d
 Schema-Version: v1
 -->
 
@@ -91,7 +91,7 @@ from a check that could not be verified. A skipped leaf plan is never a green pl
 ```text
 infra-skills status — <repo>
 Preflight terraform ✓ pinned   gh ✓ pinned   jq ✓ pinned   curl ✓ present
-Phase 0 bootstrap ✓ toolchain-pin  ✓ repo-config-sync  ✓ bootstrap-state
+Phase 0 bootstrap ✓ toolchain-pin  ✓ bootstrap-state
 Phase 1 execution ✗ provision-execution (member: selected execution check) ← first red
 Phase 2 credentials – store-cloudflare-credential (not reached)
 Verdict: execution incomplete — first red operation provision-execution (phase 1).

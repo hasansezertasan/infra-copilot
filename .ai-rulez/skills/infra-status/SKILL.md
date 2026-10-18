@@ -10,8 +10,9 @@ allowed-tools: Read, Bash, Glob, Grep, Task
 
 Route the health check through the shared status runbook:
 [`../infra/references/status.md`](../infra/references/status.md). It loads
-`.infra-copilot/config.md`, with `.claude/infra-copilot.local.md` as the documented legacy
-fallback.
+the Config block from the root `README.md`, and stops with an "unsupported" message when a
+legacy `.infra-copilot/` directory or `.claude/infra-copilot.local.md`
+file is still present.
 
 That reference owns the scan, safety classification, reporting rules, and validation.
 
