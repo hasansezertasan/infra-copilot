@@ -935,11 +935,11 @@ steps:
       printf '%s\n' "$labels" | grep -Fxq 'allow-destroy' || exit 1
       awk -F '|' '
         function clean(v) { gsub(/^[[:space:]`]+|[[:space:]`]+$/, "", v); return tolower(v) }
-        /^<!-- infra:decisions start -->$/ { in_table=1; next }
-        /^<!-- infra:decisions end -->$/ { in_table=0; next }
+        /^<!-- infra:decisions start -->$/ { if (in_table || ++starts > 1) bad=1; in_table=1; next }
+        /^<!-- infra:decisions end -->$/ { if (!in_table || ++ends > 1) bad=1; in_table=0; next }
         !in_table { next }
         clean($2) == "destructive apply" && clean($3) == "allow-destroy" && clean($4) == "locked" {found=1}
-        END {exit !found}
+        END {exit !(found && !bad && !in_table && starts == 1 && ends == 1)}
       ' README.md 2>/dev/null
     produces: allow-destroy label and a locked destructive apply decision
     docs: docs/object-storage-ci.md#destructive-apply-opt-in
@@ -1999,8 +1999,8 @@ steps:
           gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
           return tolower(value)
         }
-        /^<!-- infra:decisions start -->$/ { in_table=1; next }
-        /^<!-- infra:decisions end -->$/ { in_table=0; next }
+        /^<!-- infra:decisions start -->$/ { if (in_table || ++starts > 1) bad=1; in_table=1; next }
+        /^<!-- infra:decisions end -->$/ { if (!in_table || ++ends > 1) bad=1; in_table=0; next }
         !in_table { next }
         BEGIN { found=0; auth=0; expected="provider: " tolower(provider)
           auth_expected=tolower(provider) " authentication" }
@@ -2010,7 +2010,7 @@ steps:
         }
         # Exactly one locked authentication row: two would be simultaneously
         # authoritative, and "last one wins" would make row order the decision.
-        END { if (found && auth == 1) print choice; exit !(found && auth == 1) }
+        END { ok = (found && auth == 1 && !bad && !in_table && starts == 1 && ends == 1); if (ok) print choice; exit !ok }
       ' README.md) || exit 1
       # The recorded mechanism must be the one the inventory actually installs, in both
       # directions: a locked keyless decision over a key inventory would otherwise skip
@@ -2565,12 +2565,12 @@ steps:
         printf '%s' "${NEW_PROVIDER_MISE_TOOLS:-[]}" | jq -e 'index("gcloud") != null' >/dev/null 2>&1 ||
         awk -F '|' -v provider="$NEW_PROVIDER" '
           function clean(v) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return tolower(v) }
-          /^<!-- infra:decisions start -->$/ { in_table=1; next }
-          /^<!-- infra:decisions end -->$/ { in_table=0; next }
+          /^<!-- infra:decisions start -->$/ { if (in_table || ++starts > 1) bad=1; in_table=1; next }
+          /^<!-- infra:decisions end -->$/ { if (!in_table || ++ends > 1) bad=1; in_table=0; next }
           !in_table { next }
           clean($2) == tolower(provider) " authentication" &&
           clean($3) == "workload identity federation" && clean($4) == "locked" { found=1 }
-          END { exit !found }' README.md 2>/dev/null; }
+          END { exit !(found && !bad && !in_table && starts == 1 && ends == 1) }' README.md 2>/dev/null; }
     title: Verify the GCP run identity (WIF trust scope, or key-only configuration)
     why: >-
       Every HCP customer shares the issuer, so an unconditioned or name-only trust lets

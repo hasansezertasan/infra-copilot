@@ -118,6 +118,20 @@ class ApplyGateTests(unittest.TestCase):
                 self.decide(row)
                 self.assertEqual(self.check().returncode, 1)
 
+    def test_a_row_outside_a_closed_decisions_section_does_not_count(self) -> None:
+        """An unclosed, duplicated or stray-ended section is not a bounded table."""
+        row = '| Apply gate | merge-approval | locked | x |\n'
+        start, end = '<!-- infra:decisions start -->\n', '<!-- infra:decisions end -->\n'
+        for name, body in {
+            'unclosed': f'{start}\n{row}',
+            'duplicated': f'{start}\n{end}{start}\n{row}{end}',
+            'end before start': f'{end}{start}\n{row}',
+            'row after the end': f'{start}\n{end}{row}',
+        }.items():
+            with self.subTest(section=name):
+                (self.root / 'README.md').write_text('## Decisions\n\n' + body)
+                self.assertEqual(self.check().returncode, 1)
+
     def test_user_owned_private_repo_can_use_a_gate(self) -> None:
         self.env['FAIL_ORG'] = '404'
         self.decide('| Apply gate | dispatch | locked | x |')

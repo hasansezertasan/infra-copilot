@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:ee527c98ec37a54eff62444e59e1f95f3e62fbd4cd577fea4c08da11c4997d60
-Source-Hash: blake3:6e02258534512fefb9e19921919c9c130ca647882b0dadca595d6b5e5ffff986
+Content-Hash: blake3:a559752519500a5db3844afd352c4378c5d696c3f76f4e7061f14175cd046420
+Source-Hash: blake3:fc7818d3e2179433afd56fb5e6785e949e7a4c18b0d01f684e9ff4e00f5451eb
 Schema-Version: v1
 -->
 
@@ -207,5 +207,6 @@ Everything green means the scope is already done and there is nothing to do.
 
 All org-specific values — HCP org, GitHub org, apex domain, Cloudflare account/zone IDs,
 managed repos, HCP status-check ID — live in the README Config block (schema +
-export block: [`../infra/references/config.md`](../infra/references/config.md)). Fill in the customization region once and re-run —
+export block: [`../infra/references/config.md`](../infra/references/config.md)). The Template answers (orgs, domain, account IDs, `managed_repos`) change only through the
+Template's update flow; fill in the customization region once and re-run —
 the resume protocol handles the rest.

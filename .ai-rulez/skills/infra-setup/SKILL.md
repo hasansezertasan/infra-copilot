@@ -200,5 +200,6 @@ Everything green means the scope is already done and there is nothing to do.
 
 All org-specific values — HCP org, GitHub org, apex domain, Cloudflare account/zone IDs,
 managed repos, HCP status-check ID — live in the README Config block (schema +
-export block: [`../infra/references/config.md`](../infra/references/config.md)). Fill in the customization region once and re-run —
+export block: [`../infra/references/config.md`](../infra/references/config.md)). The Template answers (orgs, domain, account IDs, `managed_repos`) change only through the
+Template's update flow; fill in the customization region once and re-run —
 the resume protocol handles the rest.

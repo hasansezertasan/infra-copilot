@@ -36,11 +36,15 @@ class DestructiveLabelTests(unittest.TestCase):
             ('allow-destroy', 1, '| Destructive apply | allow-destroy | locked | Intent only |', 2),
             ('allow-destroy', 0, '| Destructive apply | allow-destroy | proposed | Intent only |', 1),
             ('allow-destroy', 0, '', 1),
+            ('allow-destroy', 0, None, 1),
         ):
             with self.subTest(labels=labels, api_status=api_status, decision=decision):
                 with tempfile.TemporaryDirectory() as directory:
                     root = Path(directory)
-                    (root / 'README.md').write_text(render(decisions=decision))
+                    (root / 'README.md').write_text(
+                        render(decisions=decision) if decision is not None else
+                        '<!-- infra:decisions start -->\n'
+                        '| Destructive apply | allow-destroy | locked | Intent only |\n')
                     result = subprocess.run(
                         ['sh', '-c', 'gh() { printf "%s" "$TEST_LABELS"; return "$TEST_STATUS"; }\n' + script],
                         cwd=root, capture_output=True, text=True,
