@@ -607,8 +607,12 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         re.MULTILINE,
     )
     steps_start = steps.find("\nsteps:\n")
+    # The Template steps render the repository, including mise.toml, so they run before
+    # the pins are reviewed and never execute a pin-dependent check themselves.
     first_step = (
-        re.search(r"^  - id: ([^\n]+)", steps[steps_start:], re.MULTILINE)
+        re.search(
+            r"^  - id: (?!template-)([^\n]+)", steps[steps_start:], re.MULTILINE
+        )
         if steps_start >= 0
         else None
     )
@@ -618,7 +622,7 @@ def validate_toolchain_contract(root: Path = ROOT) -> list[str]:
         or first_step.group(1) != "toolchain-pin"
     ):
         errors.append(
-            f"{TOOLCHAIN_STEPS_DOCUMENT}: toolchain-pin must be the first phase-0 step"
+            f"{TOOLCHAIN_STEPS_DOCUMENT}: toolchain-pin must be the first phase-0 step after the template- steps"
         )
     elif not all(
         marker in bootstrap_step.group("metadata")

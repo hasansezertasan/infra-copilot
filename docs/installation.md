@@ -11,6 +11,8 @@ you from https://github.com/hasansezertasan/infra-skills/blob/main/docs/installa
 Stop once the install is confirmed and tell me how to invoke it. Do not start setup.
 ```
 
+When you later start `infra-setup` in an empty directory, it renders the paired [`copier-infra`](https://github.com/hasansezertasan/copier-infra) Template for you and commits its answers; there is nothing to scaffold by hand first.
+
 The prompt points at this page, not at a command, so the routes below can change without the prompt changing. It stops after the install on purpose: `infra-setup` creates cloud and repository state and needs credentials only you can mint, so you start it yourself, in the repository you mean to bootstrap.
 
 ## For agents reading this page

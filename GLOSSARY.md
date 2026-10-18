@@ -3,7 +3,8 @@
 Agent skills that bootstrap and maintain an infrastructure repository, paired with a Copier template that renders that repository's starting shape. The two promote each other.
 
 Vocabulary for the pairing tracked in #130. The plugin is renamed and the Skills read the
-Config block and Decisions table from the README; the Template contract is not yet enforced.
+Config block and Decisions table from the README, and `infra-setup` renders the Template and
+enforces the Template contract.
 
 ## Language
 

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:8037cdf2b2652b32689d109809911c46cbcf44d311d7f67f7ee6a47f3dc35a93
-Source-Hash: blake3:0185c7546ec1e8d9f1a3371eb98d4fcf2fb7254291dbad3543b8c4ce2e3661a6
+Content-Hash: blake3:49a5f676928e95072857e55d5c9241e7cd5650b2ea23c9f33c8bc8ef332c8e10
+Source-Hash: blake3:6810227bba9ec11ee785af3fd29784bfec2acac1d7d5271e9ebab32c907fb9ea
 Schema-Version: v1
 -->
 
@@ -11,6 +11,28 @@ Schema-Version: v1
 One-time, out-of-band steps to wire up the systems this repo manages. The Terraform code is speculative until these are done.
 
 Run in order. Each step explains what it produces and where the value goes.
+
+## 0. Scaffold with the Template
+
+[`copier-infra`](https://github.com/hasansezertasan/copier-infra) renders the repository
+skeleton, Terraform roots, tool pins and the README Config block and Decisions table.
+`infra-setup` renders it for you: it clones the Template at its newest release tag, reads
+that tag's `copier.yml` for the current questions, renders with the Copier version pinned
+in [`../copier-requirements.txt`](../copier-requirements.txt), and commits the answers file
+`.copier-answers.yml` before any other step. It needs `uv` on the path.
+
+```sh
+uv run --no-project --with-requirements "$INFRA_REFERENCES/copier-requirements.txt" \
+  copier copy --vcs-ref <tag> gh:hasansezertasan/copier-infra .
+```
+
+A repository that already carries the committed answers file and the README Config block
+resumes instead of being re-scaffolded. Files the Template owns are never edited by hand
+afterwards; change answers with `copier update` from the repo root on a clean tree and
+review the diff. The recorded `_commit` must be a release tag at or above the minimum in
+[`../checks/template-contract.sh`](../checks/template-contract.sh) (the Template
+contract). An older tag proposes `copier update`; a bare commit hash cannot be compared,
+so setup hands off to you.
 
 ## 1. HCP Terraform — organization
 

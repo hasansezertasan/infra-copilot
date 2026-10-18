@@ -229,6 +229,47 @@ preflight:
 
 steps:
   # ── Phase 0 — Common bootstrap ──────────────────────────────────────────
+  - id: template-render
+    phase: 0
+    provider: repo
+    actor: AGENT
+    title: Render the copier-infra Template and commit its answers
+    why: The Template owns the skeleton, Terraform roots, README Config block and Decisions table; nothing else writes them, and later Template updates need the committed answers file.
+    run: |
+      Setup only, and only when no .copier-answers.yml and no README Config block exist.
+      1. Clone the Template at its newest release tag into a scratch directory and read its
+         copier.yml: those are the questions to ask, never a remembered set. Ask each as a
+         decision per protocol.md, recommended choice first.
+      2. Render with the pinned Copier, passing every answer with --data and --defaults:
+         uv run --no-project --with-requirements "$INFRA_REFERENCES/copier-requirements.txt" \
+           copier copy --trust=false --vcs-ref <tag> --defaults --data key=value \
+           gh:hasansezertasan/copier-infra .
+      3. Commit the render, including .copier-answers.yml, before any other step; Copier does
+         not initialize Git and its update reads tracked files and HEAD.
+      Never edit a file the Template owns afterwards; change answers with `copier update`.
+    check: >-
+      git ls-files --error-unmatch .copier-answers.yml >/dev/null 2>&1 &&
+      grep -q '<!-- infra:config start -->' README.md &&
+      grep -q '<!-- infra:config end -->' README.md
+    produces: committed .copier-answers.yml and the Template-rendered repository
+    docs: docs/setup.md#0-scaffold-with-the-template
+
+  - id: template-contract
+    phase: 0
+    provider: repo
+    actor: AGENT
+    tri_state: true
+    title: Check the recorded Template version against the minimum
+    why: The Skills accept a Template release at or above a minimum tag; an older tag needs the Template's update, and a bare commit cannot be compared so it goes to the human.
+    run: |
+      Red (exit 1, older tag): propose `copier update` run from the repo root on a clean
+      tree, show the conflicts for review, and re-run this check. Never overwrite silently.
+      Exit 2 (bare commit, between-tags value, no answers file): emit the handoff block
+      and wait; never assume the Template is compatible.
+    check: sh "$INFRA_REFERENCES/checks/template-contract.sh"
+    produces: a recorded Template version at or above the minimum
+    docs: docs/setup.md#0-scaffold-with-the-template
+
   - id: toolchain-pin
     phase: 0
     provider: repo

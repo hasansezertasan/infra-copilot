@@ -75,7 +75,10 @@ Five action skills — `infra-setup`, `infra-import`, `infra-prune`, `infra-add`
 thin routers over one hub
 skill, `infra-skills`, whose `references/` directory owns the behavior: `steps.yaml` (a
 phase-tagged step manifest with a `check` per step), `protocol.md` (the actor model, the
-handoff block, the resume scan, preflight), provider deep-dives, and runbooks. Host
+handoff block, the resume scan, preflight), provider deep-dives, and runbooks. `infra-setup`
+renders the paired Copier template, `copier-infra` (a separate repo; see ADR 0003), with the
+Copier version pinned in `references/copier-requirements.txt`, and never hand-writes files that
+Template owns. Host
 packages are adapters and must never become a second behavioral authority. State is never
 assumed: every run re-derives it by executing each step's `check`.
 

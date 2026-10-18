@@ -1,0 +1,3 @@
+# The Copier version infra-setup renders the Template with. Renovate tracks it through the
+# native pip_requirements manager; docs and steps.yaml read this file rather than repeating it.
+copier==9.19.1

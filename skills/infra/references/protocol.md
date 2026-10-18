@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:ddc88c89ba1a8a8830d3040a2f2169d5cfb607f812588cf5ca7b712ca87eb0fb
-Source-Hash: blake3:0185c7546ec1e8d9f1a3371eb98d4fcf2fb7254291dbad3543b8c4ce2e3661a6
+Content-Hash: blake3:6849c0c3bd8d17bf05b8279262b606ccb96d64d21c8eb93c27740d483fbf1e32
+Source-Hash: blake3:6810227bba9ec11ee785af3fd29784bfec2acac1d7d5271e9ebab32c907fb9ea
 Schema-Version: v1
 -->
 
@@ -36,7 +36,11 @@ Everything else — repository changes, verification, imports, and plans — is 
 
 Before any resume scan, check for a legacy `.infra-copilot/` directory or
 `.claude/infra-copilot.local.md`. If either exists, report it as unsupported and stop; do not
-read, copy or migrate it. Then read the Config block from the current repo's root
+read, copy or migrate it. For `infra-setup` on a directory with neither a `.copier-answers.yml` nor a README Config
+block, render the Template first (`template-render` in [`steps.yaml`](steps.yaml)); every
+other skill stops and hands off instead. Run `template-contract` before trusting a
+rendered repo: an older Template tag proposes `copier update`, and a bare commit hands off.
+Then read the Config block from the current repo's root
 `README.md`, the fenced YAML between `<!-- infra:config start -->` and
 `<!-- infra:config end -->`. If the block is missing, emit the handoff block, show the
 schema and wait — never guess org/domain/IDs, and never hand-write Template-owned README

@@ -29,7 +29,11 @@ Everything else — repository changes, verification, imports, and plans — is 
 
 Before any resume scan, check for a legacy `.infra-copilot/` directory or
 `.claude/infra-copilot.local.md`. If either exists, report it as unsupported and stop; do not
-read, copy or migrate it. Then read the Config block from the current repo's root
+read, copy or migrate it. For `infra-setup` on a directory with neither a `.copier-answers.yml` nor a README Config
+block, render the Template first (`template-render` in [`steps.yaml`](steps.yaml)); every
+other skill stops and hands off instead. Run `template-contract` before trusting a
+rendered repo: an older Template tag proposes `copier update`, and a bare commit hands off.
+Then read the Config block from the current repo's root
 `README.md`, the fenced YAML between `<!-- infra:config start -->` and
 `<!-- infra:config end -->`. If the block is missing, emit the handoff block, show the
 schema and wait — never guess org/domain/IDs, and never hand-write Template-owned README

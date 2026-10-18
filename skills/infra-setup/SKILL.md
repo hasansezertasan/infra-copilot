@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:a559752519500a5db3844afd352c4378c5d696c3f76f4e7061f14175cd046420
-Source-Hash: blake3:0185c7546ec1e8d9f1a3371eb98d4fcf2fb7254291dbad3543b8c4ce2e3661a6
+Content-Hash: blake3:b6169000691a21315da41c771474765a294edd4b5452543b06704ee45ab098a7
+Source-Hash: blake3:6810227bba9ec11ee785af3fd29784bfec2acac1d7d5271e9ebab32c907fb9ea
 Schema-Version: v1
 -->
 
@@ -73,7 +73,13 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 ## Workflow
 
-1. **Read config first** (shared protocol, Step 0). Load the Config block from the
+1. **Render the Template, or resume** (shared protocol, Step 0). On a directory with no
+   `.copier-answers.yml` and no README Config block, run `template-render`: read the
+   Template's current `copier.yml`, ask its questions, render with the pinned Copier and
+   commit the answers file. A repo that is already rendered resumes; never re-scaffold it
+   and never edit a file the Template owns. Then run `template-contract`: an older tag
+   proposes the Template's `copier update`, a bare commit hands off.
+   **Read config.** Load the Config block from the
    root `README.md` and export the org vars. A legacy `.infra-copilot/` directory or
    `.claude/infra-copilot.local.md` → unsupported, stop. No Config block → handoff, wait.
    For a new setup, recommend **object-storage** first. Explain HCP's managed runs and
