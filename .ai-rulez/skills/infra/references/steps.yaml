@@ -260,13 +260,14 @@ steps:
          uv run --no-project --with-requirements "$INFRA_REFERENCES/copier-requirements.txt" \
            copier copy --vcs-ref <tag> --defaults --data key=value \
            gh:hasansezertasan/copier-infra .
-      3. Commit the render, including .copier-answers.yml, before any other step; Copier does
+      3. Run `mise trust --untrust` in the repo first: mise trust survives a change of file
+         contents, so this revokes any earlier trust of that path, and it must happen before
+         the commit below so a resumed run can never see a committed render with stale trust.
+      4. Commit the render, including .copier-answers.yml, before any other step; Copier does
          not initialize Git and its update reads tracked files and HEAD.
       Never edit a file the Template owns afterwards, apart from the pins `toolchain-pin` reviews; change answers with `copier update`,
       run through the pinned Copier (the same `uv run ... copier` command, `update` in place of `copy`).
-      Do not trust the rendered mise.toml: `toolchain-pin` is still the human's review. mise
-      trust survives a change of file contents, so after the render run `mise trust --untrust`
-      in the repo, revoking any earlier trust of that path before the human reviews it.
+      Do not trust the rendered mise.toml: `toolchain-pin` is still the human's review.
     check: >-
       git ls-files --error-unmatch .copier-answers.yml README.md >/dev/null 2>&1 &&
       git diff --quiet HEAD -- .copier-answers.yml README.md &&

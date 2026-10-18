@@ -23,13 +23,24 @@ class TemplateContractTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.checkout = Path(temporary.name)
+        self.git('init', '-q')
+
+    def git(self, *args: str) -> None:
+        subprocess.run(
+            ['git', '-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', *args],
+            cwd=self.checkout, check=True, capture_output=True,
+        )
+
+    def write_answers(self, text: str, commit: bool = True) -> None:
+        (self.checkout / '.copier-answers.yml').write_text(text, encoding='utf-8')
+        if commit:
+            self.git('add', '.copier-answers.yml')
+            self.git('commit', '-q', '-m', 'answers')
 
     def run_check(self, commit: str | None, minimum: str = 'v0.2.0') -> subprocess.CompletedProcess[str]:
         if commit is not None:
-            (self.checkout / '.copier-answers.yml').write_text(
-                f'_commit: {commit}\n_src_path: gh:hasansezertasan/copier-infra\nbackend: hcp\n',
-                encoding='utf-8',
-            )
+            self.write_answers(
+                f'_commit: {commit}\n_src_path: gh:hasansezertasan/copier-infra\nbackend: hcp\n')
         return subprocess.run(
             ['sh', str(CHECK), minimum], cwd=self.checkout, capture_output=True, text=True,
         )
@@ -47,10 +58,8 @@ class TemplateContractTests(unittest.TestCase):
     def test_another_templates_answers_file_is_indeterminate(self) -> None:
         self.run_check('v1.0.0')
         answers = self.checkout / '.copier-answers.yml'
-        answers.write_text(
-            answers.read_text(encoding='utf-8').replace('hasansezertasan/copier-infra', 'someone/other'),
-            encoding='utf-8',
-        )
+        self.write_answers(
+            answers.read_text(encoding='utf-8').replace('hasansezertasan/copier-infra', 'someone/other'))
         self.assertEqual(self.run_check(None).returncode, 2)
 
     def test_source_must_be_an_exact_alias_not_a_substring(self) -> None:
@@ -58,16 +67,14 @@ class TemplateContractTests(unittest.TestCase):
                         'gh:someone/evil # gh:hasansezertasan/copier-infra',
                         'gh:hasansezertasan/copier-infra-fork'):
             with self.subTest(crafted=crafted):
-                (self.checkout / '.copier-answers.yml').write_text(
-                    f'_commit: v1.0.0\n_src_path: {crafted}\n', encoding='utf-8')
+                self.write_answers(f'_commit: v1.0.0\n_src_path: {crafted}\n')
                 self.assertEqual(self.run_check(None).returncode, 2)
 
     def test_canonical_aliases_pass(self) -> None:
         for alias in ('gh:hasansezertasan/copier-infra.git', '"https://github.com/hasansezertasan/copier-infra"',
                       'git@github.com:hasansezertasan/copier-infra.git # pinned'):
             with self.subTest(alias=alias):
-                (self.checkout / '.copier-answers.yml').write_text(
-                    f'_commit: v1.0.0\n_src_path: {alias}\n', encoding='utf-8')
+                self.write_answers(f'_commit: v1.0.0\n_src_path: {alias}\n')
                 self.assertEqual(self.run_check(None).returncode, 0)
 
     def test_source_only_skips_the_version_comparison(self) -> None:
@@ -75,6 +82,16 @@ class TemplateContractTests(unittest.TestCase):
         completed = subprocess.run(['sh', str(CHECK), '--source-only'], cwd=self.checkout,
                                    capture_output=True, text=True)
         self.assertEqual(completed.returncode, 0)
+
+    def test_modified_answers_file_is_indeterminate(self) -> None:
+        self.run_check('v1.0.0')
+        self.write_answers('_commit: v1.0.0\n_src_path: gh:hasansezertasan/copier-infra\n# edited\n', commit=False)
+        self.assertEqual(self.run_check(None).returncode, 2)
+
+    def test_staged_but_uncommitted_answers_file_is_indeterminate(self) -> None:
+        self.write_answers('_commit: v1.0.0\n_src_path: gh:hasansezertasan/copier-infra\n', commit=False)
+        self.git('add', '.copier-answers.yml')
+        self.assertEqual(self.run_check(None).returncode, 2)
 
     def test_trailing_comment_and_crlf_are_ignored(self) -> None:
         self.assertEqual(self.run_check('v0.2.0 # pinned\r').returncode, 0)

@@ -3,7 +3,8 @@
 # must be at or above the minimum tag. Judged from `_commit` in .copier-answers.yml.
 #   exit 0  a release tag at or above the minimum
 #   exit 1  an older release tag; propose the Template's update
-#   exit 2  cannot be judged (no answers file, bare commit, between-tags value); hand off
+#   exit 2  cannot be judged (no or uncommitted answers file, bare commit, between-tags
+#           value, another Template); hand off
 # `--source-only` stops after the source check. Otherwise an optional first argument
 # overrides the minimum; tests use it, nothing ambient can.
 set -eu
@@ -13,6 +14,12 @@ minimum=${1:-v0.1.0}
 cannot_verify() { echo "CANNOT VERIFY Template contract: $1; hand off to the human, never assume it is compatible" >&2; exit 2; }
 
 [ -f .copier-answers.yml ] || cannot_verify 'no .copier-answers.yml, so no Template version is recorded'
+# Judge only a committed record: an interrupted `copier update` leaves a modified answers
+# file whose `_commit` is not yet reviewed, and every skill runs this check directly.
+git ls-files --error-unmatch .copier-answers.yml >/dev/null 2>&1 &&
+    git diff --quiet HEAD -- .copier-answers.yml 2>/dev/null &&
+    git diff --cached --quiet HEAD -- .copier-answers.yml 2>/dev/null ||
+    cannot_verify '.copier-answers.yml is not tracked and clean against HEAD and the index; commit or review it first'
 # The version is only meaningful for copier-infra; another Template's tag proves nothing.
 # Compare the parsed scalar against the canonical spellings of its GitHub source, never a
 # pattern searched inside the raw line.
