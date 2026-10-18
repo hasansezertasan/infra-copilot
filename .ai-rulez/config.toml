@@ -19,8 +19,7 @@ gitignore = false
 [lint.severity]
 AR9T0 = "off"
 # AR401 and AR402: the skills cite files of the infrastructure repository they
-# operate on (.claude/infra-copilot.local.md, docs/*.md, .github/workflows/*,
-# scripts/sync-config.sh), which do not exist in this repository by design.
+# operate on (README.md sections, docs/*.md, .github/workflows/*), which do not exist in this repository by design.
 AR401 = "off"
 AR402 = "off"
 # AR005: the shipped check scripts read each required variable by name from a

@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:4c39fa3c87b3fffc4dee42a24e13e3e4d8ea6c38132bfd1384b970a13a1352df
-Source-Hash: blake3:8f61e9c22b778040700847fb97bb1970100ac80e7328b2265d53f646f3a76e9d
+Content-Hash: blake3:2163eabb5d2a29b4e58b6a472b0f9bfc7c141ecc78a6d81e9211a897d7982555
+Source-Hash: blake3:4a813d783fc56f6e35f6fad607f12250c75fbec05220a0dc7eb0a4bb930dcb08
 Schema-Version: v1
 -->
 
@@ -100,10 +100,7 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 - **Phase 0 — Toolchain + HCP bootstrap.** The first `HUMAN` step chooses exact tool
   versions, reviews the whole `mise.toml`, and commits it with `mise.lock`; this must
-  happen before pin-dependent preflight. If the consuming repository ships an executable
-  `scripts/sync-config.sh`, stop for a human to review and run it next, then verify its
-  deterministic changes and canonical config were committed together;
-  repositories without the helper skip this step. Then `HUMAN` signs up + runs
+  happen before pin-dependent preflight. Then `HUMAN` signs up + runs
   `terraform login`, after which you own the HCP API. Toolchain sequence:
   [`../infra/references/docs/setup.md#6`](../infra/references/docs/setup.md#6-local-development).
   HCP commands + verify: [`../infra/references/hcp.md`](../infra/references/hcp.md#phase-0--bootstrap).

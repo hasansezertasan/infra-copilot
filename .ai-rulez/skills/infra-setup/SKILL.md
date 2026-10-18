@@ -93,10 +93,7 @@ Adopting resources that already exist (a live domain, existing repos)? That's
 
 - **Phase 0 — Toolchain + HCP bootstrap.** The first `HUMAN` step chooses exact tool
   versions, reviews the whole `mise.toml`, and commits it with `mise.lock`; this must
-  happen before pin-dependent preflight. If the consuming repository ships an executable
-  `scripts/sync-config.sh`, stop for a human to review and run it next, then verify its
-  deterministic changes and canonical config were committed together;
-  repositories without the helper skip this step. Then `HUMAN` signs up + runs
+  happen before pin-dependent preflight. Then `HUMAN` signs up + runs
   `terraform login`, after which you own the HCP API. Toolchain sequence:
   [`../infra/references/docs/setup.md#6`](../infra/references/docs/setup.md#6-local-development).
   HCP commands + verify: [`../infra/references/hcp.md`](../infra/references/hcp.md#phase-0--bootstrap).

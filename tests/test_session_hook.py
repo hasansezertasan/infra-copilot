@@ -62,6 +62,10 @@ class SessionHookTests(unittest.TestCase):
                     "backend: object-storage\n```\n<!-- infra:config end -->\n",
                     encoding="utf-8",
                 )
+            elif marker == "crlf":
+                (root / "README.md").write_bytes(
+                    b"## Config\r\n\r\n<!-- infra:config start -->\r\n<!-- infra:config end -->\r\n"
+                )
             elif marker == "plain-readme":
                 (root / "README.md").write_text("# Some project\n", encoding="utf-8")
             elif marker == "legacy":
@@ -105,7 +109,7 @@ class SessionHookTests(unittest.TestCase):
         self.assertEqual(json.loads(self.run_hook(marker="legacy")), {})
 
     def test_each_marker_triggers_it(self) -> None:
-        for marker in ("config", "terraform"):
+        for marker in ("config", "crlf", "terraform"):
             with self.subTest(marker=marker):
                 payload = json.loads(
                     self.run_hook(marker=marker, host_env={"CLAUDE_PLUGIN_ROOT": "/x"})

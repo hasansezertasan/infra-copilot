@@ -23,7 +23,7 @@ emit_nothing() { printf '{}\n'; exit 0; }
 # block marker is the committed one; terraform/ catches a repo that has leaves but no
 # Config block yet, which is exactly when setup is wanted. The retired state paths are
 # not markers: Step 0 reports them as unsupported, the hook does not advertise them.
-if ! { [ -f README.md ] && grep -q '^<!-- infra:config start -->$' README.md; } \
+if ! { [ -f README.md ] && grep -q '^<!-- infra:config start -->[[:space:]]*$' README.md; } \
     && [ ! -d terraform ]; then
     emit_nothing
 fi

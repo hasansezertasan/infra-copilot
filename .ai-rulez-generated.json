@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:8f61e9c22b778040700847fb97bb1970100ac80e7328b2265d53f646f3a76e9d",
+  "source_hash": "blake3:4a813d783fc56f6e35f6fad607f12250c75fbec05220a0dc7eb0a4bb930dcb08",
   "outputs": {
     ".agents/plugins/marketplace.json": {
       "content_hash": "blake3:c9f5887398d8719835af830222d1d2197f73e2a8864b2e1e24d347e2d75b6b36",
@@ -35,7 +35,7 @@
       "mode": "0644"
     },
     "skills/infra-setup/SKILL.md": {
-      "content_hash": "blake3:4c39fa3c87b3fffc4dee42a24e13e3e4d8ea6c38132bfd1384b970a13a1352df",
+      "content_hash": "blake3:2163eabb5d2a29b4e58b6a472b0f9bfc7c141ecc78a6d81e9211a897d7982555",
       "mode": "0644"
     },
     "skills/infra-status/SKILL.md": {
