@@ -1,7 +1,7 @@
 # Issue tracker: GitHub
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations,
-explicitly targeting `hasansezertasan/infra-copilot` so a contributor fork cannot become the
+explicitly targeting `hasansezertasan/infra-skills` so a contributor fork cannot become the
 tracker by accident.
 
 ## Conventions
@@ -9,13 +9,13 @@ tracker by accident.
 - **Create an issue**. Use a heredoc for multi-line bodies:
 
   ```sh
-  gh issue create --repo hasansezertasan/infra-copilot --title "..." --body "..."
+  gh issue create --repo hasansezertasan/infra-skills --title "..." --body "..."
   ```
 
 - **Read an issue**:
 
   ```sh
-  gh issue view <number> --repo hasansezertasan/infra-copilot --json title,body,labels,comments
+  gh issue view <number> --repo hasansezertasan/infra-skills --json title,body,labels,comments
   ```
 
   Add `--jq` when filtering comments.
@@ -23,7 +23,7 @@ tracker by accident.
 - **List issues**, with appropriate `--label` and `--state` filters:
 
   ```sh
-  gh issue list --repo hasansezertasan/infra-copilot --state open --limit 1000 \
+  gh issue list --repo hasansezertasan/infra-skills --state open --limit 1000 \
     --json number,title,body,labels \
     --jq '[.[] | {number, title, body, labels: [.labels[].name]}]'
   ```
@@ -31,13 +31,13 @@ tracker by accident.
   Do not request `comments` in `gh issue list`: GitHub CLI truncates nested comments to the
   oldest 100 without pagination. For candidate issues requiring comment inspection, read
   complete comment histories individually via
-  `gh issue view <number> --repo hasansezertasan/infra-copilot --json comments`.
+  `gh issue view <number> --repo hasansezertasan/infra-skills --json comments`.
 
-- **Comment on an issue**: `gh issue comment <number> --repo hasansezertasan/infra-copilot --body "..."`
+- **Comment on an issue**: `gh issue comment <number> --repo hasansezertasan/infra-skills --body "..."`
 - **Apply / remove labels**:
-  `gh issue edit <number> --repo hasansezertasan/infra-copilot --add-label "..."` /
-  `gh issue edit <number> --repo hasansezertasan/infra-copilot --remove-label "..."`
-- **Close**: `gh issue close <number> --repo hasansezertasan/infra-copilot --comment "..."`
+  `gh issue edit <number> --repo hasansezertasan/infra-skills --add-label "..."` /
+  `gh issue edit <number> --repo hasansezertasan/infra-skills --remove-label "..."`
+- **Close**: `gh issue close <number> --repo hasansezertasan/infra-skills --comment "..."`
 
 The explicit `--repo` is intentional: do not infer the tracker from the current clone's remotes.
 
@@ -49,29 +49,29 @@ feature requests; `/triage` reads this flag.)_
 When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr`
 equivalents:
 
-- **Read a PR**: `gh pr view <number> --repo hasansezertasan/infra-copilot --comments` and
-  `gh pr diff <number> --repo hasansezertasan/infra-copilot` for the diff.
+- **Read a PR**: `gh pr view <number> --repo hasansezertasan/infra-skills --comments` and
+  `gh pr diff <number> --repo hasansezertasan/infra-skills` for the diff.
 - **List external PRs for triage**:
 
   ```sh
-  gh pr list --repo hasansezertasan/infra-copilot --state open --limit 1000 \
+  gh pr list --repo hasansezertasan/infra-skills --state open --limit 1000 \
     --json number,title,body,labels,author
   ```
 
   For each candidate, retrieve its association with
-  `gh api repos/hasansezertasan/infra-copilot/pulls/<number> --jq .author_association`.
+  `gh api repos/hasansezertasan/infra-skills/pulls/<number> --jq .author_association`.
   Keep only `CONTRIBUTOR`, `FIRST_TIMER`, `FIRST_TIME_CONTRIBUTOR`, or `NONE` (drop
   `OWNER`/`MEMBER`/`COLLABORATOR`). `gh pr list` does not expose `authorAssociation`.
   Inspect complete comment histories individually via
-  `gh pr view <number> --repo hasansezertasan/infra-copilot --comments`.
+  `gh pr view <number> --repo hasansezertasan/infra-skills --comments`.
 
-- **Comment / label / close**: `gh pr comment <number> --repo hasansezertasan/infra-copilot --body "..."`,
-  `gh pr edit <number> --repo hasansezertasan/infra-copilot --add-label "..."`/
-  `--remove-label "..."`, `gh pr close <number> --repo hasansezertasan/infra-copilot`.
+- **Comment / label / close**: `gh pr comment <number> --repo hasansezertasan/infra-skills --body "..."`,
+  `gh pr edit <number> --repo hasansezertasan/infra-skills --add-label "..."`/
+  `--remove-label "..."`, `gh pr close <number> --repo hasansezertasan/infra-skills`.
 
 GitHub shares one number space across issues and PRs, so a bare `#42` may be either:
-resolve with `gh pr view 42 --repo hasansezertasan/infra-copilot` and fall back to
-`gh issue view 42 --repo hasansezertasan/infra-copilot`.
+resolve with `gh pr view 42 --repo hasansezertasan/infra-skills` and fall back to
+`gh issue view 42 --repo hasansezertasan/infra-skills`.
 
 ## When a skill says "publish to the issue tracker"
 
@@ -80,7 +80,7 @@ Create a GitHub issue.
 ## When a skill says "fetch the relevant ticket"
 
 ```sh
-gh issue view <number> --repo hasansezertasan/infra-copilot --json title,body,labels,comments
+gh issue view <number> --repo hasansezertasan/infra-skills --json title,body,labels,comments
 ```
 
 ## Wayfinding operations
@@ -94,7 +94,7 @@ does not.
   Fog body. Create it non-interactively with an explicit title and body:
 
   ```sh
-  gh issue create --repo hasansezertasan/infra-copilot --label wayfinder:map \
+  gh issue create --repo hasansezertasan/infra-skills --label wayfinder:map \
     --title "<map title>" --body "<Notes / Decisions-so-far / Fog>"
   ```
 
@@ -107,7 +107,7 @@ does not.
   representation. Add an edge with:
 
   ```sh
-  gh api --method POST repos/hasansezertasan/infra-copilot/issues/<child>/dependencies/blocked_by \
+  gh api --method POST repos/hasansezertasan/infra-skills/issues/<child>/dependencies/blocked_by \
     -F issue_id=<blocker-db-id>
   ```
 
@@ -115,7 +115,7 @@ does not.
   `node_id`. Read it with:
 
   ```sh
-  gh api repos/hasansezertasan/infra-copilot/issues/<n> --jq .id
+  gh api repos/hasansezertasan/infra-skills/issues/<n> --jq .id
   ```
 
   Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line at the
@@ -125,7 +125,7 @@ does not.
   sub-issues are unavailable), preserving map order, then inspect only those children:
 
   ```sh
-  gh issue view <child> --repo hasansezertasan/infra-copilot --json number,state,assignees,blockedBy
+  gh issue view <child> --repo hasansezertasan/infra-skills --json number,state,assignees,blockedBy
   ```
 
   `subIssues` and `blockedBy` are connection objects: read their `nodes`, compare the node
@@ -139,8 +139,8 @@ does not.
 - **Claim**: assign the ticket before any other work, then reread it:
 
   ```sh
-  gh issue edit <n> --repo hasansezertasan/infra-copilot --add-assignee @me
-  gh issue view <n> --repo hasansezertasan/infra-copilot --json state,assignees,blockedBy
+  gh issue edit <n> --repo hasansezertasan/infra-skills --add-assignee @me
+  gh issue view <n> --repo hasansezertasan/infra-skills --json state,assignees,blockedBy
   ```
 
   Assignment is not atomic, so the reread is the whole check. If a second assignee appears,
@@ -152,8 +152,8 @@ does not.
   (gist plus link) to the map's **Decisions so far**:
 
   ```sh
-  gh issue comment <n> --repo hasansezertasan/infra-copilot --body "<answer>"
-  gh issue close <n> --repo hasansezertasan/infra-copilot
+  gh issue comment <n> --repo hasansezertasan/infra-skills --body "<answer>"
+  gh issue close <n> --repo hasansezertasan/infra-skills
   ```
 
   The pointer is a body edit rather than a comment, because `/wayfinder` loads the map body
