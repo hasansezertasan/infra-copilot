@@ -253,7 +253,9 @@ steps:
          copier.yml: those are the questions to ask, never a remembered set. A question with
          `choices` is a decision per protocol.md, the Template's default first; a free-form
          question (an org name, an ID) is a plain text prompt, validated against the
-         question's `validator`, with no invented candidates.
+         question's `validator`, with no invented candidates. Evaluate each question's `when`
+         in file order against the answers so far and ask only the ones that are true; pass
+         no answer for the rest.
       2. Render with the pinned Copier, passing every answer with --data and --defaults:
          uv run --no-project --with-requirements "$INFRA_REFERENCES/copier-requirements.txt" \
            copier copy --vcs-ref <tag> --defaults --data key=value \
@@ -262,7 +264,9 @@ steps:
          not initialize Git and its update reads tracked files and HEAD.
       Never edit a file the Template owns afterwards; change answers with `copier update`,
       run through the pinned Copier (the same `uv run ... copier` command, `update` in place of `copy`).
-      Do not trust the rendered mise.toml: `toolchain-pin` is still the human's review.
+      Do not trust the rendered mise.toml: `toolchain-pin` is still the human's review. mise
+      trust survives a change of file contents, so after the render run `mise trust --untrust`
+      in the repo, revoking any earlier trust of that path before the human reviews it.
     check: >-
       git ls-files --error-unmatch .copier-answers.yml README.md >/dev/null 2>&1 &&
       git diff --quiet HEAD -- .copier-answers.yml README.md &&

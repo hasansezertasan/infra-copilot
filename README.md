@@ -123,11 +123,12 @@ and `HEAD`, so commit the render first. Install infra-skills and start the agent
 invocation from the install table above (`/infra-skills:infra-setup` on Claude Code and
 Antigravity); it
 reads the committed config and resumes from where the scan reports. Change values later with
-`copier update` (the same pinned function, run from the repo root) and review the diff,
+`copier update` and review the diff (in each new shell, define the pinned `copier()` function
+above first, or the command can resolve to an unpinned executable; run it from the repo root),
 rather than hand-editing the Config block or `backend.tf`, so the config and the Terraform
 literals stay aligned.
-`copier recopy` re-renders over local edits; use it only for deliberate recovery, on a clean
-tree, after reading the diff.
+With the same function defined, `copier recopy` re-renders over local edits; use it only for
+deliberate recovery, on a clean tree, after reading the diff.
 
 Treat any change to `backend`, `state_backend`, `state_bucket` or `state_prefix` after
 rendering as a state migration, not an answer change. Copier rewrites `backend.tf` but moves
