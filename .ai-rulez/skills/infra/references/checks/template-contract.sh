@@ -16,6 +16,11 @@ cannot_verify() { echo "CANNOT VERIFY Template contract: $1; hand off to the hum
 # Read one top-level scalar: drop a trailing comment, trim only the boundary whitespace and
 # CR, and unquote one matching pair. Embedded characters are kept, so a value with a stray
 # space or quote never normalises into an accepted one.
+# A duplicated key is ambiguous: Copier's YAML loader keeps the last one, a line scan the first.
+unique() {
+    [ "$(grep -c "^$1:" .copier-answers.yml)" = 1 ] ||
+        cannot_verify ".copier-answers.yml must define $1 exactly once"
+}
 scalar() {
     sed -n "s/^$1:[[:space:]]*//p" .copier-answers.yml | head -n 1 | tr -d '\r' |
         sed -e 's/[[:space:]]#.*$//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\\(.*\\)'\$/\\1/"
@@ -31,6 +36,7 @@ git ls-files --error-unmatch .copier-answers.yml >/dev/null 2>&1 &&
 # The version is only meaningful for copier-infra; another Template's tag proves nothing.
 # Compare the parsed scalar against the canonical spellings of its GitHub source, never a
 # pattern searched inside the raw line.
+unique _src_path
 source=$(scalar _src_path)
 case $source in
     gh:hasansezertasan/copier-infra|gh:hasansezertasan/copier-infra.git|\
@@ -40,6 +46,7 @@ case $source in
     *) cannot_verify "_src_path '$source' is not a copier-infra source" ;;
 esac
 [ "$source_only" = false ] || exit 0
+unique _commit
 recorded=$(scalar _commit)
 [ -n "$recorded" ] || cannot_verify '.copier-answers.yml has no _commit'
 

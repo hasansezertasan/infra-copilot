@@ -86,6 +86,13 @@ class TemplateContractTests(unittest.TestCase):
                                    capture_output=True, text=True)
         self.assertEqual(completed.returncode, 0)
 
+    def test_duplicate_contract_keys_are_indeterminate(self) -> None:
+        for text in ('_commit: v1.0.0\n_src_path: gh:hasansezertasan/copier-infra\n_src_path: gh:evil/x\n',
+                     '_commit: v1.0.0\n_commit: v0.0.1\n_src_path: gh:hasansezertasan/copier-infra\n'):
+            with self.subTest(text=text):
+                self.write_answers(text)
+                self.assertEqual(self.run_check(None).returncode, 2)
+
     def test_modified_answers_file_is_indeterminate(self) -> None:
         self.run_check('v1.0.0')
         self.write_answers('_commit: v1.0.0\n_src_path: gh:hasansezertasan/copier-infra\n# edited\n', commit=False)
