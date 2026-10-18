@@ -242,7 +242,11 @@ steps:
     run: |
       Setup only. Red means no committed .copier-answers.yml or no README Config block.
       An untracked answers file only needs committing; a Config block with no answers file
-      is hand-written, so stop and hand off rather than re-render over it. Otherwise:
+      is hand-written, and a tracked answers file or README with uncommitted changes is a
+      partial render or update: hand off for review in both cases, never re-render over them.
+      Run `copier copy` only when the destination is empty apart from `.git`; any other
+      content, tracked or not, is a hand-off, because Copier would overwrite it and the
+      render commit would absorb it. Otherwise:
       0. Export INFRA_REFERENCES first (config.md), require `uv` on the path (a HUMAN
          install if absent), and run `git init` if the directory is not a repository.
       1. Clone the Template at its newest release tag into a scratch directory and read its
