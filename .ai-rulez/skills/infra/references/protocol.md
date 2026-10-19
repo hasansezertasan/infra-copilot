@@ -107,9 +107,9 @@ Render a step from its structured fields:
   `check` proves.
 - **Secrets stay out of the agent's context.** A command that takes a secret reads it from a
   hidden prompt (`gh secret set` prompts), `read -rs`, or a file (`< key.pem`). The block
-  tells the human to run it in their own terminal — never after `!`, and never by pasting the
-  value into the conversation. A value that goes to several places is read once and fanned
-  out. `!` stays fine for commands that carry no secret.
+  tells the human to run it in their own terminal, never to paste the value into the
+  conversation, and never to run it through the agent. A value that goes to several places
+  is read once and fanned out.
 - **Pace it.** Hand off one sub-step, or a small group of related ones, per block rather than
   the whole step at once. After each `done`, observe what you can by **name only** with a
   read-only probe of your own (`gh secret list`, `gh variable list`, a `gh api` GET) — never

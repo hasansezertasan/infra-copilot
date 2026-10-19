@@ -1566,82 +1566,181 @@ def validate_manifest_shape(root: Path = ROOT) -> list[str]:
     return errors
 
 
-HANDOFF_STEPS = ".ai-rulez/skills/infra/references/steps.yaml"
-HANDOFF_CONFIG = ".ai-rulez/skills/infra/references/config.md"
 _STEP_START = re.compile(r"^  - id: (?P<id>\S+)\s*$", re.MULTILINE)
 _STEP_FIELD = re.compile(r"^    (?P<key>[a-z_]+):(?P<rest>.*)$")
 
 
-def _manifest_steps(text: str) -> list[tuple[str, dict[str, list[str]]]]:
-    """Split steps.yaml into (id, {field: lines}) without parsing YAML.
+class ManifestStep(NamedTuple):
+    """One steps.yaml step: its id and, per field, the lines it owns.
+
+    `text` is what follows the colon on the field's own line; `body` is every
+    deeper-indented line after it.
+    """
+
+    id: str
+    fields: dict[str, tuple[str, list[str]]]
+
+    def text(self, key: str) -> str:
+        return self.fields.get(key, ("", []))[0]
+
+    def body(self, key: str) -> list[str]:
+        return self.fields.get(key, ("", []))[1]
+
+
+def _manifest_steps(text: str) -> list[ManifestStep]:
+    """Split steps.yaml into steps without parsing YAML.
 
     Like validate_manifest_shape this is a shape reader, not a parser: a field is a
     four-space-indented `key:` line and owns every following line indented deeper.
-    The first element of a field's lines is the text after the colon.
     """
     matches = list(_STEP_START.finditer(text))
     steps = []
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        fields: dict[str, list[str]] = {}
-        current: list[str] | None = None
+        fields: dict[str, tuple[str, list[str]]] = {}
+        body: list[str] | None = None
         for line in text[match.end():end].splitlines():
             field = _STEP_FIELD.match(line)
             if field:
-                current = [field.group("rest").strip()]
-                fields[field.group("key")] = current
-            elif current is not None and (line.startswith("     ") or not line.strip()):
-                current.append(line)
+                body = []
+                fields[field.group("key")] = (field.group("rest").strip(), body)
+            elif body is not None and (line.startswith("     ") or not line.strip()):
+                body.append(line)
             elif line.strip() and not line.lstrip().startswith("#"):
-                current = None
-        steps.append((match.group("id"), fields))
+                body = None
+        steps.append(ManifestStep(match.group("id"), fields))
     return steps
 
 
-#: Flags that carry a value on the command line, and the variable names that hold a
-#: secret. A secret on a command line lands in shell history and the agent's context;
-#: the hidden-prompt, `read -rs` and `< file` forms never put it there.
-_SECRET_FLAG = re.compile(r"(?:^|\s)(?:--body|-b|--value|--secret|--token|--password|--client-secret)(?:=|\s)")
-_SECRET_VARIABLE = re.compile(r"\$\{?[A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY)[A-Za-z0-9_]*")
+#: A secret on a command line lands in shell history and the agent's context; the
+#: hidden-prompt, `read -rs` and `< file` forms never put it there. The check is a
+#: denylist of the ways a value reaches a command line, so it is a floor, not a proof.
+_SECRET_NAME = r"[A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY)[A-Za-z0-9_]*"
+_SECRET_FLAG = re.compile(
+    r"(?:^|\s)-{1,2}(?:body|b|value|secret|token|password|client-secret)(?:=|\s)"
+    r"|(?:^|\s)-u\s+\S*:\S+"
+)
+_SECRET_LITERAL = re.compile(
+    rf"(?:^|\s){_SECRET_NAME}=(?!\$|[\"']\$)\S"
+    r"|<<<\s*[\"']?[^$\"'\s]"
+    r"|configure set \w*(?:secret|token|password|key)\w*\s+[^$\s]",
+    re.IGNORECASE,
+)
+_SECRET_EXPANSION = re.compile(rf"\$\{{?(?P<name>{_SECRET_NAME})")
+_HIDDEN_READ = re.compile(r"\bread\s+(?P<flags>(?:-[A-Za-z]+\s+)+)(?P<name>\w+)")
+
+#: A form that points back at another form or entry is the confusion the contract
+#: removes: the reader cannot tell which fields differ. Each carries its own full text.
+_BACK_REFERENCE = re.compile(
+    r"\bsame (?:as|scopes?|fields?|values?|form)\b|\bas (?:above|before)\b"
+    r"|\bbut \w+ instead\b|\bidentical to\b|\blike the (?:first|previous|above)\b"
+    r"|\b(?:from|in) the [\w-]+ entry\b",
+    re.IGNORECASE,
+)
+_VARIABLE = re.compile(r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?P<bare>[A-Za-z_][A-Za-z0-9_]*))")
+_EXPORTED_VARIABLE = re.compile(r"^\s*export ([A-Za-z_][A-Za-z0-9_]*)=", re.MULTILINE)
 
 
-def _scalar_blocks(lines: list[str], key: str) -> list[str]:
-    """Every `key: |` block under a list field, as dedented text."""
+def _literal_blocks(lines: list[str], key: str) -> list[str]:
+    """Every `key: |` literal block in a field body, as dedented text."""
     blocks = []
     index = 0
     while index < len(lines):
-        match = re.match(rf"^(\s*)(?:- )?{key}: \|\s*$", lines[index])
+        match = re.match(rf"^(\s*)(- )?{re.escape(key)}: \|\s*$", lines[index])
         index += 1
         if not match:
             continue
-        indent = len(match.group(1)) + (2 if lines[index - 1].lstrip().startswith("- ") else 0)
+        indent = len(match.group(1)) + (2 if match.group(2) else 0)
         body = []
-        while index < len(lines) and (not lines[index].strip() or len(lines[index]) - len(lines[index].lstrip()) > indent):
+        while index < len(lines) and (
+            not lines[index].strip() or len(lines[index]) - len(lines[index].lstrip()) > indent
+        ):
             body.append(lines[index].strip())
             index += 1
         blocks.append("\n".join(body))
     return blocks
 
 
-#: A form that points back at another form is the confusion the contract removes: the
-#: reader cannot tell which fields differ. Each form carries its own complete table.
-_BACK_REFERENCE = re.compile(
-    r"\bsame (?:as|scopes?|fields?|values?)\b|\bas (?:above|before)\b|\bbut \w+ instead\b",
-    re.IGNORECASE,
-)
-_URL_VARIABLE = re.compile(r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?P<bare>[A-Za-z_][A-Za-z0-9_]*))")
-_EXPORTED_VARIABLE = re.compile(r"^\s*export ([A-Za-z_][A-Za-z0-9_]*)=", re.MULTILINE)
-
-
 def _list_entries(lines: list[str]) -> list[list[str]]:
-    """Split a list field into its `- ` entries."""
+    """Split a list field's body into its `- ` entries."""
     entries: list[list[str]] = []
-    for line in lines[1:]:
+    for line in lines:
         if line.lstrip().startswith("- "):
             entries.append([line])
         elif entries:
             entries[-1].append(line)
     return entries
+
+
+def _entry_value(entry: list[str], key: str) -> str | None:
+    for line in entry:
+        match = re.match(rf"^\s*(?:- )?{re.escape(key)}:\s*(\S.*?)\s*$", line)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _unexported(text: str, exported: set[str]) -> list[str]:
+    names = (m.group("braced") or m.group("bare") for m in _VARIABLE.finditer(text))
+    return sorted({name for name in names if name not in exported})
+
+
+def _cli_errors(step: ManifestStep) -> list[str]:
+    errors = []
+    for entry in _list_entries(step.body("cli")):
+        effect = _entry_value(entry, "effect") or ""
+        if _BACK_REFERENCE.search(effect):
+            errors.append(
+                f"step {step.id} cli effect {effect[:50]!r} points at another entry; "
+                "each entry's command set must be self-contained"
+            )
+        for command in _literal_blocks(entry, "run"):
+            hidden = {
+                match.group("name")
+                for match in _HIDDEN_READ.finditer(command)
+                if "s" in match.group("flags")
+            }
+            for line in command.splitlines():
+                leaked = _SECRET_FLAG.search(line) or _SECRET_LITERAL.search(line) or any(
+                    expansion.group("name") not in hidden
+                    for expansion in _SECRET_EXPANSION.finditer(line)
+                )
+                if leaked:
+                    errors.append(
+                        f"step {step.id} passes a secret on a command line ({line.strip()[:50]!r}); "
+                        "read it with `read -rs`, a hidden prompt or a file"
+                    )
+    return errors
+
+
+def _ui_errors(step: ManifestStep, exported: set[str]) -> list[str]:
+    errors = []
+    for entry in _list_entries(step.body("ui")):
+        url = _entry_value(entry, "url")
+        if url is None:
+            errors.append(f"step {step.id} has a ui entry with no url")
+        else:
+            errors.extend(
+                f"step {step.id} links to ${name}, which Step 0 never exports"
+                for name in _unexported(url, exported)
+            )
+        table = [row.strip() for block in _literal_blocks(entry, "fields") for row in block.splitlines() if row.strip()]
+        if not table:
+            errors.append(f"step {step.id} has a ui entry with no field table")
+        for row in table:
+            if " | " not in row:
+                errors.append(f"step {step.id} has a field row that is not 'field | value': {row!r}")
+                continue
+            if _BACK_REFERENCE.search(row):
+                errors.append(
+                    f"step {step.id} row {row!r} points at another form; "
+                    "each form's table must be self-contained"
+                )
+            errors.extend(
+                f"step {step.id} row {row!r} uses ${name}, which Step 0 never exports"
+                for name in _unexported(row, exported)
+            )
+    return errors
 
 
 def validate_handoff_fields(root: Path = ROOT) -> list[str]:
@@ -1650,59 +1749,22 @@ def validate_handoff_fields(root: Path = ROOT) -> list[str]:
     Additive: a step carrying only the free-text `run:` is unchanged. The new rules
     bind a step only through the fields it actually carries.
     """
-    text = read_document(root / HANDOFF_STEPS)
+    text = read_document(root / TOOLCHAIN_STEPS_DOCUMENT)
     if text is None:
-        return [f"{HANDOFF_STEPS}: unreadable, cannot check Handoff fields"]
-    config = read_document(root / HANDOFF_CONFIG)
+        return [f"{TOOLCHAIN_STEPS_DOCUMENT}: unreadable, cannot check Handoff fields"]
+    config = read_document(root / TOOLCHAIN_CONFIG_DOCUMENT)
     if config is None:
-        return [f"{HANDOFF_CONFIG}: unreadable, cannot learn the variables Step 0 exports"]
+        return [f"{TOOLCHAIN_CONFIG_DOCUMENT}: unreadable, cannot learn the variables Step 0 exports"]
     exported = set(_EXPORTED_VARIABLE.findall(config))
-    errors: list[str] = []
-    for step_id, fields in _manifest_steps(text):
-        actor = fields.get("actor", [""])[0]
-        if actor == "HUMAN" and not any(key in fields for key in ("run", "cli", "ui")):
-            errors.append(
-                f"{HANDOFF_STEPS}: step {step_id} is HUMAN but carries none of run, cli or ui"
-            )
-        if ("cli" in fields or "ui" in fields) and "check_summary" not in fields:
-            errors.append(
-                f"{HANDOFF_STEPS}: step {step_id} carries cli or ui but no check_summary"
-            )
-        for entry in _list_entries(fields.get("ui", [])):
-            url = next(
-                (m.group(1) for line in entry if (m := re.match(r"^\s*(?:- )?url:\s*(\S+)\s*$", line))),
-                None,
-            )
-            if url is None:
-                errors.append(f"{HANDOFF_STEPS}: step {step_id} has a ui entry with no url")
-            else:
-                for variable in _URL_VARIABLE.finditer(url):
-                    name = variable.group("braced") or variable.group("bare")
-                    if name not in exported:
-                        errors.append(
-                            f"{HANDOFF_STEPS}: step {step_id} links to ${name}, which Step 0 never exports"
-                        )
-            table = [row.strip() for block in _scalar_blocks(entry, "fields") for row in block.splitlines() if row.strip()]
-            if not table:
-                errors.append(f"{HANDOFF_STEPS}: step {step_id} has a ui entry with no field table")
-            for row in table:
-                if " | " not in row:
-                    errors.append(
-                        f"{HANDOFF_STEPS}: step {step_id} has a field row that is not 'field | value': {row!r}"
-                    )
-                elif _BACK_REFERENCE.search(row):
-                    errors.append(
-                        f"{HANDOFF_STEPS}: step {step_id} row {row!r} points at another form; "
-                        "each form's table must be self-contained"
-                    )
-        for command in _scalar_blocks(fields.get("cli", []), "run"):
-            for line in command.splitlines():
-                if _SECRET_FLAG.search(line) or _SECRET_VARIABLE.search(line):
-                    errors.append(
-                        f"{HANDOFF_STEPS}: step {step_id} passes a secret on a command line "
-                        f"({line.strip()[:50]!r}); read it from a hidden prompt, `read -rs` or a file"
-                    )
-    return errors
+    problems: list[str] = []
+    for step in _manifest_steps(text):
+        if step.text("actor") == "HUMAN" and not any(key in step.fields for key in ("run", "cli", "ui")):
+            problems.append(f"step {step.id} is HUMAN but carries none of run, cli or ui")
+        if ("cli" in step.fields or "ui" in step.fields) and not step.text("check_summary"):
+            problems.append(f"step {step.id} carries cli or ui but no check_summary text")
+        problems.extend(_cli_errors(step))
+        problems.extend(_ui_errors(step, exported))
+    return [f"{TOOLCHAIN_STEPS_DOCUMENT}: {problem}" for problem in problems]
 
 
 #: The `infra-auditor` manifest, and how each host's row in hosts.md spells its

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:09b2d7d0483dd27a62e1cf4f6bad1568f89c47fa392d0ab401ddee7b53ed0024
-Source-Hash: blake3:7ef17d6d734b301d5e49b75696fe00d06d28a034dd13d38acd7aeb3572fd7f11
+Content-Hash: blake3:2167bd15790c80f27df6d21b31cfb5afa561d0dfdfc56593a17f80394890d976
+Source-Hash: blake3:ab8daf23adaa9a530a7a4f03a6a33b45d610146e57481b1923aba70638ef8830
 Schema-Version: v1
 -->
 
@@ -114,9 +114,9 @@ Render a step from its structured fields:
   `check` proves.
 - **Secrets stay out of the agent's context.** A command that takes a secret reads it from a
   hidden prompt (`gh secret set` prompts), `read -rs`, or a file (`< key.pem`). The block
-  tells the human to run it in their own terminal — never after `!`, and never by pasting the
-  value into the conversation. A value that goes to several places is read once and fanned
-  out. `!` stays fine for commands that carry no secret.
+  tells the human to run it in their own terminal, never to paste the value into the
+  conversation, and never to run it through the agent. A value that goes to several places
+  is read once and fanned out.
 - **Pace it.** Hand off one sub-step, or a small group of related ones, per block rather than
   the whole step at once. After each `done`, observe what you can by **name only** with a
   read-only probe of your own (`gh secret list`, `gh variable list`, a `gh api` GET) — never

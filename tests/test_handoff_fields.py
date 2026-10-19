@@ -31,6 +31,27 @@ def step(body: str, *, actor: str = 'HUMAN', step_id: str = 'sample') -> str:
     )
 
 
+def cli_step(command: str, effect: str = 'Stores the secret.') -> str:
+    return step(
+        'check_summary: The secret exists.\n'
+        'cli:\n'
+        f'  - effect: {effect}\n'
+        '    run: |\n'
+        + textwrap.indent(command, '      ')
+    )
+
+
+def ui_step(url: str = 'https://dash.example.test/$CF_ACCOUNT_ID/r2', fields: str = 'Name | value\n') -> str:
+    parts = ['check_summary: The form exists.\n', 'ui:\n']
+    if url:
+        parts.append(f'  - url: {url}\n')
+        parts.append('    fields: |\n')
+    else:
+        parts.append('  - fields: |\n')
+    parts.append(textwrap.indent(fields, '      '))
+    return step(''.join(parts))
+
+
 class HandoffFieldTests(unittest.TestCase):
     def errors_for(self, *steps: str) -> list[str]:
         temporary = tempfile.TemporaryDirectory()
@@ -52,17 +73,23 @@ class HandoffFieldTests(unittest.TestCase):
     def test_agent_step_needs_no_instructions(self) -> None:
         self.assertEqual([], self.errors_for(step('why: agent runs it\n', actor='AGENT')))
 
-    def cli_step(self, command: str) -> str:
-        return step(
-            'check_summary: The secret exists.\n'
-            'cli:\n'
-            '  - effect: Stores the secret.\n'
-            '    run: |\n'
-            + textwrap.indent(command, '      ')
-        )
-
     def test_cli_entry_with_a_summary_passes(self) -> None:
-        self.assertEqual([], self.errors_for(self.cli_step('gh secret set TOKEN_NAME\n')))
+        self.assertEqual([], self.errors_for(cli_step('gh secret set TOKEN_NAME\n')))
+
+    def test_empty_check_summary_fails(self) -> None:
+        errors = self.errors_for(step(
+            'check_summary:\ncli:\n  - effect: Does it.\n    run: |\n      gh repo view\n'
+        ))
+        self.assertEqual(1, len(errors))
+        self.assertIn('check_summary', errors[0])
+
+    def test_cli_entry_pointing_at_another_entry_fails(self) -> None:
+        errors = self.errors_for(cli_step(
+            'gh repo view\n',
+            effect='Creates the bucket, then run the commands from the us-east-1 entry.',
+        ))
+        self.assertEqual(1, len(errors))
+        self.assertIn('self-contained', errors[0])
 
     def test_converted_step_without_a_check_summary_fails(self) -> None:
         errors = self.errors_for(step(
@@ -78,10 +105,27 @@ class HandoffFieldTests(unittest.TestCase):
             'read -rs value\nprintf %s "$value" | gh secret set APP_KEY\n',
         ):
             with self.subTest(command=command):
-                self.assertEqual([], self.errors_for(self.cli_step(command)))
+                self.assertEqual([], self.errors_for(cli_step(command)))
+
+    def test_fan_out_after_a_hidden_read_passes_whatever_the_variable_is_called(self) -> None:
+        command = (
+            'read -rs TOKEN\n'
+            'for repo in a b; do printf %s "$TOKEN" | gh secret set APP_KEY --repo "$repo"; done\n'
+        )
+        self.assertEqual([], self.errors_for(cli_step(command)))
+
+    def test_a_secret_variable_that_was_never_read_hidden_fails(self) -> None:
+        errors = self.errors_for(cli_step('printf %s "$TOKEN" | gh secret set APP_KEY\n'))
+        self.assertEqual(1, len(errors))
+        self.assertIn('secret', errors[0])
 
     def test_secret_passed_as_an_argument_fails(self) -> None:
         for command in (
+            'tool login -password=hunter2\n',
+            'curl -u admin:hunter2 https://example.test\n',
+            'gh secret set APP_KEY <<< "hunter2"\n',
+            'aws configure set aws_secret_access_key hunter2\n',
+            'GH_TOKEN=hunter2 gh repo view\n',
             'gh secret set APP_KEY --body "hunter2"\n',
             'gh secret set APP_KEY -b hunter2\n',
             'wrangler secret put X --value "$API_TOKEN"\n',
@@ -89,37 +133,27 @@ class HandoffFieldTests(unittest.TestCase):
             'curl -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://example.test\n',
         ):
             with self.subTest(command=command):
-                errors = self.errors_for(self.cli_step(command))
+                errors = self.errors_for(cli_step(command))
                 self.assertEqual(1, len(errors))
                 self.assertIn('secret', errors[0])
 
-    def ui_step(self, url: str = 'https://dash.example.test/$CF_ACCOUNT_ID/r2', fields: str = 'Name | value\n') -> str:
-        parts = ['check_summary: The form exists.\n', 'ui:\n']
-        if url:
-            parts.append(f'  - url: {url}\n')
-            parts.append('    fields: |\n')
-        else:
-            parts.append('  - fields: |\n')
-        parts.append(textwrap.indent(fields, '      '))
-        return step(''.join(parts))
-
     def test_complete_ui_entry_passes(self) -> None:
-        self.assertEqual([], self.errors_for(self.ui_step(
+        self.assertEqual([], self.errors_for(ui_step(
             fields='Token name | infra\nPermissions | Zone DNS Edit\n',
         )))
 
     def test_ui_entry_without_a_url_fails(self) -> None:
-        errors = self.errors_for(self.ui_step(url=''))
+        errors = self.errors_for(ui_step(url=''))
         self.assertEqual(1, len(errors))
         self.assertIn('url', errors[0])
 
     def test_ui_entry_with_an_empty_field_table_fails(self) -> None:
-        errors = self.errors_for(self.ui_step(fields='\n'))
+        errors = self.errors_for(ui_step(fields='\n'))
         self.assertEqual(1, len(errors))
         self.assertIn('field', errors[0])
 
     def test_a_field_row_that_is_not_a_pair_fails(self) -> None:
-        errors = self.errors_for(self.ui_step(fields='Name | value\njust prose\n'))
+        errors = self.errors_for(ui_step(fields='Name | value\njust prose\n'))
         self.assertEqual(1, len(errors))
         self.assertIn('just prose', errors[0])
 
@@ -128,19 +162,25 @@ class HandoffFieldTests(unittest.TestCase):
             'Everything | same as above',
             'Permissions | as above',
             'Permissions | same scopes but Edit instead',
+            'Permissions | identical to the first form',
         ):
             with self.subTest(row=row):
-                errors = self.errors_for(self.ui_step(fields=f'Name | infra\n{row}\n'))
+                errors = self.errors_for(ui_step(fields=f'Name | infra\n{row}\n'))
                 self.assertEqual(1, len(errors))
                 self.assertIn('self-contained', errors[0])
 
     def test_a_url_variable_step_zero_never_exports_fails(self) -> None:
-        errors = self.errors_for(self.ui_step(url='https://dash.example.test/$NOT_EXPORTED/r2'))
+        errors = self.errors_for(ui_step(url='https://dash.example.test/$NOT_EXPORTED/r2'))
+        self.assertEqual(1, len(errors))
+        self.assertIn('NOT_EXPORTED', errors[0])
+
+    def test_a_field_value_variable_step_zero_never_exports_fails(self) -> None:
+        errors = self.errors_for(ui_step(fields='Account | $NOT_EXPORTED\n'))
         self.assertEqual(1, len(errors))
         self.assertIn('NOT_EXPORTED', errors[0])
 
     def test_braced_exported_variables_pass(self) -> None:
-        self.assertEqual([], self.errors_for(self.ui_step(url='https://github.com/${GITHUB_ORG}/settings')))
+        self.assertEqual([], self.errors_for(ui_step(url='https://github.com/${GITHUB_ORG}/settings')))
 
 
 if __name__ == '__main__':
