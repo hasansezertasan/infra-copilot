@@ -1566,6 +1566,145 @@ def validate_manifest_shape(root: Path = ROOT) -> list[str]:
     return errors
 
 
+HANDOFF_STEPS = ".ai-rulez/skills/infra/references/steps.yaml"
+HANDOFF_CONFIG = ".ai-rulez/skills/infra/references/config.md"
+_STEP_START = re.compile(r"^  - id: (?P<id>\S+)\s*$", re.MULTILINE)
+_STEP_FIELD = re.compile(r"^    (?P<key>[a-z_]+):(?P<rest>.*)$")
+
+
+def _manifest_steps(text: str) -> list[tuple[str, dict[str, list[str]]]]:
+    """Split steps.yaml into (id, {field: lines}) without parsing YAML.
+
+    Like validate_manifest_shape this is a shape reader, not a parser: a field is a
+    four-space-indented `key:` line and owns every following line indented deeper.
+    The first element of a field's lines is the text after the colon.
+    """
+    matches = list(_STEP_START.finditer(text))
+    steps = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        fields: dict[str, list[str]] = {}
+        current: list[str] | None = None
+        for line in text[match.end():end].splitlines():
+            field = _STEP_FIELD.match(line)
+            if field:
+                current = [field.group("rest").strip()]
+                fields[field.group("key")] = current
+            elif current is not None and (line.startswith("     ") or not line.strip()):
+                current.append(line)
+            elif line.strip() and not line.lstrip().startswith("#"):
+                current = None
+        steps.append((match.group("id"), fields))
+    return steps
+
+
+#: Flags that carry a value on the command line, and the variable names that hold a
+#: secret. A secret on a command line lands in shell history and the agent's context;
+#: the hidden-prompt, `read -rs` and `< file` forms never put it there.
+_SECRET_FLAG = re.compile(r"(?:^|\s)(?:--body|-b|--value|--secret|--token|--password|--client-secret)(?:=|\s)")
+_SECRET_VARIABLE = re.compile(r"\$\{?[A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY)[A-Za-z0-9_]*")
+
+
+def _scalar_blocks(lines: list[str], key: str) -> list[str]:
+    """Every `key: |` block under a list field, as dedented text."""
+    blocks = []
+    index = 0
+    while index < len(lines):
+        match = re.match(rf"^(\s*)(?:- )?{key}: \|\s*$", lines[index])
+        index += 1
+        if not match:
+            continue
+        indent = len(match.group(1)) + (2 if lines[index - 1].lstrip().startswith("- ") else 0)
+        body = []
+        while index < len(lines) and (not lines[index].strip() or len(lines[index]) - len(lines[index].lstrip()) > indent):
+            body.append(lines[index].strip())
+            index += 1
+        blocks.append("\n".join(body))
+    return blocks
+
+
+#: A form that points back at another form is the confusion the contract removes: the
+#: reader cannot tell which fields differ. Each form carries its own complete table.
+_BACK_REFERENCE = re.compile(
+    r"\bsame (?:as|scopes?|fields?|values?)\b|\bas (?:above|before)\b|\bbut \w+ instead\b",
+    re.IGNORECASE,
+)
+_URL_VARIABLE = re.compile(r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?P<bare>[A-Za-z_][A-Za-z0-9_]*))")
+_EXPORTED_VARIABLE = re.compile(r"^\s*export ([A-Za-z_][A-Za-z0-9_]*)=", re.MULTILINE)
+
+
+def _list_entries(lines: list[str]) -> list[list[str]]:
+    """Split a list field into its `- ` entries."""
+    entries: list[list[str]] = []
+    for line in lines[1:]:
+        if line.lstrip().startswith("- "):
+            entries.append([line])
+        elif entries:
+            entries[-1].append(line)
+    return entries
+
+
+def validate_handoff_fields(root: Path = ROOT) -> list[str]:
+    """Hold a HUMAN step's structured Handoff fields to the CLI-first contract.
+
+    Additive: a step carrying only the free-text `run:` is unchanged. The new rules
+    bind a step only through the fields it actually carries.
+    """
+    text = read_document(root / HANDOFF_STEPS)
+    if text is None:
+        return [f"{HANDOFF_STEPS}: unreadable, cannot check Handoff fields"]
+    config = read_document(root / HANDOFF_CONFIG)
+    if config is None:
+        return [f"{HANDOFF_CONFIG}: unreadable, cannot learn the variables Step 0 exports"]
+    exported = set(_EXPORTED_VARIABLE.findall(config))
+    errors: list[str] = []
+    for step_id, fields in _manifest_steps(text):
+        actor = fields.get("actor", [""])[0]
+        if actor == "HUMAN" and not any(key in fields for key in ("run", "cli", "ui")):
+            errors.append(
+                f"{HANDOFF_STEPS}: step {step_id} is HUMAN but carries none of run, cli or ui"
+            )
+        if ("cli" in fields or "ui" in fields) and "check_summary" not in fields:
+            errors.append(
+                f"{HANDOFF_STEPS}: step {step_id} carries cli or ui but no check_summary"
+            )
+        for entry in _list_entries(fields.get("ui", [])):
+            url = next(
+                (m.group(1) for line in entry if (m := re.match(r"^\s*(?:- )?url:\s*(\S+)\s*$", line))),
+                None,
+            )
+            if url is None:
+                errors.append(f"{HANDOFF_STEPS}: step {step_id} has a ui entry with no url")
+            else:
+                for variable in _URL_VARIABLE.finditer(url):
+                    name = variable.group("braced") or variable.group("bare")
+                    if name not in exported:
+                        errors.append(
+                            f"{HANDOFF_STEPS}: step {step_id} links to ${name}, which Step 0 never exports"
+                        )
+            table = [row.strip() for block in _scalar_blocks(entry, "fields") for row in block.splitlines() if row.strip()]
+            if not table:
+                errors.append(f"{HANDOFF_STEPS}: step {step_id} has a ui entry with no field table")
+            for row in table:
+                if " | " not in row:
+                    errors.append(
+                        f"{HANDOFF_STEPS}: step {step_id} has a field row that is not 'field | value': {row!r}"
+                    )
+                elif _BACK_REFERENCE.search(row):
+                    errors.append(
+                        f"{HANDOFF_STEPS}: step {step_id} row {row!r} points at another form; "
+                        "each form's table must be self-contained"
+                    )
+        for command in _scalar_blocks(fields.get("cli", []), "run"):
+            for line in command.splitlines():
+                if _SECRET_FLAG.search(line) or _SECRET_VARIABLE.search(line):
+                    errors.append(
+                        f"{HANDOFF_STEPS}: step {step_id} passes a secret on a command line "
+                        f"({line.strip()[:50]!r}); read it from a hidden prompt, `read -rs` or a file"
+                    )
+    return errors
+
+
 #: The `infra-auditor` manifest, and how each host's row in hosts.md spells its
 #: `tools` field. Only the shape lives here -- the path, the dialect and the tool
 #: names come from the table, so it stays authoritative rather than descriptive.
@@ -2771,6 +2910,7 @@ def main(argv: list[str] | None = None) -> int:
         *validate_config_fallbacks(),
         *validate_customization_markers(),
         *validate_manifest_shape(),
+        *validate_handoff_fields(),
         *validate_host_contract(),
         *validate_host_dialects(),
         *validate_token_resolution(),
