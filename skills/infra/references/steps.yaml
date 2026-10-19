@@ -483,6 +483,7 @@ steps:
             [ -n "$email" ] || { echo 'No email entered.' >&2; exit 1; }
             cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
             [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
             org_name=$ORG org_email=$email
             export org_name org_email
@@ -497,6 +498,7 @@ steps:
             set -eu; set -o pipefail
             cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
             [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
             code=$(jq -n '{data:{type:"projects",attributes:{name:"infra"}}}' \
               | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
@@ -1642,6 +1644,7 @@ steps:
               || { echo 'Missing App ID, installation ID or readable key file.' >&2; exit 1; }
             cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
             [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
             ws=$(curl -sf --config <(auth) \
               "$hcp_api/organizations/$ORG/workspaces/github-org" | jq -er '.data.id')
@@ -1699,6 +1702,7 @@ steps:
             set -eu; set -o pipefail
             cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
             [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
             team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
               | jq -r '[.data[] | select(.attributes.name == "infra-plan-only")][0].id // empty')
@@ -1722,6 +1726,7 @@ steps:
             set -eu; set -o pipefail
             cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
             [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
             team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
@@ -1754,6 +1759,7 @@ steps:
             set -eu; set -o pipefail
             cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
             [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
             team=$(curl -sf --config <(auth) \
               "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
@@ -2874,6 +2880,7 @@ steps:
             set -eu; set -o pipefail
             printf 'HCP user or organization API token: '; read -rs api_token; echo
             [ -n "$api_token" ] || { echo 'No token entered.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$api_token"; }
             team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
@@ -2995,6 +3002,7 @@ steps:
             set -eu; set -o pipefail
             printf 'HCP user or organization API token: '; read -rs api_token; echo
             [ -n "$api_token" ] || { echo 'No token entered.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$api_token"; }
             team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
@@ -3044,6 +3052,7 @@ steps:
             set -eu; set -o pipefail
             cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
             [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
             curl -sf --config <(auth) \
               "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" | jq -er '.data.id'
@@ -3133,6 +3142,7 @@ steps:
             set -eu; set -o pipefail
             printf 'HCP user or organization API token: '; read -rs api_token; echo
             [ -n "$api_token" ] || { echo 'No token entered.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$api_token"; }
             ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
               | jq -er '.data.id')

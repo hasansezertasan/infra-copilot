@@ -1836,9 +1836,21 @@ _PROSE_FIELD = re.compile(
 _YAML_INDICATOR_START = ("'", '"', "|", ">", "[", "{", "&", "*", "!", "%", "@", "`")
 
 
+_BLOCK_SCALAR_START = re.compile(r"^(?P<indent>\s*)(?P<dash>- )?[\w-]+: [|>][+-]?\s*$")
+
+
 def _plain_scalar_errors(text: str) -> list[str]:
     errors = []
+    block_key_column: int | None = None
     for number, line in enumerate(text.splitlines(), 1):
+        if block_key_column is not None:
+            if not line.strip() or len(line) - len(line.lstrip()) > block_key_column:
+                continue
+            block_key_column = None
+        opener = _BLOCK_SCALAR_START.match(line)
+        if opener:
+            block_key_column = len(opener.group("indent")) + (2 if opener.group("dash") else 0)
+            continue
         match = _PROSE_FIELD.match(line)
         if not match:
             continue
