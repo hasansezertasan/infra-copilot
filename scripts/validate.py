@@ -1826,6 +1826,33 @@ def _ui_errors(step: ManifestStep, exported: set[str]) -> list[str]:
     return errors
 
 
+#: The manifest is read by this repository's own line parser, so a plain YAML scalar with
+#: `: ` or ` #` in it parses here and still breaks every strict YAML reader. Only the
+#: fields written as one-line prose are checked; block scalars are not, because their
+#: content is free text.
+_PROSE_FIELD = re.compile(
+    r"^\s*(?:- )?(?P<key>effect|form|check_summary|title|why|produces|docs|url): (?P<value>\S.*)$"
+)
+_YAML_INDICATOR_START = ("'", '"', "|", ">", "[", "{", "&", "*", "!", "%", "@", "`")
+
+
+def _plain_scalar_errors(text: str) -> list[str]:
+    errors = []
+    for number, line in enumerate(text.splitlines(), 1):
+        match = _PROSE_FIELD.match(line)
+        if not match:
+            continue
+        value = match.group("value")
+        if value.startswith(_YAML_INDICATOR_START):
+            continue
+        if ": " in value or " #" in value or value.endswith(":"):
+            errors.append(
+                f"line {number}: {match.group('key')} is an unquoted YAML scalar that contains "
+                "': ' or ' #', which strict YAML rejects; quote the value"
+            )
+    return errors
+
+
 def validate_handoff_fields(root: Path = ROOT) -> list[str]:
     """Hold a HUMAN step's structured Handoff fields to the CLI-first contract.
 
@@ -1839,7 +1866,7 @@ def validate_handoff_fields(root: Path = ROOT) -> list[str]:
     if config is None:
         return [f"{TOOLCHAIN_CONFIG_DOCUMENT}: unreadable, cannot learn the variables Step 0 exports"]
     exported = set(_EXPORTED_VARIABLE.findall(config))
-    problems: list[str] = []
+    problems: list[str] = _plain_scalar_errors(text)
     for step in _manifest_steps(text):
         empty = [
             key for key in ("cli", "ui")

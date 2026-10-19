@@ -84,6 +84,16 @@ class HandoffFieldTests(unittest.TestCase):
         self.assertEqual(1, len(errors))
         self.assertIn('check_summary', errors[0])
 
+    def test_unquoted_colon_in_prose_field_fails(self) -> None:
+        errors = self.errors_for(cli_step('gh repo view\n', effect='Stores it: the token is hidden.'))
+        self.assertEqual(1, len(errors))
+        self.assertIn('unquoted YAML scalar', errors[0])
+
+    def test_quoted_or_colon_without_space_in_prose_field_passes(self) -> None:
+        for effect in ("'Stores it: the token is hidden.'", 'Opens https://example.test/page now.'):
+            with self.subTest(effect=effect):
+                self.assertEqual([], self.errors_for(cli_step('gh repo view\n', effect=effect)))
+
     def test_cli_entry_pointing_at_another_entry_fails(self) -> None:
         errors = self.errors_for(cli_step(
             'gh repo view\n',

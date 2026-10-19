@@ -953,6 +953,54 @@ steps:
     produces: backend blocks in each Terraform leaf
     docs: docs/object-storage-state.md#object-storage-backend
 
+  # Runs before backend-identity: that step stores the apply credentials in this environment,
+  # the resume scan stops at its first red HUMAN step, and `gh secret set --env` does not
+  # create or restrict an environment. Its phase tag stays 1 because the members of one
+  # operation share a phase; only its place in the walk moves.
+  - id: gha-environments
+    operation: provision-execution
+    implementation: object-storage
+    phase: 1
+    provider: github
+    actor: HUMAN
+    when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
+    tri_state: true   # exit 2 = could not verify; see protocol.md
+    title: Configure GitHub Environments for apply approval
+    why: >-
+      The production environment holds the apply credentials. A main-only branch policy
+      stops other branches from using it; reviewers or a recorded gate supply the human
+      approval HCP's confirm button gave.
+    check_summary: A "production" environment exists whose deployment branch policy allows exactly main, with required reviewers or a locked "Apply gate" decision.
+    cli:
+      - effect: Creates the production environment (or updates it if it exists) restricted to selected branches, deletes every other branch or tag policy, then adds the one policy that allows main. On a rerun the last call reports that the policy already exists, which is harmless.
+        run: |
+          gh api -X PUT "repos/$REPO/environments/production" --input - <<EOF
+          {"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
+          EOF
+          stale_ids=$(gh api --paginate "repos/$REPO/environments/production/deployment-branch-policies" \
+            --jq '.branch_policies[] | select(.name != "main" or .type != "branch") | .id')
+          for policy_id in $stale_ids; do
+            gh api -X DELETE "repos/$REPO/environments/production/deployment-branch-policies/$policy_id"
+          done
+          gh api -X POST "repos/$REPO/environments/production/deployment-branch-policies" \
+            -f name=main -f type=branch
+      - effect: Only where GitHub offers required reviewers (public repos, or GitHub Enterprise for private ones; Free, Pro and Team reject it with a 422). Sets one user as the required reviewer and keeps the main-only branch policy.
+        run: |
+          printf 'Reviewer GitHub login: '; read -r reviewer
+          reviewer_id=$(gh api "users/$reviewer" --jq .id)
+          gh api -X PUT "repos/$REPO/environments/production" --input - <<EOF
+          {"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true},
+           "reviewers":[{"type":"User","id":$reviewer_id}]}
+          EOF
+    run: |
+      Without required reviewers, lock an "Apply gate" row in the README Decisions table whose
+      choice is "merge-approval" or "dispatch" (docs/object-storage-ci.md#github-environments).
+      The terraform-apply workflow references the production environment.
+    check: sh "$INFRA_REFERENCES/checks/gha-apply-gate.sh"
+    produces: main-only GitHub Environment with reviewers or a recorded apply gate
+    docs: docs/object-storage-ci.md#github-environments
+
+  # ── Phase 2 — Cloudflare credentials (backend: object-storage) ──────────
   - id: backend-identity
     operation: bootstrap-state
     implementation: object-storage
@@ -1028,7 +1076,7 @@ steps:
             | gh secret set GCP_WORKLOAD_IDENTITY_PROVIDER --repo "$REPO"
           printf %s "tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" \
             | gh secret set GCP_SERVICE_ACCOUNT --repo "$REPO"
-      - effect: For gcs, stores the apply identity's two public coordinates in the production environment. Run it after the production environment allows exactly main.
+      - effect: For gcs, stores the apply identity's two public coordinates in the production environment. Run it after gha-environments, which this step follows, has restricted the production environment to main.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
           REPO_ID=$(gh api "repos/$REPO" -q '.id')
@@ -1208,50 +1256,6 @@ steps:
     produces: allow-destroy label and a locked destructive apply decision
     docs: docs/object-storage-ci.md#destructive-apply-opt-in
 
-  - id: gha-environments
-    operation: provision-execution
-    implementation: object-storage
-    phase: 1
-    provider: github
-    actor: HUMAN
-    when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
-    tri_state: true   # exit 2 = could not verify; see protocol.md
-    title: Configure GitHub Environments for apply approval
-    why: >-
-      The production environment holds the apply credentials. A main-only branch policy
-      stops other branches from using it; reviewers or a recorded gate supply the human
-      approval HCP's confirm button gave.
-    check_summary: A "production" environment exists whose deployment branch policy allows exactly main, with required reviewers or a locked "Apply gate" decision.
-    cli:
-      - effect: Creates the production environment (or updates it if it exists) restricted to selected branches, deletes every other branch or tag policy, then adds the one policy that allows main. On a rerun the last call reports that the policy already exists, which is harmless.
-        run: |
-          gh api -X PUT "repos/$REPO/environments/production" --input - <<EOF
-          {"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
-          EOF
-          stale_ids=$(gh api --paginate "repos/$REPO/environments/production/deployment-branch-policies" \
-            --jq '.branch_policies[] | select(.name != "main" or .type != "branch") | .id')
-          for policy_id in $stale_ids; do
-            gh api -X DELETE "repos/$REPO/environments/production/deployment-branch-policies/$policy_id"
-          done
-          gh api -X POST "repos/$REPO/environments/production/deployment-branch-policies" \
-            -f name=main -f type=branch
-      - effect: Only where GitHub offers required reviewers (public repos, or GitHub Enterprise for private ones; Free, Pro and Team reject it with a 422). Sets one user as the required reviewer and keeps the main-only branch policy.
-        run: |
-          printf 'Reviewer GitHub login: '; read -r reviewer
-          reviewer_id=$(gh api "users/$reviewer" --jq .id)
-          gh api -X PUT "repos/$REPO/environments/production" --input - <<EOF
-          {"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true},
-           "reviewers":[{"type":"User","id":$reviewer_id}]}
-          EOF
-    run: |
-      Without required reviewers, lock an "Apply gate" row in the README Decisions table whose
-      choice is "merge-approval" or "dispatch" (docs/object-storage-ci.md#github-environments).
-      The terraform-apply workflow references the production environment.
-    check: sh "$INFRA_REFERENCES/checks/gha-apply-gate.sh"
-    produces: main-only GitHub Environment with reviewers or a recorded apply gate
-    docs: docs/object-storage-ci.md#github-environments
-
-  # ── Phase 2 — Cloudflare credentials (backend: object-storage) ──────────
   - id: cf-token-gha
     operation: store-cloudflare-credential
     implementation: object-storage
@@ -1687,17 +1691,26 @@ steps:
       continuing past it.
     check_summary: The credential this machine offers HCP (TF_TOKEN_app_terraform_io, else the Terraform credentials file) is a plan-only team token, not a user token or one that can apply.
     cli:
-      - effect: Creates the team infra-plan-only with every organization permission off; this needs an HCP plan that includes teams. Never add "Manage version control settings" or any other organization permission to it; organization permissions are the self-elevation risk this step removes. It authenticates with your HCP login from the Terraform credentials file.
+      - effect: Creates the team infra-plan-only with every organization permission off, or resets an existing one to that state; this needs an HCP plan that includes teams. Never add "Manage version control settings" or any other organization permission to it; organization permissions are the self-elevation risk this step removes. It authenticates with your HCP login from the Terraform credentials file.
         run: |
           (
             set -eu; set -o pipefail
             cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
             [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
-            code=$(jq -n '{data:{type:"teams",attributes:{name:"infra-plan-only","organization-access":{"manage-policies":false,"manage-policy-overrides":false,"manage-workspaces":false,"manage-vcs-settings":false,"manage-providers":false,"manage-modules":false,"manage-run-tasks":false,"manage-projects":false,"read-projects":false,"read-workspaces":false,"manage-membership":false}}}}' \
-              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
-                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/teams")
-            [ "$code" = 200 ] || [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
+            team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
+              | jq -r '[.data[] | select(.attributes.name == "infra-plan-only")][0].id // empty')
+            if [ -n "$team" ]; then
+              resp=$(team_id=$team jq -n '{data:{id:env.team_id,type:"teams",attributes:{name:"infra-plan-only","organization-access":{"manage-policies":false,"manage-policy-overrides":false,"manage-workspaces":false,"manage-vcs-settings":false,"manage-providers":false,"manage-modules":false,"manage-run-tasks":false,"manage-projects":false,"read-projects":false,"read-workspaces":false,"manage-membership":false,"manage-teams":false,"manage-organization-access":false}}}}' \
+                | curl -s -w '\n%{http_code}' -X PATCH --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/teams/$team")
+            else
+              resp=$(jq -n '{data:{type:"teams",attributes:{name:"infra-plan-only","organization-access":{"manage-policies":false,"manage-policy-overrides":false,"manage-workspaces":false,"manage-vcs-settings":false,"manage-providers":false,"manage-modules":false,"manage-run-tasks":false,"manage-projects":false,"read-projects":false,"read-workspaces":false,"manage-membership":false,"manage-teams":false,"manage-organization-access":false}}}}' \
+                | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/teams")
+            fi
+            code=${resp##*$'\n'}
+            case "$code" in 200|201) ;; *) echo "HTTP $code: $resp" >&2; exit 1 ;; esac
           )
       - effect: Grants the team the Plan permission, not Write (which includes apply), on every workspace in $ORG connected to $REPO. Sets a workspace's existing grant to Plan if it is at another level, so run it again whenever add creates a new workspace. It reads every page of workspaces. It authenticates with your HCP login from the Terraform credentials file.
         run: |
@@ -1716,7 +1729,7 @@ steps:
               printf '%s' "$body" \
                 | repo=$REPO jq -r '.data[] | select(.attributes["vcs-repo"].identifier == env.repo) | .id' \
                 | while read -r ws; do
-                    tw=$(curl -sf --config <(auth) "$hcp_api/team-workspaces?filter%5Bworkspace%5D%5Bid%5D=$ws&page%5Bsize%5D=100" \
+                    tw=$(curl -sf --config <(auth) "$hcp_api/team-workspaces?filter%5Bworkspace%5D%5Bid%5D=$ws" \
                       | team_id=$team jq -r '[.data[] | select(.relationships.team.data.id == env.team_id)][0].id // empty')
                     if [ -n "$tw" ]; then
                       resp=$(printf '%s' '{"data":{"type":"team-workspaces","attributes":{"access":"plan"}}}' \
@@ -2830,7 +2843,7 @@ steps:
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
             ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
               | jq -er '.data.id')
-            tw=$(curl -sf --config <(auth) "$hcp_api/team-workspaces?filter%5Bworkspace%5D%5Bid%5D=$ws&page%5Bsize%5D=100" \
+            tw=$(curl -sf --config <(auth) "$hcp_api/team-workspaces?filter%5Bworkspace%5D%5Bid%5D=$ws" \
               | team_id=$team jq -r '[.data[] | select(.relationships.team.data.id == env.team_id)][0].id // empty')
             if [ -n "$tw" ]; then
               resp=$(printf '%s' '{"data":{"type":"team-workspaces","attributes":{"access":"plan"}}}' \
@@ -2951,7 +2964,7 @@ steps:
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
             ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
               | jq -er '.data.id')
-            tw=$(curl -sf --config <(auth) "$hcp_api/team-workspaces?filter%5Bworkspace%5D%5Bid%5D=$ws&page%5Bsize%5D=100" \
+            tw=$(curl -sf --config <(auth) "$hcp_api/team-workspaces?filter%5Bworkspace%5D%5Bid%5D=$ws" \
               | team_id=$team jq -r '[.data[] | select(.relationships.team.data.id == env.team_id)][0].id // empty')
             if [ -n "$tw" ]; then
               resp=$(printf '%s' '{"data":{"type":"team-workspaces","attributes":{"access":"plan"}}}' \
