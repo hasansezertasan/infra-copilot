@@ -1626,7 +1626,11 @@ _SECRET_LITERAL = re.compile(
     r"|configure set \w*(?:secret|token|password|key)\w*\s+[^$\s]",
     re.IGNORECASE,
 )
-_SECRET_EXPANSION = re.compile(rf"\$\{{?(?P<name>{_SECRET_NAME})")
+#: A name ending in FILE, PATH or NAME holds where a secret lives or what it is called,
+#: not the secret, so expanding it is no leak.
+_SECRET_EXPANSION = re.compile(
+    rf"\$\{{?(?P<name>{_SECRET_NAME})(?<!FILE)(?<!PATH)(?<!NAME)(?![A-Za-z0-9_])"
+)
 #: `read` flags may carry a quoted prompt (`-p "Token: "`), so the flags group allows one
 #: after each flag word; silence is judged from the flag letters alone, never the prompt.
 _HIDDEN_READ = re.compile(
@@ -1669,10 +1673,15 @@ def _literal_blocks(lines: list[str], key: str) -> list[str]:
 
 
 def _list_entries(lines: list[str]) -> list[list[str]]:
-    """Split a list field's body into its `- ` entries."""
+    """Split a list field's body into its `- ` entries.
+
+    Only a `- ` at the first entry's own indent starts one, so a dash line inside an
+    entry's literal block stays part of that entry.
+    """
     entries: list[list[str]] = []
+    indent = next((len(l) - len(l.lstrip()) for l in lines if l.lstrip().startswith("- ")), 0)
     for line in lines:
-        if line.lstrip().startswith("- "):
+        if line.lstrip().startswith("- ") and len(line) - len(line.lstrip()) == indent:
             entries.append([line])
         elif entries:
             entries[-1].append(line)

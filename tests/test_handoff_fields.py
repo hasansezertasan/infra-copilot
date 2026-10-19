@@ -127,6 +127,25 @@ class HandoffFieldTests(unittest.TestCase):
     def test_a_file_redirect_from_a_token_named_variable_passes(self) -> None:
         self.assertEqual([], self.errors_for(cli_step('gh secret set APP_KEY < "$TOKEN_FILE"\n')))
 
+    def test_variables_naming_a_file_path_or_secret_name_are_no_leak(self) -> None:
+        for variable in ('TOKEN_FILE', 'TOKEN_PATH', 'SECRET_NAME'):
+            with self.subTest(variable=variable):
+                self.assertEqual([], self.errors_for(cli_step(f'gh secret set "${variable}" < key.pem\n')))
+
+    def test_a_dash_line_inside_a_literal_block_does_not_split_an_entry(self) -> None:
+        command = 'cat <<EOF\n- not an entry\nEOF\n'
+        self.assertEqual([], self.errors_for(cli_step(command)))
+        errors = self.errors_for(step(
+            'check_summary: The form exists.\n'
+            'ui:\n'
+            '  - url: https://dash.example.test/$CF_ACCOUNT_ID\n'
+            '    fields: |\n'
+            '      Name | infra\n'
+            '      - same as above | x\n'
+        ))
+        self.assertEqual(1, len(errors))
+        self.assertIn('self-contained', errors[0])
+
     def test_a_secret_variable_that_was_never_read_hidden_fails(self) -> None:
         errors = self.errors_for(cli_step('printf %s "$TOKEN" | gh secret set APP_KEY\n'))
         self.assertEqual(1, len(errors))
