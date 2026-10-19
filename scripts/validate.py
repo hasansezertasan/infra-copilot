@@ -1627,7 +1627,14 @@ _SECRET_LITERAL = re.compile(
     re.IGNORECASE,
 )
 _SECRET_EXPANSION = re.compile(rf"\$\{{?(?P<name>{_SECRET_NAME})")
-_HIDDEN_READ = re.compile(r"\bread\s+(?P<flags>(?:-[A-Za-z]+\s+)+)(?P<name>\w+)")
+#: `read` flags may carry a quoted prompt (`-p "Token: "`), so the flags group allows one
+#: after each flag word; silence is judged from the flag letters alone, never the prompt.
+_HIDDEN_READ = re.compile(
+    r"""\bread\s+(?P<flags>(?:-[A-Za-z]+(?:\s+"[^"]*"|\s+'[^']*')?\s+)+)(?P<name>\w+)"""
+)
+_QUOTED = re.compile(r"""\"[^\"]*\"|'[^']*'""")
+#: `< file` hands the command a file, not a value; a variable naming that file is no leak.
+_FILE_REDIRECT = re.compile(r"(?<!<)<(?!<)\s*[\"']?\$\{?\w+\}?[\"']?")
 
 #: A form that points back at another form or entry is the confusion the contract
 #: removes: the reader cannot tell which fields differ. Each carries its own full text.
@@ -1698,12 +1705,12 @@ def _cli_errors(step: ManifestStep) -> list[str]:
             hidden = {
                 match.group("name")
                 for match in _HIDDEN_READ.finditer(command)
-                if "s" in match.group("flags")
+                if "s" in "".join(re.findall(r"-([A-Za-z]+)", _QUOTED.sub("", match.group("flags"))))
             }
             for line in command.splitlines():
                 leaked = _SECRET_FLAG.search(line) or _SECRET_LITERAL.search(line) or any(
                     expansion.group("name") not in hidden
-                    for expansion in _SECRET_EXPANSION.finditer(line)
+                    for expansion in _SECRET_EXPANSION.finditer(_FILE_REDIRECT.sub("", line))
                 )
                 if leaked:
                     errors.append(

@@ -114,6 +114,19 @@ class HandoffFieldTests(unittest.TestCase):
         )
         self.assertEqual([], self.errors_for(cli_step(command)))
 
+    def test_a_hidden_read_with_a_prompt_passes(self) -> None:
+        for read in ('read -rsp "Token: " TOKEN', 'read -rs -p "Token: " TOKEN'):
+            with self.subTest(read=read):
+                command = f'{read}\nprintf %s "$TOKEN" | gh secret set APP_KEY\n'
+                self.assertEqual([], self.errors_for(cli_step(command)))
+
+    def test_a_prompt_that_mentions_secrets_does_not_make_a_read_hidden(self) -> None:
+        command = 'read -r -p "Secret: " TOKEN\nprintf %s "$TOKEN" | gh secret set APP_KEY\n'
+        self.assertEqual(1, len(self.errors_for(cli_step(command))))
+
+    def test_a_file_redirect_from_a_token_named_variable_passes(self) -> None:
+        self.assertEqual([], self.errors_for(cli_step('gh secret set APP_KEY < "$TOKEN_FILE"\n')))
+
     def test_a_secret_variable_that_was_never_read_hidden_fails(self) -> None:
         errors = self.errors_for(cli_step('printf %s "$TOKEN" | gh secret set APP_KEY\n'))
         self.assertEqual(1, len(errors))
