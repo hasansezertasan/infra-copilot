@@ -118,6 +118,20 @@ working tree in a temp directory, so they write nothing into your checkout. That
 install of either. If you ever clean those up by hand, note that `.agents/plugins/marketplace.json`
 is tracked and required — never delete `.agents/` wholesale.
 
+### Which test covers a check
+
+A script in `.ai-rulez/skills/infra/references/checks/` has a test named for it:
+`gha-apply-gate.sh` is run by `tests/test_gha_apply_gate.py`. The exceptions are
+`workflow-routing.sh` (`tests/test_gha_plan_checks.py` and `tests/test_leaf_routing.py`),
+`hcp-bootstrap-workspaces.sh` (`tests/test_leaf_routing.py`),
+`hcp-current-plan.sh` and `leaf-cloud.sh` (inside `tests/test_new_provider_flow.py`), and
+`hcp-github-app.sh`, which has no test.
+
+A check written inline as a `check:` block in `steps.yaml` has no script. Its test extracts the
+block by step id: `new-provider-decision` is in `tests/test_new_provider_flow.py` and
+`gha-destroy-label` in `tests/test_terraform_destroy.py`. Checks that read the README Config block
+or Decisions table build their README with `tests/readme_fixture.py`.
+
 ### Skill structure
 
 Every `SKILL.md` addresses four concerns, and `npm run check:all` fails if one is missing:

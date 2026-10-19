@@ -103,6 +103,7 @@
     "closure": "python3 scripts/validate.py --closure",
     "generate": "ai-rulez generate --no-self-mcp --strict-config && ai-rulez generate --plugin",
     "lint": "markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc",
+    "precheck": "node scripts/require-deps.mjs",
     "smoke-closure": "bash scripts/smoke-closure.sh",
     "smoke-opencode": "bash scripts/smoke-opencode.sh",
     "test": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests",
