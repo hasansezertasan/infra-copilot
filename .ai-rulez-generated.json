@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:778ff9778a99c4bdc0695bddfa1b07ee92a0b542bb1b28064efedbb31a32d871",
+  "source_hash": "blake3:4282790ea31558f71dc2e984dd8d169339d4b7503b65400f3df9200b4f459ca6",
   "outputs": {
     ".agents/plugins/marketplace.json": {
       "content_hash": "blake3:c9f5887398d8719835af830222d1d2197f73e2a8864b2e1e24d347e2d75b6b36",
@@ -183,7 +183,7 @@
       "mode": "0644"
     },
     "skills/infra/references/gcp.md": {
-      "content_hash": "blake3:23b4162fb05c920ac9cfb6c30abb336f2a0abbb26c637bba98c4ba069ad53896",
+      "content_hash": "blake3:7a41ef90061b0525926564e52b535be74640202e0d27e90705170c0f3d0696e5",
       "mode": "0644"
     },
     "skills/infra/references/github.md": {
@@ -215,7 +215,7 @@
       "mode": "0644"
     },
     "skills/infra/references/protocol.md": {
-      "content_hash": "blake3:817b07e5b45b458d707f1086514516fdaf8c38f6eb71b34714fb50b08ef1a06e",
+      "content_hash": "blake3:cb4ad56c71b59abc720da344de32d140d0536ebcec0f77319d285eab89538640",
       "mode": "0644"
     },
     "skills/infra/references/status.md": {
@@ -223,7 +223,7 @@
       "mode": "0644"
     },
     "skills/infra/references/steps.yaml": {
-      "content_hash": "blake3:8a3e0b9bb2a2ce8e24d862ab08d65f554313fb3dc4fbd45dc087176ccce0caea",
+      "content_hash": "blake3:d4c62236ac78cb4313e3f0e55892db343a93e7460076c62f9c3a8260e9e5af35",
       "mode": "0644"
     },
     "skills/infra/references/templates/apps/terraform-apply.json": {

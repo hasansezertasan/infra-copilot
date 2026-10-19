@@ -105,6 +105,10 @@ Render a step from its structured fields:
   GitHub App.
 - **UI forms.** Each `ui` entry is one form: its deep link, then its complete table, one
   `field | value` row per line. Never abbreviate a form against another one.
+- **Both.** A step that carries `cli` or `ui` and also a `run` keeps in `run` only what the
+  agent must do around the human's work (record a decision, record review evidence). Print
+  the commands and forms to the human; act on the `run` text yourself, never as a command
+  for them to copy.
 - **Unconverted steps.** A step with only free-text `run` prints that text under `Do this:`
   with a numbered list, as before, and ends with `I will check:` followed by what its
   `check` proves.

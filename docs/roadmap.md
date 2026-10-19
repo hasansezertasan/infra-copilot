@@ -24,6 +24,15 @@ oversight. Each item links to the issue that owns it.
   its checks are real resumable state; `status` must not call an interrupted adoption
   healthy.
 
+- **The cloud commands in the guided Handoffs have been reviewed but never run.** The `gcloud`,
+  `gh` and HCP API commands the HUMAN steps print (workspace and team grants, WIF pools and
+  providers, environment policies, secret storage) were checked against the vendors' API
+  references and by bot review, not executed against a real GCP project, GitHub repository or
+  HCP organization. Review rounds kept finding edge cases in them: reruns, paging, existing state
+  in the wrong shape, resource naming. Run them once in a scratch project before relying on them,
+  and treat a failure there as a bug in the step. The validator checks structure, secret handling
+  and strict-YAML safety, not behaviour. ([#146](https://github.com/hasansezertasan/infra-skills/issues/146))
+
 ## Known gaps in the repository itself
 
 - **Only HCP endpoint paths have a staleness gate, and only by path.** `npm run check-upstream`

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:23b4162fb05c920ac9cfb6c30abb336f2a0abbb26c637bba98c4ba069ad53896
-Source-Hash: blake3:778ff9778a99c4bdc0695bddfa1b07ee92a0b542bb1b28064efedbb31a32d871
+Content-Hash: blake3:7a41ef90061b0525926564e52b535be74640202e0d27e90705170c0f3d0696e5
+Source-Hash: blake3:4282790ea31558f71dc2e984dd8d169339d4b7503b65400f3df9200b4f459ca6
 Schema-Version: v1
 -->
 
@@ -113,9 +113,18 @@ config; `<project-number>` is numeric, not the project ID.
 ```sh
 PROJECT_ID=<project-id>
 PROJECT_NUMBER=<project-number>
-POOL=hcp-terraform
+# One pool and service account per provider, so a second GCP provider in this project never
+# reuses the first one's trust. Both are valid, bounded Google IDs: a slug of the provider
+# name (a-z, 0-9, dash, 12 characters) plus a checksum of the HCP organization, workspace and provider name, which keeps similar names and
+# separate installations apart. If a
+# provider with this name already exists in the pool, check that its condition names your
+# organization and workspace before reusing it.
+NEW_PROVIDER=<provider-name>
+slug=$(printf %s "$NEW_PROVIDER" | tr -cd 'a-z0-9-' | cut -c1-12 | sed 's/-*$//')
+tag=$(printf '%s/%s/%s' "<hcp-org>" "<workspace>" "$NEW_PROVIDER" | cksum | cut -d' ' -f1)
+POOL="hcp-$slug-$tag"
 PROVIDER=hcp-terraform
-SA=terraform
+SA=$POOL
 
 mise exec -- gcloud config set project "$PROJECT_ID"
 mise exec -- gcloud services enable \
@@ -282,7 +291,7 @@ WIF:
 |---|---|
 | `TFC_GCP_PROVIDER_AUTH` | `true` |
 | `TFC_GCP_PRINCIPAL_TYPE` | `service_account` |
-| `TFC_GCP_RUN_SERVICE_ACCOUNT_EMAIL` | `terraform@<project-id>.iam.gserviceaccount.com` |
+| `TFC_GCP_RUN_SERVICE_ACCOUNT_EMAIL` | `<service-account>@<project-id>.iam.gserviceaccount.com` (the `$SA` the trust command created) |
 | `TFC_GCP_WORKLOAD_PROVIDER_NAME` | `projects/<project-number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>` |
 
 `TFC_GCP_WORKLOAD_PROVIDER_NAME` can instead be the triple `TFC_GCP_PROJECT_NUMBER`,

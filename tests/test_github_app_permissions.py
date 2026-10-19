@@ -45,15 +45,21 @@ class GitHubAppPermissionTests(unittest.TestCase):
 
     def test_both_github_app_steps_list_the_required_permissions(self) -> None:
         manifest = (REFERENCES / 'steps.yaml').read_text(encoding='utf-8')
+        apply_rows = (
+            'Repository permissions: Administration | Read and write',
+            'Repository permissions: Actions | Read-only',
+            'Repository permissions: Metadata | Read-only',
+            'Repository permissions: Pull requests | Read and write',
+            'Organization permissions: Members | Read and write',
+            'Organization permissions: Administration | Read and write',
+        )
         expected = {
-            'gh-app': (
-                'Permissions: Repo Administration(RW), Actions(R), Contents(R), Metadata(R), Pull requests(RW);',
-                'Org Members(RW), Administration(RW).',
-            ),
-            'gh-app-gha': (
-                'Apply App permissions: Repository Administration (R/W), Actions (R), Contents (R/W), Metadata (R),',
-                'Pull requests (R/W); Organization Members (R/W), Administration (R/W).',
-                'The plan App uses the same scopes with Read only; it never has a write permission.',
+            'gh-app': apply_rows + ('Repository permissions: Contents | Read-only',),
+            'gh-app-gha': apply_rows + (
+                'Repository permissions: Contents | Read and write',
+                'Repository permissions: Administration | Read-only',
+                'Organization permissions: Members | Read-only',
+                'the plan App never has a write permission',
             ),
         }
         for step_id, permissions in expected.items():
@@ -76,8 +82,10 @@ class GitHubAppPermissionTests(unittest.TestCase):
     def test_write_contents_is_production_only_and_plan_is_read_only(self) -> None:
         manifest = (REFERENCES / 'steps.yaml').read_text(encoding='utf-8')
         step = manifest.split('  - id: gh-app-gha\n', 1)[1].split('  - id: ', 1)[0]
-        self.assertIn('only in the production environment', step)
-        self.assertIn('second App scoped to the same managed repos, with only Read', step)
+        for line in step.splitlines():
+            if re.search(r'gh secret set GH_APP_(ID|INSTALLATION_ID|PEM)\b', line):
+                self.assertIn('--env production', line)
+        self.assertIn('a second App with its own key; never reuse the plan App', step)
         self.assertIn('merge settings accurately on apply refresh', step)
 
 

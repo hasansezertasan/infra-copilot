@@ -19,7 +19,9 @@
 #   title     one line
 #   why       what this unblocks (goes in the handoff block's "Why:")
 #   run       AGENT steps: the command(s) the agent runs
-#             HUMAN steps: the human_action text (browser instructions)
+#             HUMAN steps: the human_action text (browser instructions). On a step that also
+#             carries `cli` or `ui`, only what the agent does around the human's work (record
+#             a decision or evidence); the human's commands and forms live in `cli`/`ui`.
 #   when      optional shell condition. If present and evaluates false, skip this step.
 #             Use the scope-specific selectors in operations.md, never $BACKEND.
 #   refresh_credentials optional. Refresh selected config exports after this member
@@ -322,17 +324,29 @@ steps:
     actor: HUMAN
     title: Create and commit the pinned mise.toml + mise.lock
     why: Preflight and every per-tool check compare installed binaries against these pins; nothing else creates them.
-    run: |
-      1. Follow docs/setup.md#6-local-development to review the exact tool versions in the
-         mise.toml and mise.lock the Template rendered, or to author them when absent. Changing
-         a rendered pin is a deliberate human decision, not a lookup, and the one place a
-         Template-owned file is edited by hand; a later `copier update` merges it.
-      2. Review the entire mise.toml before trusting it; repository config can enable
-         templates, plugins, and other executable behavior.
-      3. Trust it, initialize and populate mise.lock, install the locked pins, and
-         activate the installed toolchain using the exact sequence in that guide.
-      4. Commit mise.toml and mise.lock together, then reply `done` so the agent can
-         re-run this check.
+    check_summary: mise.toml and mise.lock are committed unchanged, mise trusts the repository config, and every pinned tool is installed at its exact pinned version.
+    cli:
+      - effect: Prints the whole mise.toml so you can review it before trusting it, because repository config can enable templates, plugins and other executable behavior. If the file is absent, author it first with exact versions per docs/setup.md#6-local-development.
+        run: |
+          cat -- mise.toml
+      - effect: Trusts the reviewed config, initializes and populates mise.lock, installs exactly the pinned tools from the lock, and activates them in this shell. Changing a rendered pin is a deliberate decision, and a later copier update merges it.
+        run: |
+          mise trust mise.toml
+          touch mise.lock
+          mise lock
+          pinned=$(mise config get --file ./mise.toml tools |
+            sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p')
+          printf '%s\n' "$pinned" |
+            while IFS= read -r tool; do
+              [ -z "$tool" ] && continue
+              MISE_LOCKED=1 mise install "$tool" || exit 1
+            done
+          eval "$(mise activate bash)"   # zsh: mise activate zsh
+          command -v terraform && terraform version
+      - effect: Commits mise.toml and mise.lock together, and only those two files, so other staged work stays out of the commit.
+        run: |
+          git add mise.toml mise.lock
+          git diff --cached --quiet -- mise.toml mise.lock || git commit -m "build: pin the toolchain" -- mise.toml mise.lock
     # Keep this byte-for-byte identical to the mise preflight check. The repository
     # validator enforces that invariant so the step and fail-fast gate cannot drift.
     check: >-
@@ -375,13 +389,23 @@ steps:
     when: '[ "$HAS_HCP" = "true" ]'
     title: Sign up and terraform login (mint the pivot HCP token)
     why: This browser login yields the API token needed to verify the organization and drive every later API step.
+    check_summary: A user HCP credential exists (TF_TOKEN_app_terraform_io or the Terraform credentials file) and, on a cold repository, HCP accepts it for /account/details.
+    ui:
+      - form: Sign up for HCP Terraform (skip it if you already have an account; the free tier is enough to start)
+        url: https://app.terraform.io/public/signup/account
+        fields: |
+          Username | The handle you want on HCP
+          Email | The address you want HCP to use
+          Password | A new password
+          Terms of Use and Privacy Policy | Accept
+          After submitting | Confirm the address from the email HCP sends
+    cli:
+      - effect: Opens a browser tab to approve a login, then writes the user API token to ~/.terraform.d/credentials.tfrc.json. This is the last interactive HCP CLI authentication; later providers still need their own human authorization or credential entry.
+        run: |
+          terraform login
     run: |
-      1. If needed, sign up at https://app.terraform.io/ (free tier is enough to start).
-      2. Run locally: terraform login
-      3. Approve in the browser tab it opens. The token is written to
-         ~/.terraform.d/credentials.tfrc.json. This is the last interactive HCP CLI
-         authentication; later providers still require their own human authorization or credential entry.
-      4. Reply `done`; the agent re-exports HCP_TOKEN before checking the next step.
+      After the human replies done, re-export HCP_TOKEN per config.md Step 0 before checking
+      the next step.
     # Accepts either credential source, in terraform's own precedence order. A
     # file-only check marked phase 0 red for anyone following hcp-apply-scope's
     # environment-variable route, and setup then told them to run `terraform login`
@@ -449,10 +473,50 @@ steps:
     when: '[ "$HAS_HCP" = "true" ]'
     title: Create HCP Terraform org and project
     why: HCP holds state and provider variables for HCP-routed leaves; those leaves need the organization.
-    run: |
-      1. Open https://app.terraform.io/ after completing hcp-login.
-      2. Create an organization named exactly `<your ORG slug>` (see config.md).
-      3. Inside it, create a project named `infra`.
+    check_summary: The organization $ORG exists and holds a project named exactly infra.
+    cli:
+      - effect: Creates the HCP organization named $ORG, with the email you enter as its admin contact. Organization names are global, so it fails if another account already owns $ORG. It authenticates with your HCP login from the Terraform credentials file.
+        run: |
+          (
+            set -eu; set -o pipefail
+            printf 'Organization admin email: '; read -r email
+            [ -n "$email" ] || { echo 'No email entered.' >&2; exit 1; }
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
+            org_name=$ORG org_email=$email
+            export org_name org_email
+            code=$(jq -n '{data:{type:"organizations",attributes:{name:env.org_name,email:env.org_email}}}' \
+              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
+                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations")
+            [ "$code" = 200 ] || [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
+          )
+      - effect: Creates the project infra in the $ORG organization. It fails if the organization does not exist yet. It authenticates with your HCP login from the Terraform credentials file.
+        run: |
+          (
+            set -eu; set -o pipefail
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
+            code=$(jq -n '{data:{type:"projects",attributes:{name:"infra"}}}' \
+              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
+                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/projects")
+            [ "$code" = 200 ] || [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
+          )
+    ui:
+      - form: Create the organization in the browser instead
+        url: https://app.terraform.io/app/organizations/new
+        fields: |
+          Organization name | $ORG
+          Email address | The admin contact address you want HCP to use
+      - form: Create the project in the browser instead
+        url: https://app.terraform.io/app/$ORG/projects
+        fields: |
+          Start from | New project
+          Name | infra
+          Description | leave blank
     # Assert the project too, not just the org: this step produces both, and an org
     # without `infra` fails later workspace work with a far less obvious error.
     # filter[names] is case-insensitive, so re-assert the exact name in jq.
@@ -496,14 +560,28 @@ steps:
     when: '[ "$HAS_HCP" = "true" ]'
     title: Connect GitHub to HCP via OAuth or the GitHub App
     why: Workspaces need a VCS provider to run speculative plans on PRs.
+    check_summary: The organization has a GitHub OAuth client, or the leaf workspaces for $REPO are connected through an OAuth token or the GitHub App; a plan-only credential that cannot read VCS settings reports unverifiable rather than red.
+    ui:
+      - form: Connect GitHub through OAuth, scoped to this repository (use this or the GitHub App form, not both)
+        url: https://app.terraform.io/app/$ORG/settings/version-control
+        fields: |
+          Page | Version Control, then Providers
+          Add a VCS provider | GitHub, then GitHub.com
+          Authorize on GitHub | Authorize HCP Terraform as the bootstrap user
+          Organization access on GitHub | Grant access to $GITHUB_ORG, the owner of $REPO
+      - form: Connect GitHub through the HCP Terraform GitHub App (use this or the OAuth form, not both)
+        url: https://app.terraform.io/app/$ORG/settings/version-control
+        fields: |
+          Page | Version Control, then Providers
+          Install the HCP Terraform GitHub App | On $GITHUB_ORG, Only select repositories, $REPO
+          Authorize the App | On the bootstrap user's GitHub account, so HCP can link the installation to that user
     run: |
-      In HCP -> org Settings -> Version Control / VCS Providers, connect GitHub via OAuth,
-      scoped to this repo only, or install the HCP Terraform GitHub App for $REPO and
-      authorize it on the bootstrap user's GitHub account. The agent discovers the
-      installation by $REPO's GitHub owner using that user token. Select an ambiguous
-      connection with OAUTH_TOKEN_ID or GITHUB_APP_INSTALLATION_ID (HCP ghain- id,
-      not GitHub's numeric installation id); never export both.
-      After the handoff, keep that selection exported for workspace creation.
+      The agent discovers the installation by $REPO's GitHub owner using the bootstrap user's
+      token; keep that token through bootstrap, because team and organization tokens cannot
+      create App links. If the organization has several GitHub connections, ask the human to
+      choose one as a decision, then export OAUTH_TOKEN_ID (its ot- id) or
+      GITHUB_APP_INSTALLATION_ID (HCP's ghain- id, not GitHub's numeric installation id) in your
+      own environment, never both, and keep it exported for workspace creation.
     # Assert a GitHub-family VCS provider specifically, not just "any oauth client" —
     # otherwise a pre-existing GitLab/Bitbucket connection would false-green this step.
     # Tri-state, because this endpoint is organization-scoped and the plan-only
@@ -877,6 +955,54 @@ steps:
     produces: backend blocks in each Terraform leaf
     docs: docs/object-storage-state.md#object-storage-backend
 
+  # Runs before backend-identity: that step stores the apply credentials in this environment,
+  # the resume scan stops at its first red HUMAN step, and `gh secret set --env` does not
+  # create or restrict an environment. Its phase tag stays 1 because the members of one
+  # operation share a phase; only its place in the walk moves.
+  - id: gha-environments
+    operation: provision-execution
+    implementation: object-storage
+    phase: 1
+    provider: github
+    actor: HUMAN
+    when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
+    tri_state: true   # exit 2 = could not verify; see protocol.md
+    title: Configure GitHub Environments for apply approval
+    why: >-
+      The production environment holds the apply credentials. A main-only branch policy
+      stops other branches from using it; reviewers or a recorded gate supply the human
+      approval HCP's confirm button gave.
+    check_summary: A "production" environment exists whose deployment branch policy allows exactly main, with required reviewers or a locked "Apply gate" decision.
+    cli:
+      - effect: Creates the production environment (or updates it if it exists) restricted to selected branches, deletes every other branch or tag policy, then adds the one policy that allows main. On a rerun the last call reports that the policy already exists, which is harmless.
+        run: |
+          gh api -X PUT "repos/$REPO/environments/production" --input - <<EOF
+          {"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
+          EOF
+          stale_ids=$(gh api --paginate "repos/$REPO/environments/production/deployment-branch-policies" \
+            --jq '.branch_policies[] | select(.name != "main" or .type != "branch") | .id')
+          for policy_id in $stale_ids; do
+            gh api -X DELETE "repos/$REPO/environments/production/deployment-branch-policies/$policy_id"
+          done
+          gh api -X POST "repos/$REPO/environments/production/deployment-branch-policies" \
+            -f name=main -f type=branch
+      - effect: Only where GitHub offers required reviewers (public repos, or GitHub Enterprise for private ones; Free, Pro and Team reject it with a 422). Sets one user as the required reviewer and keeps the main-only branch policy.
+        run: |
+          printf 'Reviewer GitHub login: '; read -r reviewer
+          reviewer_id=$(gh api "users/$reviewer" --jq .id)
+          gh api -X PUT "repos/$REPO/environments/production" --input - <<EOF
+          {"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true},
+           "reviewers":[{"type":"User","id":$reviewer_id}]}
+          EOF
+    run: |
+      Without required reviewers, lock an "Apply gate" row in the README Decisions table whose
+      choice is "merge-approval" or "dispatch" (docs/object-storage-ci.md#github-environments).
+      The terraform-apply workflow references the production environment.
+    check: sh "$INFRA_REFERENCES/checks/gha-apply-gate.sh"
+    produces: main-only GitHub Environment with reviewers or a recorded apply gate
+    docs: docs/object-storage-ci.md#github-environments
+
+  # ── Phase 2 — Cloudflare credentials (backend: object-storage) ──────────
   - id: backend-identity
     operation: bootstrap-state
     implementation: object-storage
@@ -886,48 +1012,107 @@ steps:
     when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
     title: Configure cloud identity for backend state access
     why: GitHub Actions needs to authenticate to the state backend; the agent cannot create cloud-side federation or install secrets.
+    check_summary: The plan identity's secrets exist at repository scope and the apply identity's in the production environment, for the configured state backend; the check lists names only, so it cannot prove the IAM behind them.
+    cli:
+      - effect: For gcs, creates a dedicated Workload Identity pool for this repository, named gha- plus its numeric repository ID so a project shared with another repository never reuses its pool or accounts, with a plan provider and an apply provider that pin the immutable repository and owner IDs, the workflow file and, for apply, the main branch and the production environment, plus the tf-plan and tf-apply service accounts; tf-apply admits only production-environment identities and tf-plan admits this repository's identities (the documented binding, which apply tokens also match). An existing pool or service account is kept and an existing provider is updated to the current conditions, so it is safe to rerun, including after a repository rename. Run it in your own terminal with your gcloud login.
+        run: |
+          printf 'GCP project ID: '; read -r PROJECT_ID
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
+          PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+          POOL="gha-$REPO_ID"
+          OWNER_ID=$(gh api "repos/$REPO" -q '.owner.id')
+          gcloud services enable \
+            cloudresourcemanager.googleapis.com iam.googleapis.com \
+            iamcredentials.googleapis.com sts.googleapis.com serviceusage.googleapis.com \
+            --project="$PROJECT_ID"
+          gcloud iam workload-identity-pools describe "$POOL" --project="$PROJECT_ID" --location=global >/dev/null 2>&1 \
+            || gcloud iam workload-identity-pools create "$POOL" \
+              --project="$PROJECT_ID" --location=global --display-name="GitHub Actions ($POOL)"
+          MAPPING_PLAN="google.subject=assertion.repository_id,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id,attribute.ref=assertion.ref,attribute.event_name=assertion.event_name,attribute.workflow_ref=assertion.workflow_ref"
+          MAPPING_APPLY="$MAPPING_PLAN,attribute.environment=assertion.environment"
+          REPO_PIN="assertion.repository_id == '$REPO_ID' && assertion.repository_owner_id == '$OWNER_ID'"
+          if gcloud iam workload-identity-pools providers describe apply --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL" >/dev/null 2>&1; then verb=update-oidc; else verb=create-oidc; fi
+          gcloud iam workload-identity-pools providers "$verb" apply \
+            --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL" \
+            --issuer-uri="https://token.actions.githubusercontent.com" \
+            --no-disabled \
+            --attribute-mapping="$MAPPING_APPLY" \
+            --attribute-condition="$REPO_PIN && assertion.ref == 'refs/heads/main' && assertion.workflow_ref == '$REPO/.github/workflows/terraform-apply.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'production'"
+          if gcloud iam workload-identity-pools providers describe plan --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL" >/dev/null 2>&1; then verb=update-oidc; else verb=create-oidc; fi
+          gcloud iam workload-identity-pools providers "$verb" plan \
+            --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL" \
+            --issuer-uri="https://token.actions.githubusercontent.com" \
+            --no-disabled \
+            --attribute-mapping="$MAPPING_PLAN" \
+            --attribute-condition="$REPO_PIN && assertion.event_name in ['pull_request', 'push', 'workflow_dispatch'] && assertion.workflow_ref.startsWith('$REPO/.github/workflows/terraform-plan.yml@') && !has(assertion.environment)"
+          gcloud iam service-accounts describe "tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" >/dev/null 2>&1 \
+            || gcloud iam service-accounts create "tf-apply-$REPO_ID" --project="$PROJECT_ID" --display-name="Terraform Apply"
+          gcloud iam service-accounts describe "tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" >/dev/null 2>&1 \
+            || gcloud iam service-accounts create "tf-plan-$REPO_ID" --project="$PROJECT_ID" --display-name="Terraform Plan"
+          gcloud iam service-accounts add-iam-policy-binding "tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" \
+            --project="$PROJECT_ID" --role=roles/iam.workloadIdentityUser \
+            --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL/attribute.environment/production"
+          gcloud iam service-accounts add-iam-policy-binding "tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" \
+            --project="$PROJECT_ID" --role=roles/iam.workloadIdentityUser \
+            --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL/attribute.repository_id/$REPO_ID"
+      - effect: For gcs, gives tf-plan read-only access to the state bucket and tf-apply read, write and lock access.
+        run: |
+          printf 'GCP project ID: '; read -r PROJECT_ID
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
+          gcloud storage buckets add-iam-policy-binding "gs://$STATE_BUCKET" \
+            --member="serviceAccount:tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectViewer
+          gcloud storage buckets add-iam-policy-binding "gs://$STATE_BUCKET" \
+            --member="serviceAccount:tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectAdmin
+      - effect: For gcs, removes a leftover objectAdmin grant from tf-plan, including the earlier legacy tf-plan account name, on the state bucket; it prints an error and changes nothing if there is none. Inherited grants at the project or folder still need a manual review.
+        run: |
+          printf 'GCP project ID: '; read -r PROJECT_ID
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
+          gcloud storage buckets remove-iam-policy-binding "gs://$STATE_BUCKET" \
+            --member="serviceAccount:tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectAdmin
+          gcloud storage buckets remove-iam-policy-binding "gs://$STATE_BUCKET" \
+            --member="serviceAccount:tf-plan@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectAdmin
+      - effect: For gcs, stores the plan identity's two public coordinates as repository secrets.
+        run: |
+          printf 'GCP project ID: '; read -r PROJECT_ID
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
+          PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+          printf %s "projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/gha-$REPO_ID/providers/plan" \
+            | gh secret set GCP_WORKLOAD_IDENTITY_PROVIDER --repo "$REPO"
+          printf %s "tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" \
+            | gh secret set GCP_SERVICE_ACCOUNT --repo "$REPO"
+      - effect: For gcs, stores the apply identity's two public coordinates in the production environment. Run it after gha-environments, which this step follows, has restricted the production environment to main.
+        run: |
+          printf 'GCP project ID: '; read -r PROJECT_ID
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
+          PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+          printf %s "projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/gha-$REPO_ID/providers/apply" \
+            | gh secret set GCP_WORKLOAD_IDENTITY_PROVIDER --repo "$REPO" --env production
+          printf %s "tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" \
+            | gh secret set GCP_SERVICE_ACCOUNT --repo "$REPO" --env production
+      - effect: For s3, stores the plan role ARN as a repository secret and the apply role ARN in the production environment (run it after that environment allows exactly main).
+        run: |
+          printf 'Plan role ARN: '; read -r plan_role_arn
+          printf %s "$plan_role_arn" | gh secret set AWS_ROLE_ARN --repo "$REPO"
+          printf 'Apply role ARN: '; read -r apply_role_arn
+          printf %s "$apply_role_arn" | gh secret set AWS_ROLE_ARN --repo "$REPO" --env production
+      - effect: For azurerm, stores the plan identity's three IDs as repository secrets and the separate apply identity's in the production environment (run it after that environment allows exactly main).
+        run: |
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            printf 'Plan %s: ' "$name"; read -r value
+            printf %s "$value" | gh secret set "$name" --repo "$REPO"
+            printf 'Apply %s: ' "$name"; read -r value
+            printf %s "$value" | gh secret set "$name" --repo "$REPO" --env production
+          done
     run: |
-      Configure Workload Identity Federation (or equivalent) so GitHub Actions can access
-      the state bucket. This varies by backend:
-
-      **GCS (Workload Identity Federation):**
-      1. Create a dedicated Workload Identity Pool for this repo (never share pools across repos)
-      2. Create plan and apply providers pinning repository_id, repository_owner_id, workflows, and environment
-         (see docs/object-storage-ci.md#gcp-workload-identity-federation for HCL, trust conditions, and ID retrieval)
-      3. Grant tf-plan roles/storage.objectViewer on the state bucket; grant only tf-apply
-         roles/storage.objectAdmin. Remove any old plan objectAdmin grants, including inherited ones.
-         Plans run -lock=false; applies retain locking. Review effective IAM, not just secret names.
-      4. Create GitHub secrets:
-         - Repository secrets (for plan runs):
-           - GCP_WORKLOAD_IDENTITY_PROVIDER: projects/<project-number>/locations/global/workloadIdentityPools/<pool>/providers/plan
-           - GCP_SERVICE_ACCOUNT: tf-plan@<project>.iam.gserviceaccount.com
-         - Environment secrets under "production" (for apply runs; create the "production" environment under Settings -> Environments first if needed):
-           - GCP_WORKLOAD_IDENTITY_PROVIDER: projects/<project-number>/locations/global/workloadIdentityPools/<pool>/providers/apply
-           - GCP_SERVICE_ACCOUNT: tf-apply@<project>.iam.gserviceaccount.com
-
-      **S3 (OIDC assume-role):**
-      1. Create an IAM OIDC provider for GitHub Actions
-      2. Create separate plan and apply IAM roles with distinct trust policies (see docs/object-storage-ci.md).
-         Plan can ListBucket/GetObject for state, never PutObject/DeleteObject or lock writes.
-         Apply can read/write state and acquire/release the configured S3 or DynamoDB lock.
-      3. Create GitHub secrets:
-         - Repository AWS_ROLE_ARN: arn:aws:iam::<account>:role/<plan-role>
-         - Production environment AWS_ROLE_ARN: arn:aws:iam::<account>:role/<apply-role>
-         - AWS_REGION (optional, defaults to state_region)
-
-      **Azure (Federated credentials):**
-      1. Create separate plan/apply App Registrations and service principals with separate federated credentials
-      2. Grant plan Storage Blob Data Reader and apply Storage Blob Data Contributor on the state container
-      3. Create GitHub secrets:
-         - Repository AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID for plan
-         - Production environment copies for the separate apply identity
-
-      The production environment must allow exactly main before installing apply credentials.
-      For cloud resource leaves, also grant narrow per-service refresh roles to plan, never
-      broad roles/viewer, secret-value access, resource writes, or apply impersonation.
-      Follow docs/object-storage-ci.md for the GCP viewer set and AWS/Azure trust rules.
-
-      Reply `done` after installing the secrets.
+      For s3 and azurerm the identity itself is created by the human, and these references hold
+      no commands for it. When rendering, give the rules from docs/object-storage-ci.md and
+      object-storage.md: S3 needs an IAM OIDC provider and separate plan and apply roles with
+      distinct trust policies (plan reads state and never writes objects or locks; apply reads,
+      writes and takes the lock); Azure needs separate plan and apply App Registrations with
+      their own federated credentials (plan holds Storage Blob Data Reader, apply Storage Blob
+      Data Contributor on the state container). For cloud resource leaves, plan also needs narrow
+      per-service refresh roles, never broad roles/viewer, secret-value access, resource writes
+      or apply impersonation. Review effective IAM, because secret names prove nothing about it.
     check: |
       # Verify secrets exist in the repo (exact name match)
       repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 1
@@ -965,17 +1150,40 @@ steps:
     when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
     title: Review effective backend IAM and initialize fresh state
     why: Secret names cannot prove read-only IAM, especially when resuming a legacy installation.
+    check_summary: Nothing is checked; the review is ephemeral, so repeat it on every resume, because matching secret names is not evidence.
+    cli:
+      - effect: For gcs, prints who holds which role on the state bucket, to confirm tf-plan holds only objectViewer and that no unexpected principal can write.
+        run: |
+          gcloud storage buckets get-iam-policy "gs://$STATE_BUCKET" --format=json
+      - effect: For gcs, prints the principals allowed to impersonate each service account, to confirm tf-apply admits only production-environment identities and tf-plan only this repository's identities.
+        run: |
+          printf 'GCP project ID: '; read -r PROJECT_ID
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
+          gcloud iam service-accounts get-iam-policy "tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
+          gcloud iam service-accounts get-iam-policy "tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
+          gcloud iam service-accounts get-iam-policy "tf-plan@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json 2>/dev/null || echo "no legacy tf-plan account"
+      - effect: Prints the branch policies of the production environment, which must allow exactly main.
+        run: |
+          gh api "repos/$REPO/environments/production/deployment-branch-policies" --jq '.branch_policies[].name'
+      - effect: For gcs, checks that the state object exists under the state prefix.
+        run: |
+          gcloud storage ls "gs://$STATE_BUCKET/$STATE_PREFIX/"
+      - effect: For s3, checks that the state object exists under the state prefix.
+        run: |
+          aws s3api list-objects-v2 --bucket "$STATE_BUCKET" --prefix "$STATE_PREFIX/"
+      - effect: For azurerm, checks that the state blob exists under the state prefix.
+        run: |
+          az storage blob list --account-name "$AZURE_STORAGE_ACCOUNT" --container-name "$STATE_BUCKET" \
+            --prefix "$STATE_PREFIX" --auth-mode login --query '[].name' -o tsv
     run: |
-      Review both backend identities and all effective/inherited grants on every resume.
-      Plan can only read state and must not write locks, resources, or impersonate apply.
-      Remove old GCS plan objectAdmin grants; verify equivalent S3/Azure read-only permissions.
-      Verify separate plan/apply trust paths and the exact-main production deployment policy.
-      For a genuinely new state destination, follow docs/object-storage-state.md#fresh-leaf-bootstrap
-      to initialize empty state before the first branch plan. Existing unmanaged resources
-      require an import-only first plan. Never create empty state instead of transferring
-      existing managed state. Verify the actual state object exists.
-      Reply done after reviewing IAM and state readiness; never return credential values.
-      This review is ephemeral: repeat it on resume; matching secret names is not evidence.
+      Remove old GCS plan objectAdmin grants with the removal command in backend-identity, and review
+      inherited grants at the project and folder too.
+      For s3 and azurerm, also have the human review the equivalent read-only plan permissions
+      and the separate trust paths. For a genuinely new state destination, point the human at
+      docs/object-storage-state.md#fresh-leaf-bootstrap to initialize empty state before the first
+      branch plan; existing unmanaged resources need an import-only first plan, and empty state is
+      never a substitute for transferring existing managed state. Credential values are never
+      returned to the agent.
     check: ~
     produces: HUMAN-verified read-only backend plan identity and initialized leaf state
     docs: docs/object-storage-state.md#fresh-leaf-bootstrap
@@ -1025,13 +1233,18 @@ steps:
     when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
     title: Create the destructive apply intent label
     why: Deletes and replacements require explicit intent on the producing merged PR.
+    check_summary: The allow-destroy label exists in the repository and the README Decisions table has a locked "Destructive apply" row with choice allow-destroy.
+    cli:
+      - effect: Creates the allow-destroy label in the repository. It fails if the label already exists, which leaves it untouched.
+        run: |
+          gh label create allow-destroy --repo "$REPO" --color B60205 \
+            --description "Explicit opt-in to Terraform deletes and replacements"
     run: |
-      Explain that allow-destroy is an intent marker, not authorization: any writer can add it,
-      and it opts into all deletes in the refreshed apply plan, including drift.
-      Obtain explicit approval before creating the label in $REPO:
-        gh label create allow-destroy --repo "$REPO" --color B60205 --description "Explicit opt-in to Terraform deletes and replacements"
-      Do not overwrite an existing label. Record a locked "Destructive apply" decision with
-      choice "allow-destroy" and the intent-marker limitations in the README Decisions table.
+      Before printing the command, explain that allow-destroy is an intent marker, not
+      authorization: any writer can add it, and it opts into all deletes in the refreshed
+      apply plan, including drift. Obtain explicit approval first. After the label exists,
+      record a locked "Destructive apply" decision with choice "allow-destroy" and the
+      intent-marker limitations in the README Decisions table.
     tri_state: true
     check: |
       labels=$(gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name') || exit 2
@@ -1047,32 +1260,6 @@ steps:
     produces: allow-destroy label and a locked destructive apply decision
     docs: docs/object-storage-ci.md#destructive-apply-opt-in
 
-  - id: gha-environments
-    operation: provision-execution
-    implementation: object-storage
-    phase: 1
-    provider: github
-    actor: HUMAN
-    when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
-    tri_state: true   # exit 2 = could not verify; see protocol.md
-    title: Configure GitHub Environments for apply approval
-    why: >-
-      The production environment holds the apply credentials. A main-only branch policy
-      stops other branches from using it; reviewers or a recorded gate supply the human
-      approval HCP's confirm button gave.
-    run: |
-      1. Go to repo Settings -> Environments and create an environment named "production"
-      2. Deployment branches and tags: "Selected branches and tags", add exactly "main"
-      3. Required reviewers: enable and add approvers if GitHub offers them (public repos,
-         or GitHub Enterprise for private ones; Free/Pro/Team reject the rule with a 422)
-      4. Without reviewers, lock an "Apply gate" row in the README Decisions table whose
-         choice is "merge-approval" or "dispatch" (docs/object-storage-ci.md#github-environments)
-      5. The terraform-apply workflow references this environment
-    check: sh "$INFRA_REFERENCES/checks/gha-apply-gate.sh"
-    produces: main-only GitHub Environment with reviewers or a recorded apply gate
-    docs: docs/object-storage-ci.md#github-environments
-
-  # ── Phase 2 — Cloudflare credentials (backend: object-storage) ──────────
   - id: cf-token-gha
     operation: store-cloudflare-credential
     implementation: object-storage
@@ -1083,17 +1270,41 @@ steps:
     when: '[ "$CLOUDFLARE_BACKEND" = "object-storage" ]'
     title: Mint Cloudflare token and add as GitHub Actions secret
     why: The Terraform workflow authenticates to Cloudflare with this token.
-    run: |
-      First verify the production main-only gate from gha-environments.
-      1. https://dash.cloudflare.com/profile/api-tokens -> Create Token -> Custom token.
-      2. Mint a plan token with Zone·DNS·Read, Zone·Zone Settings·Read; add only resource-specific
-         Read permissions as the leaf grows. Scope to your account and specific zone <apex-domain>.
-      3. Store it as repository secret CLOUDFLARE_API_TOKEN_READ.
-      4. Mint a separate apply token with Zone·DNS·Edit, Zone·Zone Settings·Edit (add resource-specific
-         permissions as needed), scoped to the same account/zone.
-      5. Store CLOUDFLARE_API_TOKEN only in production: gh secret set CLOUDFLARE_API_TOKEN --repo "$REPO" --env production.
-      6. Delete any repository-level CLOUDFLARE_API_TOKEN after installing the environment copy.
-         Never return token values to the agent. Verify plan is read-only in the token UI.
+    check_summary: The production main-only gate holds, CLOUDFLARE_API_TOKEN_READ is a repository secret, and CLOUDFLARE_API_TOKEN exists only in the production environment (not at repository or organization scope).
+    ui:
+      - form: Create the read-only plan token (the value is shown once, so keep the page open until it is stored)
+        url: https://dash.cloudflare.com/profile/api-tokens
+        fields: |
+          Start from | Create Token, then Custom token, then Get started
+          Token name | infra-cloudflare-plan
+          Permissions (row 1) | Zone, DNS, Read
+          Permissions (row 2) | Zone, Zone Settings, Read
+          Permissions (more rows) | Add only resource-specific Read permissions as the leaf grows; never an Edit permission
+          Account Resources | Include, the account with ID $CF_ACCOUNT_ID
+          Zone Resources | Include, Specific zone, $DOMAIN
+          Client IP filtering and TTL | leave blank
+          Before you copy the token | The summary page lists only Read permissions
+      - form: Create the apply token (the value is shown once, so keep the page open until it is stored)
+        url: https://dash.cloudflare.com/profile/api-tokens
+        fields: |
+          Start from | Create Token, then Custom token, then Get started
+          Token name | infra-cloudflare-apply
+          Permissions (row 1) | Zone, DNS, Edit
+          Permissions (row 2) | Zone, Zone Settings, Edit
+          Permissions (more rows) | Add resource-specific permissions only as the leaf needs them
+          Account Resources | Include, the account with ID $CF_ACCOUNT_ID
+          Zone Resources | Include, Specific zone, $DOMAIN
+          Client IP filtering and TTL | leave blank
+    cli:
+      - effect: Stores the plan token as the repository secret CLOUDFLARE_API_TOKEN_READ. The value comes from a hidden prompt, so run it in your own terminal.
+        run: |
+          gh secret set CLOUDFLARE_API_TOKEN_READ --repo "$REPO"
+      - effect: Stores the apply token as CLOUDFLARE_API_TOKEN in the production environment only. The value comes from a hidden prompt, so run it in your own terminal.
+        run: |
+          gh secret set CLOUDFLARE_API_TOKEN --repo "$REPO" --env production
+      - effect: Deletes any repository-level CLOUDFLARE_API_TOKEN left over from an earlier setup. It prints an error and changes nothing if there is none.
+        run: |
+          gh secret delete CLOUDFLARE_API_TOKEN --repo "$REPO"
     check: |
       sh "$INFRA_REFERENCES/checks/gha-apply-gate.sh" || exit $?
       repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 2
@@ -1122,35 +1333,82 @@ steps:
     when: '[ "$GITHUB_BACKEND" = "object-storage" ]'
     title: Configure GitHub App credentials in GitHub Actions secrets
     why: The Terraform workflow authenticates to GitHub with these App credentials.
+    check_summary: 'Both Apps'' secrets exist by name: the plan App''s three at repository scope and the apply App''s three only in the production environment (not at repository or organization scope).'
+    ui:
+      - form: Create the read-only plan App, generate its key and install it (the .pem downloads once, so keep it private)
+        url: https://github.com/organizations/$GITHUB_ORG/settings/apps/new
+        fields: |
+          GitHub App name | A unique name, for example $GITHUB_ORG-terraform-plan
+          Homepage URL | A URL you control
+          Callback URL | A URL you control
+          Webhook, Active | Unchecked
+          Repository permissions: Administration | Read-only
+          Repository permissions: Actions | Read-only (reads environments and deployment branch policies on refresh)
+          Repository permissions: Contents | Read-only
+          Repository permissions: Metadata | Read-only
+          Repository permissions: Pull requests | Read-only
+          Organization permissions: Members | Read-only (the plan App never has a write permission, including for team membership)
+          Organization permissions: Administration | Read-only
+          Where can this GitHub App be installed | Only on this account
+          After Create GitHub App: App ID | Copy it from the About section of the App's settings page
+          After Create GitHub App: Private keys | Generate a private key; the .pem downloads once
+          Install App | Install on $GITHUB_ORG, Only select repositories, every repository in managed_repos
+          Installation ID | The number at the end of the settings URL after installing (.../installations/<number>)
+      - form: Create the apply App, generate its key and install it (a second App with its own key; never reuse the plan App's .pem)
+        url: https://github.com/organizations/$GITHUB_ORG/settings/apps/new
+        fields: |
+          GitHub App name | A unique name, for example $GITHUB_ORG-terraform-apply
+          Homepage URL | A URL you control
+          Callback URL | A URL you control
+          Webhook, Active | Unchecked
+          Repository permissions: Administration | Read and write
+          Repository permissions: Actions | Read-only (reads environments and deployment branch policies on refresh)
+          Repository permissions: Contents | Read and write (reads merge settings accurately on apply refresh)
+          Repository permissions: Metadata | Read-only
+          Repository permissions: Pull requests | Read and write
+          Organization permissions: Members | Read and write (required when Terraform manages organization or team membership)
+          Organization permissions: Administration | Read and write
+          Where can this GitHub App be installed | Only on this account
+          After Create GitHub App: App ID | Copy it from the About section of the App's settings page
+          After Create GitHub App: Private keys | Generate a private key; the .pem downloads once
+          Install App | Install on $GITHUB_ORG, Only select repositories, every repository in managed_repos
+          Installation ID | The number at the end of the settings URL after installing (.../installations/<number>)
+    cli:
+      - effect: Copies the plan and apply App manifests into .github/apps/ so you can customize their names and URLs and review the permissions before registering each App. It never overwrites a manifest that is already there.
+        run: |
+          mkdir -p .github/apps
+          cp -n "$INFRA_REFERENCES/templates/apps/terraform-plan.json" .github/apps/terraform-plan.json
+          cp -n "$INFRA_REFERENCES/templates/apps/terraform-apply.json" .github/apps/terraform-apply.json
+      - effect: Stores the plan App's three credentials as repository Actions secrets. The IDs and the key path are prompted for; the key is read from the file, so run it in your own terminal.
+        run: |
+          printf 'Plan App ID: '; read -r app_id
+          printf %s "$app_id" | gh secret set GH_APP_READ_ID --repo "$REPO"
+          printf 'Plan App installation ID: '; read -r installation_id
+          printf %s "$installation_id" | gh secret set GH_APP_READ_INSTALLATION_ID --repo "$REPO"
+          printf 'Absolute path to the plan App private key (.pem): '; read -r pem_file
+          gh secret set GH_APP_READ_PEM --repo "$REPO" < "$pem_file"
+      - effect: Stores the apply App's three credentials in the production environment only. Run it after the main-only production gate holds, in your own terminal.
+        run: |
+          printf 'Apply App ID: '; read -r app_id
+          printf %s "$app_id" | gh secret set GH_APP_ID --repo "$REPO" --env production
+          printf 'Apply App installation ID: '; read -r installation_id
+          printf %s "$installation_id" | gh secret set GH_APP_INSTALLATION_ID --repo "$REPO" --env production
+          printf 'Absolute path to the apply App private key (.pem): '; read -r pem_file
+          gh secret set GH_APP_PEM --repo "$REPO" --env production < "$pem_file"
+      - effect: Deletes any repository-level copy of the apply App's secrets. It prints an error for each name that is not there and changes nothing.
+        run: |
+          for name in GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PEM; do
+            gh secret delete "$name" --repo "$REPO"
+          done
     run: |
-      1. Copy templates/apps/terraform-plan.json and terraform-apply.json to .github/apps/.
-         Customize and review permissions using github.md#versioned-app-manifests.
-         Plan has only Read permissions; apply has the writes needed for managed settings
-         and memberships, including Contents (R/W) to read merge settings accurately on apply refresh.
-         Set unique names and human-controlled homepage/callback URLs.
-         The HUMAN performs manifest submission/code conversion and keeps PEMs private.
-         Never reuse the write App's PEM for plan. Create and install a
-         second App scoped to the same managed repos, with only Read permissions; that is the plan App.
-         Apply App permissions: Repository Administration (R/W), Actions (R), Contents (R/W), Metadata (R),
-         Pull requests (R/W); Organization Members (R/W), Administration (R/W).
-         Actions (R) reads environments and deployment branch policies on refresh. Members (R/W)
-         is required when Terraform manages organization or team membership.
-         The plan App uses the same scopes with Read only; it never has a write permission.
-      2. Install each App only on managed_repos; record each App and installation ID.
-      3. Store the read-only plan App's GH_APP_READ_ID, GH_APP_READ_INSTALLATION_ID,
-         GH_APP_READ_PEM in repository Actions secrets. Store the apply App's
-         GH_APP_ID, GH_APP_INSTALLATION_ID, GH_APP_PEM
-         only in the production environment, after verifying its exact-main
-         deployment policy. Use
-         `gh secret set <name> --repo "$REPO" --env production`; delete repository copies.
-      4. Verify both live App permission sets and secret scopes privately before replying done.
-         Record the distinct public IDs in config.github_apps.plan_app_id/apply_app_id
-         and current strict UTC timestamp in github_apps.reviewed_at only after reviewing
-         both live permissions and secret stores. Commit that evidence. Re-review after
-         any secret update or live App permission change.
-         Record git hash-object for the two customized committed manifest files as
-         github_apps.plan_manifest_blob and github_apps.apply_manifest_blob; manifest
-         changes invalidate the permission review until reviewed again.
+      The manifests in .github/apps/ are the reviewed source of each App's permissions
+      (github.md#versioned-app-manifests); the forms register the same permissions by hand.
+      The agent never sees a PEM. Once the human replies done and says both live permission
+      sets and both secret scopes were verified, record, and commit,
+      the distinct public IDs in config.github_apps.plan_app_id and apply_app_id, the current
+      strict UTC time in github_apps.reviewed_at, and the `git hash-object` of the two customized
+      committed manifests as github_apps.plan_manifest_blob and apply_manifest_blob. Re-review
+      after any secret update or live permission change; a manifest change invalidates the review.
     check: |
       sh "$INFRA_REFERENCES/checks/gha-apply-gate.sh" || exit $?
       repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 2
@@ -1354,19 +1612,52 @@ steps:
     when: '[ "$GITHUB_BACKEND" = "hcp" ]'
     title: Create + install GitHub App, paste creds into HCP
     why: The github-org workspace authenticates as a GitHub App (not a PAT).
-    run: |
-      1. Create the App under your org: https://github.com/organizations/<your-org>/settings/apps/new
-         Permissions: Repo Administration(RW), Actions(R), Contents(R), Metadata(R), Pull requests(RW);
-         Actions(R) reads environments and deployment branch policies on refresh.
-         Org Members(RW), Administration(RW). Members(RW) is needed when Terraform manages org or team
-         membership; Members(R) only lets the provider inspect memberships. Install: only on this account.
-      2. Note the App ID. Generate a private key (.pem).
-      3. Install on your org scoped to the repos in managed_repos (see config.md);
-         note the Installation ID from the install URL.
-      4. HCP -> workspace `github-org` -> Variables, add as TERRAFORM vars:
-         github_owner=<your-org> (not sensitive),
-         github_app_id (sensitive), github_app_installation_id (sensitive),
-         github_app_pem = full PEM incl. BEGIN/END lines (sensitive).
+    check_summary: The github-org workspace has Terraform variables github_owner plus sensitive github_app_id, github_app_installation_id and github_app_pem.
+    ui:
+      - form: Create the GitHub App, generate its key and install it (the .pem downloads once, so keep it private)
+        url: https://github.com/organizations/$GITHUB_ORG/settings/apps/new
+        fields: |
+          GitHub App name | A unique name, for example $GITHUB_ORG-terraform
+          Homepage URL | A URL you control
+          Webhook, Active | Unchecked
+          Repository permissions: Administration | Read and write
+          Repository permissions: Actions | Read-only (reads environments and deployment branch policies on refresh)
+          Repository permissions: Contents | Read-only
+          Repository permissions: Metadata | Read-only
+          Repository permissions: Pull requests | Read and write
+          Organization permissions: Members | Read and write (needed when Terraform manages organization or team membership; read-only only lets the provider inspect memberships)
+          Organization permissions: Administration | Read and write
+          Where can this GitHub App be installed | Only on this account
+          After Create GitHub App: App ID | Copy it from the About section of the App's settings page
+          After Create GitHub App: Private keys | Generate a private key; the .pem downloads once
+          Install App | Install on $GITHUB_ORG, Only select repositories, every repository in managed_repos
+          Installation ID | The number at the end of the settings URL after installing (.../installations/<number>)
+    cli:
+      - effect: 'Creates the four Terraform variables in the github-org HCP workspace. github_owner is not sensitive; the App ID and installation ID come from hidden prompts and the key from the .pem file, so run it in your own terminal. It authenticates with your HCP login from the Terraform credentials file. Run it once: a variable that already exists makes the call fail, so delete it in the workspace first.'
+        run: |
+          (
+            set -eu; set -o pipefail
+            printf 'GitHub App ID: '; read -rs app_id; echo
+            printf 'GitHub App installation ID: '; read -rs installation_id; echo
+            printf 'Absolute path to the private key (.pem): '; read -r pem_file
+            [ -n "$app_id" ] && [ -n "$installation_id" ] && [ -r "$pem_file" ] \
+              || { echo 'Missing App ID, installation ID or readable key file.' >&2; exit 1; }
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
+            ws=$(curl -sf --config <(auth) \
+              "$hcp_api/organizations/$ORG/workspaces/github-org" | jq -er '.data.id')
+            set_var() {
+              var_key=$1 var_sensitive=$2 jq -Rs '{data:{type:"vars",attributes:{key:env.var_key,value:.,category:"terraform",sensitive:(env.var_sensitive == "true")}}}' \
+                | curl -sf -X POST --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/workspaces/$ws/vars" >/dev/null
+            }
+            printf %s "$GITHUB_ORG" | set_var github_owner false
+            printf %s "$app_id" | set_var github_app_id true
+            printf %s "$installation_id" | set_var github_app_installation_id true
+            set_var github_app_pem true < "$pem_file"
+          )
     check: |
       WS_ID=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/github-org" -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
       curl -sf "$hcp_api/workspaces/$WS_ID/vars" -H "Authorization: Bearer $HCP_TOKEN" | jq -e '
@@ -1403,52 +1694,118 @@ steps:
       steps that follow already run under the narrowed credential — and, like
       every other HUMAN step, the scan stops here and hands off rather than
       continuing past it.
+    check_summary: The credential this machine offers HCP (TF_TOKEN_app_terraform_io, else the Terraform credentials file) is a plan-only team token, not a user token or one that can apply.
+    cli:
+      - effect: Creates the team infra-plan-only with every organization permission off, or resets an existing one to that state and fails unless every organization permission in the response is off; this needs an HCP plan that includes teams. Never add "Manage version control settings" or any other organization permission to it; organization permissions are the self-elevation risk this step removes. It authenticates with your HCP login from the Terraform credentials file.
+        run: |
+          (
+            set -eu; set -o pipefail
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
+            team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
+              | jq -r '[.data[] | select(.attributes.name == "infra-plan-only")][0].id // empty')
+            if [ -n "$team" ]; then
+              resp=$(team_id=$team jq -n '{data:{id:env.team_id,type:"teams",attributes:{name:"infra-plan-only","organization-access":{"manage-policies":false,"manage-policy-overrides":false,"manage-workspaces":false,"manage-vcs-settings":false,"manage-providers":false,"manage-modules":false,"manage-run-tasks":false,"manage-projects":false,"read-projects":false,"read-workspaces":false,"manage-membership":false,"manage-teams":false,"manage-organization-access":false,"manage-agent-pools":false}}}}' \
+                | curl -s -w '\n%{http_code}' -X PATCH --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/teams/$team")
+            else
+              resp=$(jq -n '{data:{type:"teams",attributes:{name:"infra-plan-only","organization-access":{"manage-policies":false,"manage-policy-overrides":false,"manage-workspaces":false,"manage-vcs-settings":false,"manage-providers":false,"manage-modules":false,"manage-run-tasks":false,"manage-projects":false,"read-projects":false,"read-workspaces":false,"manage-membership":false,"manage-teams":false,"manage-organization-access":false,"manage-agent-pools":false}}}}' \
+                | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/teams")
+            fi
+            code=${resp##*$'\n'}
+            case "$code" in 200|201) ;; *) echo "HTTP $code: $resp" >&2; exit 1 ;; esac
+            printf '%s' "${resp%$'\n'*}" | jq -e '.data.attributes["organization-access"] | type == "object" and all(.[]; . == false)' >/dev/null \
+              || { echo 'infra-plan-only still has an organization permission switched on; turn it off before minting its token.' >&2; exit 1; }
+          )
+      - effect: Removes any project-level access the team holds on every project in $ORG, because HCP combines project, workspace and organization access at the most permissive level and a leftover Write, Maintain, Admin or custom project role would keep the credential able to apply. Only the team's own project-access relationships are deleted, after every page of each project's list has been read. It authenticates with your HCP login from the Terraform credentials file.
+        run: |
+          (
+            set -eu; set -o pipefail
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
+            team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
+              | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
+            page=1
+            while :; do
+              body=$(curl -sf --config <(auth) \
+                "$hcp_api/organizations/$ORG/projects?page%5Bsize%5D=100&page%5Bnumber%5D=$page")
+              for project in $(printf '%s' "$body" | jq -r '.data[].id'); do
+                tp_ids=''
+                tp_page=1
+                while :; do
+                  tp_body=$(curl -sf --config <(auth) \
+                    "$hcp_api/team-projects?filter%5Bproject%5D%5Bid%5D=$project&page%5Bsize%5D=100&page%5Bnumber%5D=$tp_page")
+                  tp_ids="$tp_ids $(printf '%s' "$tp_body" | team_id=$team jq -r '.data[] | select(.relationships.team.data.id == env.team_id) | .id')"
+                  tp_page=$(printf '%s' "$tp_body" | jq -r '.meta.pagination["next-page"] // empty')
+                  [ -n "$tp_page" ] || break
+                done
+                for tp in $tp_ids; do
+                  code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE --config <(auth) "$hcp_api/team-projects/$tp")
+                  [ "$code" = 204 ] || { echo "team-project $tp: HTTP $code" >&2; exit 1; }
+                done
+              done
+              page=$(printf '%s' "$body" | jq -r '.meta.pagination["next-page"] // empty')
+              [ -n "$page" ] || break
+            done
+          )
+      - effect: Grants the team the Plan permission, not Write (which includes apply), on every workspace in $ORG connected to $REPO. Sets a workspace's existing grant to Plan if it is at another level, so run it again whenever add creates a new workspace. It reads every page of workspaces. It authenticates with your HCP login from the Terraform credentials file.
+        run: |
+          (
+            set -eu; set -o pipefail
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
+            team=$(curl -sf --config <(auth) \
+              "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
+              | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
+            page=1
+            while :; do
+              body=$(curl -sf --config <(auth) \
+                "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page")
+              printf '%s' "$body" \
+                | repo=$REPO jq -r '.data[] | select(.attributes["vcs-repo"].identifier == env.repo) | .id' \
+                | while read -r ws; do
+                    tw=$(curl -sf --config <(auth) "$hcp_api/team-workspaces?filter%5Bworkspace%5D%5Bid%5D=$ws" \
+                      | team_id=$team jq -r '[.data[] | select(.relationships.team.data.id == env.team_id)][0].id // empty')
+                    if [ -n "$tw" ]; then
+                      resp=$(printf '%s' '{"data":{"type":"team-workspaces","attributes":{"access":"plan"}}}' \
+                        | curl -s -w '\n%{http_code}' -X PATCH --config <(auth) \
+                            -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces/$tw")
+                    else
+                      resp=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
+                        | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
+                            -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
+                    fi
+                    code=${resp##*$'\n'}
+                    case "$code" in 200|201) ;; *) echo "HTTP $code: $resp" >&2; exit 1 ;; esac
+                  done
+              page=$(printf '%s' "$body" | jq -r '.meta.pagination["next-page"] // empty')
+              [ -n "$page" ] || break
+            done
+          )
+    ui:
+      - form: Mint the team token (the value is shown once, so keep the page open until it is stored; run this last, after phases 0 and 1)
+        url: https://app.terraform.io/app/$ORG/settings/teams
+        fields: |
+          Open | The team infra-plan-only, then Team API Token
+          Create a team token | Generate token, with no expiration or one you will renew
+          Store it | Replace the token in ~/.terraform.d/credentials.tfrc.json, or export TF_TOKEN_app_terraform_io from a place every shell and the agent's environment get it; the variable wins over the file
+          Remove the user token | Leave no user token on this machine, because a team token cannot complete the OAuth flow vcs-connect needs and the user token can apply
+          Never | Paste the token into the conversation or into the agent
     run: |
-      Replace the credential this machine offers HCP with a plan-only one. Do not
-      merely export a second token: `terraform` never reads $HCP_TOKEN. It reads
-      TF_TOKEN_app_terraform_io, or failing that
-      ~/.terraform.d/credentials.tfrc.json, and the environment variable wins. A
-      plan-only $HCP_TOKEN beside an apply-capable credentials file leaves the
-      Terraform CLI fully able to apply, which is the path that matters.
-
-      HCP separates the rights: a workspace's Plan permission covers "read, queue,
-      and comment on Terraform plans" and excludes apply. A team token carries its
-      team's workspace permissions, so:
-
-        1. Create a team (Organization Settings -> Teams) with NO organization
-           permissions.
-        2. Grant it the *Plan* permission on every workspace this repo manages —
-           not Write, which includes apply. Repeat this whenever `add` creates a
-           new workspace, or plans there will fail for the plan-only identity.
-        3. Create its token (Organization Settings -> API Tokens -> Team Tokens,
-           or POST /teams/<id>/authentication-token).
-        4. Put that token where terraform will find it — overwrite the token in
-           ~/.terraform.d/credentials.tfrc.json, or export
-           TF_TOKEN_app_terraform_io — and keep the user token off this machine.
-           Step 0 resolves HCP_TOKEN in terraform's own order, preferring
-           TF_TOKEN_app_terraform_io and falling back to the credentials file, so
-           either route survives later runs and both agree with what `terraform`
-           itself uses. Exporting the variable in one shell only is not enough:
-           put it somewhere the agent's environment gets it every time.
-
-      Phases 0 and 1 need the user token: a team token authenticates as a
-      synthetic service account that cannot complete the personal OAuth flow
-      `vcs-connect` requires. So this is a one-time handoff after phase 1, not a
-      token you swap per command.
-
-      `vcs-connect` handles this credential already. Its check reads
-      /organizations/<org>/oauth-clients, which is organization-scoped and
-      unreadable by a team token, so it falls back to looking for a workspace
-      connected to $REPO — the connection actually in use. Expect it to stay
-      green, or to report `?` if neither signal can be read; it will not go red
-      merely because the credential narrowed.
-
-      Do NOT grant the team "Manage version control settings" to turn it green.
-      That is an organization permission, and organization permissions are the
-      self-elevation risk this whole step exists to avoid — a team that can
-      administer VCS settings is a team that can be given more. Re-verify phase 1
-      with the user token if you need to, and leave the team's organization access
-      empty.
+      `terraform` never reads $HCP_TOKEN: it reads TF_TOKEN_app_terraform_io, else the
+      credentials file, and the variable wins, so a plan-only $HCP_TOKEN beside an
+      apply-capable file leaves the CLI able to apply. Step 0 resolves HCP_TOKEN in the same
+      order, so either route survives later runs; a variable exported in one shell only is
+      not enough. vcs-connect stays green or reports `?` under this credential, because its
+      check falls back to the workspace connected to $REPO; do not grant organization
+      permissions to turn it green, and re-verify phase 1 with the user token if needed.
     tri_state: true   # exit 2 = could not verify; see protocol.md
     # The credentials-file route replaces a file but cannot update the current
     # process environment. Resolve HCP_TOKEN again here so a user token exported
@@ -1571,9 +1928,19 @@ steps:
     actor: HUMAN
     title: Mint short-lived read-only Cloudflare discovery token
     why: cf-terraforming reads existing resources; use a throwaway READ token, not the HCP edit token.
-    run: |
-      https://dash.cloudflare.com/profile/api-tokens -> Custom token -> READ scopes on each
-      resource type to discover (DNS·Read, etc.), zone <apex-domain>, TTL a few hours. Copy the value.
+    check_summary: Nothing is checked; the token is ephemeral, so the discovery run itself proves it works.
+    ui:
+      - form: Create the throwaway read-only discovery token (the value is shown once; delete the token after the import)
+        url: https://dash.cloudflare.com/profile/api-tokens
+        fields: |
+          Start from | Create Token, then Custom token, then Get started
+          Token name | infra-discovery-read
+          Permissions (row 1) | Zone, DNS, Read
+          Permissions (more rows) | One Read row for each other resource type you want discovered, as a Zone row for a zone resource (for example Zone, Email Routing Rules, Read) or an Account row for an account resource (for example Account, Email Routing Addresses, Read); never an Edit permission
+          Account Resources | Include, the account with ID $CF_ACCOUNT_ID
+          Zone Resources | Include, Specific zone, $DOMAIN
+          Client IP filtering | leave blank
+          TTL | Start date now, end date a few hours from now
     check: ~   # YAML null — ephemeral credential, no scriptable check (see header contract)
     produces: throwaway read token (deleted after import)
     docs: docs/import.md#discovery-token
@@ -1988,6 +2355,7 @@ steps:
     actor: HUMAN
     title: Every additional Terraform leaf has a provider-adoption record
     why: An untracked leaf may be an interrupted adoption and must not disappear from resume scans.
+    check_summary: Every terraform leaf other than cloudflare and github has a matching additional_providers entry in README.md, with no duplicate or reserved names and, for HCP, one workspace per leaf.
     run: |
       For every terraform/<leaf> other than cloudflare and github, add a matching
       `additional_providers` entry to README.md. Record the decision
@@ -2066,6 +2434,7 @@ steps:
     actor: HUMAN
     title: Record the new-provider decision and its verification inventory
     why: A provider changes a locked design decision, and later runs need durable names for every check.
+    check_summary: The provider name, mise tool list, toolchain blobs and credentials timestamp in the README Config block are well formed, and the README Decisions table has the locked provider and authentication rows the entry's credential mechanism requires.
     run: |
       1. Add a row to the README Decisions table whose decision is exactly
          `Provider: <provider>`, choice is `adopt`, and status is `locked`, and a second
@@ -2306,15 +2675,30 @@ steps:
     actor: HUMAN
     title: Review and trust the provider's changed executable toolchain
     why: A newly pinned provider CLI changes executable configuration after the initial setup trust gate.
+    check_summary: mise.toml, mise.lock and README.md are committed, the recorded mise_config_blob and mise_lock_blob match their current hashes, mise trusts the repository, and every pinned tool is installed from the lock.
+    cli:
+      - effect: Shows the mise.toml and mise.lock changes to review, including every download URL in the lock.
+        run: |
+          git diff HEAD -- mise.toml mise.lock
+      - effect: Prints the two hashes to record as this provider's mise_config_blob and mise_lock_blob in README.md.
+        run: |
+          git hash-object -- mise.toml
+          git hash-object -- mise.lock
+      - effect: Trusts the reviewed config and installs every configured tool strictly from the lock.
+        run: |
+          mise trust mise.toml
+          pinned=$(mise config get --file ./mise.toml tools |
+            sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p')
+          printf '%s\n' "$pinned" |
+            while IFS= read -r tool; do
+              [ -z "$tool" ] && continue
+              MISE_LOCKED=1 mise install "$tool" || exit 1
+            done
     run: |
-      Review the complete mise.toml diff and mise.lock URLs. If they are expected, record
-      `git hash-object mise.toml` as this provider's `mise_config_blob` and
-      `git hash-object mise.lock` as its `mise_lock_blob`, commit all four reviewed files,
-      run `mise trust mise.toml`, then install every
-      configured tool with `MISE_LOCKED=1` as documented in docs/setup.md. Reply
-      `done`; the agent re-runs this check. Once every provider toolchain gate is
-      green, it runs the complete preflight once per provider entry, exporting that
-      entry's NEW_PROVIDER_MISE_TOOLS so its conditional provider CLI is verified.
+      Once the human has reviewed the diff and recorded the two hashes in README.md, they
+      commit all four reviewed files (mise.toml, mise.lock, README.md and the leaf) together. When
+      every provider toolchain gate is green, run the complete preflight once per provider entry,
+      exporting that entry's NEW_PROVIDER_MISE_TOOLS so its conditional provider CLI is verified.
     check: >-
       mise --version >/dev/null &&
       git ls-files --error-unmatch mise.toml mise.lock README.md >/dev/null 2>&1 &&
@@ -2472,18 +2856,50 @@ steps:
     when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
     title: Create the workspace and make it visible to the plan-only team
     why: A missing or invisible workspace is expected setup work, not an unverifiable terminal state.
-    run: |
-      Using a user token yourself (required for GitHub App connections), load hcp.md's
-      helpers, resolve the repository-specific VCS connection, create/configure the workspace, and grant the
-      plan-only team `Plan` (never `Write`):
-
-        load_tf_version
-        resolve_vcs_connection
-        create_ws "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
-        set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
-
-      Restore the plan-only credential before replying `done`; this check distinguishes
-      the expected missing/invisible state from network, authentication, and API failures.
+    check_summary: The workspace exists with the asserted VCS, working-directory, Terraform-version, trigger and safety settings, and is visible to the plan-only credential; the check separates that from network, authentication and API failures.
+    ui:
+      - form: Create a user API token for this step (the value is shown once; delete the token afterwards)
+        url: https://app.terraform.io/app/settings/tokens
+        fields: |
+          Start from | Create an API token
+          Description | infra-provision
+          Expiration | A short expiry, for example 1 day
+          After creating | Copy it into the command's hidden prompt; never paste it into the conversation
+    cli:
+      - effect: Creates and configures the workspace with the helpers from hcp.md Phase 1 (paste the function definitions from the sh block that defines load_tf_version through set_workspace_config into your shell first, with REPO, ORG and HCP_LEAVES exported per Step 0). It resolves the repository's VCS connection, so a GitHub App connection needs this user token. The token comes from a hidden prompt, so run it in your own terminal.
+        run: |
+          printf 'HCP user API token: '; read -rs HCP_TOKEN; echo; export HCP_TOKEN
+          load_tf_version
+          resolve_vcs_connection
+          create_ws "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+          set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+          unset HCP_TOKEN
+      - effect: Grants the team infra-plan-only the `Plan` permission, never `Write`, on $NEW_PROVIDER_WORKSPACE; a grant at any other level is set to Plan. The token comes from a hidden prompt, so run it in your own terminal.
+        run: |
+          (
+            set -eu; set -o pipefail
+            printf 'HCP user or organization API token: '; read -rs api_token; echo
+            [ -n "$api_token" ] || { echo 'No token entered.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$api_token"; }
+            team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
+              | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
+            ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+              | jq -er '.data.id')
+            tw=$(curl -sf --config <(auth) "$hcp_api/team-workspaces?filter%5Bworkspace%5D%5Bid%5D=$ws" \
+              | team_id=$team jq -r '[.data[] | select(.relationships.team.data.id == env.team_id)][0].id // empty')
+            if [ -n "$tw" ]; then
+              resp=$(printf '%s' '{"data":{"type":"team-workspaces","attributes":{"access":"plan"}}}' \
+                | curl -s -w '\n%{http_code}' -X PATCH --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces/$tw")
+            else
+              resp=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
+                | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
+            fi
+            code=${resp##*$'\n'}
+            case "$code" in 200|201) ;; *) echo "HTTP $code: $resp" >&2; exit 1 ;; esac
+          )
     tri_state: true
     check: |
       test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
@@ -2507,19 +2923,29 @@ steps:
     when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
     title: Create and safely configure the new HCP workspace
     why: The leaf needs a remote, VCS-backed workspace with path-scoped plans and auto-apply disabled.
-    run: |
-      If this verification finds drift after Plan access is established, use a user
-      token yourself and run hcp.md's set_workspace_config helper. It preserves the
-      existing VCS connection and reconciles every asserted setting:
-
-        load_tf_version
-        set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
-
-      If the helper reports a mismatched existing working directory, inspect the named
-      workspace ID first. Export `CONFIRM_WORKSPACE_ID` to that exact ID only when it is
-      truly this provider's workspace; otherwise choose a different workspace name.
-      Restore the plan-only credential before replying `done` so the agent can verify
-      the settings without receiving your privileged token.
+    check_summary: The workspace is VCS-backed to this repository at terraform/$NEW_PROVIDER, with path-scoped triggers, speculative plans on and auto-apply off, as seen by the plan-only credential.
+    ui:
+      - form: Create a user API token for this step (the value is shown once; delete the token afterwards)
+        url: https://app.terraform.io/app/settings/tokens
+        fields: |
+          Start from | Create an API token
+          Description | infra-provision
+          Expiration | A short expiry, for example 1 day
+          After creating | Copy it into the command's hidden prompt; never paste it into the conversation
+    cli:
+      - effect: Reconciles every asserted workspace setting with hcp.md's set_workspace_config, keeping the existing VCS connection (paste the helper definitions from hcp.md Phase 1 into your shell first, with REPO, ORG and HCP_LEAVES exported per Step 0). The token comes from a hidden prompt, so run it in your own terminal.
+        run: |
+          printf 'HCP user API token: '; read -rs HCP_TOKEN; echo; export HCP_TOKEN
+          load_tf_version
+          set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+          unset HCP_TOKEN
+      - effect: Only when the helper refuses because the workspace targets a different working directory. Inspect the workspace ID it names first, and enter it only when it is truly this provider's workspace; otherwise choose a different workspace name.
+        run: |
+          printf 'HCP user API token: '; read -rs HCP_TOKEN; echo; export HCP_TOKEN
+          printf 'Workspace ID named by the helper (ws-...): '; read -r CONFIRM_WORKSPACE_ID; export CONFIRM_WORKSPACE_ID
+          load_tf_version
+          set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+          unset HCP_TOKEN
     check: |
       test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
       body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
@@ -2560,11 +2986,42 @@ steps:
     when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
     title: Verify the plan-only team has Plan access and nothing stronger
     why: Workspace visibility alone does not prove that the credential can plan without applying or reconfiguring workspaces.
-    run: |
-      Using a user or organization token yourself, grant the plan-only team `Plan`
-      (never `Write`) on $NEW_PROVIDER_WORKSPACE. Restore the plan-only credential
-      before replying `done`; the repository-derived inventory then verifies that it
-      can plan but cannot apply or update any workspace.
+    check_summary: The plan-only team can plan on $NEW_PROVIDER_WORKSPACE but cannot apply or update any workspace.
+    ui:
+      - form: Create a user API token for this step (the value is shown once; delete the token afterwards)
+        url: https://app.terraform.io/app/settings/tokens
+        fields: |
+          Start from | Create an API token
+          Description | infra-provision
+          Expiration | A short expiry, for example 1 day
+          After creating | Copy it into the command's hidden prompt; never paste it into the conversation
+    cli:
+      - effect: Grants the team infra-plan-only the `Plan` permission, never `Write`, on $NEW_PROVIDER_WORKSPACE; a grant at any other level is set to Plan. The token comes from a hidden prompt, so run it in your own terminal.
+        run: |
+          (
+            set -eu; set -o pipefail
+            printf 'HCP user or organization API token: '; read -rs api_token; echo
+            [ -n "$api_token" ] || { echo 'No token entered.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$api_token"; }
+            team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
+              | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
+            ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+              | jq -er '.data.id')
+            tw=$(curl -sf --config <(auth) "$hcp_api/team-workspaces?filter%5Bworkspace%5D%5Bid%5D=$ws" \
+              | team_id=$team jq -r '[.data[] | select(.relationships.team.data.id == env.team_id)][0].id // empty')
+            if [ -n "$tw" ]; then
+              resp=$(printf '%s' '{"data":{"type":"team-workspaces","attributes":{"access":"plan"}}}' \
+                | curl -s -w '\n%{http_code}' -X PATCH --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces/$tw")
+            else
+              resp=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
+                | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
+            fi
+            code=${resp##*$'\n'}
+            case "$code" in 200|201) ;; *) echo "HTTP $code: $resp" >&2; exit 1 ;; esac
+          )
     tri_state: true
     check: HCP_SCOPE_WORKSPACE="$NEW_PROVIDER_WORKSPACE" sh "$INFRA_REFERENCES/checks/hcp-apply-scope.sh"
     produces: Plan access with no apply or workspace-update permission
@@ -2579,13 +3036,32 @@ steps:
     when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
     title: Confirm fork speculative plans are disabled before adding credentials
     why: The fork-specific UI toggle can expose sensitive workspace variables to untrusted fork code.
+    check_summary: Config records fork_speculative_plans_disabled as true and the workspace ID of $NEW_PROVIDER_WORKSPACE, committed.
+    ui:
+      - form: Disable speculative plans from forks (separate from the API's speculative-enabled attribute)
+        url: https://app.terraform.io/app/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE/settings/vcs
+        fields: |
+          Page | Settings, then Version Control
+          Automatic speculative plans | Leave enabled
+          Run speculative plans on pull requests from forks | Disabled (unchecked)
+          After changing | Save settings
+    cli:
+      - effect: Prints the workspace's immutable ws- ID to record as fork_speculative_plans_workspace_id. It only reads, with your HCP login from the Terraform credentials file.
+        run: |
+          (
+            set -eu; set -o pipefail
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
+            curl -sf --config <(auth) \
+              "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" | jq -er '.data.id'
+          )
     run: |
-      In HCP workspace $NEW_PROVIDER_WORKSPACE, open Settings -> Version Control and
-      confirm speculative plans from forks are disabled. This is separate from the API's
-      `speculative-enabled` attribute. Then set this provider entry's
-      `fork_speculative_plans_disabled` value to `true` and record the workspace's
-      immutable `ws-...` ID as `fork_speculative_plans_workspace_id`. Commit config.md,
-      reload it, and reply `done` so the agent re-runs this durable attestation check.
+      After the human confirms the toggle, they set this provider entry's
+      `fork_speculative_plans_disabled` to `true` and record the ID printed above as
+      `fork_speculative_plans_workspace_id`, commit the README and reload its Config block; then re-run this
+      durable attestation check.
     check: |
       test "$NEW_PROVIDER_FORK_PLANS_DISABLED" = "true" || exit 1
       git ls-files --error-unmatch README.md >/dev/null 2>&1 || exit 1
@@ -2645,17 +3121,56 @@ steps:
     when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
     title: Put the provider credential configuration in HCP
     why: The first plan must authenticate without exposing credential values to the agent or repository.
+    check_summary: The workspace has exactly the declared variables by key, category and sensitive flag, no variable sets, and a committed credentials_backend of hcp with a fresh credentials_verified_at in the README Config block.
+    ui:
+      - form: Create a user API token for this step (the value is shown once; delete the token afterwards)
+        url: https://app.terraform.io/app/settings/tokens
+        fields: |
+          Start from | Create an API token
+          Description | infra-provision
+          Expiration | A short expiry, for example 1 day
+          After creating | Copy it into the command's hidden prompt; never paste it into the conversation
+      - form: Clear what the workspace inherits or holds beyond the inventory
+        url: https://app.terraform.io/app/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE/variables
+        fields: |
+          Variable sets | Remove every applied variable set; their inherited variables cannot be proven by the workspace-local inventory
+          Workspace variables | Delete every key that is not in the declared credential inventory
+    cli:
+      - effect: Creates one workspace variable for each entry of the declared credential inventory (the agent prints the command with the inventory JSON already filled in where it shows $NEW_PROVIDER_CREDENTIALS, so run it as printed), asking for its value at the prompt, or for the path of a file holding it when the entry is sensitive, so a multi-line value such as a service-account JSON arrives whole. A key that already exists is skipped before its prompt, so edit or delete it in the page above. The token comes from a hidden prompt, so run it in your own terminal and never send a value to the agent.
+        run: |
+          (
+            set -eu; set -o pipefail
+            printf 'HCP user or organization API token: '; read -rs api_token; echo
+            [ -n "$api_token" ] || { echo 'No token entered.' >&2; exit 1; }
+            [ "$hcp_api" = "https://app.terraform.io/api/v2" ] || { echo "Refusing to send an HCP credential to $hcp_api." >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$api_token"; }
+            ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+              | jq -er '.data.id')
+            existing=$(curl -sf --config <(auth) "$hcp_api/workspaces/$ws/vars" | jq -r '.data[].attributes.key')
+            printf '%s' '$NEW_PROVIDER_CREDENTIALS' | jq -c '.[]' | while read -r entry; do
+              key=$(printf '%s' "$entry" | jq -r .key)
+              if printf '%s\n' "$existing" | grep -Fxq "$key"; then echo "$key already exists; left unchanged"; continue; fi
+              category=$(printf '%s' "$entry" | jq -r .category)
+              sensitive=$(printf '%s' "$entry" | jq -r .sensitive)
+              if [ "$sensitive" = true ]; then
+                printf 'File holding the value for %s: ' "$key"; read -r value_file </dev/tty
+                [ -r "$value_file" ] || { echo "$key: no readable file at $value_file" >&2; exit 1; }
+              else
+                printf 'Value for %s: ' "$key"; read -r value </dev/tty
+              fi
+              code=$({ if [ "$sensitive" = true ]; then cat -- "$value_file"; else printf %s "$value"; fi; } \
+                | var_key=$key var_category=$category var_sensitive=$sensitive jq -Rs '{data:{type:"vars",attributes:{key:env.var_key,value:.,category:env.var_category,sensitive:(env.var_sensitive == "true")}}}' \
+                | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/workspaces/$ws/vars")
+              [ "$code" = 200 ] || [ "$code" = 201 ] || { echo "$key: HTTP $code" >&2; exit 1; }
+              echo "set $key"
+            done
+          )
     run: |
-      Mint or configure the provider's least-privilege credential as its runbook
-      requires. In HCP workspace $NEW_PROVIDER_WORKSPACE, reconcile every variable to
-      the exact NEW_PROVIDER_CREDENTIALS inventory by key, category, and sensitive flag;
-      delete undeclared leftovers before continuing. Detach any effective variable sets
-      first; their inherited variables cannot be proven by this workspace-local inventory.
-      Paste secret values yourself; never send them to the agent. Reply `done` so
-      the agent can verify metadata through the vars API. After every declared variable
-      is installed, record `credentials_backend: hcp` and the current UTC time as
-      `credentials_verified_at` in config.md
-      using strict `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and then reply `done`.
+      Mint or configure the provider's least-privilege credential as its runbook requires
+      first. After every declared variable is installed, the human records
+      `credentials_backend: hcp` and the current UTC time as `credentials_verified_at` in
+      the README Config block (format in config.md) using strict `YYYY-MM-DDTHH:MM:SSZ`, commits the README, and replies `done`.
     check: |
       [ "${NEW_PROVIDER_CREDENTIALS_BACKEND-hcp}" = hcp ] || exit 1
       test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
@@ -2733,22 +3248,64 @@ steps:
     why: >-
       Every HCP customer shares the issuer, so an unconditioned or name-only trust lets
       another organization impersonate the service account while every plan stays green.
+    check_summary: The pool has one active provider with issuer https://app.terraform.io and a condition binding the HCP organization and this workspace, only that pool's identities can use the run service accounts, and no variable set or outside federated principal reaches them.
+    cli:
+      - effect: Logs in to gcloud with an account that can read the pool and service-account IAM policies, which the check needs when it reports it could not verify.
+        run: |
+          mise exec -- gcloud auth login
+      - effect: For a WIF entry, creates a pool and service account named hcp- plus a slug of this provider's name and a checksum of its HCP organization, workspace and name (valid, bounded Google IDs) and refuses an existing provider bound to another workspace, so another provider's trust is never reused, an HCP provider whose condition binds organization $ORG and workspace $NEW_PROVIDER_WORKSPACE, the service account, and the impersonation binding for that pool only. Point the workspace's TFC_GCP_* variables at the pool, provider and service account it creates. It sets the gcloud default project, skips creates that already exist, and should be run on your own gcloud login, keeping one active provider per pool.
+        run: |
+          (
+          set -eu
+          printf 'GCP project ID: '; read -r PROJECT_ID
+          PROJECT_NUMBER=$(mise exec -- gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+          slug=$(printf %s "$NEW_PROVIDER" | tr -cd 'a-z0-9-' | cut -c1-12 | sed 's/-*$//')
+          tag=$(printf '%s/%s/%s' "$ORG" "$NEW_PROVIDER_WORKSPACE" "$NEW_PROVIDER" | cksum | cut -d' ' -f1)
+          POOL="hcp-$slug-$tag"
+          PROVIDER=hcp-terraform
+          SA=$POOL
+          mise exec -- gcloud config set project "$PROJECT_ID"
+          mise exec -- gcloud services enable \
+            cloudresourcemanager.googleapis.com iam.googleapis.com \
+            iamcredentials.googleapis.com sts.googleapis.com serviceusage.googleapis.com
+          mise exec -- gcloud iam workload-identity-pools describe "$POOL" --location=global >/dev/null 2>&1 \
+            || mise exec -- gcloud iam workload-identity-pools create "$POOL" \
+              --location=global --display-name="HCP Terraform"
+          if mise exec -- gcloud iam workload-identity-pools providers describe "$PROVIDER" \
+            --location=global --workload-identity-pool="$POOL" >/dev/null 2>&1; then
+            mise exec -- gcloud iam workload-identity-pools providers describe "$PROVIDER" \
+              --location=global --workload-identity-pool="$POOL" --format='value(attributeCondition)' \
+              | grep -Fq "assertion.terraform_organization_name == '$ORG' && assertion.terraform_workspace_name == '$NEW_PROVIDER_WORKSPACE'" \
+              || { echo "Pool $POOL already holds a provider bound to another workspace, and the trust check allows one active provider per pool. Delete that provider only after confirming it is unused, or rename this provider entry so a different pool is derived." >&2; exit 1; }
+            verb=update-oidc
+          else
+            verb=create-oidc
+          fi
+          mise exec -- gcloud iam workload-identity-pools providers "$verb" "$PROVIDER" \
+            --location=global --workload-identity-pool="$POOL" \
+            --issuer-uri="https://app.terraform.io" \
+            --no-disabled \
+            --attribute-mapping="google.subject=assertion.sub,attribute.aud=assertion.aud,attribute.terraform_run_phase=assertion.terraform_run_phase,attribute.terraform_organization_name=assertion.terraform_organization_name,attribute.terraform_workspace_name=assertion.terraform_workspace_name,attribute.terraform_workspace_id=assertion.terraform_workspace_id" \
+            --attribute-condition="assertion.terraform_organization_name == '$ORG' && assertion.terraform_workspace_name == '$NEW_PROVIDER_WORKSPACE'"
+          mise exec -- gcloud iam service-accounts describe "$SA@$PROJECT_ID.iam.gserviceaccount.com" >/dev/null 2>&1 \
+            || mise exec -- gcloud iam service-accounts create "$SA" --display-name="HCP Terraform ($NEW_PROVIDER_WORKSPACE workspace)"
+          mise exec -- gcloud iam service-accounts add-iam-policy-binding \
+            "$SA@$PROJECT_ID.iam.gserviceaccount.com" \
+            --role=roles/iam.workloadIdentityUser \
+            --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL/*"
+          )
     run: |
-      For a key-based entry, remove any Google credential variable other than the
-      sensitive GOOGLE_CREDENTIALS and any credentials/access_token/
-      impersonate_service_account argument from the google provider blocks. For WIF,
-      using your own gcloud login, fix what the check reported, following gcp.md's
-      "create the WIF trust" section: the provider's issuer must be exactly
-      https://app.terraform.io, its attribute condition must be `&&`-joined terms in
-      the forms gcp.md lists, binding both the HCP organization and this workspace
-      (name or ws- ID), and every member holding roles/iam.workloadIdentityUser on the
-      run service accounts must be a principal of that pool, and no federated principal
-      outside it may hold any role on those accounts or an impersonation role on their
-      projects. Detach any variable sets. The TFC_GCP_* coordinates must stay
-      non-sensitive so they can be read.
-      If the check could not verify (exit 2), log in with an account that can read the
-      pool and service-account IAM policies (`gcloud auth login`). Reply `done`; the
-      agent re-runs this check.
+      For a key-based entry the human removes every Google credential variable other than the
+      sensitive GOOGLE_CREDENTIALS, and any credentials, access_token or
+      impersonate_service_account argument from the google provider blocks. For WIF, fix what
+      the check reported following gcp.md's "create the WIF trust" section: the issuer must be
+      exactly https://app.terraform.io, the attribute condition must be `&&`-joined terms binding
+      both the organization and this workspace (name or ws- ID), every member holding
+      roles/iam.workloadIdentityUser on the run service accounts must be a principal of that
+      pool, and no federated principal outside it may hold any role on those accounts or an
+      impersonation role on their projects. Detach any variable sets, and keep the TFC_GCP_*
+      coordinates non-sensitive so they can be read. Grant the service account its project
+      roles one `gcloud projects add-iam-policy-binding` at a time.
     tri_state: true
     check: sh "$INFRA_REFERENCES/checks/gcp-wif-trust.sh"
     produces: runs that use only the declared identity (a WIF trust only this workspace can use, or the sensitive key)
@@ -2763,17 +3320,36 @@ steps:
     when: '[ "$NEW_PROVIDER_BACKEND" = "object-storage" ]'
     title: Review the runner identity trust before storing provider credentials
     why: A workspace subject check does not verify the runner's cloud IAM binding.
+    check_summary: Nothing is checked; the review is ephemeral, so repeat it on every resume rather than assume the IAM is unchanged.
+    cli:
+      - effect: Prints the branch policies of the production environment, which must allow exactly main.
+        run: |
+          gh api "repos/$REPO/environments/production/deployment-branch-policies" --jq '.branch_policies[].name'
+      - effect: For gcs, prints the conditions of the plan and apply providers, to confirm each pins this repository's immutable IDs and workflow, and that no wildcard repository or fork subject is admitted.
+        run: |
+          printf 'GCP project ID: '; read -r PROJECT_ID
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
+          for provider in plan apply; do
+            gcloud iam workload-identity-pools providers describe "$provider" \
+              --project="$PROJECT_ID" --location=global --workload-identity-pool="gha-$REPO_ID" \
+              --format='value(attributeCondition)'
+          done
+      - effect: For gcs, prints who can impersonate each service account, to confirm plan and apply are separate service accounts and that nothing lets plan impersonate apply.
+        run: |
+          printf 'GCP project ID: '; read -r PROJECT_ID
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
+          gcloud iam service-accounts get-iam-policy "tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
+          gcloud iam service-accounts get-iam-policy "tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
+          gcloud iam service-accounts get-iam-policy "tf-plan@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json 2>/dev/null || echo "no legacy tf-plan account"
     run: |
-      Follow object-storage.md's provisioning trust checklist. Review the exact cloud
-      OIDC subject for this repository and branch/protected environment, the runner role
-      or service account, state key isolation and least-privilege provider permissions.
-      Require separate read-only plan and write apply identities. Verify plan cannot write
-      state/locks/resources, read secret values, or impersonate apply; cloud refresh needs
-      narrow service-specific viewer permissions. Verify the exact-main production gate.
-      For a genuinely fresh leaf, initialize empty backend state using the HUMAN procedure
-      in docs/object-storage-state.md#fresh-leaf-bootstrap before requiring its first plan.
-      Never accept a wildcard repository or fork subject. Reply done after review.
-      This review is ephemeral: repeat it when resuming rather than assume IAM is unchanged.
+      Follow object-storage.md's provisioning trust checklist for the other clouds: review the
+      exact OIDC subject for this repository and branch or protected environment, the runner role
+      or service account, state key isolation and least-privilege provider permissions. Require
+      separate read-only plan and write apply identities; plan must not write state, locks or
+      resources, read secret values, or impersonate apply, and cloud refresh needs narrow
+      service-specific viewer permissions. For a genuinely fresh leaf, initialize empty backend
+      state with the human procedure in docs/object-storage-state.md#fresh-leaf-bootstrap before
+      requiring its first plan. Never accept a wildcard repository or fork subject.
     check: ~
     produces: human-reviewed runner identity trust, without exposing credentials
     docs: object-storage.md#provision-execution
@@ -2819,18 +3395,30 @@ steps:
     title: Verify the provider authentication handoff for GitHub Actions
     tri_state: true
     why: The workflow must authenticate to the provider without exposing credentials.
+    check_summary: Each required plan secret exists at repository scope and each required apply secret only in the production environment, with a committed credentials_backend and a fresh credentials_verified_at in the README Config block.
+    cli:
+      - effect: Stores one read-only plan secret at repository scope. Run it once for each credential_secrets entry whose scope is plan, entering that entry's name at the first prompt and the value at the hidden one, in your own terminal.
+        run: |
+          printf 'Plan secret name: '; read -r name
+          gh secret set "$name" --repo "$REPO"
+      - effect: Stores one write apply secret in the production environment only. Run it once for each credential_secrets entry whose scope is apply, after the main-only production gate holds, entering that entry's name at the first prompt and the value at the hidden one, in your own terminal.
+        run: |
+          printf 'Apply secret name: '; read -r name
+          gh secret set "$name" --repo "$REPO" --env production
+      - effect: Deletes a repository-level copy of one apply secret. Run it once for each apply entry; it prints an error and changes nothing if there is no copy.
+        run: |
+          printf 'Apply secret name: '; read -r name
+          gh secret delete "$name" --repo "$REPO"
     run: |
-      If NEW_PROVIDER_SECRETS is not empty, mint separate credentials: read-only plan
-      secrets at repository scope and write apply secrets only in production. Use distinct
-      names and delete repository copies of all apply names. Verify the main-only production
-      gate before installing write credentials. Never store write keys in organization secrets
-      accessible to this repo. Verify effective permissions; secret-name checks cannot prove them.
-      For an empty inventory, verify separate read-only plan and write apply keyless
-      identities and trust instead; public identity
-      identifiers do not belong in the secret inventory. After the handoff is complete,
-      record `credentials_backend: object-storage` and a fresh current UTC time as
-      `credentials_verified_at` in config.md using strict
-      `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and reply `done`.
+      Print the plan and apply names from NEW_PROVIDER_SECRETS above the commands, so the human
+      enters each name from your list rather than looking it up. Use distinct names for plan
+      and apply and never store a write key in an organization secret accessible to this repo.
+      Verify effective permissions; secret-name checks cannot prove them. For an empty
+      inventory there are no secrets to store: verify separate read-only plan and write apply
+      keyless identities and trust instead (public identity identifiers do not belong in the
+      secret inventory). After the handoff is complete, record `credentials_backend:
+      object-storage` and a fresh current UTC time as `credentials_verified_at` in the README
+      Config block (format in config.md) using strict `YYYY-MM-DDTHH:MM:SSZ`, commit the README, and reply `done`.
     check: |
       [ "${NEW_PROVIDER_CREDENTIALS_BACKEND:-}" != hcp ] || exit 1
       printf '%s' "$NEW_PROVIDER_SECRETS" | jq -e '
