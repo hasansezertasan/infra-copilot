@@ -2662,18 +2662,39 @@ steps:
     when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
     title: Create the workspace and make it visible to the plan-only team
     why: A missing or invisible workspace is expected setup work, not an unverifiable terminal state.
-    run: |
-      Using a user token yourself (required for GitHub App connections), load hcp.md's
-      helpers, resolve the repository-specific VCS connection, create/configure the workspace, and grant the
-      plan-only team `Plan` (never `Write`):
-
-        load_tf_version
-        resolve_vcs_connection
-        create_ws "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
-        set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
-
-      Restore the plan-only credential before replying `done`; this check distinguishes
-      the expected missing/invisible state from network, authentication, and API failures.
+    check_summary: The workspace exists and is visible to the plan-only credential, which this check distinguishes from network, authentication and API failures.
+    ui:
+      - form: Create a user API token for this step (the value is shown once; delete the token afterwards)
+        url: https://app.terraform.io/app/settings/tokens
+        fields: |
+          Start from | Create an API token
+          Description | infra-provision
+          Expiration | A short expiry, for example 1 day
+          After creating | Copy it into the command's hidden prompt; never paste it into the conversation
+    cli:
+      - effect: Creates and configures the workspace with the helpers from hcp.md Phase 1 (the sh block that defines load_tf_version through set_workspace_config; load it first, in the same shell, with REPO, ORG and HCP_LEAVES exported per Step 0). It resolves the repository's VCS connection, so a GitHub App connection needs this user token. The token comes from a hidden prompt, so run it in your own terminal.
+        run: |
+          printf 'HCP user API token: '; read -rs HCP_TOKEN; echo; export HCP_TOKEN
+          load_tf_version
+          resolve_vcs_connection
+          create_ws "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+          set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+      - effect: Grants the team infra-plan-only the `Plan` permission, never `Write`, on $NEW_PROVIDER_WORKSPACE; a grant that already exists is left as it is. The token comes from a hidden prompt, so run it in your own terminal.
+        run: |
+          (
+            set -eu; set -o pipefail
+            printf 'HCP user or organization API token: '; read -rs api_token; echo
+            [ -n "$api_token" ] || { echo 'No token entered.' >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$api_token"; }
+            team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?page%5Bsize%5D=100" \
+              | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
+            ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+              | jq -er '.data.id')
+            code=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
+              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
+                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
+            case "$code" in 201|422) ;; *) echo "HTTP $code" >&2; exit 1 ;; esac
+          )
     tri_state: true
     check: |
       test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
@@ -2697,19 +2718,27 @@ steps:
     when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
     title: Create and safely configure the new HCP workspace
     why: The leaf needs a remote, VCS-backed workspace with path-scoped plans and auto-apply disabled.
-    run: |
-      If this verification finds drift after Plan access is established, use a user
-      token yourself and run hcp.md's set_workspace_config helper. It preserves the
-      existing VCS connection and reconciles every asserted setting:
-
-        load_tf_version
-        set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
-
-      If the helper reports a mismatched existing working directory, inspect the named
-      workspace ID first. Export `CONFIRM_WORKSPACE_ID` to that exact ID only when it is
-      truly this provider's workspace; otherwise choose a different workspace name.
-      Restore the plan-only credential before replying `done` so the agent can verify
-      the settings without receiving your privileged token.
+    check_summary: The workspace is VCS-backed to this repository at terraform/$NEW_PROVIDER, with path-scoped triggers, speculative plans on and auto-apply off, as seen by the plan-only credential.
+    ui:
+      - form: Create a user API token for this step (the value is shown once; delete the token afterwards)
+        url: https://app.terraform.io/app/settings/tokens
+        fields: |
+          Start from | Create an API token
+          Description | infra-provision
+          Expiration | A short expiry, for example 1 day
+          After creating | Copy it into the command's hidden prompt; never paste it into the conversation
+    cli:
+      - effect: Reconciles every asserted workspace setting with hcp.md's set_workspace_config, keeping the existing VCS connection (load the helpers from hcp.md Phase 1 first, in the same shell, with REPO, ORG and HCP_LEAVES exported per Step 0). The token comes from a hidden prompt, so run it in your own terminal.
+        run: |
+          printf 'HCP user API token: '; read -rs HCP_TOKEN; echo; export HCP_TOKEN
+          load_tf_version
+          set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+      - effect: Only when the helper refuses because the workspace targets a different working directory. Inspect the workspace ID it names first, and enter it only when it is truly this provider's workspace; otherwise choose a different workspace name.
+        run: |
+          printf 'HCP user API token: '; read -rs HCP_TOKEN; echo; export HCP_TOKEN
+          printf 'Workspace ID named by the helper (ws-...): '; read -r CONFIRM_WORKSPACE_ID; export CONFIRM_WORKSPACE_ID
+          load_tf_version
+          set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
     check: |
       test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
       body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
@@ -2750,11 +2779,32 @@ steps:
     when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
     title: Verify the plan-only team has Plan access and nothing stronger
     why: Workspace visibility alone does not prove that the credential can plan without applying or reconfiguring workspaces.
-    run: |
-      Using a user or organization token yourself, grant the plan-only team `Plan`
-      (never `Write`) on $NEW_PROVIDER_WORKSPACE. Restore the plan-only credential
-      before replying `done`; the repository-derived inventory then verifies that it
-      can plan but cannot apply or update any workspace.
+    check_summary: The plan-only team can plan on $NEW_PROVIDER_WORKSPACE but cannot apply or update any workspace.
+    ui:
+      - form: Create a user API token for this step (the value is shown once; delete the token afterwards)
+        url: https://app.terraform.io/app/settings/tokens
+        fields: |
+          Start from | Create an API token
+          Description | infra-provision
+          Expiration | A short expiry, for example 1 day
+          After creating | Copy it into the command's hidden prompt; never paste it into the conversation
+    cli:
+      - effect: Grants the team infra-plan-only the `Plan` permission, never `Write`, on $NEW_PROVIDER_WORKSPACE; a grant that already exists is left as it is. The token comes from a hidden prompt, so run it in your own terminal.
+        run: |
+          (
+            set -eu; set -o pipefail
+            printf 'HCP user or organization API token: '; read -rs api_token; echo
+            [ -n "$api_token" ] || { echo 'No token entered.' >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$api_token"; }
+            team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?page%5Bsize%5D=100" \
+              | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
+            ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+              | jq -er '.data.id')
+            code=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
+              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
+                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
+            case "$code" in 201|422) ;; *) echo "HTTP $code" >&2; exit 1 ;; esac
+          )
     tri_state: true
     check: HCP_SCOPE_WORKSPACE="$NEW_PROVIDER_WORKSPACE" sh "$INFRA_REFERENCES/checks/hcp-apply-scope.sh"
     produces: Plan access with no apply or workspace-update permission
@@ -2769,13 +2819,29 @@ steps:
     when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
     title: Confirm fork speculative plans are disabled before adding credentials
     why: The fork-specific UI toggle can expose sensitive workspace variables to untrusted fork code.
+    check_summary: Config records fork_speculative_plans_disabled as true and the workspace ID of $NEW_PROVIDER_WORKSPACE, committed.
+    ui:
+      - form: Disable speculative plans from forks (separate from the API's speculative-enabled attribute)
+        url: https://app.terraform.io/app/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE/settings/vcs
+        fields: |
+          Page | Settings, then Version Control
+          Automatic speculative plans | Leave enabled
+          Run speculative plans on pull requests from forks | Disabled (unchecked)
+          After changing | Save settings
+    cli:
+      - effect: Prints the workspace's immutable ws- ID to record as fork_speculative_plans_workspace_id. It only reads, with your HCP login from the Terraform credentials file.
+        run: |
+          (
+            set -eu; set -o pipefail
+            hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
+            curl -sf --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+              "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" | jq -er '.data.id'
+          )
     run: |
-      In HCP workspace $NEW_PROVIDER_WORKSPACE, open Settings -> Version Control and
-      confirm speculative plans from forks are disabled. This is separate from the API's
-      `speculative-enabled` attribute. Then set this provider entry's
-      `fork_speculative_plans_disabled` value to `true` and record the workspace's
-      immutable `ws-...` ID as `fork_speculative_plans_workspace_id`. Commit config.md,
-      reload it, and reply `done` so the agent re-runs this durable attestation check.
+      After the human confirms the toggle, they set this provider entry's
+      `fork_speculative_plans_disabled` to `true` and record the ID printed above as
+      `fork_speculative_plans_workspace_id`, commit config.md and reload it; then re-run this
+      durable attestation check.
     check: |
       test "$NEW_PROVIDER_FORK_PLANS_DISABLED" = "true" || exit 1
       git ls-files --error-unmatch README.md >/dev/null 2>&1 || exit 1
@@ -2835,17 +2901,55 @@ steps:
     when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
     title: Put the provider credential configuration in HCP
     why: The first plan must authenticate without exposing credential values to the agent or repository.
+    check_summary: The workspace has exactly the declared variables by key, category and sensitive flag, no variable sets, and a committed credentials_backend of hcp with a fresh credentials_verified_at in config.md.
+    ui:
+      - form: Create a user API token for this step (the value is shown once; delete the token afterwards)
+        url: https://app.terraform.io/app/settings/tokens
+        fields: |
+          Start from | Create an API token
+          Description | infra-provision
+          Expiration | A short expiry, for example 1 day
+          After creating | Copy it into the command's hidden prompt; never paste it into the conversation
+      - form: Clear what the workspace inherits or holds beyond the inventory
+        url: https://app.terraform.io/app/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE/variables
+        fields: |
+          Variable sets | Remove every applied variable set; their inherited variables cannot be proven by the workspace-local inventory
+          Workspace variables | Delete every key that is not in the declared credential inventory
+    cli:
+      - effect: Creates one workspace variable for each entry of the declared credential inventory, asking for its value at the prompt (hidden when the entry is sensitive). A key that already exists is left unchanged, so edit or delete it in the page above. The token comes from a hidden prompt, so run it in your own terminal and never send a value to the agent.
+        run: |
+          (
+            set -eu; set -o pipefail
+            printf 'HCP user or organization API token: '; read -rs api_token; echo
+            [ -n "$api_token" ] || { echo 'No token entered.' >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$api_token"; }
+            ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
+              | jq -er '.data.id')
+            printf '%s' '$NEW_PROVIDER_CREDENTIALS' | jq -c '.[]' | while read -r entry; do
+              key=$(printf '%s' "$entry" | jq -r .key)
+              category=$(printf '%s' "$entry" | jq -r .category)
+              sensitive=$(printf '%s' "$entry" | jq -r .sensitive)
+              if [ "$sensitive" = true ]; then
+                printf 'Value for %s (hidden): ' "$key"; read -rs value </dev/tty; echo
+              else
+                printf 'Value for %s: ' "$key"; read -r value </dev/tty
+              fi
+              code=$(printf %s "$value" \
+                | var_key=$key var_category=$category var_sensitive=$sensitive jq -Rs '{data:{type:"vars",attributes:{key:env.var_key,value:.,category:env.var_category,sensitive:(env.var_sensitive == "true")}}}' \
+                | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/workspaces/$ws/vars")
+              case "$code" in
+                201) echo "set $key" ;;
+                422) echo "$key already exists; left unchanged" ;;
+                *) echo "$key: HTTP $code" >&2; exit 1 ;;
+              esac
+            done
+          )
     run: |
-      Mint or configure the provider's least-privilege credential as its runbook
-      requires. In HCP workspace $NEW_PROVIDER_WORKSPACE, reconcile every variable to
-      the exact NEW_PROVIDER_CREDENTIALS inventory by key, category, and sensitive flag;
-      delete undeclared leftovers before continuing. Detach any effective variable sets
-      first; their inherited variables cannot be proven by this workspace-local inventory.
-      Paste secret values yourself; never send them to the agent. Reply `done` so
-      the agent can verify metadata through the vars API. After every declared variable
-      is installed, record `credentials_backend: hcp` and the current UTC time as
-      `credentials_verified_at` in config.md
-      using strict `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and then reply `done`.
+      Mint or configure the provider's least-privilege credential as its runbook requires
+      first. After every declared variable is installed, the human records
+      `credentials_backend: hcp` and the current UTC time as `credentials_verified_at` in
+      config.md using strict `YYYY-MM-DDTHH:MM:SSZ`, commits the config, and replies `done`.
     check: |
       [ "${NEW_PROVIDER_CREDENTIALS_BACKEND-hcp}" = hcp ] || exit 1
       test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
