@@ -278,10 +278,8 @@ class NewProviderFlowTests(unittest.TestCase):
             decision,
         )
 
-    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
-    def test_decision_requires_the_standardized_affirmative_row(self) -> None:
-        decision = self.steps["new-provider-decision"]
-        env = {
+    def decision_env(self) -> dict[str, str]:
+        return {
             **self.env,
             "NEW_PROVIDER": "gcp",
             "NEW_PROVIDER_WORKSPACE": "gcp",
@@ -296,6 +294,48 @@ class NewProviderFlowTests(unittest.TestCase):
                 '"sensitive":false}]'
             ),
         }
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_only_locked_rows_decide_provider_and_authentication(self) -> None:
+        decision = self.steps["new-provider-decision"]
+        env = self.decision_env()
+        provider = "| Provider: gcp | adopt | {} |\n"
+        auth = "| GCP authentication | Workload Identity Federation | {} |\n"
+        header = "| Decision | Choice | Status |\n"
+        cases = {
+            "both locked": (header + provider.format("locked") + auth.format("locked"), True),
+            "provider proposed": (header + provider.format("proposed") + auth.format("locked"), False),
+            "provider superseded": (header + provider.format("superseded") + auth.format("locked"), False),
+            "authentication proposed": (header + provider.format("locked") + auth.format("proposed"), False),
+            "authentication superseded": (header + provider.format("locked") + auth.format("superseded"), False),
+            "provider row missing": (header + auth.format("locked"), False),
+            "authentication row missing": (header + provider.format("locked"), False),
+            "no rows": (header, False),
+            "no decisions section": (None, False),
+        }
+        for name, (table, passes) in cases.items():
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "terraform").mkdir()
+                (root / "terraform/README.md").write_text("terraform/gcp\n", encoding="utf-8")
+                ReadmeFixture(root).decisions(table)
+                subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+                subprocess.run(["git", "add", "README.md", "terraform/README.md"], cwd=root, check=True)
+                subprocess.run(
+                    ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                     "commit", "-qm", name],
+                    cwd=root, check=True,
+                )
+                result = subprocess.run(
+                    ["/bin/sh", "-c", literal_check(decision)],
+                    cwd=root, env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode == 0, passes, result.stderr)
+
+    @unittest.skipUnless(os.name == "posix", "manifest checks are POSIX shell")
+    def test_decision_requires_the_standardized_affirmative_row(self) -> None:
+        decision = self.steps["new-provider-decision"]
+        env = self.decision_env()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "terraform").mkdir()
@@ -1336,7 +1376,7 @@ terraform {
         wif = '[{"key":"TFC_GCP_PROVIDER_AUTH","category":"env","sensitive":false}]'
         key = '[{"key":"GOOGLE_CREDENTIALS","category":"env","sensitive":true}]'
         # (provider name, inventory, backend, runs?) — run in an empty directory, so no
-        # decisions.md can trigger (or hide) the step: only the inventory can.
+        # README decision can trigger (or hide) the step: only the inventory can.
         empty = tempfile.TemporaryDirectory()
         self.addCleanup(empty.cleanup)
         for name, credentials, backend, runs in (
