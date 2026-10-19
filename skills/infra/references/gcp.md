@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:73ca9ee00db0941774a9baa566b6df9f4820453c1d5ac262b7f02f6b18177999
-Source-Hash: blake3:d2753958eeb646edcf5cb921b67e86e029adeb466e5285a5246082c2c59f83b5
+Content-Hash: blake3:8de8267068e1b054bc026d81feac529c5a3b06fb01c557e3509679bc2bcad73e
+Source-Hash: blake3:9919f8982a308b109d9e9d7a3015c17184244778d9030ec33e9ce94c575e991d
 Schema-Version: v1
 -->
 
@@ -115,10 +115,12 @@ PROJECT_ID=<project-id>
 PROJECT_NUMBER=<project-number>
 # One pool and service account per provider, so a second GCP provider in this project never
 # reuses the first one's trust. Both are valid, bounded Google IDs: a slug of the provider
-# name (a-z, 0-9, dash, 16 characters) plus a checksum that keeps similar names apart.
+# name (a-z, 0-9, dash, 12 characters) plus its checksum, which keeps similar names apart. If a
+# provider with this name already exists in the pool, check that its condition names your
+# organization and workspace before reusing it.
 NEW_PROVIDER=<provider-name>
-slug=$(printf %s "$NEW_PROVIDER" | tr -cd 'a-z0-9-' | cut -c1-16 | sed 's/-*$//')
-tag=$(printf %s "$NEW_PROVIDER" | cksum | cut -d' ' -f1 | cut -c1-6)
+slug=$(printf %s "$NEW_PROVIDER" | tr -cd 'a-z0-9-' | cut -c1-12 | sed 's/-*$//')
+tag=$(printf %s "$NEW_PROVIDER" | cksum | cut -d' ' -f1)
 POOL="hcp-$slug-$tag"
 PROVIDER=hcp-terraform
 SA=$POOL

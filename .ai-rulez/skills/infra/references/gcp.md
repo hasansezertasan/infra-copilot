@@ -108,10 +108,12 @@ PROJECT_ID=<project-id>
 PROJECT_NUMBER=<project-number>
 # One pool and service account per provider, so a second GCP provider in this project never
 # reuses the first one's trust. Both are valid, bounded Google IDs: a slug of the provider
-# name (a-z, 0-9, dash, 16 characters) plus a checksum that keeps similar names apart.
+# name (a-z, 0-9, dash, 12 characters) plus its checksum, which keeps similar names apart. If a
+# provider with this name already exists in the pool, check that its condition names your
+# organization and workspace before reusing it.
 NEW_PROVIDER=<provider-name>
-slug=$(printf %s "$NEW_PROVIDER" | tr -cd 'a-z0-9-' | cut -c1-16 | sed 's/-*$//')
-tag=$(printf %s "$NEW_PROVIDER" | cksum | cut -d' ' -f1 | cut -c1-6)
+slug=$(printf %s "$NEW_PROVIDER" | tr -cd 'a-z0-9-' | cut -c1-12 | sed 's/-*$//')
+tag=$(printf %s "$NEW_PROVIDER" | cksum | cut -d' ' -f1)
 POOL="hcp-$slug-$tag"
 PROVIDER=hcp-terraform
 SA=$POOL

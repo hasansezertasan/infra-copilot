@@ -964,7 +964,7 @@ steps:
     why: GitHub Actions needs to authenticate to the state backend; the agent cannot create cloud-side federation or install secrets.
     check_summary: The plan identity's secrets exist at repository scope and the apply identity's in the production environment, for the configured state backend; the check lists names only, so it cannot prove the IAM behind them.
     cli:
-      - effect: For gcs, creates a dedicated Workload Identity pool for this repository, named gha- plus its numeric repository ID so a project shared with another repository never reuses its pool or accounts, with a plan provider and an apply provider that pin the immutable repository and owner IDs, the workflow file and, for apply, the main branch and the production environment, plus the tf-plan and tf-apply service accounts; tf-apply admits only production-environment identities and tf-plan admits this repository's identities (the documented binding, which apply tokens also match). Each create is skipped when the resource already exists, so it is safe to rerun. Run it in your own terminal with your gcloud login.
+      - effect: For gcs, creates a dedicated Workload Identity pool for this repository, named gha- plus its numeric repository ID so a project shared with another repository never reuses its pool or accounts, with a plan provider and an apply provider that pin the immutable repository and owner IDs, the workflow file and, for apply, the main branch and the production environment, plus the tf-plan and tf-apply service accounts; tf-apply admits only production-environment identities and tf-plan admits this repository's identities (the documented binding, which apply tokens also match). An existing pool or service account is kept and an existing provider is updated to the current conditions, so it is safe to rerun, including after a repository rename. Run it in your own terminal with your gcloud login.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
           REPO_ID=$(gh api "repos/$REPO" -q '.id')
@@ -981,14 +981,14 @@ steps:
           MAPPING_PLAN="google.subject=assertion.repository_id,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id,attribute.ref=assertion.ref,attribute.event_name=assertion.event_name,attribute.workflow_ref=assertion.workflow_ref"
           MAPPING_APPLY="$MAPPING_PLAN,attribute.environment=assertion.environment"
           REPO_PIN="assertion.repository_id == '$REPO_ID' && assertion.repository_owner_id == '$OWNER_ID'"
-          gcloud iam workload-identity-pools providers describe apply --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL" >/dev/null 2>&1 \
-            || gcloud iam workload-identity-pools providers create-oidc apply \
+          if gcloud iam workload-identity-pools providers describe apply --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL" >/dev/null 2>&1; then verb=update-oidc; else verb=create-oidc; fi
+          gcloud iam workload-identity-pools providers "$verb" apply \
             --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL" \
             --issuer-uri="https://token.actions.githubusercontent.com" \
             --attribute-mapping="$MAPPING_APPLY" \
             --attribute-condition="$REPO_PIN && assertion.ref == 'refs/heads/main' && assertion.workflow_ref == '$REPO/.github/workflows/terraform-apply.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'production'"
-          gcloud iam workload-identity-pools providers describe plan --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL" >/dev/null 2>&1 \
-            || gcloud iam workload-identity-pools providers create-oidc plan \
+          if gcloud iam workload-identity-pools providers describe plan --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL" >/dev/null 2>&1; then verb=update-oidc; else verb=create-oidc; fi
+          gcloud iam workload-identity-pools providers "$verb" plan \
             --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL" \
             --issuer-uri="https://token.actions.githubusercontent.com" \
             --attribute-mapping="$MAPPING_PLAN" \
@@ -1011,12 +1011,14 @@ steps:
             --member="serviceAccount:tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectViewer
           gcloud storage buckets add-iam-policy-binding "gs://$STATE_BUCKET" \
             --member="serviceAccount:tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectAdmin
-      - effect: For gcs, removes a leftover objectAdmin grant from tf-plan on the state bucket; it prints an error and changes nothing if there is none. Inherited grants at the project or folder still need a manual review.
+      - effect: For gcs, removes a leftover objectAdmin grant from tf-plan, including the earlier legacy tf-plan account name, on the state bucket; it prints an error and changes nothing if there is none. Inherited grants at the project or folder still need a manual review.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
           REPO_ID=$(gh api "repos/$REPO" -q '.id')
           gcloud storage buckets remove-iam-policy-binding "gs://$STATE_BUCKET" \
             --member="serviceAccount:tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectAdmin
+          gcloud storage buckets remove-iam-policy-binding "gs://$STATE_BUCKET" \
+            --member="serviceAccount:tf-plan@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectAdmin
       - effect: For gcs, stores the plan identity's two public coordinates as repository secrets.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
@@ -1107,6 +1109,7 @@ steps:
           REPO_ID=$(gh api "repos/$REPO" -q '.id')
           gcloud iam service-accounts get-iam-policy "tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
           gcloud iam service-accounts get-iam-policy "tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
+          gcloud iam service-accounts get-iam-policy "tf-plan@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json 2>/dev/null || echo "no legacy tf-plan account"
       - effect: Prints the branch policies of the production environment, which must allow exactly main.
         run: |
           gh api "repos/$REPO/environments/production/deployment-branch-policies" --jq '.branch_policies[].name'
@@ -3173,12 +3176,14 @@ steps:
       - effect: Logs in to gcloud with an account that can read the pool and service-account IAM policies, which the check needs when it reports it could not verify.
         run: |
           mise exec -- gcloud auth login
-      - effect: For a WIF entry, creates a pool and service account named hcp- plus a short slug and checksum of this provider's name (valid, bounded Google IDs), so another provider's trust is never reused, an HCP provider whose condition binds organization $ORG and workspace $NEW_PROVIDER_WORKSPACE, the service account, and the impersonation binding for that pool only. Point the workspace's TFC_GCP_* variables at the pool, provider and service account it creates. It sets the gcloud default project, skips creates that already exist, and should be run on your own gcloud login, keeping one active provider per pool.
+      - effect: For a WIF entry, creates a pool and service account named hcp- plus a slug and checksum of this provider's name (valid, bounded Google IDs) and refuses an existing provider bound to another workspace, so another provider's trust is never reused, an HCP provider whose condition binds organization $ORG and workspace $NEW_PROVIDER_WORKSPACE, the service account, and the impersonation binding for that pool only. Point the workspace's TFC_GCP_* variables at the pool, provider and service account it creates. It sets the gcloud default project, skips creates that already exist, and should be run on your own gcloud login, keeping one active provider per pool.
         run: |
+          (
+          set -eu
           printf 'GCP project ID: '; read -r PROJECT_ID
           PROJECT_NUMBER=$(mise exec -- gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
-          slug=$(printf %s "$NEW_PROVIDER" | tr -cd 'a-z0-9-' | cut -c1-16 | sed 's/-*$//')
-          tag=$(printf %s "$NEW_PROVIDER" | cksum | cut -d' ' -f1 | cut -c1-6)
+          slug=$(printf %s "$NEW_PROVIDER" | tr -cd 'a-z0-9-' | cut -c1-12 | sed 's/-*$//')
+          tag=$(printf %s "$NEW_PROVIDER" | cksum | cut -d' ' -f1)
           POOL="hcp-$slug-$tag"
           PROVIDER=hcp-terraform
           SA=$POOL
@@ -3189,9 +3194,17 @@ steps:
           mise exec -- gcloud iam workload-identity-pools describe "$POOL" --location=global >/dev/null 2>&1 \
             || mise exec -- gcloud iam workload-identity-pools create "$POOL" \
               --location=global --display-name="HCP Terraform"
-          mise exec -- gcloud iam workload-identity-pools providers describe "$PROVIDER" \
-            --location=global --workload-identity-pool="$POOL" >/dev/null 2>&1 \
-            || mise exec -- gcloud iam workload-identity-pools providers create-oidc "$PROVIDER" \
+          if mise exec -- gcloud iam workload-identity-pools providers describe "$PROVIDER" \
+            --location=global --workload-identity-pool="$POOL" >/dev/null 2>&1; then
+            mise exec -- gcloud iam workload-identity-pools providers describe "$PROVIDER" \
+              --location=global --workload-identity-pool="$POOL" --format='value(attributeCondition)' \
+              | grep -Fq "assertion.terraform_organization_name == '$ORG' && assertion.terraform_workspace_name == '$NEW_PROVIDER_WORKSPACE'" \
+              || { echo "Provider $PROVIDER in $POOL is bound to another workspace; use a different provider name." >&2; exit 1; }
+            verb=update-oidc
+          else
+            verb=create-oidc
+          fi
+          mise exec -- gcloud iam workload-identity-pools providers "$verb" "$PROVIDER" \
             --location=global --workload-identity-pool="$POOL" \
             --issuer-uri="https://app.terraform.io" \
             --attribute-mapping="google.subject=assertion.sub,attribute.aud=assertion.aud,attribute.terraform_run_phase=assertion.terraform_run_phase,attribute.terraform_organization_name=assertion.terraform_organization_name,attribute.terraform_workspace_name=assertion.terraform_workspace_name,attribute.terraform_workspace_id=assertion.terraform_workspace_id" \
@@ -3202,6 +3215,7 @@ steps:
             "$SA@$PROJECT_ID.iam.gserviceaccount.com" \
             --role=roles/iam.workloadIdentityUser \
             --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL/*"
+          )
     run: |
       For a key-based entry the human removes every Google credential variable other than the
       sensitive GOOGLE_CREDENTIALS, and any credentials, access_token or
@@ -3248,6 +3262,7 @@ steps:
           REPO_ID=$(gh api "repos/$REPO" -q '.id')
           gcloud iam service-accounts get-iam-policy "tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
           gcloud iam service-accounts get-iam-policy "tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
+          gcloud iam service-accounts get-iam-policy "tf-plan@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json 2>/dev/null || echo "no legacy tf-plan account"
     run: |
       Follow object-storage.md's provisioning trust checklist for the other clouds: review the
       exact OIDC subject for this repository and branch or protected environment, the runner role
