@@ -1716,7 +1716,7 @@ steps:
             printf '%s' "${resp%$'\n'*}" | jq -e '.data.attributes["organization-access"] | type == "object" and all(.[]; . == false)' >/dev/null \
               || { echo 'infra-plan-only still has an organization permission switched on; turn it off before minting its token.' >&2; exit 1; }
           )
-      - effect: Removes any project-level access the team holds on every project in $ORG, because HCP combines project, workspace and organization access at the most permissive level and a leftover Write, Maintain, Admin or custom project role would keep the credential able to apply. Only the team's own project-access relationships are deleted. It authenticates with your HCP login from the Terraform credentials file.
+      - effect: Removes any project-level access the team holds on every project in $ORG, because HCP combines project, workspace and organization access at the most permissive level and a leftover Write, Maintain, Admin or custom project role would keep the credential able to apply. Only the team's own project-access relationships are deleted, after every page of each project's list has been read. It authenticates with your HCP login from the Terraform credentials file.
         run: |
           (
             set -eu; set -o pipefail
@@ -1730,8 +1730,16 @@ steps:
               body=$(curl -sf --config <(auth) \
                 "$hcp_api/organizations/$ORG/projects?page%5Bsize%5D=100&page%5Bnumber%5D=$page")
               for project in $(printf '%s' "$body" | jq -r '.data[].id'); do
-                for tp in $(curl -sf --config <(auth) "$hcp_api/team-projects?filter%5Bproject%5D%5Bid%5D=$project" \
-                  | team_id=$team jq -r '.data[] | select(.relationships.team.data.id == env.team_id) | .id'); do
+                tp_ids=''
+                tp_page=1
+                while :; do
+                  tp_body=$(curl -sf --config <(auth) \
+                    "$hcp_api/team-projects?filter%5Bproject%5D%5Bid%5D=$project&page%5Bsize%5D=100&page%5Bnumber%5D=$tp_page")
+                  tp_ids="$tp_ids $(printf '%s' "$tp_body" | team_id=$team jq -r '.data[] | select(.relationships.team.data.id == env.team_id) | .id')"
+                  tp_page=$(printf '%s' "$tp_body" | jq -r '.meta.pagination["next-page"] // empty')
+                  [ -n "$tp_page" ] || break
+                done
+                for tp in $tp_ids; do
                   code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE --config <(auth) "$hcp_api/team-projects/$tp")
                   [ "$code" = 204 ] || { echo "team-project $tp: HTTP $code" >&2; exit 1; }
                 done
