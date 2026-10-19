@@ -1712,6 +1712,30 @@ steps:
             code=${resp##*$'\n'}
             case "$code" in 200|201) ;; *) echo "HTTP $code: $resp" >&2; exit 1 ;; esac
           )
+      - effect: Removes any project-level access the team holds on every project in $ORG, because HCP combines project, workspace and organization access at the most permissive level and a leftover Write, Maintain, Admin or custom project role would keep the credential able to apply. Only the team's own project-access relationships are deleted. It authenticates with your HCP login from the Terraform credentials file.
+        run: |
+          (
+            set -eu; set -o pipefail
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
+            team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
+              | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
+            page=1
+            while :; do
+              body=$(curl -sf --config <(auth) \
+                "$hcp_api/organizations/$ORG/projects?page%5Bsize%5D=100&page%5Bnumber%5D=$page")
+              for project in $(printf '%s' "$body" | jq -r '.data[].id'); do
+                for tp in $(curl -sf --config <(auth) "$hcp_api/team-projects?filter%5Bproject%5D%5Bid%5D=$project" \
+                  | team_id=$team jq -r '.data[] | select(.relationships.team.data.id == env.team_id) | .id'); do
+                  code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE --config <(auth) "$hcp_api/team-projects/$tp")
+                  [ "$code" = 204 ] || { echo "team-project $tp: HTTP $code" >&2; exit 1; }
+                done
+              done
+              page=$(printf '%s' "$body" | jq -r '.meta.pagination["next-page"] // empty')
+              [ -n "$page" ] || break
+            done
+          )
       - effect: Grants the team the Plan permission, not Write (which includes apply), on every workspace in $ORG connected to $REPO. Sets a workspace's existing grant to Plan if it is at another level, so run it again whenever add creates a new workspace. It reads every page of workspaces. It authenticates with your HCP login from the Terraform credentials file.
         run: |
           (
