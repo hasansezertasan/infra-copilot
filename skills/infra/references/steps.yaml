@@ -470,18 +470,22 @@ steps:
             printf 'Organization admin email: '; read -r email
             [ -n "$email" ] || { echo 'No email entered.' >&2; exit 1; }
             hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
-            org_name=$ORG org_email=$email jq -n '{data:{type:"organizations",attributes:{name:env.org_name,email:env.org_email}}}' \
-              | curl -sf -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
-                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations" >/dev/null
+            org_name=$ORG org_email=$email
+            export org_name org_email
+            code=$(jq -n '{data:{type:"organizations",attributes:{name:env.org_name,email:env.org_email}}}' \
+              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations")
+            [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
           )
       - effect: Creates the project infra in the $ORG organization. It fails if the organization does not exist yet. It authenticates with your HCP login from the Terraform credentials file.
         run: |
           (
             set -eu; set -o pipefail
             hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
-            jq -n '{data:{type:"projects",attributes:{name:"infra"}}}' \
-              | curl -sf -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
-                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/projects" >/dev/null
+            code=$(jq -n '{data:{type:"projects",attributes:{name:"infra"}}}' \
+              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/projects")
+            [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
           )
     ui:
       - form: Create the organization in the browser instead
@@ -546,20 +550,20 @@ steps:
           Page | Version Control, then Providers
           Add a VCS provider | GitHub, then GitHub.com
           Authorize on GitHub | Authorize HCP Terraform as the bootstrap user
-          Repository access on GitHub | Only select repositories, $REPO
-          If the organization has several GitHub connections | Select one by exporting OAUTH_TOKEN_ID with the ot- id of the connection for $GITHUB_ORG, and never together with GITHUB_APP_INSTALLATION_ID
+          Organization access on GitHub | Grant access to $GITHUB_ORG, the owner of $REPO
       - form: Connect GitHub through the HCP Terraform GitHub App (use this or the OAuth form, not both)
         url: https://app.terraform.io/app/$ORG/settings/version-control
         fields: |
           Page | Version Control, then Providers
           Install the HCP Terraform GitHub App | On $GITHUB_ORG, Only select repositories, $REPO
           Authorize the App | On the bootstrap user's GitHub account, so HCP can link the installation to that user
-          If the organization has several installations | Select one by exporting GITHUB_APP_INSTALLATION_ID with HCP's ghain- id (not GitHub's numeric installation id), and never together with OAUTH_TOKEN_ID
     run: |
       The agent discovers the installation by $REPO's GitHub owner using the bootstrap user's
       token; keep that token through bootstrap, because team and organization tokens cannot
-      create App links. After the handoff, keep any OAUTH_TOKEN_ID or
-      GITHUB_APP_INSTALLATION_ID selection exported for workspace creation.
+      create App links. If the organization has several GitHub connections, the human selects
+      one by exporting OAUTH_TOKEN_ID (its ot- id) or GITHUB_APP_INSTALLATION_ID (HCP's ghain-
+      id, not GitHub's numeric installation id), never both; keep that selection exported for
+      workspace creation.
     # Assert a GitHub-family VCS provider specifically, not just "any oauth client" —
     # otherwise a pre-existing GitLab/Bitbucket connection would false-green this step.
     # Tri-state, because this endpoint is organization-scoped and the plan-only
@@ -1580,30 +1584,32 @@ steps:
       continuing past it.
     check_summary: The credential this machine offers HCP (TF_TOKEN_app_terraform_io, else the Terraform credentials file) is a plan-only team token, not a user token or one that can apply.
     cli:
-      - effect: Creates the team infra-plan-only with every organization permission off. Never add "Manage version control settings" or any other organization permission to it; organization permissions are the self-elevation risk this step removes. It authenticates with your HCP login from the Terraform credentials file.
+      - effect: Creates the team infra-plan-only with every organization permission off; this needs an HCP plan that includes teams. Never add "Manage version control settings" or any other organization permission to it; organization permissions are the self-elevation risk this step removes. It authenticates with your HCP login from the Terraform credentials file.
         run: |
           (
             set -eu; set -o pipefail
             hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
-            jq -n '{data:{type:"teams",attributes:{name:"infra-plan-only","organization-access":{"manage-policies":false,"manage-policy-overrides":false,"manage-workspaces":false,"manage-vcs-settings":false,"manage-providers":false,"manage-modules":false,"manage-run-tasks":false,"manage-projects":false,"read-projects":false,"read-workspaces":false,"manage-membership":false}}}}' \
-              | curl -sf -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
-                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/teams" >/dev/null
+            code=$(jq -n '{data:{type:"teams",attributes:{name:"infra-plan-only","organization-access":{"manage-policies":false,"manage-policy-overrides":false,"manage-workspaces":false,"manage-vcs-settings":false,"manage-providers":false,"manage-modules":false,"manage-run-tasks":false,"manage-projects":false,"read-projects":false,"read-workspaces":false,"manage-membership":false}}}}' \
+              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/teams")
+            [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
           )
-      - effect: Grants the team the Plan permission, not Write (which includes apply), on every workspace in $ORG connected to $REPO. Run it again whenever add creates a new workspace, or plans there fail for the plan-only identity. It reads the first 100 workspaces. It authenticates with your HCP login from the Terraform credentials file.
+      - effect: Grants the team the Plan permission, not Write (which includes apply), on every workspace in $ORG connected to $REPO. Skips a workspace that already has the grant, so run it again whenever add creates a new workspace. It reads the first 100 workspaces. It authenticates with your HCP login from the Terraform credentials file.
         run: |
           (
             set -eu; set -o pipefail
             hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
             team=$(curl -sf --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
-              "$hcp_api/organizations/$ORG/teams" \
+              "$hcp_api/organizations/$ORG/teams?page%5Bsize%5D=100" \
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
             curl -sf --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
               "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100" \
               | repo=$REPO jq -r '.data[] | select(.attributes["vcs-repo"].identifier == env.repo) | .id' \
               | while read -r ws; do
                   team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
-                    | curl -sf -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
-                        -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces" >/dev/null
+                    | { code=$(curl -s -o /dev/null -w '%{http_code}' -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+                        -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
+                        case "$code" in 201|422) ;; *) echo "workspace $ws: HTTP $code" >&2; exit 1 ;; esac; }
                 done
           )
     ui:
