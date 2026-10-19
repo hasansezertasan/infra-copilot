@@ -35,6 +35,8 @@ class DestructiveLabelTests(unittest.TestCase):
             ('', 0, '| Destructive apply | allow-destroy | locked | Intent only |', 1),
             ('allow-destroy', 1, '| Destructive apply | allow-destroy | locked | Intent only |', 2),
             ('allow-destroy', 0, '| Destructive apply | allow-destroy | proposed | Intent only |', 1),
+            ('allow-destroy', 0, '| Destructive apply | allow-destroy | superseded | Intent only |', 1),
+            ('allow-destroy', 0, '| Apply gate | allow-destroy | locked | Intent only |', 1),
             ('allow-destroy', 0, '', 1),
             ('allow-destroy', 0, None, 1),
         ):

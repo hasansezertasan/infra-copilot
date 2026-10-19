@@ -113,10 +113,21 @@ class ApplyGateTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_proposed_or_unknown_gate_does_not_count(self) -> None:
-        for row in ['| Apply gate | merge-approval | proposed | x |', '| Apply gate | none | locked | x |']:
+        for row in ['| Apply gate | merge-approval | proposed | x |',
+                    '| Apply gate | merge-approval | superseded | x |',
+                    '| Apply gate | none | locked | x |',
+                    '| Other decision | merge-approval | locked | x |']:
             with self.subTest(row=row):
                 self.decide(row)
                 self.assertEqual(self.check().returncode, 1)
+
+    def test_missing_decisions_section_or_readme_is_not_a_gate(self) -> None:
+        (self.root / 'README.md').write_text(render(config='state_backend: hcp'))
+        with self.subTest(case='no decisions section'):
+            self.assertEqual(self.check().returncode, 1)
+        (self.root / 'README.md').unlink()
+        with self.subTest(case='no README'):
+            self.assertEqual(self.check().returncode, 1)
 
     def test_crlf_line_endings_do_not_hide_a_locked_gate(self) -> None:
         text = render(decisions='| Apply gate | merge-approval | locked | x |\n')

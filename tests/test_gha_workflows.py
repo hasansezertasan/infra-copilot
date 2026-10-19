@@ -157,6 +157,8 @@ class WorkflowSetupTests(unittest.TestCase):
         decisions = self.root / 'README.md'
         for choice, status, expected in (('dispatch', 'locked', 0),
                                           ('dispatch', 'open', 1),
+                                          ('dispatch', 'proposed', 1),
+                                          ('dispatch', 'superseded', 1),
                                           ('merge-approval', 'locked', 1)):
             with self.subTest(choice=choice, status=status):
                 decisions.write_text(render(decisions=f'| Apply gate | {choice} | {status} |\n'))
@@ -164,6 +166,14 @@ class WorkflowSetupTests(unittest.TestCase):
                 self.apply.write_text(dispatch_only)
                 self.commit()
                 self.assertEqual(self.check().returncode, expected)
+        for name, text in (('another decision', render(decisions='| Destructive apply | dispatch | locked |\n')),
+                           ('no decisions section', render(config='state_backend: hcp'))):
+            with self.subTest(case=name):
+                decisions.write_text(text)
+                self.git('add', 'README.md')
+                self.apply.write_text(dispatch_only)
+                self.commit()
+                self.assertEqual(self.check().returncode, 1)
         decisions.write_text(render(decisions='| Apply gate | dispatch | locked |\n'))
         self.git('add', 'README.md')
         self.apply.write_text(original)
