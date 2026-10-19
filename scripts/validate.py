@@ -1718,7 +1718,7 @@ _SHELL_VARIABLES = frozenset({"HOME", "PWD", "OLDPWD", "USER", "PATH", "TMPDIR",
 _ASSIGNED_VARIABLE = re.compile(
     r"(?:^|[\s;&|(])(?P<assign>[A-Za-z_]\w*)=|\bfor\s+(?P<loop>[A-Za-z_]\w*)\s+in\b"
 )
-_SECRET_NAME_ONLY = re.compile(_SECRET_NAME)
+_SECRET_NAME_ONLY = re.compile(_SECRET_NAME + r"(?<!FILE)(?<!PATH)(?<!NAME)")
 
 
 def _used_before_set(command: str, known: set[str]) -> list[str]:

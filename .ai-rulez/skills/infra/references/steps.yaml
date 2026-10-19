@@ -693,7 +693,7 @@ steps:
     when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
     title: Create the state storage bucket
     why: Terraform state needs a durable, versioned bucket before any init.
-    check_summary: The bucket exists, is private, and has versioning enabled (plus a lock table on S3).
+    check_summary: The bucket exists, is private, has versioning enabled and, for GCS, sits at state_region (plus a lock table on S3).
     cli:
       - effect: For gcs, creates a private bucket at the location in state_region (a bucket location cannot change later) with uniform access, enforced public access prevention and object versioning; locking is native.
         run: |
@@ -741,6 +741,14 @@ steps:
           gcloud storage buckets describe "gs://$STATE_BUCKET" \
             --format='value(iamConfiguration.uniformBucketLevelAccess.enabled)' 2>/dev/null \
             | grep -Fxq "True" || exit 1
+          # Verify the bucket sits where config says (a location cannot change after creation)
+          if [ -n "$STATE_REGION" ]; then
+            loc=$(gcloud storage buckets describe "gs://$STATE_BUCKET" --format='value(location)' 2>/dev/null) || exit 1
+            [ "$(printf '%s' "$loc" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$STATE_REGION" | tr '[:upper:]' '[:lower:]')" ] || {
+              echo "Bucket location '$loc' does not match state_region '$STATE_REGION'" >&2
+              exit 1
+            }
+          fi
           # Verify object versioning is enabled
           gcloud storage buckets describe "gs://$STATE_BUCKET" \
             --format='value(versioning.enabled)' 2>/dev/null | grep -Fxiq "true" || exit 1
@@ -1315,14 +1323,18 @@ steps:
     cli:
       - effect: Creates the sensitive Terraform variable cloudflare_api_token in the cloudflare HCP workspace. The token is read from a hidden prompt and the call authenticates with your HCP login from the Terraform credentials file.
         run: |
-          read -rs -p "Cloudflare API token: " value; echo
-          hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
-          ws=$(curl -sf --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
-            "$hcp_api/organizations/$ORG/workspaces/cloudflare" | jq -r '.data.id')
-          printf %s "$value" \
-            | jq -Rs '{data:{type:"vars",attributes:{key:"cloudflare_api_token",value:.,category:"terraform",sensitive:true}}}' \
-            | curl -sf -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
-                -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/workspaces/$ws/vars"
+          (
+            set -eu; set -o pipefail
+            printf 'Cloudflare API token: '; read -rs value; echo
+            [ -n "$value" ] || { echo 'No token entered.' >&2; exit 1; }
+            hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
+            ws=$(curl -sf --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+              "$hcp_api/organizations/$ORG/workspaces/cloudflare" | jq -er '.data.id')
+            printf %s "$value" \
+              | jq -Rs '{data:{type:"vars",attributes:{key:"cloudflare_api_token",value:.,category:"terraform",sensitive:true}}}' \
+              | curl -sf -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/workspaces/$ws/vars" >/dev/null
+          )
     check: |
       WS_ID=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/cloudflare" -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
       curl -sf "$hcp_api/workspaces/$WS_ID/vars" -H "Authorization: Bearer $HCP_TOKEN" \

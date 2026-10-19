@@ -126,12 +126,12 @@ class HandoffFieldTests(unittest.TestCase):
         self.assertEqual(1, len(self.errors_for(cli_step(command))))
 
     def test_a_file_redirect_from_a_token_named_variable_passes(self) -> None:
-        self.assertEqual([], self.errors_for(cli_step('gh secret set APP_KEY < "$TOKEN_FILE"\n')))
+        self.assertEqual([], self.errors_for(cli_step('TOKEN_FILE=key.pem\ngh secret set APP_KEY < "$TOKEN_FILE"\n')))
 
     def test_variables_naming_a_file_path_or_secret_name_are_no_leak(self) -> None:
         for variable in ('TOKEN_FILE', 'TOKEN_PATH', 'SECRET_NAME'):
             with self.subTest(variable=variable):
-                self.assertEqual([], self.errors_for(cli_step(f'gh secret set "${variable}" < key.pem\n')))
+                self.assertEqual([], self.errors_for(cli_step(f'{variable}=value\ngh secret set "${variable}" < key.pem\n')))
 
     def test_a_dash_line_inside_a_literal_block_does_not_split_an_entry(self) -> None:
         command = 'cat <<EOF\n- not an entry\nEOF\n'
@@ -274,6 +274,14 @@ class HandoffFieldTests(unittest.TestCase):
 
     def test_a_variable_assigned_before_use_on_one_line_passes(self) -> None:
         self.assertEqual([], self.errors_for(cli_step('TARGET=value; tool "$TARGET"\n')))
+
+    def test_an_unset_file_path_or_name_variable_is_still_reported(self) -> None:
+        errors = self.errors_for(cli_step('gh secret set APP_KEY < "$TOKEN_FILE"\n'))
+        self.assertEqual(1, len(errors))
+        self.assertIn('TOKEN_FILE', errors[0])
+
+    def test_a_file_variable_the_block_sets_passes(self) -> None:
+        self.assertEqual([], self.errors_for(cli_step('TOKEN_FILE=key.pem\ngh secret set APP_KEY < "$TOKEN_FILE"\n')))
 
     def test_an_exported_cli_variable_passes(self) -> None:
         self.assertEqual([], self.errors_for(cli_step('gh repo view "$GITHUB_ORG/${CF_ACCOUNT_ID}"\n')))
