@@ -123,6 +123,7 @@ is tracked and required — never delete `.agents/` wholesale.
 A script in `.ai-rulez/skills/infra/references/checks/` has a test named for it:
 `gha-apply-gate.sh` is run by `tests/test_gha_apply_gate.py`. The exceptions are
 `workflow-routing.sh` (`tests/test_gha_plan_checks.py` and `tests/test_leaf_routing.py`),
+`hcp-bootstrap-workspaces.sh` (`tests/test_leaf_routing.py`),
 `hcp-current-plan.sh` and `leaf-cloud.sh` (inside `tests/test_new_provider_flow.py`), and
 `hcp-github-app.sh`, which has no test.
 
