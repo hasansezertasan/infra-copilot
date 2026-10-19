@@ -1223,11 +1223,16 @@ steps:
       approval HCP's confirm button gave.
     check_summary: A "production" environment exists whose deployment branch policy allows exactly main, with required reviewers or a locked "Apply gate" decision.
     cli:
-      - effect: Creates the production environment (or updates it if it exists) restricted to selected branches, then adds the one policy that allows main. On a rerun the second call reports that the policy already exists, which is harmless.
+      - effect: Creates the production environment (or updates it if it exists) restricted to selected branches, deletes every other branch or tag policy, then adds the one policy that allows main. On a rerun the last call reports that the policy already exists, which is harmless.
         run: |
           gh api -X PUT "repos/$REPO/environments/production" --input - <<EOF
           {"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
           EOF
+          gh api --paginate "repos/$REPO/environments/production/deployment-branch-policies" \
+            --jq '.branch_policies[] | select(.name != "main" or .type != "branch") | .id' \
+            | while read -r policy_id; do
+                gh api -X DELETE "repos/$REPO/environments/production/deployment-branch-policies/$policy_id"
+              done
           gh api -X POST "repos/$REPO/environments/production/deployment-branch-policies" \
             -f name=main -f type=branch
       - effect: Only where GitHub offers required reviewers (public repos, or GitHub Enterprise for private ones; Free, Pro and Team reject it with a 422). Sets one user as the required reviewer and keeps the main-only branch policy.
@@ -3177,14 +3182,14 @@ steps:
       - effect: Logs in to gcloud with an account that can read the pool and service-account IAM policies, which the check needs when it reports it could not verify.
         run: |
           mise exec -- gcloud auth login
-      - effect: For a WIF entry, creates a pool and service account named hcp- plus a slug and checksum of this provider's name (valid, bounded Google IDs) and refuses an existing provider bound to another workspace, so another provider's trust is never reused, an HCP provider whose condition binds organization $ORG and workspace $NEW_PROVIDER_WORKSPACE, the service account, and the impersonation binding for that pool only. Point the workspace's TFC_GCP_* variables at the pool, provider and service account it creates. It sets the gcloud default project, skips creates that already exist, and should be run on your own gcloud login, keeping one active provider per pool.
+      - effect: For a WIF entry, creates a pool and service account named hcp- plus a slug of this provider's name and a checksum of its HCP organization, workspace and name (valid, bounded Google IDs) and refuses an existing provider bound to another workspace, so another provider's trust is never reused, an HCP provider whose condition binds organization $ORG and workspace $NEW_PROVIDER_WORKSPACE, the service account, and the impersonation binding for that pool only. Point the workspace's TFC_GCP_* variables at the pool, provider and service account it creates. It sets the gcloud default project, skips creates that already exist, and should be run on your own gcloud login, keeping one active provider per pool.
         run: |
           (
           set -eu
           printf 'GCP project ID: '; read -r PROJECT_ID
           PROJECT_NUMBER=$(mise exec -- gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
           slug=$(printf %s "$NEW_PROVIDER" | tr -cd 'a-z0-9-' | cut -c1-12 | sed 's/-*$//')
-          tag=$(printf %s "$NEW_PROVIDER" | cksum | cut -d' ' -f1)
+          tag=$(printf '%s/%s/%s' "$ORG" "$NEW_PROVIDER_WORKSPACE" "$NEW_PROVIDER" | cksum | cut -d' ' -f1)
           POOL="hcp-$slug-$tag"
           PROVIDER=hcp-terraform
           SA=$POOL
