@@ -261,6 +261,20 @@ class HandoffFieldTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual([], self.errors_for(cli_step(command)))
 
+    def test_a_variable_used_before_the_command_block_assigns_it_fails(self) -> None:
+        for command in (
+            'tool "$TARGET"; TARGET=value\n',
+            'tool "$TARGET"\nTARGET=value\n',
+            'tool "$name"\nread -r name\n',
+        ):
+            with self.subTest(command=command):
+                errors = self.errors_for(cli_step(command))
+                self.assertEqual(1, len(errors))
+                self.assertIn('never', errors[0])
+
+    def test_a_variable_assigned_before_use_on_one_line_passes(self) -> None:
+        self.assertEqual([], self.errors_for(cli_step('TARGET=value; tool "$TARGET"\n')))
+
     def test_an_exported_cli_variable_passes(self) -> None:
         self.assertEqual([], self.errors_for(cli_step('gh repo view "$GITHUB_ORG/${CF_ACCOUNT_ID}"\n')))
 

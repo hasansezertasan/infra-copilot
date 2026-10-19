@@ -1721,11 +1721,27 @@ _ASSIGNED_VARIABLE = re.compile(
 _SECRET_NAME_ONLY = re.compile(_SECRET_NAME)
 
 
-def _assigned_variables(command: str) -> set[str]:
-    """Variables a command block sets itself: `NAME=`, `for NAME in`, `read [flags] NAME`."""
-    names = {m.group("assign") or m.group("loop") for m in _ASSIGNED_VARIABLE.finditer(command)}
-    names.update(match.group("name") for match in _READ.finditer(command))
-    return names
+def _used_before_set(command: str, known: set[str]) -> list[str]:
+    """Names a command block expands before anything in it has set them, in reading order.
+
+    A variable counts as set from the end of its `NAME=`, `for NAME in` or `read NAME`, so
+    `T=1; use "$T"` passes and `use "$T"; T=1` does not. `known` is the exported and shell
+    variables; assignments are added to it as the scan reaches them.
+    """
+    known = set(known)
+    unset = []
+    for line in command.splitlines():
+        events = [(m.start(), 0, m.group("braced") or m.group("bare")) for m in _VARIABLE.finditer(line)]
+        events += [
+            (m.end(), 1, m.group("assign") or m.group("loop")) for m in _ASSIGNED_VARIABLE.finditer(line)
+        ]
+        events += [(m.end(), 1, m.group("name")) for m in _READ.finditer(line)]
+        for _, kind, name in sorted(events):
+            if kind:
+                known.add(name)
+            elif name not in known and name not in unset:
+                unset.append(name)
+    return unset
 
 
 def _cli_errors(step: ManifestStep, exported: set[str]) -> list[str]:
@@ -1746,10 +1762,9 @@ def _cli_errors(step: ManifestStep, exported: set[str]) -> list[str]:
                 "so its commands cannot be checked for secrets"
             )
         for command in commands:
-            own = _assigned_variables(command)
             errors.extend(
-                f"step {step.id} cli command uses ${name}, which Step 0 never exports and the command never sets"
-                for name in _unexported(command, exported | own | _SHELL_VARIABLES)
+                f"step {step.id} cli command uses ${name}, which Step 0 never exports and the command never sets first"
+                for name in _used_before_set(command, exported | _SHELL_VARIABLES)
                 if not _SECRET_NAME_ONLY.fullmatch(name)
             )
             hidden: set[str] = set()
