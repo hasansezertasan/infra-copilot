@@ -82,7 +82,9 @@ class GitHubAppPermissionTests(unittest.TestCase):
     def test_write_contents_is_production_only_and_plan_is_read_only(self) -> None:
         manifest = (REFERENCES / 'steps.yaml').read_text(encoding='utf-8')
         step = manifest.split('  - id: gh-app-gha\n', 1)[1].split('  - id: ', 1)[0]
-        self.assertIn('--env production', step)
+        for line in step.splitlines():
+            if re.search(r'gh secret set GH_APP_(ID|INSTALLATION_ID|PEM)\b', line):
+                self.assertIn('--env production', line)
         self.assertIn('a second App with its own key; never reuse the plan App', step)
         self.assertIn('merge settings accurately on apply refresh', step)
 

@@ -19,7 +19,9 @@
 #   title     one line
 #   why       what this unblocks (goes in the handoff block's "Why:")
 #   run       AGENT steps: the command(s) the agent runs
-#             HUMAN steps: the human_action text (browser instructions)
+#             HUMAN steps: the human_action text (browser instructions). On a step that also
+#             carries `cli` or `ui`, only what the agent does around the human's work (record
+#             a decision or evidence); the human's commands and forms live in `cli`/`ui`.
 #   when      optional shell condition. If present and evaluates false, skip this step.
 #             Use the scope-specific selectors in operations.md, never $BACKEND.
 #   refresh_credentials optional. Refresh selected config exports after this member
@@ -1067,7 +1069,7 @@ steps:
       approval HCP's confirm button gave.
     check_summary: A "production" environment exists whose deployment branch policy allows exactly main, with required reviewers or a locked "Apply gate" decision.
     cli:
-      - effect: Creates the production environment (or updates it if it exists) restricted to selected branches, then adds the one policy that allows main.
+      - effect: Creates the production environment (or updates it if it exists) restricted to selected branches, then adds the one policy that allows main. On a rerun the second call reports that the policy already exists, which is harmless.
         run: |
           gh api -X PUT "repos/$REPO/environments/production" --input - <<EOF
           {"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
@@ -1205,18 +1207,18 @@ steps:
           Install App | Install on $GITHUB_ORG, Only select repositories, every repository in managed_repos
           Installation ID | The number at the end of the settings URL after installing (.../installations/<number>)
     cli:
-      - effect: Copies the plan and apply App manifests into .github/apps/ so you can customize their names and URLs and review the permissions before registering each App. Skip it if they are already there.
+      - effect: Copies the plan and apply App manifests into .github/apps/ so you can customize their names and URLs and review the permissions before registering each App. It never overwrites a manifest that is already there.
         run: |
           mkdir -p .github/apps
-          cp "$INFRA_REFERENCES/templates/apps/terraform-plan.json" .github/apps/terraform-plan.json
-          cp "$INFRA_REFERENCES/templates/apps/terraform-apply.json" .github/apps/terraform-apply.json
+          cp -n "$INFRA_REFERENCES/templates/apps/terraform-plan.json" .github/apps/terraform-plan.json
+          cp -n "$INFRA_REFERENCES/templates/apps/terraform-apply.json" .github/apps/terraform-apply.json
       - effect: Stores the plan App's three credentials as repository Actions secrets. The IDs and the key path are prompted for; the key is read from the file, so run it in your own terminal.
         run: |
           printf 'Plan App ID: '; read -r app_id
           printf %s "$app_id" | gh secret set GH_APP_READ_ID --repo "$REPO"
           printf 'Plan App installation ID: '; read -r installation_id
           printf %s "$installation_id" | gh secret set GH_APP_READ_INSTALLATION_ID --repo "$REPO"
-          printf 'Path to the plan App private key (.pem): '; read -r pem_file
+          printf 'Absolute path to the plan App private key (.pem): '; read -r pem_file
           gh secret set GH_APP_READ_PEM --repo "$REPO" < "$pem_file"
       - effect: Stores the apply App's three credentials in the production environment only. Run it after the main-only production gate holds, in your own terminal.
         run: |
@@ -1224,7 +1226,7 @@ steps:
           printf %s "$app_id" | gh secret set GH_APP_ID --repo "$REPO" --env production
           printf 'Apply App installation ID: '; read -r installation_id
           printf %s "$installation_id" | gh secret set GH_APP_INSTALLATION_ID --repo "$REPO" --env production
-          printf 'Path to the apply App private key (.pem): '; read -r pem_file
+          printf 'Absolute path to the apply App private key (.pem): '; read -r pem_file
           gh secret set GH_APP_PEM --repo "$REPO" --env production < "$pem_file"
       - effect: Deletes any repository-level copy of the apply App's secrets. It prints an error for each name that is not there and changes nothing.
         run: |
@@ -1233,9 +1235,9 @@ steps:
           done
     run: |
       The manifests in .github/apps/ are the reviewed source of each App's permissions
-      (github.md#versioned-app-manifests). The HUMAN submits a manifest or fills the form and
-      keeps both PEMs private; the agent never sees one. Before replying done, the human
-      verifies both live permission sets and both secret scopes. Then record, and commit,
+      (github.md#versioned-app-manifests); the forms register the same permissions by hand.
+      The agent never sees a PEM. Once the human replies done and says both live permission
+      sets and both secret scopes were verified, record, and commit,
       the distinct public IDs in config.github_apps.plan_app_id and apply_app_id, the current
       strict UTC time in github_apps.reviewed_at, and the `git hash-object` of the two customized
       committed manifests as github_apps.plan_manifest_blob and apply_manifest_blob. Re-review
@@ -1464,13 +1466,13 @@ steps:
           Install App | Install on $GITHUB_ORG, Only select repositories, every repository in managed_repos
           Installation ID | The number at the end of the settings URL after installing (.../installations/<number>)
     cli:
-      - effect: Creates the four Terraform variables in the github-org HCP workspace. github_owner is not sensitive; the App ID and installation ID come from hidden prompts and the key from the .pem file, so run it in your own terminal. It authenticates with your HCP login from the Terraform credentials file.
+      - effect: Creates the four Terraform variables in the github-org HCP workspace. github_owner is not sensitive; the App ID and installation ID come from hidden prompts and the key from the .pem file, so run it in your own terminal. It authenticates with your HCP login from the Terraform credentials file. Run it once: a variable that already exists makes the call fail, so delete it in the workspace first.
         run: |
           (
             set -eu; set -o pipefail
             printf 'GitHub App ID: '; read -rs app_id; echo
             printf 'GitHub App installation ID: '; read -rs installation_id; echo
-            printf 'Path to the private key (.pem): '; read -r pem_file
+            printf 'Absolute path to the private key (.pem): '; read -r pem_file
             [ -n "$app_id" ] && [ -n "$installation_id" ] && [ -r "$pem_file" ] \
               || { echo 'Missing App ID, installation ID or readable key file.' >&2; exit 1; }
             hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
