@@ -1699,7 +1699,7 @@ steps:
             [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
             team=$(curl -sf --config <(auth) \
-              "$hcp_api/organizations/$ORG/teams?page%5Bsize%5D=100" \
+              "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
             page=1
             while :; do
@@ -1869,7 +1869,7 @@ steps:
           Start from | Create Token, then Custom token, then Get started
           Token name | infra-discovery-read
           Permissions (row 1) | Zone, DNS, Read
-          Permissions (more rows) | One Zone Read row for each other resource type you want discovered; never an Edit permission
+          Permissions (more rows) | One Read row for each other resource type you want discovered, as a Zone row for a zone resource (for example Zone, Email Routing Rules, Read) or an Account row for an account resource (for example Account, Email Routing Addresses, Read); never an Edit permission
           Account Resources | Include, the account with ID $CF_ACCOUNT_ID
           Zone Resources | Include, Specific zone, $DOMAIN
           Client IP filtering | leave blank
@@ -2814,7 +2814,7 @@ steps:
             printf 'HCP user or organization API token: '; read -rs api_token; echo
             [ -n "$api_token" ] || { echo 'No token entered.' >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$api_token"; }
-            team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?page%5Bsize%5D=100" \
+            team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
             ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
               | jq -er '.data.id')
@@ -2931,7 +2931,7 @@ steps:
             printf 'HCP user or organization API token: '; read -rs api_token; echo
             [ -n "$api_token" ] || { echo 'No token entered.' >&2; exit 1; }
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$api_token"; }
-            team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?page%5Bsize%5D=100" \
+            team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
             ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
               | jq -er '.data.id')
@@ -3173,13 +3173,15 @@ steps:
       - effect: Logs in to gcloud with an account that can read the pool and service-account IAM policies, which the check needs when it reports it could not verify.
         run: |
           mise exec -- gcloud auth login
-      - effect: For a WIF entry, creates a pool and service account named for this provider, so another provider's trust is never reused, an HCP provider whose condition binds organization $ORG and workspace $NEW_PROVIDER_WORKSPACE, the service account, and the impersonation binding for that pool only. Point the workspace's TFC_GCP_* variables at the pool, provider and service account it creates. It sets the gcloud default project, skips creates that already exist, and should be run on your own gcloud login, keeping one active provider per pool.
+      - effect: For a WIF entry, creates a pool and service account named hcp- plus a short slug and checksum of this provider's name (valid, bounded Google IDs), so another provider's trust is never reused, an HCP provider whose condition binds organization $ORG and workspace $NEW_PROVIDER_WORKSPACE, the service account, and the impersonation binding for that pool only. Point the workspace's TFC_GCP_* variables at the pool, provider and service account it creates. It sets the gcloud default project, skips creates that already exist, and should be run on your own gcloud login, keeping one active provider per pool.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
           PROJECT_NUMBER=$(mise exec -- gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
-          POOL="hcp-$NEW_PROVIDER"
+          slug=$(printf %s "$NEW_PROVIDER" | tr -cd 'a-z0-9-' | cut -c1-16 | sed 's/-*$//')
+          tag=$(printf %s "$NEW_PROVIDER" | cksum | cut -d' ' -f1 | cut -c1-6)
+          POOL="hcp-$slug-$tag"
           PROVIDER=hcp-terraform
-          SA=$(printf 'hcp-%s' "$NEW_PROVIDER" | cut -c1-30)
+          SA=$POOL
           mise exec -- gcloud config set project "$PROJECT_ID"
           mise exec -- gcloud services enable \
             cloudresourcemanager.googleapis.com iam.googleapis.com \
