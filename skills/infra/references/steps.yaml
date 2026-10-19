@@ -1025,13 +1025,18 @@ steps:
     when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
     title: Create the destructive apply intent label
     why: Deletes and replacements require explicit intent on the producing merged PR.
+    check_summary: The allow-destroy label exists in the repository and the README Decisions table has a locked "Destructive apply" row with choice allow-destroy.
+    cli:
+      - effect: Creates the allow-destroy label in the repository. It fails if the label already exists, which leaves it untouched.
+        run: |
+          gh label create allow-destroy --repo "$REPO" --color B60205 \
+            --description "Explicit opt-in to Terraform deletes and replacements"
     run: |
-      Explain that allow-destroy is an intent marker, not authorization: any writer can add it,
-      and it opts into all deletes in the refreshed apply plan, including drift.
-      Obtain explicit approval before creating the label in $REPO:
-        gh label create allow-destroy --repo "$REPO" --color B60205 --description "Explicit opt-in to Terraform deletes and replacements"
-      Do not overwrite an existing label. Record a locked "Destructive apply" decision with
-      choice "allow-destroy" and the intent-marker limitations in the README Decisions table.
+      Before printing the command, explain that allow-destroy is an intent marker, not
+      authorization: any writer can add it, and it opts into all deletes in the refreshed
+      apply plan, including drift. Obtain explicit approval first. After the label exists,
+      record a locked "Destructive apply" decision with choice "allow-destroy" and the
+      intent-marker limitations in the README Decisions table.
     tri_state: true
     check: |
       labels=$(gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name') || exit 2
@@ -1060,14 +1065,27 @@ steps:
       The production environment holds the apply credentials. A main-only branch policy
       stops other branches from using it; reviewers or a recorded gate supply the human
       approval HCP's confirm button gave.
+    check_summary: A "production" environment exists whose deployment branch policy allows exactly main, with required reviewers or a locked "Apply gate" decision.
+    cli:
+      - effect: Creates the production environment (or updates it if it exists) restricted to selected branches, then adds the one policy that allows main.
+        run: |
+          gh api -X PUT "repos/$REPO/environments/production" --input - <<EOF
+          {"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
+          EOF
+          gh api -X POST "repos/$REPO/environments/production/deployment-branch-policies" \
+            -f name=main -f type=branch
+      - effect: Only where GitHub offers required reviewers (public repos, or GitHub Enterprise for private ones; Free, Pro and Team reject it with a 422). Sets one user as the required reviewer and keeps the main-only branch policy.
+        run: |
+          printf 'Reviewer GitHub login: '; read -r reviewer
+          reviewer_id=$(gh api "users/$reviewer" --jq .id)
+          gh api -X PUT "repos/$REPO/environments/production" --input - <<EOF
+          {"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true},
+           "reviewers":[{"type":"User","id":$reviewer_id}]}
+          EOF
     run: |
-      1. Go to repo Settings -> Environments and create an environment named "production"
-      2. Deployment branches and tags: "Selected branches and tags", add exactly "main"
-      3. Required reviewers: enable and add approvers if GitHub offers them (public repos,
-         or GitHub Enterprise for private ones; Free/Pro/Team reject the rule with a 422)
-      4. Without reviewers, lock an "Apply gate" row in the README Decisions table whose
-         choice is "merge-approval" or "dispatch" (docs/object-storage-ci.md#github-environments)
-      5. The terraform-apply workflow references this environment
+      Without required reviewers, lock an "Apply gate" row in the README Decisions table whose
+      choice is "merge-approval" or "dispatch" (docs/object-storage-ci.md#github-environments).
+      The terraform-apply workflow references the production environment.
     check: sh "$INFRA_REFERENCES/checks/gha-apply-gate.sh"
     produces: main-only GitHub Environment with reviewers or a recorded apply gate
     docs: docs/object-storage-ci.md#github-environments
@@ -1083,17 +1101,41 @@ steps:
     when: '[ "$CLOUDFLARE_BACKEND" = "object-storage" ]'
     title: Mint Cloudflare token and add as GitHub Actions secret
     why: The Terraform workflow authenticates to Cloudflare with this token.
-    run: |
-      First verify the production main-only gate from gha-environments.
-      1. https://dash.cloudflare.com/profile/api-tokens -> Create Token -> Custom token.
-      2. Mint a plan token with Zone·DNS·Read, Zone·Zone Settings·Read; add only resource-specific
-         Read permissions as the leaf grows. Scope to your account and specific zone <apex-domain>.
-      3. Store it as repository secret CLOUDFLARE_API_TOKEN_READ.
-      4. Mint a separate apply token with Zone·DNS·Edit, Zone·Zone Settings·Edit (add resource-specific
-         permissions as needed), scoped to the same account/zone.
-      5. Store CLOUDFLARE_API_TOKEN only in production: gh secret set CLOUDFLARE_API_TOKEN --repo "$REPO" --env production.
-      6. Delete any repository-level CLOUDFLARE_API_TOKEN after installing the environment copy.
-         Never return token values to the agent. Verify plan is read-only in the token UI.
+    check_summary: The production main-only gate holds, CLOUDFLARE_API_TOKEN_READ is a repository secret, and CLOUDFLARE_API_TOKEN exists only in the production environment (not at repository or organization scope).
+    ui:
+      - form: Create the read-only plan token (the value is shown once, so keep the page open until it is stored)
+        url: https://dash.cloudflare.com/profile/api-tokens
+        fields: |
+          Start from | Create Token, then Custom token, then Get started
+          Token name | infra-cloudflare-plan
+          Permissions (row 1) | Zone, DNS, Read
+          Permissions (row 2) | Zone, Zone Settings, Read
+          Permissions (more rows) | Add only resource-specific Read permissions as the leaf grows; never an Edit permission
+          Account Resources | Include, the account with ID $CF_ACCOUNT_ID
+          Zone Resources | Include, Specific zone, $DOMAIN
+          Client IP filtering and TTL | leave blank
+          Before you copy the token | The summary page lists only Read permissions
+      - form: Create the apply token (the value is shown once, so keep the page open until it is stored)
+        url: https://dash.cloudflare.com/profile/api-tokens
+        fields: |
+          Start from | Create Token, then Custom token, then Get started
+          Token name | infra-cloudflare-apply
+          Permissions (row 1) | Zone, DNS, Edit
+          Permissions (row 2) | Zone, Zone Settings, Edit
+          Permissions (more rows) | Add resource-specific permissions only as the leaf needs them
+          Account Resources | Include, the account with ID $CF_ACCOUNT_ID
+          Zone Resources | Include, Specific zone, $DOMAIN
+          Client IP filtering and TTL | leave blank
+    cli:
+      - effect: Stores the plan token as the repository secret CLOUDFLARE_API_TOKEN_READ. The value comes from a hidden prompt, so run it in your own terminal.
+        run: |
+          gh secret set CLOUDFLARE_API_TOKEN_READ --repo "$REPO"
+      - effect: Stores the apply token as CLOUDFLARE_API_TOKEN in the production environment only. The value comes from a hidden prompt, so run it in your own terminal.
+        run: |
+          gh secret set CLOUDFLARE_API_TOKEN --repo "$REPO" --env production
+      - effect: Deletes any repository-level CLOUDFLARE_API_TOKEN left over from an earlier setup. It prints an error and changes nothing if there is none.
+        run: |
+          gh secret delete CLOUDFLARE_API_TOKEN --repo "$REPO"
     check: |
       sh "$INFRA_REFERENCES/checks/gha-apply-gate.sh" || exit $?
       repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 2
@@ -1122,35 +1164,82 @@ steps:
     when: '[ "$GITHUB_BACKEND" = "object-storage" ]'
     title: Configure GitHub App credentials in GitHub Actions secrets
     why: The Terraform workflow authenticates to GitHub with these App credentials.
+    check_summary: Both Apps' secrets exist by name: the plan App's three at repository scope and the apply App's three only in the production environment (not at repository or organization scope).
+    ui:
+      - form: Create the read-only plan App, generate its key and install it (the .pem downloads once, so keep it private)
+        url: https://github.com/organizations/$GITHUB_ORG/settings/apps/new
+        fields: |
+          GitHub App name | A unique name, for example $GITHUB_ORG-terraform-plan
+          Homepage URL | A URL you control
+          Callback URL | A URL you control
+          Webhook, Active | Unchecked
+          Repository permissions: Administration | Read-only
+          Repository permissions: Actions | Read-only (reads environments and deployment branch policies on refresh)
+          Repository permissions: Contents | Read-only
+          Repository permissions: Metadata | Read-only
+          Repository permissions: Pull requests | Read-only
+          Organization permissions: Members | Read-only (the plan App never has a write permission, including for team membership)
+          Organization permissions: Administration | Read-only
+          Where can this GitHub App be installed | Only on this account
+          After Create GitHub App: App ID | Copy it from the About section of the App's settings page
+          After Create GitHub App: Private keys | Generate a private key; the .pem downloads once
+          Install App | Install on $GITHUB_ORG, Only select repositories, every repository in managed_repos
+          Installation ID | The number at the end of the settings URL after installing (.../installations/<number>)
+      - form: Create the apply App, generate its key and install it (a second App with its own key; never reuse the plan App's .pem)
+        url: https://github.com/organizations/$GITHUB_ORG/settings/apps/new
+        fields: |
+          GitHub App name | A unique name, for example $GITHUB_ORG-terraform-apply
+          Homepage URL | A URL you control
+          Callback URL | A URL you control
+          Webhook, Active | Unchecked
+          Repository permissions: Administration | Read and write
+          Repository permissions: Actions | Read-only (reads environments and deployment branch policies on refresh)
+          Repository permissions: Contents | Read and write (reads merge settings accurately on apply refresh)
+          Repository permissions: Metadata | Read-only
+          Repository permissions: Pull requests | Read and write
+          Organization permissions: Members | Read and write (required when Terraform manages organization or team membership)
+          Organization permissions: Administration | Read and write
+          Where can this GitHub App be installed | Only on this account
+          After Create GitHub App: App ID | Copy it from the About section of the App's settings page
+          After Create GitHub App: Private keys | Generate a private key; the .pem downloads once
+          Install App | Install on $GITHUB_ORG, Only select repositories, every repository in managed_repos
+          Installation ID | The number at the end of the settings URL after installing (.../installations/<number>)
+    cli:
+      - effect: Copies the plan and apply App manifests into .github/apps/ so you can customize their names and URLs and review the permissions before registering each App. Skip it if they are already there.
+        run: |
+          mkdir -p .github/apps
+          cp "$INFRA_REFERENCES/templates/apps/terraform-plan.json" .github/apps/terraform-plan.json
+          cp "$INFRA_REFERENCES/templates/apps/terraform-apply.json" .github/apps/terraform-apply.json
+      - effect: Stores the plan App's three credentials as repository Actions secrets. The IDs and the key path are prompted for; the key is read from the file, so run it in your own terminal.
+        run: |
+          printf 'Plan App ID: '; read -r app_id
+          printf %s "$app_id" | gh secret set GH_APP_READ_ID --repo "$REPO"
+          printf 'Plan App installation ID: '; read -r installation_id
+          printf %s "$installation_id" | gh secret set GH_APP_READ_INSTALLATION_ID --repo "$REPO"
+          printf 'Path to the plan App private key (.pem): '; read -r pem_file
+          gh secret set GH_APP_READ_PEM --repo "$REPO" < "$pem_file"
+      - effect: Stores the apply App's three credentials in the production environment only. Run it after the main-only production gate holds, in your own terminal.
+        run: |
+          printf 'Apply App ID: '; read -r app_id
+          printf %s "$app_id" | gh secret set GH_APP_ID --repo "$REPO" --env production
+          printf 'Apply App installation ID: '; read -r installation_id
+          printf %s "$installation_id" | gh secret set GH_APP_INSTALLATION_ID --repo "$REPO" --env production
+          printf 'Path to the apply App private key (.pem): '; read -r pem_file
+          gh secret set GH_APP_PEM --repo "$REPO" --env production < "$pem_file"
+      - effect: Deletes any repository-level copy of the apply App's secrets. It prints an error for each name that is not there and changes nothing.
+        run: |
+          for name in GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PEM; do
+            gh secret delete "$name" --repo "$REPO"
+          done
     run: |
-      1. Copy templates/apps/terraform-plan.json and terraform-apply.json to .github/apps/.
-         Customize and review permissions using github.md#versioned-app-manifests.
-         Plan has only Read permissions; apply has the writes needed for managed settings
-         and memberships, including Contents (R/W) to read merge settings accurately on apply refresh.
-         Set unique names and human-controlled homepage/callback URLs.
-         The HUMAN performs manifest submission/code conversion and keeps PEMs private.
-         Never reuse the write App's PEM for plan. Create and install a
-         second App scoped to the same managed repos, with only Read permissions; that is the plan App.
-         Apply App permissions: Repository Administration (R/W), Actions (R), Contents (R/W), Metadata (R),
-         Pull requests (R/W); Organization Members (R/W), Administration (R/W).
-         Actions (R) reads environments and deployment branch policies on refresh. Members (R/W)
-         is required when Terraform manages organization or team membership.
-         The plan App uses the same scopes with Read only; it never has a write permission.
-      2. Install each App only on managed_repos; record each App and installation ID.
-      3. Store the read-only plan App's GH_APP_READ_ID, GH_APP_READ_INSTALLATION_ID,
-         GH_APP_READ_PEM in repository Actions secrets. Store the apply App's
-         GH_APP_ID, GH_APP_INSTALLATION_ID, GH_APP_PEM
-         only in the production environment, after verifying its exact-main
-         deployment policy. Use
-         `gh secret set <name> --repo "$REPO" --env production`; delete repository copies.
-      4. Verify both live App permission sets and secret scopes privately before replying done.
-         Record the distinct public IDs in config.github_apps.plan_app_id/apply_app_id
-         and current strict UTC timestamp in github_apps.reviewed_at only after reviewing
-         both live permissions and secret stores. Commit that evidence. Re-review after
-         any secret update or live App permission change.
-         Record git hash-object for the two customized committed manifest files as
-         github_apps.plan_manifest_blob and github_apps.apply_manifest_blob; manifest
-         changes invalidate the permission review until reviewed again.
+      The manifests in .github/apps/ are the reviewed source of each App's permissions
+      (github.md#versioned-app-manifests). The HUMAN submits a manifest or fills the form and
+      keeps both PEMs private; the agent never sees one. Before replying done, the human
+      verifies both live permission sets and both secret scopes. Then record, and commit,
+      the distinct public IDs in config.github_apps.plan_app_id and apply_app_id, the current
+      strict UTC time in github_apps.reviewed_at, and the `git hash-object` of the two customized
+      committed manifests as github_apps.plan_manifest_blob and apply_manifest_blob. Re-review
+      after any secret update or live permission change; a manifest change invalidates the review.
     check: |
       sh "$INFRA_REFERENCES/checks/gha-apply-gate.sh" || exit $?
       repo_secrets=$(gh secret list --repo "$REPO" --json name -q '.[].name' 2>/dev/null) || exit 2
@@ -1354,19 +1443,49 @@ steps:
     when: '[ "$GITHUB_BACKEND" = "hcp" ]'
     title: Create + install GitHub App, paste creds into HCP
     why: The github-org workspace authenticates as a GitHub App (not a PAT).
-    run: |
-      1. Create the App under your org: https://github.com/organizations/<your-org>/settings/apps/new
-         Permissions: Repo Administration(RW), Actions(R), Contents(R), Metadata(R), Pull requests(RW);
-         Actions(R) reads environments and deployment branch policies on refresh.
-         Org Members(RW), Administration(RW). Members(RW) is needed when Terraform manages org or team
-         membership; Members(R) only lets the provider inspect memberships. Install: only on this account.
-      2. Note the App ID. Generate a private key (.pem).
-      3. Install on your org scoped to the repos in managed_repos (see config.md);
-         note the Installation ID from the install URL.
-      4. HCP -> workspace `github-org` -> Variables, add as TERRAFORM vars:
-         github_owner=<your-org> (not sensitive),
-         github_app_id (sensitive), github_app_installation_id (sensitive),
-         github_app_pem = full PEM incl. BEGIN/END lines (sensitive).
+    check_summary: The github-org workspace has Terraform variables github_owner plus sensitive github_app_id, github_app_installation_id and github_app_pem.
+    ui:
+      - form: Create the GitHub App, generate its key and install it (the .pem downloads once, so keep it private)
+        url: https://github.com/organizations/$GITHUB_ORG/settings/apps/new
+        fields: |
+          GitHub App name | A unique name, for example $GITHUB_ORG-terraform
+          Homepage URL | A URL you control
+          Webhook, Active | Unchecked
+          Repository permissions: Administration | Read and write
+          Repository permissions: Actions | Read-only (reads environments and deployment branch policies on refresh)
+          Repository permissions: Contents | Read-only
+          Repository permissions: Metadata | Read-only
+          Repository permissions: Pull requests | Read and write
+          Organization permissions: Members | Read and write (needed when Terraform manages organization or team membership; read-only only lets the provider inspect memberships)
+          Organization permissions: Administration | Read and write
+          Where can this GitHub App be installed | Only on this account
+          After Create GitHub App: App ID | Copy it from the About section of the App's settings page
+          After Create GitHub App: Private keys | Generate a private key; the .pem downloads once
+          Install App | Install on $GITHUB_ORG, Only select repositories, every repository in managed_repos
+          Installation ID | The number at the end of the settings URL after installing (.../installations/<number>)
+    cli:
+      - effect: Creates the four Terraform variables in the github-org HCP workspace. github_owner is not sensitive; the App ID and installation ID come from hidden prompts and the key from the .pem file, so run it in your own terminal. It authenticates with your HCP login from the Terraform credentials file.
+        run: |
+          (
+            set -eu; set -o pipefail
+            printf 'GitHub App ID: '; read -rs app_id; echo
+            printf 'GitHub App installation ID: '; read -rs installation_id; echo
+            printf 'Path to the private key (.pem): '; read -r pem_file
+            [ -n "$app_id" ] && [ -n "$installation_id" ] && [ -r "$pem_file" ] \
+              || { echo 'Missing App ID, installation ID or readable key file.' >&2; exit 1; }
+            hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
+            ws=$(curl -sf --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+              "$hcp_api/organizations/$ORG/workspaces/github-org" | jq -er '.data.id')
+            set_var() {
+              var_key=$1 var_sensitive=$2 jq -Rs '{data:{type:"vars",attributes:{key:env.var_key,value:.,category:"terraform",sensitive:(env.var_sensitive == "true")}}}' \
+                | curl -sf -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/workspaces/$ws/vars" >/dev/null
+            }
+            printf %s "$GITHUB_ORG" | set_var github_owner false
+            printf %s "$app_id" | set_var github_app_id true
+            printf %s "$installation_id" | set_var github_app_installation_id true
+            set_var github_app_pem true < "$pem_file"
+          )
     check: |
       WS_ID=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/github-org" -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
       curl -sf "$hcp_api/workspaces/$WS_ID/vars" -H "Authorization: Bearer $HCP_TOKEN" | jq -e '
@@ -1571,9 +1690,19 @@ steps:
     actor: HUMAN
     title: Mint short-lived read-only Cloudflare discovery token
     why: cf-terraforming reads existing resources; use a throwaway READ token, not the HCP edit token.
-    run: |
-      https://dash.cloudflare.com/profile/api-tokens -> Custom token -> READ scopes on each
-      resource type to discover (DNS·Read, etc.), zone <apex-domain>, TTL a few hours. Copy the value.
+    check_summary: Nothing is checked; the token is ephemeral, so the discovery run itself proves it works.
+    ui:
+      - form: Create the throwaway read-only discovery token (the value is shown once; delete the token after the import)
+        url: https://dash.cloudflare.com/profile/api-tokens
+        fields: |
+          Start from | Create Token, then Custom token, then Get started
+          Token name | infra-discovery-read
+          Permissions (row 1) | Zone, DNS, Read
+          Permissions (more rows) | One Zone Read row for each other resource type you want discovered; never an Edit permission
+          Account Resources | Include, the account with ID $CF_ACCOUNT_ID
+          Zone Resources | Include, Specific zone, $DOMAIN
+          Client IP filtering | leave blank
+          TTL | Start date now, end date a few hours from now
     check: ~   # YAML null — ephemeral credential, no scriptable check (see header contract)
     produces: throwaway read token (deleted after import)
     docs: docs/import.md#discovery-token
@@ -2819,18 +2948,30 @@ steps:
     title: Verify the provider authentication handoff for GitHub Actions
     tri_state: true
     why: The workflow must authenticate to the provider without exposing credentials.
+    check_summary: Each required plan secret exists at repository scope and each required apply secret only in the production environment, with a committed credentials_backend and a fresh credentials_verified_at in config.md.
+    cli:
+      - effect: Stores one read-only plan secret at repository scope. Run it once for each credential_secrets entry whose scope is plan, entering that entry's name at the first prompt and the value at the hidden one, in your own terminal.
+        run: |
+          printf 'Plan secret name: '; read -r name
+          gh secret set "$name" --repo "$REPO"
+      - effect: Stores one write apply secret in the production environment only. Run it once for each credential_secrets entry whose scope is apply, after the main-only production gate holds, entering that entry's name at the first prompt and the value at the hidden one, in your own terminal.
+        run: |
+          printf 'Apply secret name: '; read -r name
+          gh secret set "$name" --repo "$REPO" --env production
+      - effect: Deletes a repository-level copy of one apply secret. Run it once for each apply entry; it prints an error and changes nothing if there is no copy.
+        run: |
+          printf 'Apply secret name: '; read -r name
+          gh secret delete "$name" --repo "$REPO"
     run: |
-      If NEW_PROVIDER_SECRETS is not empty, mint separate credentials: read-only plan
-      secrets at repository scope and write apply secrets only in production. Use distinct
-      names and delete repository copies of all apply names. Verify the main-only production
-      gate before installing write credentials. Never store write keys in organization secrets
-      accessible to this repo. Verify effective permissions; secret-name checks cannot prove them.
-      For an empty inventory, verify separate read-only plan and write apply keyless
-      identities and trust instead; public identity
-      identifiers do not belong in the secret inventory. After the handoff is complete,
-      record `credentials_backend: object-storage` and a fresh current UTC time as
-      `credentials_verified_at` in config.md using strict
-      `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and reply `done`.
+      Print the plan and apply names from NEW_PROVIDER_SECRETS above the commands, so the human
+      enters each name from your list rather than looking it up. Use distinct names for plan
+      and apply and never store a write key in an organization secret accessible to this repo.
+      Verify effective permissions; secret-name checks cannot prove them. For an empty
+      inventory there are no secrets to store: verify separate read-only plan and write apply
+      keyless identities and trust instead (public identity identifiers do not belong in the
+      secret inventory). After the handoff is complete, record `credentials_backend:
+      object-storage` and a fresh current UTC time as `credentials_verified_at` in config.md
+      using strict `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and reply `done`.
     check: |
       [ "${NEW_PROVIDER_CREDENTIALS_BACKEND:-}" != hcp ] || exit 1
       printf '%s' "$NEW_PROVIDER_SECRETS" | jq -e '

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:817b07e5b45b458d707f1086514516fdaf8c38f6eb71b34714fb50b08ef1a06e
-Source-Hash: blake3:778ff9778a99c4bdc0695bddfa1b07ee92a0b542bb1b28064efedbb31a32d871
+Content-Hash: blake3:cb4ad56c71b59abc720da344de32d140d0536ebcec0f77319d285eab89538640
+Source-Hash: blake3:30189470443655819bc0d06fa2ebd1201002dda0d80873d678d6bc66c5e65649
 Schema-Version: v1
 -->
 
@@ -112,6 +112,10 @@ Render a step from its structured fields:
   GitHub App.
 - **UI forms.** Each `ui` entry is one form: its deep link, then its complete table, one
   `field | value` row per line. Never abbreviate a form against another one.
+- **Both.** A step that carries `cli` or `ui` and also a `run` keeps in `run` only what the
+  agent must do around the human's work (record a decision, record review evidence). Print
+  the commands and forms to the human; act on the `run` text yourself, never as a command
+  for them to copy.
 - **Unconverted steps.** A step with only free-text `run` prints that text under `Do this:`
   with a numbered list, as before, and ends with `I will check:` followed by what its
   `check` proves.
