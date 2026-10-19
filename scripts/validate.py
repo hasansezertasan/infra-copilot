@@ -1631,10 +1631,10 @@ _SECRET_LITERAL = re.compile(
 _SECRET_EXPANSION = re.compile(
     rf"\$\{{?(?P<name>{_SECRET_NAME})(?<!FILE)(?<!PATH)(?<!NAME)(?![A-Za-z0-9_])"
 )
-#: `read` flags may carry a quoted prompt (`-p "Token: "`), so the flags group allows one
-#: after each flag word; silence is judged from the flag letters alone, never the prompt.
-_HIDDEN_READ = re.compile(
-    r"""\bread\s+(?P<flags>(?:-[A-Za-z]+(?:\s+"[^"]*"|\s+'[^']*')?\s+)+)(?P<name>\w+)"""
+#: `read` flags may carry a quoted prompt (`-p "Token: "`), so each flag word may be followed
+#: by one. Silence is judged from the flag letters alone, never the prompt text.
+_READ = re.compile(
+    r"""\bread\s+(?P<flags>(?:-[A-Za-z]+(?:\s+"[^"]*"|\s+'[^']*')?\s+)*)(?P<name>[A-Za-z_]\w*)"""
 )
 _QUOTED = re.compile(r"""\"[^\"]*\"|'[^']*'""")
 #: `< file` hands the command a file, not a value; a variable naming that file is no leak.
@@ -1718,16 +1718,13 @@ _SHELL_VARIABLES = frozenset({"HOME", "PWD", "OLDPWD", "USER", "PATH", "TMPDIR",
 _ASSIGNED_VARIABLE = re.compile(
     r"(?:^|[\s;&|(])(?P<assign>[A-Za-z_]\w*)=|\bfor\s+(?P<loop>[A-Za-z_]\w*)\s+in\b"
 )
-_READ_TARGET = re.compile(
-    r"""\bread\s+(?:-[A-Za-z]+(?:\s+"[^"]*"|\s+'[^']*')?\s+)*(?P<name>[A-Za-z_]\w*)"""
-)
 _SECRET_NAME_ONLY = re.compile(_SECRET_NAME)
 
 
 def _assigned_variables(command: str) -> set[str]:
     """Variables a command block sets itself: `NAME=`, `for NAME in`, `read [flags] NAME`."""
     names = {m.group("assign") or m.group("loop") for m in _ASSIGNED_VARIABLE.finditer(command)}
-    names.update(match.group("name") for match in _READ_TARGET.finditer(command))
+    names.update(match.group("name") for match in _READ.finditer(command))
     return names
 
 
@@ -1735,6 +1732,8 @@ def _cli_errors(step: ManifestStep, exported: set[str]) -> list[str]:
     errors = []
     for entry in _list_entries(step.body("cli")):
         effect = _entry_value(entry, "effect") or ""
+        if not effect:
+            errors.append(f"step {step.id} has a cli entry with no effect line")
         if _BACK_REFERENCE.search(effect):
             errors.append(
                 f"step {step.id} cli effect {effect[:50]!r} points at another entry; "
@@ -1753,12 +1752,12 @@ def _cli_errors(step: ManifestStep, exported: set[str]) -> list[str]:
                 for name in _unexported(command, exported | own | _SHELL_VARIABLES)
                 if not _SECRET_NAME_ONLY.fullmatch(name)
             )
-            hidden = {
-                match.group("name")
-                for match in _HIDDEN_READ.finditer(command)
-                if "s" in "".join(re.findall(r"-([A-Za-z]+)", _QUOTED.sub("", match.group("flags"))))
-            }
+            hidden: set[str] = set()
             for line in command.splitlines():
+                for read in _READ.finditer(line):
+                    letters = "".join(re.findall(r"-([A-Za-z]+)", _QUOTED.sub("", read.group("flags"))))
+                    # A later visible read overwrites an earlier hidden one, so order matters.
+                    (hidden.add if "s" in letters else hidden.discard)(read.group("name"))
                 leaked = _SECRET_FLAG.search(line) or _SECRET_LITERAL.search(line) or any(
                     expansion.group("name") not in hidden
                     for expansion in _SECRET_EXPANSION.finditer(_FILE_REDIRECT.sub("", line))
@@ -1771,6 +1770,15 @@ def _cli_errors(step: ManifestStep, exported: set[str]) -> list[str]:
     return errors
 
 
+def _secret_in_text(step: ManifestStep, text: str) -> list[str]:
+    """A secret-named variable in a link or table is printed into the Handoff."""
+    return [
+        f"step {step.id} puts secret variable ${m.group('name')} into a ui link or table; "
+        "the value would be printed into the Handoff"
+        for m in _SECRET_EXPANSION.finditer(text)
+    ]
+
+
 def _ui_errors(step: ManifestStep, exported: set[str]) -> list[str]:
     errors = []
     for entry in _list_entries(step.body("ui")):
@@ -1778,6 +1786,7 @@ def _ui_errors(step: ManifestStep, exported: set[str]) -> list[str]:
         if url is None:
             errors.append(f"step {step.id} has a ui entry with no url")
         else:
+            errors.extend(_secret_in_text(step, url))
             errors.extend(
                 f"step {step.id} links to ${name}, which Step 0 never exports"
                 for name in _unexported(url, exported)
@@ -1794,6 +1803,7 @@ def _ui_errors(step: ManifestStep, exported: set[str]) -> list[str]:
                     f"step {step.id} row {row!r} points at another form; "
                     "each form's table must be self-contained"
                 )
+            errors.extend(_secret_in_text(step, row))
             errors.extend(
                 f"step {step.id} row {row!r} uses ${name}, which Step 0 never exports"
                 for name in _unexported(row, exported)

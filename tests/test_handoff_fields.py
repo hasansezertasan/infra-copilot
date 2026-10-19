@@ -17,6 +17,7 @@ REFERENCES = Path('.ai-rulez/skills/infra/references')
 CONFIG = """\
    export CF_ACCOUNT_ID=<cloudflare_account_id>
    export GITHUB_ORG=<github_org>
+   export HCP_TOKEN=<token>
 """
 CHECK = "    check: 'true'\n"
 
@@ -189,6 +190,32 @@ class HandoffFieldTests(unittest.TestCase):
 
     def test_a_run_text_with_words_still_passes(self) -> None:
         self.assertEqual([], self.errors_for(step('run: Open the dashboard.\n')))
+
+    def test_a_secret_named_export_in_a_ui_url_or_row_fails(self) -> None:
+        for errors in (
+            self.errors_for(ui_step(url='https://app.example.test/?t=$HCP_TOKEN')),
+            self.errors_for(ui_step(fields='Token | $HCP_TOKEN\n')),
+        ):
+            self.assertEqual(1, len(errors))
+            self.assertIn('secret', errors[0])
+
+    def test_a_secret_read_visibly_before_a_hidden_read_still_fails(self) -> None:
+        for command in (
+            'read -r TOKEN\nprintf %s "$TOKEN" | gh secret set A\nread -rs TOKEN\n',
+            'printf %s "$TOKEN" | gh secret set A\nread -rs TOKEN\n',
+            'read -rs TOKEN\nread -r TOKEN\nprintf %s "$TOKEN" | gh secret set A\n',
+        ):
+            with self.subTest(command=command):
+                errors = self.errors_for(cli_step(command))
+                self.assertEqual(1, len(errors))
+                self.assertIn('secret', errors[0])
+
+    def test_a_cli_entry_without_an_effect_fails(self) -> None:
+        errors = self.errors_for(step(
+            'check_summary: Done.\ncli:\n  - run: |\n      gh repo view\n'
+        ))
+        self.assertEqual(1, len(errors))
+        self.assertIn('effect', errors[0])
 
     def test_a_cli_entry_with_only_an_effect_fails(self) -> None:
         errors = self.errors_for(step(
