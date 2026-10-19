@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:54478eb09d5d2b84a7186144d41635d562db54fef494523523178a3e598a785d
-Source-Hash: blake3:70f172bdb4f3e7e9c45497a76f20f698c2bd209d643c9d1f906e9cbd4cb1b52a
+Content-Hash: blake3:9778a6d5524e8f02f0c5f0e8f332952c13b732ab2814c43ed8b7b276d3386a92
+Source-Hash: blake3:6d073264065743afefff9ac92cb35183e7fcbea9f61f5f7cf7c84a8e91e86d57
 Schema-Version: v1
 -->
 
@@ -27,8 +27,13 @@ conflicting file; nothing the repo already has is overwritten silently.
    the values you want to keep (orgs, apex domain, account and zone IDs, managed repos) out of
    it yourself, delete it in its own reviewed commit and restart. Those values are the answers
    to the Template's questions below.
-2. **Render into a scratch directory, never into the repo.** Use the pinned Copier, at the
-   Template's newest release tag, with those answers:
+2. **Render into a scratch directory, never into the repo.** First collect every answer the
+   way `template-render` does: clone the Template at its newest release tag, read its
+   `copier.yml`, evaluate each question's `when` in file order, and ask the human each active
+   question, validated against its `validator`. Answer from the repo's actual state, not the
+   Template's defaults: `backend` is explicit and must match where the state really lives, as
+   must the state bucket and identifiers. Then render with the pinned Copier, passing every
+   answer with `--data` (`--defaults` only fills questions that were not active):
 
    ```sh
    scratch=$(mktemp -d)

@@ -20,8 +20,13 @@ conflicting file; nothing the repo already has is overwritten silently.
    the values you want to keep (orgs, apex domain, account and zone IDs, managed repos) out of
    it yourself, delete it in its own reviewed commit and restart. Those values are the answers
    to the Template's questions below.
-2. **Render into a scratch directory, never into the repo.** Use the pinned Copier, at the
-   Template's newest release tag, with those answers:
+2. **Render into a scratch directory, never into the repo.** First collect every answer the
+   way `template-render` does: clone the Template at its newest release tag, read its
+   `copier.yml`, evaluate each question's `when` in file order, and ask the human each active
+   question, validated against its `validator`. Answer from the repo's actual state, not the
+   Template's defaults: `backend` is explicit and must match where the state really lives, as
+   must the state bucket and identifiers. Then render with the pinned Copier, passing every
+   answer with `--data` (`--defaults` only fills questions that were not active):
 
    ```sh
    scratch=$(mktemp -d)

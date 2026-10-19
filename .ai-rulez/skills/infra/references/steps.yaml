@@ -1493,7 +1493,9 @@ steps:
     why: A repo that pre-dates the Template, including one made from the old infra-template GitHub template, has no answers file, so the Template's update cannot work and the Config block the other steps read is missing.
     run: |
       Import only. Follow docs/import.md#adopt-the-template-first, which owns the procedure
-      and every step of it. The rules that matter here: render the Template into a scratch
+      and every step of it. The rules that matter here: collect every answer from the tagged
+      copier.yml as `template-render` does, from the repo's actual state, never the defaults;
+      render the Template into a scratch
       directory, never `copier copy` into the repo itself; reconcile file by file, showing
       the human the diff of every file that differs, README.md included, and never
       overwriting on your own; mise.toml and mise.lock are always shown to the human, even
