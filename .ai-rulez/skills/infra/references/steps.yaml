@@ -343,10 +343,10 @@ steps:
             done
           eval "$(mise activate bash)"   # zsh: mise activate zsh
           command -v terraform && terraform version
-      - effect: Commits mise.toml and mise.lock together.
+      - effect: Commits mise.toml and mise.lock together, and only those two files, so other staged work stays out of the commit.
         run: |
           git add mise.toml mise.lock
-          git diff --cached --quiet || git commit -m "build: pin the toolchain"
+          git diff --cached --quiet -- mise.toml mise.lock || git commit -m "build: pin the toolchain" -- mise.toml mise.lock
     # Keep this byte-for-byte identical to the mise preflight check. The repository
     # validator enforces that invariant so the step and fail-fast gate cannot drift.
     check: >-
@@ -3061,7 +3061,7 @@ steps:
           Variable sets | Remove every applied variable set; their inherited variables cannot be proven by the workspace-local inventory
           Workspace variables | Delete every key that is not in the declared credential inventory
     cli:
-      - effect: Creates one workspace variable for each entry of the declared credential inventory, asking for its value at the prompt (hidden when the entry is sensitive). A key that already exists is skipped before its prompt, so edit or delete it in the page above. The token comes from a hidden prompt, so run it in your own terminal and never send a value to the agent.
+      - effect: Creates one workspace variable for each entry of the declared credential inventory, asking for its value at the prompt, or for the path of a file holding it when the entry is sensitive, so a multi-line value such as a service-account JSON arrives whole. A key that already exists is skipped before its prompt, so edit or delete it in the page above. The token comes from a hidden prompt, so run it in your own terminal and never send a value to the agent.
         run: |
           (
             set -eu; set -o pipefail
@@ -3077,11 +3077,12 @@ steps:
               category=$(printf '%s' "$entry" | jq -r .category)
               sensitive=$(printf '%s' "$entry" | jq -r .sensitive)
               if [ "$sensitive" = true ]; then
-                printf 'Value for %s (hidden): ' "$key"; read -rs value </dev/tty; echo
+                printf 'File holding the value for %s: ' "$key"; read -r value_file </dev/tty
+                [ -r "$value_file" ] || { echo "$key: no readable file at $value_file" >&2; exit 1; }
               else
                 printf 'Value for %s: ' "$key"; read -r value </dev/tty
               fi
-              code=$(printf %s "$value" \
+              code=$({ if [ "$sensitive" = true ]; then cat -- "$value_file"; else printf %s "$value"; fi; } \
                 | var_key=$key var_category=$category var_sensitive=$sensitive jq -Rs '{data:{type:"vars",attributes:{key:env.var_key,value:.,category:env.var_category,sensitive:(env.var_sensitive == "true")}}}' \
                 | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
                     -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/workspaces/$ws/vars")
@@ -3199,7 +3200,7 @@ steps:
             mise exec -- gcloud iam workload-identity-pools providers describe "$PROVIDER" \
               --location=global --workload-identity-pool="$POOL" --format='value(attributeCondition)' \
               | grep -Fq "assertion.terraform_organization_name == '$ORG' && assertion.terraform_workspace_name == '$NEW_PROVIDER_WORKSPACE'" \
-              || { echo "Provider $PROVIDER in $POOL is bound to another workspace; use a different provider name." >&2; exit 1; }
+              || { echo "Pool $POOL already holds a provider bound to another workspace, and the trust check allows one active provider per pool. Delete that provider only after confirming it is unused, or rename this provider entry so a different pool is derived." >&2; exit 1; }
             verb=update-oidc
           else
             verb=create-oidc
