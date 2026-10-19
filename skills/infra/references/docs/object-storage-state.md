@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:653ce8860fb32851af6a87b1ae8d170665f9248e0896cd3a88770e86185454c5
-Source-Hash: blake3:70a8c63400f71d95e9bb0a46faef1e9501a911bec1321a7c7092650fb14e428a
+Content-Hash: blake3:115ae0f4d8ff199421447fb792ae7320acd3bcd35ae2028fc1ec49a38f92885e
+Source-Hash: blake3:88009a0097f1a570679bdd38bc0b201b449a6735301c511379f72e22adad6821
 Schema-Version: v1
 -->
 
@@ -31,7 +31,7 @@ Create a versioned, private bucket before running `terraform init`:
 
 ```sh
 gcloud storage buckets create gs://$STATE_BUCKET \
-  --location=us --uniform-bucket-level-access
+  --location=us --uniform-bucket-level-access --public-access-prevention
 gcloud storage buckets update gs://$STATE_BUCKET --versioning
 ```
 

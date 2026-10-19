@@ -174,6 +174,22 @@ class HandoffFieldTests(unittest.TestCase):
         self.assertEqual(1, len(errors))
         self.assertIn('run', errors[0])
 
+    def test_empty_structured_fields_fail(self) -> None:
+        for body in (
+            'check_summary: Nothing to see.\ncli:\n',
+            'check_summary: Nothing to see.\ncli: []\n',
+            'check_summary: Nothing to see.\nui:\n',
+            'run:\n',
+            'run: |\n',
+        ):
+            with self.subTest(body=body):
+                errors = self.errors_for(step(body))
+                self.assertEqual(1, len(errors))
+                self.assertIn('sample', errors[0])
+
+    def test_a_run_text_with_words_still_passes(self) -> None:
+        self.assertEqual([], self.errors_for(step('run: Open the dashboard.\n')))
+
     def test_a_cli_entry_with_only_an_effect_fails(self) -> None:
         errors = self.errors_for(step(
             'check_summary: The secret exists.\ncli:\n  - effect: Stores it.\n'

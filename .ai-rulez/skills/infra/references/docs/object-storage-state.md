@@ -24,7 +24,7 @@ Create a versioned, private bucket before running `terraform init`:
 
 ```sh
 gcloud storage buckets create gs://$STATE_BUCKET \
-  --location=us --uniform-bucket-level-access
+  --location=us --uniform-bucket-level-access --public-access-prevention
 gcloud storage buckets update gs://$STATE_BUCKET --versioning
 ```
 

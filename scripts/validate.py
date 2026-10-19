@@ -1816,7 +1816,17 @@ def validate_handoff_fields(root: Path = ROOT) -> list[str]:
     exported = set(_EXPORTED_VARIABLE.findall(config))
     problems: list[str] = []
     for step in _manifest_steps(text):
-        if step.text("actor") == "HUMAN" and not any(key in step.fields for key in ("run", "cli", "ui")):
+        empty = [
+            key for key in ("cli", "ui")
+            if key in step.fields and not _list_entries(step.body(key))
+        ]
+        problems.extend(f"step {step.id} has an empty {key} list" for key in empty)
+        has_instructions = (
+            _has_text(step, "run")
+            or bool(_list_entries(step.body("cli")))
+            or bool(_list_entries(step.body("ui")))
+        )
+        if step.text("actor") == "HUMAN" and not has_instructions and not empty:
             problems.append(f"step {step.id} is HUMAN but carries none of run, cli or ui")
         if ("cli" in step.fields or "ui" in step.fields) and not _has_text(step, "check_summary"):
             problems.append(f"step {step.id} carries cli or ui but no check_summary text")

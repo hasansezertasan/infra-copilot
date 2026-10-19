@@ -695,10 +695,10 @@ steps:
     why: Terraform state needs a durable, versioned bucket before any init.
     check_summary: The bucket exists, is private, and has versioning enabled (plus a lock table on S3).
     cli:
-      - effect: For gcs, creates a private bucket with uniform access and object versioning; locking is native.
+      - effect: For gcs, creates a private bucket in the us multi-region (edit --location first for another, it cannot change later) with uniform access, enforced public access prevention and object versioning; locking is native.
         run: |
           gcloud storage buckets create "gs://$STATE_BUCKET" \
-            --location=us --uniform-bucket-level-access
+            --location=us --uniform-bucket-level-access --public-access-prevention
           gcloud storage buckets update "gs://$STATE_BUCKET" --versioning
       - effect: For s3 in us-east-1, creates the bucket, turns on versioning, blocks all public access, and creates the lock table.
         run: |
