@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:203ac2b6ebf7ddc956075acd9bc23d8b370d15240d256dc8b6d7597af5dd48fe
-Source-Hash: blake3:6d073264065743afefff9ac92cb35183e7fcbea9f61f5f7cf7c84a8e91e86d57
+Content-Hash: blake3:1e10e725accdbf56f8b8afc1bb5004b5f5edc78bc670c19c3a4035fec88f994c
+Source-Hash: blake3:778ff9778a99c4bdc0695bddfa1b07ee92a0b542bb1b28064efedbb31a32d871
 Schema-Version: v1
 -->
 
@@ -17,7 +17,7 @@ Supported backends with automated verification:
 
 | Backend | Locking | Region field | Notes |
 |---------|---------|--------------|-------|
-| `gcs` | Native | N/A (bucket location) | Best for GCP-heavy repos |
+| `gcs` | Native | N/A (set `state_region` to the bucket location) | Best for GCP-heavy repos |
 | `s3` | DynamoDB table | Required | Set `state_lock_table` |
 | `azurerm` | Native (blob lease) | Required (location) | Azure Storage container (set `azure_storage_account`, `azure_resource_group`) |
 
@@ -31,7 +31,8 @@ Create a versioned, private bucket before running `terraform init`:
 
 ```sh
 gcloud storage buckets create gs://$STATE_BUCKET \
-  --location=us --uniform-bucket-level-access --versioning
+  --location="$STATE_REGION" --uniform-bucket-level-access --public-access-prevention
+gcloud storage buckets update gs://$STATE_BUCKET --versioning
 ```
 
 **S3 + DynamoDB:**

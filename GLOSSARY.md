@@ -31,3 +31,7 @@ _Avoid_: decisions.md, decision log
 **Template contract**:
 The minimum Template version the Skills accept, judged from the version recorded when the Infra repo was rendered.
 _Avoid_: Compatibility matrix
+
+**Handoff**:
+The stop-and-ask block the Skills emit when a step needs work only a human can do, ending in a statement of what the Skills will check once the human says done.
+_Avoid_: Prompt, instruction, manual step

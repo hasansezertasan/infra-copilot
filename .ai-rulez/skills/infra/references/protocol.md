@@ -75,21 +75,56 @@ Every step in [`steps.yaml`](steps.yaml) is tagged with who performs it:
 
 ### The handoff block
 
-When a step is `HUMAN`, do **not** guess or fake it. Stop and print exactly this shape, then wait:
+When a step is `HUMAN`, do **not** guess or fake it. Stop and print a block of this shape,
+then wait. Fill every non-secret value from the Config block; never leave a placeholder the
+human has to look up.
 
 ```text
 ┌─ HUMAN ACTION NEEDED ─────────────────────────────
 │ Step:   <id> — <title>
 │ Why:    <one line — what this unblocks>
-│ Do this:
-│   1. <precise, copy-pasteable instruction, with URL>
-│   2. …
+│ Run in your own terminal:
+│   <one command, exact, values filled in>
+│   → <one line: what it changes>
+│ Or in the browser:
+│   <form name>: <deep link>
+│   | Field | Value |
+│ I will check: <the step's check_summary>
 │ When done, reply "done" and I'll verify.
 └───────────────────────────────────────────────────
 ```
 
-After the human replies, run the step's `check`. If it fails, re-emit the handoff with
-what you observed — never silently proceed past a red check.
+Render a step from its structured fields:
+
+- **Empty Config values.** If a command or link needs a Config value that is empty, stop and
+  ask for it as a decision. Never print an empty or guessed value; a wrong GCS bucket location,
+  for one, cannot be changed afterwards.
+- **CLI first.** A step's `cli` entries are the commands; print the ones that match the
+  Config (a `gcs` entry only for a `gcs` backend), each with its one-line effect. Use the UI
+  only for what has no CLI or API: signups, OAuth consent, minting a first token, creating a
+  GitHub App.
+- **UI forms.** Each `ui` entry is one form: its deep link, then its complete table, one
+  `field | value` row per line. Never abbreviate a form against another one.
+- **Unconverted steps.** A step with only free-text `run` prints that text under `Do this:`
+  with a numbered list, as before, and ends with `I will check:` followed by what its
+  `check` proves.
+- **Secrets stay out of the agent's context.** A command that takes a secret reads it from a
+  hidden prompt (`gh secret set` prompts), `read -rs`, or a file (`< key.pem`). The block
+  tells the human to run it in their own terminal, never to paste the value into the
+  conversation, and never to run it through the agent. A value that goes to several places
+  is read once and fanned out.
+- **Pace it.** Hand off one sub-step, or a small group of related ones, per block rather than
+  the whole step at once. After each `done`, observe what you can by **name only** with a
+  read-only probe of your own (`gh secret list`, `gh variable list`, a `gh api` GET) — never
+  read a value — then re-emit a block holding only what is still missing, with a line
+  stating what you observed. The manifest carries no probe list: the probe is the read-only
+  counterpart of the verb the step's commands use. Only the step's `check` decides that the
+  step is finished.
+- **Show the verification.** The block ends with `I will check:`, so the human knows what
+  done means. That line restates the step's `check_summary`; it never replaces the check.
+
+After the human replies `done` for the last sub-step, run the step's `check`. If it fails,
+re-emit the handoff with what you observed — never silently proceed past a red check.
 
 ### Asking a decision
 

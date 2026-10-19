@@ -1566,6 +1566,300 @@ def validate_manifest_shape(root: Path = ROOT) -> list[str]:
     return errors
 
 
+_STEP_START = re.compile(r"^  - id: (?P<id>\S+)\s*$", re.MULTILINE)
+_STEP_FIELD = re.compile(r"^    (?P<key>[a-z_]+):(?P<rest>.*)$")
+
+
+class ManifestStep(NamedTuple):
+    """One steps.yaml step: its id and, per field, the lines it owns.
+
+    `text` is what follows the colon on the field's own line; `body` is every
+    deeper-indented line after it.
+    """
+
+    id: str
+    fields: dict[str, tuple[str, list[str]]]
+
+    def text(self, key: str) -> str:
+        return self.fields.get(key, ("", []))[0]
+
+    def body(self, key: str) -> list[str]:
+        return self.fields.get(key, ("", []))[1]
+
+
+def _manifest_steps(text: str) -> list[ManifestStep]:
+    """Split steps.yaml into steps without parsing YAML.
+
+    Like validate_manifest_shape this is a shape reader, not a parser: a field is a
+    four-space-indented `key:` line and owns every following line indented deeper.
+    """
+    matches = list(_STEP_START.finditer(text))
+    steps = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        fields: dict[str, tuple[str, list[str]]] = {}
+        body: list[str] | None = None
+        for line in text[match.end():end].splitlines():
+            field = _STEP_FIELD.match(line)
+            if field:
+                body = []
+                fields[field.group("key")] = (field.group("rest").strip(), body)
+            elif body is not None and (line.startswith("     ") or not line.strip()):
+                body.append(line)
+            elif line.strip() and not line.lstrip().startswith("#"):
+                body = None
+        steps.append(ManifestStep(match.group("id"), fields))
+    return steps
+
+
+#: A secret on a command line lands in shell history and the agent's context; the
+#: hidden-prompt, `read -rs` and `< file` forms never put it there. The check is a
+#: denylist of the ways a value reaches a command line, so it is a floor, not a proof.
+_SECRET_NAME = r"[A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY)[A-Za-z0-9_]*"
+_SECRET_FLAG = re.compile(
+    r"(?:^|\s)-{1,2}(?:body|b|value|secret|token|password|client-secret)(?:=|\s)"
+    r"|(?:^|\s)-u\s+\S*:\S+"
+)
+_SECRET_LITERAL = re.compile(
+    rf"(?:^|\s){_SECRET_NAME}(?<!FILE)(?<!PATH)(?<!NAME)=(?!\$|[\"']\$)\S"
+    r"|<<<\s*[\"']?[^$\"'\s]"
+    r"|configure set \w*(?:secret|token|password|key)\w*\s+[^$\s]",
+    re.IGNORECASE,
+)
+#: A name ending in FILE, PATH or NAME holds where a secret lives or what it is called,
+#: not the secret, so expanding it is no leak.
+_SECRET_EXPANSION = re.compile(
+    rf"\$\{{?(?P<name>{_SECRET_NAME})(?<!FILE)(?<!PATH)(?<!NAME)(?![A-Za-z0-9_])"
+)
+#: `read` flags may carry a quoted prompt (`-p "Token: "`), so each flag word may be followed
+#: by one. Silence is judged from the flag letters alone, never the prompt text.
+_READ = re.compile(
+    r"""\bread\s+(?P<flags>(?:-[A-Za-z]+(?:\s+"[^"]*"|\s+'[^']*')?\s+)*)(?P<name>[A-Za-z_]\w*)"""
+)
+_QUOTED = re.compile(r"""\"[^\"]*\"|'[^']*'""")
+#: `< file` hands the command a file, not a value; a variable naming that file is no leak.
+_FILE_REDIRECT = re.compile(r"(?<!<)<(?!<)\s*[\"']?\$\{?\w+\}?[\"']?")
+
+#: A form that points back at another form or entry is the confusion the contract
+#: removes: the reader cannot tell which fields differ. Each carries its own full text.
+_BACK_REFERENCE = re.compile(
+    r"\bsame (?:as|scopes?|fields?|values?|form)\b|\bas (?:above|before)\b"
+    r"|\bbut \w+ instead\b|\bidentical to\b|\blike the (?:first|previous|above)\b"
+    r"|\b(?:from|in) the [\w-]+ entry\b",
+    re.IGNORECASE,
+)
+_VARIABLE = re.compile(r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?P<bare>[A-Za-z_][A-Za-z0-9_]*))")
+_EXPORTED_VARIABLE = re.compile(r"^\s*export ([A-Za-z_][A-Za-z0-9_]*)=", re.MULTILINE)
+
+
+#: Every YAML spelling of a block scalar header: literal or folded, any chomping.
+_BLOCK_INDICATOR = r"[|>][+-]?"
+
+
+def _literal_blocks(lines: list[str], key: str) -> list[str]:
+    """Every `key: |` block scalar (any indicator) in a field body, as dedented text."""
+    blocks = []
+    index = 0
+    while index < len(lines):
+        match = re.match(rf"^(\s*)(- )?{re.escape(key)}: {_BLOCK_INDICATOR}\s*$", lines[index])
+        index += 1
+        if not match:
+            continue
+        indent = len(match.group(1)) + (2 if match.group(2) else 0)
+        body = []
+        while index < len(lines) and (
+            not lines[index].strip() or len(lines[index]) - len(lines[index].lstrip()) > indent
+        ):
+            body.append(lines[index].strip())
+            index += 1
+        blocks.append("\n".join(body))
+    return blocks
+
+
+def _list_entries(lines: list[str]) -> list[list[str]]:
+    """Split a list field's body into its `- ` entries.
+
+    Only a `- ` at the first entry's own indent starts one, so a dash line inside an
+    entry's literal block stays part of that entry.
+    """
+    entries: list[list[str]] = []
+    indent = next((len(l) - len(l.lstrip()) for l in lines if l.lstrip().startswith("- ")), 0)
+    for line in lines:
+        if line.lstrip().startswith("- ") and len(line) - len(line.lstrip()) == indent:
+            entries.append([line])
+        elif entries:
+            entries[-1].append(line)
+    return entries
+
+
+def _entry_value(entry: list[str], key: str) -> str | None:
+    for line in entry:
+        match = re.match(rf"^\s*(?:- )?{re.escape(key)}:\s*(\S.*?)\s*$", line)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _unexported(text: str, exported: set[str]) -> list[str]:
+    names = (m.group("braced") or m.group("bare") for m in _VARIABLE.finditer(text))
+    return sorted({name for name in names if name not in exported})
+
+
+def _has_text(step: ManifestStep, key: str) -> bool:
+    """A field with words in it: its own line, or, for a block scalar, its body."""
+    first = step.text(key)
+    if re.fullmatch(_BLOCK_INDICATOR, first):
+        return any(line.strip() for line in step.body(key))
+    return bool(first)
+
+
+#: Shell variables a command may use without Step 0 exporting them or assigning them.
+_SHELL_VARIABLES = frozenset({"HOME", "PWD", "OLDPWD", "USER", "PATH", "TMPDIR", "SHELL", "RANDOM"})
+_ASSIGNED_VARIABLE = re.compile(
+    r"(?:^|[\s;&|(])(?P<assign>[A-Za-z_]\w*)=|\bfor\s+(?P<loop>[A-Za-z_]\w*)\s+in\b"
+)
+_SECRET_NAME_ONLY = re.compile(_SECRET_NAME + r"(?<!FILE)(?<!PATH)(?<!NAME)")
+
+
+def _used_before_set(command: str, known: set[str]) -> list[str]:
+    """Names a command block expands before anything in it has set them, in reading order.
+
+    A variable counts as set from the end of its `NAME=`, `for NAME in` or `read NAME`, so
+    `T=1; use "$T"` passes and `use "$T"; T=1` does not. `known` is the exported and shell
+    variables; assignments are added to it as the scan reaches them.
+    """
+    known = set(known)
+    unset = []
+    for line in command.splitlines():
+        events = [(m.start(), 0, m.group("braced") or m.group("bare")) for m in _VARIABLE.finditer(line)]
+        events += [
+            (m.end(), 1, m.group("assign") or m.group("loop")) for m in _ASSIGNED_VARIABLE.finditer(line)
+        ]
+        events += [(m.end(), 1, m.group("name")) for m in _READ.finditer(line)]
+        for _, kind, name in sorted(events):
+            if kind:
+                known.add(name)
+            elif name not in known and name not in unset:
+                unset.append(name)
+    return unset
+
+
+def _cli_errors(step: ManifestStep, exported: set[str]) -> list[str]:
+    errors = []
+    for entry in _list_entries(step.body("cli")):
+        effect = _entry_value(entry, "effect") or ""
+        if not effect:
+            errors.append(f"step {step.id} has a cli entry with no effect line")
+        if _BACK_REFERENCE.search(effect):
+            errors.append(
+                f"step {step.id} cli effect {effect[:50]!r} points at another entry; "
+                "each entry's command set must be self-contained"
+            )
+        commands = _literal_blocks(entry, "run")
+        if not commands:
+            errors.append(
+                f"step {step.id} has a cli entry whose run is not a block scalar, "
+                "so its commands cannot be checked for secrets"
+            )
+        for command in commands:
+            errors.extend(
+                f"step {step.id} cli command uses ${name}, which Step 0 never exports and the command never sets first"
+                for name in _used_before_set(command, exported | _SHELL_VARIABLES)
+                if not _SECRET_NAME_ONLY.fullmatch(name)
+            )
+            hidden: set[str] = set()
+            for line in command.splitlines():
+                for read in _READ.finditer(line):
+                    letters = "".join(re.findall(r"-([A-Za-z]+)", _QUOTED.sub("", read.group("flags"))))
+                    # A later visible read overwrites an earlier hidden one, so order matters.
+                    (hidden.add if "s" in letters else hidden.discard)(read.group("name"))
+                leaked = _SECRET_FLAG.search(line) or _SECRET_LITERAL.search(line) or any(
+                    expansion.group("name") not in hidden
+                    for expansion in _SECRET_EXPANSION.finditer(_FILE_REDIRECT.sub("", line))
+                )
+                if leaked:
+                    errors.append(
+                        f"step {step.id} passes a secret on a command line ({line.strip()[:50]!r}); "
+                        "read it with `read -rs`, a hidden prompt or a file"
+                    )
+    return errors
+
+
+def _secret_in_text(step: ManifestStep, text: str) -> list[str]:
+    """A secret-named variable in a link or table is printed into the Handoff."""
+    return [
+        f"step {step.id} puts secret variable ${m.group('name')} into a ui link or table; "
+        "the value would be printed into the Handoff"
+        for m in _SECRET_EXPANSION.finditer(text)
+    ]
+
+
+def _ui_errors(step: ManifestStep, exported: set[str]) -> list[str]:
+    errors = []
+    for entry in _list_entries(step.body("ui")):
+        url = _entry_value(entry, "url")
+        if url is None:
+            errors.append(f"step {step.id} has a ui entry with no url")
+        else:
+            errors.extend(_secret_in_text(step, url))
+            errors.extend(
+                f"step {step.id} links to ${name}, which Step 0 never exports"
+                for name in _unexported(url, exported)
+            )
+        table = [row.strip() for block in _literal_blocks(entry, "fields") for row in block.splitlines() if row.strip()]
+        if not table:
+            errors.append(f"step {step.id} has a ui entry with no field table")
+        for row in table:
+            if " | " not in row:
+                errors.append(f"step {step.id} has a field row that is not 'field | value': {row!r}")
+                continue
+            if _BACK_REFERENCE.search(row):
+                errors.append(
+                    f"step {step.id} row {row!r} points at another form; "
+                    "each form's table must be self-contained"
+                )
+            errors.extend(_secret_in_text(step, row))
+            errors.extend(
+                f"step {step.id} row {row!r} uses ${name}, which Step 0 never exports"
+                for name in _unexported(row, exported)
+            )
+    return errors
+
+
+def validate_handoff_fields(root: Path = ROOT) -> list[str]:
+    """Hold a HUMAN step's structured Handoff fields to the CLI-first contract.
+
+    Additive: a step carrying only the free-text `run:` is unchanged. The new rules
+    bind a step only through the fields it actually carries.
+    """
+    text = read_document(root / TOOLCHAIN_STEPS_DOCUMENT)
+    if text is None:
+        return [f"{TOOLCHAIN_STEPS_DOCUMENT}: unreadable, cannot check Handoff fields"]
+    config = read_document(root / TOOLCHAIN_CONFIG_DOCUMENT)
+    if config is None:
+        return [f"{TOOLCHAIN_CONFIG_DOCUMENT}: unreadable, cannot learn the variables Step 0 exports"]
+    exported = set(_EXPORTED_VARIABLE.findall(config))
+    problems: list[str] = []
+    for step in _manifest_steps(text):
+        empty = [
+            key for key in ("cli", "ui")
+            if key in step.fields and not _list_entries(step.body(key))
+        ]
+        problems.extend(f"step {step.id} has an empty {key} list" for key in empty)
+        has_instructions = (
+            _has_text(step, "run")
+            or bool(_list_entries(step.body("cli")))
+            or bool(_list_entries(step.body("ui")))
+        )
+        if step.text("actor") == "HUMAN" and not has_instructions and not empty:
+            problems.append(f"step {step.id} is HUMAN but carries none of run, cli or ui")
+        if ("cli" in step.fields or "ui" in step.fields) and not _has_text(step, "check_summary"):
+            problems.append(f"step {step.id} carries cli or ui but no check_summary text")
+        problems.extend(_cli_errors(step, exported))
+        problems.extend(_ui_errors(step, exported))
+    return [f"{TOOLCHAIN_STEPS_DOCUMENT}: {problem}" for problem in problems]
+
+
 #: The `infra-auditor` manifest, and how each host's row in hosts.md spells its
 #: `tools` field. Only the shape lives here -- the path, the dialect and the tool
 #: names come from the table, so it stays authoritative rather than descriptive.
@@ -2771,6 +3065,7 @@ def main(argv: list[str] | None = None) -> int:
         *validate_config_fallbacks(),
         *validate_customization_markers(),
         *validate_manifest_shape(),
+        *validate_handoff_fields(),
         *validate_host_contract(),
         *validate_host_dialects(),
         *validate_token_resolution(),

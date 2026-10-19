@@ -10,7 +10,7 @@ Supported backends with automated verification:
 
 | Backend | Locking | Region field | Notes |
 |---------|---------|--------------|-------|
-| `gcs` | Native | N/A (bucket location) | Best for GCP-heavy repos |
+| `gcs` | Native | N/A (set `state_region` to the bucket location) | Best for GCP-heavy repos |
 | `s3` | DynamoDB table | Required | Set `state_lock_table` |
 | `azurerm` | Native (blob lease) | Required (location) | Azure Storage container (set `azure_storage_account`, `azure_resource_group`) |
 
@@ -24,7 +24,8 @@ Create a versioned, private bucket before running `terraform init`:
 
 ```sh
 gcloud storage buckets create gs://$STATE_BUCKET \
-  --location=us --uniform-bucket-level-access --versioning
+  --location="$STATE_REGION" --uniform-bucket-level-access --public-access-prevention
+gcloud storage buckets update gs://$STATE_BUCKET --versioning
 ```
 
 **S3 + DynamoDB:**
