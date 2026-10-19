@@ -964,12 +964,12 @@ steps:
     why: GitHub Actions needs to authenticate to the state backend; the agent cannot create cloud-side federation or install secrets.
     check_summary: The plan identity's secrets exist at repository scope and the apply identity's in the production environment, for the configured state backend; the check lists names only, so it cannot prove the IAM behind them.
     cli:
-      - effect: For gcs, creates a dedicated Workload Identity pool for this repository with a plan provider and an apply provider that pin the immutable repository and owner IDs, the workflow file and, for apply, the main branch and the production environment, plus the tf-plan and tf-apply service accounts; tf-apply admits only production-environment identities and tf-plan admits this repository's identities (the documented binding, which apply tokens also match). Each create is skipped when the resource already exists, so it is safe to rerun. Run it in your own terminal with your gcloud login.
+      - effect: For gcs, creates a dedicated Workload Identity pool for this repository, named gha- plus its numeric repository ID so a project shared with another repository never reuses its pool or accounts, with a plan provider and an apply provider that pin the immutable repository and owner IDs, the workflow file and, for apply, the main branch and the production environment, plus the tf-plan and tf-apply service accounts; tf-apply admits only production-environment identities and tf-plan admits this repository's identities (the documented binding, which apply tokens also match). Each create is skipped when the resource already exists, so it is safe to rerun. Run it in your own terminal with your gcloud login.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
-          PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
-          POOL=gha-infra
           REPO_ID=$(gh api "repos/$REPO" -q '.id')
+          PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+          POOL="gha-$REPO_ID"
           OWNER_ID=$(gh api "repos/$REPO" -q '.owner.id')
           gcloud services enable \
             cloudresourcemanager.googleapis.com iam.googleapis.com \
@@ -993,43 +993,47 @@ steps:
             --issuer-uri="https://token.actions.githubusercontent.com" \
             --attribute-mapping="$MAPPING_PLAN" \
             --attribute-condition="$REPO_PIN && assertion.event_name in ['pull_request', 'push', 'workflow_dispatch'] && assertion.workflow_ref.startsWith('$REPO/.github/workflows/terraform-plan.yml@') && !has(assertion.environment)"
-          gcloud iam service-accounts describe "tf-apply@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" >/dev/null 2>&1 \
-            || gcloud iam service-accounts create tf-apply --project="$PROJECT_ID" --display-name="Terraform Apply"
-          gcloud iam service-accounts describe "tf-plan@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" >/dev/null 2>&1 \
-            || gcloud iam service-accounts create tf-plan --project="$PROJECT_ID" --display-name="Terraform Plan"
-          gcloud iam service-accounts add-iam-policy-binding "tf-apply@$PROJECT_ID.iam.gserviceaccount.com" \
+          gcloud iam service-accounts describe "tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" >/dev/null 2>&1 \
+            || gcloud iam service-accounts create "tf-apply-$REPO_ID" --project="$PROJECT_ID" --display-name="Terraform Apply"
+          gcloud iam service-accounts describe "tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" >/dev/null 2>&1 \
+            || gcloud iam service-accounts create "tf-plan-$REPO_ID" --project="$PROJECT_ID" --display-name="Terraform Plan"
+          gcloud iam service-accounts add-iam-policy-binding "tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" \
             --project="$PROJECT_ID" --role=roles/iam.workloadIdentityUser \
             --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL/attribute.environment/production"
-          gcloud iam service-accounts add-iam-policy-binding "tf-plan@$PROJECT_ID.iam.gserviceaccount.com" \
+          gcloud iam service-accounts add-iam-policy-binding "tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" \
             --project="$PROJECT_ID" --role=roles/iam.workloadIdentityUser \
             --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL/attribute.repository_id/$REPO_ID"
       - effect: For gcs, gives tf-plan read-only access to the state bucket and tf-apply read, write and lock access.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
           gcloud storage buckets add-iam-policy-binding "gs://$STATE_BUCKET" \
-            --member="serviceAccount:tf-plan@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectViewer
+            --member="serviceAccount:tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectViewer
           gcloud storage buckets add-iam-policy-binding "gs://$STATE_BUCKET" \
-            --member="serviceAccount:tf-apply@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectAdmin
+            --member="serviceAccount:tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectAdmin
       - effect: For gcs, removes a leftover objectAdmin grant from tf-plan on the state bucket; it prints an error and changes nothing if there is none. Inherited grants at the project or folder still need a manual review.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
           gcloud storage buckets remove-iam-policy-binding "gs://$STATE_BUCKET" \
-            --member="serviceAccount:tf-plan@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectAdmin
+            --member="serviceAccount:tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --role=roles/storage.objectAdmin
       - effect: For gcs, stores the plan identity's two public coordinates as repository secrets.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
           PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
-          printf %s "projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/gha-infra/providers/plan" \
+          printf %s "projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/gha-$REPO_ID/providers/plan" \
             | gh secret set GCP_WORKLOAD_IDENTITY_PROVIDER --repo "$REPO"
-          printf %s "tf-plan@$PROJECT_ID.iam.gserviceaccount.com" \
+          printf %s "tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" \
             | gh secret set GCP_SERVICE_ACCOUNT --repo "$REPO"
       - effect: For gcs, stores the apply identity's two public coordinates in the production environment. Run it after the production environment allows exactly main.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
           PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
-          printf %s "projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/gha-infra/providers/apply" \
+          printf %s "projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/gha-$REPO_ID/providers/apply" \
             | gh secret set GCP_WORKLOAD_IDENTITY_PROVIDER --repo "$REPO" --env production
-          printf %s "tf-apply@$PROJECT_ID.iam.gserviceaccount.com" \
+          printf %s "tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" \
             | gh secret set GCP_SERVICE_ACCOUNT --repo "$REPO" --env production
       - effect: For s3, stores the plan role ARN as a repository secret and the apply role ARN in the production environment (run it after that environment allows exactly main).
         run: |
@@ -1100,8 +1104,9 @@ steps:
       - effect: For gcs, prints the principals allowed to impersonate each service account, to confirm tf-apply admits only production-environment identities and tf-plan only this repository's identities.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
-          gcloud iam service-accounts get-iam-policy "tf-plan@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
-          gcloud iam service-accounts get-iam-policy "tf-apply@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
+          gcloud iam service-accounts get-iam-policy "tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
+          gcloud iam service-accounts get-iam-policy "tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
       - effect: Prints the branch policies of the production environment, which must allow exactly main.
         run: |
           gh api "repos/$REPO/environments/production/deployment-branch-policies" --jq '.branch_policies[].name'
@@ -1703,10 +1708,15 @@ steps:
               printf '%s' "$body" \
                 | repo=$REPO jq -r '.data[] | select(.attributes["vcs-repo"].identifier == env.repo) | .id' \
                 | while read -r ws; do
-                    code=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
-                      | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
+                    resp=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
+                      | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
                           -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
-                    case "$code" in 201|422) ;; *) echo "workspace $ws: HTTP $code" >&2; exit 1 ;; esac
+                    code=${resp##*$'\n'}
+                    case "$code" in
+                      200|201) ;;
+                      422) printf '%s' "$resp" | grep -qiE 'already|taken' || { echo "HTTP 422: $resp" >&2; exit 1; } ;;
+                      *) echo "HTTP $code: $resp" >&2; exit 1 ;;
+                    esac
                   done
               page=$(printf '%s' "$body" | jq -r '.meta.pagination["next-page"] // empty')
               [ -n "$page" ] || break
@@ -2808,10 +2818,15 @@ steps:
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
             ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
               | jq -er '.data.id')
-            code=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
-              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
+            resp=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
+              | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
                   -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
-            case "$code" in 201|422) ;; *) echo "HTTP $code" >&2; exit 1 ;; esac
+            code=${resp##*$'\n'}
+            case "$code" in
+              200|201) ;;
+              422) printf '%s' "$resp" | grep -qiE 'already|taken' || { echo "HTTP 422: $resp" >&2; exit 1; } ;;
+              *) echo "HTTP $code: $resp" >&2; exit 1 ;;
+            esac
           )
     tri_state: true
     check: |
@@ -2920,10 +2935,15 @@ steps:
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
             ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
               | jq -er '.data.id')
-            code=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
-              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
+            resp=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
+              | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
                   -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
-            case "$code" in 201|422) ;; *) echo "HTTP $code" >&2; exit 1 ;; esac
+            code=${resp##*$'\n'}
+            case "$code" in
+              200|201) ;;
+              422) printf '%s' "$resp" | grep -qiE 'already|taken' || { echo "HTTP 422: $resp" >&2; exit 1; } ;;
+              *) echo "HTTP $code: $resp" >&2; exit 1 ;;
+            esac
           )
     tri_state: true
     check: HCP_SCOPE_WORKSPACE="$NEW_PROVIDER_WORKSPACE" sh "$INFRA_REFERENCES/checks/hcp-apply-scope.sh"
@@ -3214,16 +3234,18 @@ steps:
       - effect: For gcs, prints the conditions of the plan and apply providers, to confirm each pins this repository's immutable IDs and workflow, and that no wildcard repository or fork subject is admitted.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
           for provider in plan apply; do
             gcloud iam workload-identity-pools providers describe "$provider" \
-              --project="$PROJECT_ID" --location=global --workload-identity-pool=gha-infra \
+              --project="$PROJECT_ID" --location=global --workload-identity-pool="gha-$REPO_ID" \
               --format='value(attributeCondition)'
           done
       - effect: For gcs, prints who can impersonate each service account, to confirm plan and apply are separate service accounts and that nothing lets plan impersonate apply.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
-          gcloud iam service-accounts get-iam-policy "tf-plan@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
-          gcloud iam service-accounts get-iam-policy "tf-apply@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
+          REPO_ID=$(gh api "repos/$REPO" -q '.id')
+          gcloud iam service-accounts get-iam-policy "tf-plan-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
+          gcloud iam service-accounts get-iam-policy "tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" --format=json
     run: |
       Follow object-storage.md's provisioning trust checklist for the other clouds: review the
       exact OIDC subject for this repository and branch or protected environment, the runner role
