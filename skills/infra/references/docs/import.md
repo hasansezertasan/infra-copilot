@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:128982a131abc38ccefa9bf05e59f8cdafc549b85cdbf1262d8e1599fded9fff
-Source-Hash: blake3:cfc1a90a51a409f3afaf93b33bfcb5bb3f20b83a69f20aa7835107c28d5e3440
+Content-Hash: blake3:090089bda151b2419a4a84602bad77142cf5b2e1a226dcca165dbce29042b424
+Source-Hash: blake3:35ec7016c03b41dd7f637d9542bd3da6ea7fbe14cf7471cf1445c4b980939377
 Schema-Version: v1
 -->
 
@@ -52,13 +52,16 @@ conflicting file; nothing the repo already has is overwritten silently.
    `gh:hasansezertasan/copier-infra`. A local checkout used as the source records its own
    path, which `template-contract` rejects. Run `mise trust --untrust` in the repo, which
    revokes any earlier trust of that path so a changed `mise.toml` is never trusted by
-   accident, then commit the adoption.
+   accident, then commit the adoption **on a branch that does not apply**, never on the
+   branch a push applies from: the reconciled `terraform/` files can change what an apply does.
 5. **Check the contract, then the pins.** Run `template-contract`: the recorded `_commit` must
    be a release tag at or above the minimum. An older tag proposes `copier update`. Then run
    `toolchain-pin`, the human's review of the adopted `mise.toml` and `mise.lock`, before any
    pin-dependent preflight.
-6. **Plan before importing.** Adoption can change `terraform/` files the human accepted from
-   the Template. Obtain a plan; the resource import below runs exactly as before.
+6. **Plan before merging, and before importing.** Adoption can change `terraform/` files the
+   human accepted from the Template. Obtain the plan on the adoption branch and have the human
+   review it before the branch merges or anything else can trigger an apply. The resource
+   import below runs exactly as before.
 
 Later, `copier update` three-way merges against the recorded `_commit`, so every file the
 human kept differently shows as their change rather than being overwritten.

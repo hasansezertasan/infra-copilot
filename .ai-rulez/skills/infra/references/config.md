@@ -467,9 +467,11 @@ skill restarts; a repo made from the old `infra-template` GitHub template reache
 │ Step:   legacy-state — unsupported state directory
 │ Why:    .infra-copilot/ and .claude/infra-copilot.local.md are no longer read.
 │ Do this:
-│   1. Move your values into the README Config block and Decisions table by hand.
+│   1. Note the public values you want to keep (orgs, apex domain, IDs, managed repos).
 │   2. Delete the legacy path and commit.
-│ When done, reply "done" and I'll re-read the README.
+│   3. Restart: the Template creates the README Config block and Decisions table, and asks
+│      for those values; never write them by hand first.
+│ When done, reply "done" and I'll restart.
 └───────────────────────────────────────────────────
 ```
 

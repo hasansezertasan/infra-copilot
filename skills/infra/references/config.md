@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:3e9f716e1682ef1857f3f239ebca66e74d35375077ade995c92bd8fcdfd09389
-Source-Hash: blake3:cfc1a90a51a409f3afaf93b33bfcb5bb3f20b83a69f20aa7835107c28d5e3440
+Content-Hash: blake3:2888a864e70b1fca0c7ed1dc262400704ed7908811862fa63efb93cdedc7d778
+Source-Hash: blake3:35ec7016c03b41dd7f637d9542bd3da6ea7fbe14cf7471cf1445c4b980939377
 Schema-Version: v1
 -->
 
@@ -474,9 +474,11 @@ skill restarts; a repo made from the old `infra-template` GitHub template reache
 │ Step:   legacy-state — unsupported state directory
 │ Why:    .infra-copilot/ and .claude/infra-copilot.local.md are no longer read.
 │ Do this:
-│   1. Move your values into the README Config block and Decisions table by hand.
+│   1. Note the public values you want to keep (orgs, apex domain, IDs, managed repos).
 │   2. Delete the legacy path and commit.
-│ When done, reply "done" and I'll re-read the README.
+│   3. Restart: the Template creates the README Config block and Decisions table, and asks
+│      for those values; never write them by hand first.
+│ When done, reply "done" and I'll restart.
 └───────────────────────────────────────────────────
 ```
 

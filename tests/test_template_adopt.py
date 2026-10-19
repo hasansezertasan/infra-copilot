@@ -78,6 +78,8 @@ class AdoptStepManifestTests(unittest.TestCase):
         self.assertIn('### Fixture run', doc)
         self.assertIn('`copier copy` straight into the repo is the wrong move', doc)
         self.assertIn('`gh:hasansezertasan/copier-infra`', doc)
+        self.assertIn('on a branch that does not apply', doc)
+        self.assertIn('review it before the branch merges', doc)
 
 
 @unittest.skipUnless(os.name == 'posix' and shutil.which('sh'), 'POSIX shell required')

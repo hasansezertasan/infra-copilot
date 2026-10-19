@@ -1498,7 +1498,7 @@ steps:
       the human the diff of every file that differs, README.md included, and never
       overwriting on your own; mise.toml and mise.lock are always shown to the human, even
       when absent, and `mise trust --untrust` runs before the commit; compare the whole scratch
-      render with the repo and commit the answers file last. A legacy `.infra-copilot/`
+      render with the repo and commit the answers file last, on a branch that does not apply. A legacy `.infra-copilot/`
       stops the skill before this step (config.md#unsupported-legacy-state). Then run
       `template-contract` and `toolchain-pin`.
     # The check reads what survives a restart: the answers file, the Config block and the

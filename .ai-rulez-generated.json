@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:cfc1a90a51a409f3afaf93b33bfcb5bb3f20b83a69f20aa7835107c28d5e3440",
+  "source_hash": "blake3:35ec7016c03b41dd7f637d9542bd3da6ea7fbe14cf7471cf1445c4b980939377",
   "outputs": {
     ".agents/plugins/marketplace.json": {
       "content_hash": "blake3:c9f5887398d8719835af830222d1d2197f73e2a8864b2e1e24d347e2d75b6b36",
@@ -115,7 +115,7 @@
       "mode": "0644"
     },
     "skills/infra/references/config.md": {
-      "content_hash": "blake3:3e9f716e1682ef1857f3f239ebca66e74d35375077ade995c92bd8fcdfd09389",
+      "content_hash": "blake3:2888a864e70b1fca0c7ed1dc262400704ed7908811862fa63efb93cdedc7d778",
       "mode": "0644"
     },
     "skills/infra/references/config.md.example": {
@@ -155,7 +155,7 @@
       "mode": "0644"
     },
     "skills/infra/references/docs/import.md": {
-      "content_hash": "blake3:128982a131abc38ccefa9bf05e59f8cdafc549b85cdbf1262d8e1599fded9fff",
+      "content_hash": "blake3:090089bda151b2419a4a84602bad77142cf5b2e1a226dcca165dbce29042b424",
       "mode": "0644"
     },
     "skills/infra/references/docs/object-storage-ci.md": {
@@ -223,7 +223,7 @@
       "mode": "0644"
     },
     "skills/infra/references/steps.yaml": {
-      "content_hash": "blake3:455070242d34d03b2872789f268fb097af89def3d2912b477820dedad96b6229",
+      "content_hash": "blake3:b2eda62ed00fbfc6632d92ec776d6c59e36b2d3f0ebcabf6720700b8b14ce769",
       "mode": "0644"
     },
     "skills/infra/references/templates/apps/terraform-apply.json": {
