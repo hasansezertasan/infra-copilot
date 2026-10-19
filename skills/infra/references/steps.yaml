@@ -489,7 +489,7 @@ steps:
             code=$(jq -n '{data:{type:"organizations",attributes:{name:env.org_name,email:env.org_email}}}' \
               | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
                   -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations")
-            [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
+            [ "$code" = 200 ] || [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
           )
       - effect: Creates the project infra in the $ORG organization. It fails if the organization does not exist yet. It authenticates with your HCP login from the Terraform credentials file.
         run: |
@@ -501,7 +501,7 @@ steps:
             code=$(jq -n '{data:{type:"projects",attributes:{name:"infra"}}}' \
               | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
                   -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/projects")
-            [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
+            [ "$code" = 200 ] || [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
           )
     ui:
       - form: Create the organization in the browser instead
@@ -1692,7 +1692,7 @@ steps:
             code=$(jq -n '{data:{type:"teams",attributes:{name:"infra-plan-only","organization-access":{"manage-policies":false,"manage-policy-overrides":false,"manage-workspaces":false,"manage-vcs-settings":false,"manage-providers":false,"manage-modules":false,"manage-run-tasks":false,"manage-projects":false,"read-projects":false,"read-workspaces":false,"manage-membership":false}}}}' \
               | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
                   -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/teams")
-            [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
+            [ "$code" = 200 ] || [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
           )
       - effect: Grants the team the Plan permission, not Write (which includes apply), on every workspace in $ORG connected to $REPO. Skips a workspace that already has the grant, so run it again whenever add creates a new workspace. It reads every page of workspaces. It authenticates with your HCP login from the Terraform credentials file.
         run: |
@@ -3086,7 +3086,7 @@ steps:
                 | var_key=$key var_category=$category var_sensitive=$sensitive jq -Rs '{data:{type:"vars",attributes:{key:env.var_key,value:.,category:env.var_category,sensitive:(env.var_sensitive == "true")}}}' \
                 | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
                     -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/workspaces/$ws/vars")
-              [ "$code" = 201 ] || { echo "$key: HTTP $code" >&2; exit 1; }
+              [ "$code" = 200 ] || [ "$code" = 201 ] || { echo "$key: HTTP $code" >&2; exit 1; }
               echo "set $key"
             done
           )
