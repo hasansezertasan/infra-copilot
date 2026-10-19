@@ -96,6 +96,9 @@ human has to look up.
 
 Render a step from its structured fields:
 
+- **Empty Config values.** If a command or link needs a Config value that is empty, stop and
+  ask for it as a decision. Never print an empty or guessed value; a wrong GCS bucket location,
+  for one, cannot be changed afterwards.
 - **CLI first.** A step's `cli` entries are the commands; print the ones that match the
   Config (a `gcs` entry only for a `gcs` backend), each with its one-line effect. Use the UI
   only for what has no CLI or API: signups, OAuth consent, minting a first token, creating a

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2167bd15790c80f27df6d21b31cfb5afa561d0dfdfc56593a17f80394890d976
-Source-Hash: blake3:88009a0097f1a570679bdd38bc0b201b449a6735301c511379f72e22adad6821
+Content-Hash: blake3:817b07e5b45b458d707f1086514516fdaf8c38f6eb71b34714fb50b08ef1a06e
+Source-Hash: blake3:3521a69d208c7de28ebfada8c275a5a8de7255e3eeed2d43e59e18900196d0da
 Schema-Version: v1
 -->
 
@@ -103,6 +103,9 @@ human has to look up.
 
 Render a step from its structured fields:
 
+- **Empty Config values.** If a command or link needs a Config value that is empty, stop and
+  ask for it as a decision. Never print an empty or guessed value; a wrong GCS bucket location,
+  for one, cannot be changed afterwards.
 - **CLI first.** A step's `cli` entries are the commands; print the ones that match the
   Config (a `gcs` entry only for a `gcs` backend), each with its one-line effect. Use the UI
   only for what has no CLI or API: signups, OAuth consent, minting a first token, creating a

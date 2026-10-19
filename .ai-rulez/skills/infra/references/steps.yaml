@@ -80,7 +80,7 @@
 #     export STATE_BUCKET=<state_bucket>
 #     export STATE_PREFIX=<state_prefix>
 #     export STATE_LOCK_TABLE=<state_lock_table>  # for S3
-#     export STATE_REGION=<state_region>  # for S3/azurerm
+#     export STATE_REGION=<state_region>  # for S3/azurerm; the GCS bucket location
 #     export ADDITIONAL_PROVIDER_SECRETS='<only object-storage-routed [entry: {name, credential_secrets}, ...] as compact JSON>'
 #
 # Step 0 must stop and hand off if backend is missing, empty, or invalid, before
@@ -695,10 +695,10 @@ steps:
     why: Terraform state needs a durable, versioned bucket before any init.
     check_summary: The bucket exists, is private, and has versioning enabled (plus a lock table on S3).
     cli:
-      - effect: For gcs, creates a private bucket in the us multi-region (edit --location first for another, it cannot change later) with uniform access, enforced public access prevention and object versioning; locking is native.
+      - effect: For gcs, creates a private bucket at the location in state_region (a bucket location cannot change later) with uniform access, enforced public access prevention and object versioning; locking is native.
         run: |
           gcloud storage buckets create "gs://$STATE_BUCKET" \
-            --location=us --uniform-bucket-level-access --public-access-prevention
+            --location="$STATE_REGION" --uniform-bucket-level-access --public-access-prevention
           gcloud storage buckets update "gs://$STATE_BUCKET" --versioning
       - effect: For s3 in us-east-1, creates the bucket, turns on versioning, blocks all public access, and creates the lock table.
         run: |
@@ -1312,13 +1312,17 @@ steps:
           Account Resources | Include, the account with ID $CF_ACCOUNT_ID
           Zone Resources | Include, Specific zone, $DOMAIN
           Client IP filtering and TTL | leave blank
-      - form: Add the token to the cloudflare workspace in HCP
-        url: https://app.terraform.io/app/$ORG/workspaces/cloudflare/variables
-        fields: |
-          Variable category | Terraform variable
-          Key | cloudflare_api_token
-          Value | the token copied from Cloudflare
-          Sensitive | checked
+    cli:
+      - effect: Creates the sensitive Terraform variable cloudflare_api_token in the cloudflare HCP workspace. The token is read from a hidden prompt and the call authenticates with your HCP login from the Terraform credentials file.
+        run: |
+          read -rs -p "Cloudflare API token: " value; echo
+          hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
+          ws=$(curl -sf --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+            "$hcp_api/organizations/$ORG/workspaces/cloudflare" | jq -r '.data.id')
+          printf %s "$value" \
+            | jq -Rs '{data:{type:"vars",attributes:{key:"cloudflare_api_token",value:.,category:"terraform",sensitive:true}}}' \
+            | curl -sf -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+                -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/workspaces/$ws/vars"
     check: |
       WS_ID=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/cloudflare" -H "Authorization: Bearer $HCP_TOKEN" | jq -r '.data.id')
       curl -sf "$hcp_api/workspaces/$WS_ID/vars" -H "Authorization: Bearer $HCP_TOKEN" \

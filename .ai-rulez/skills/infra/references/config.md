@@ -137,7 +137,7 @@ state_backend: gcs             # Terraform backend type: gcs | s3 | azurerm
 state_bucket: <string>         # bucket name for state files (container name for azurerm)
 state_prefix: terraform/state  # path prefix within bucket (default: terraform/state)
 state_lock_table: ""           # DynamoDB table for S3 locking; GCS/azurerm have native locking
-state_region: ""               # region for S3 and Azure resource group location; GCS uses bucket location
+state_region: ""               # region for S3, Azure resource group location, and the GCS bucket location (required to create a GCS bucket)
 azure_storage_account: ""      # storage account name for azurerm backend
 azure_resource_group: ""       # resource group for azurerm backend
 # ... common fields ...
@@ -355,7 +355,7 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export STATE_BUCKET=<state_bucket>
    export STATE_PREFIX=<state_prefix>        # default: terraform/state
    export STATE_LOCK_TABLE=<state_lock_table>  # for S3; empty for GCS/azurerm
-   export STATE_REGION=<state_region>        # for S3 and azurerm; empty for GCS
+   export STATE_REGION=<state_region>        # for S3 and azurerm; the bucket location for GCS
    export AZURE_STORAGE_ACCOUNT=<azure_storage_account>  # for azurerm
    export AZURE_RESOURCE_GROUP=<azure_resource_group>    # for azurerm
     export ADDITIONAL_PROVIDER_SECRETS='<only object-storage-routed [entry: {name, credential_secrets}, ...] as compact JSON>'
