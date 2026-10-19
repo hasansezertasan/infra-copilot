@@ -79,6 +79,8 @@ class AdoptStepManifestTests(unittest.TestCase):
         self.assertIn('`copier copy` straight into the repo is the wrong move', doc)
         self.assertIn('`gh:hasansezertasan/copier-infra`', doc)
         self.assertIn('on a branch that does not apply', doc)
+        self.assertIn('scratch=$(mktemp -d)', doc)
+        self.assertIn('-x .copier-answers.yml', doc)
         self.assertIn('review it before the branch merges', doc)
 
 

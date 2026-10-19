@@ -24,10 +24,13 @@ conflicting file; nothing the repo already has is overwritten silently.
    Template's newest release tag, with those answers:
 
    ```sh
+   scratch=$(mktemp -d)
    uv run --no-project --with-requirements "$INFRA_REFERENCES/copier-requirements.txt" \
      copier copy --vcs-ref <tag> --defaults --data key=value \
-     gh:hasansezertasan/copier-infra "$(mktemp -d)"
+     gh:hasansezertasan/copier-infra "$scratch"
    ```
+
+   Keep `$scratch`: the steps below read it.
 
    `copier copy` straight into the repo is the wrong move. With no terminal it stops at the
    first conflicting file, after writing the files before it and before writing the answers
@@ -38,8 +41,8 @@ conflicting file; nothing the repo already has is overwritten silently.
    take the Template's Config block and Decisions table, and keep their prose around them.
    `mise.toml` and `mise.lock` are conflicts too, even when the repo has none: executable
    tool config is never copied in unreviewed, so show the human both files.
-   Then compare the whole scratch render with the repo (`diff -rq <scratch> .`, ignoring
-   `.git`): every file the render has must now exist in the repo, or be a difference the
+   Then compare the whole scratch render with the repo (`diff -rq -x .git -x .copier-answers.yml "$scratch" .`; the
+   answers file is copied last, in step 4): every file the render has must now exist in the repo, or be a difference the
    human chose to keep. The check cannot do this later, because the scratch render is gone.
 4. **Copy `.copier-answers.yml` last** and read its `_src_path`: it must be
    `gh:hasansezertasan/copier-infra`. A local checkout used as the source records its own

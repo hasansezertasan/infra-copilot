@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:00db71c18db8373ee67e9f6bfd031897230aaaee4d7d20e25f21bc570c277171
-Source-Hash: blake3:35ec7016c03b41dd7f637d9542bd3da6ea7fbe14cf7471cf1445c4b980939377
+Content-Hash: blake3:c698a50778f22a2921110a47fc4bf57ce0ed3db74847d885049d69f18abda366
+Source-Hash: blake3:70f172bdb4f3e7e9c45497a76f20f698c2bd209d643c9d1f906e9cbd4cb1b52a
 Schema-Version: v1
 -->
 
@@ -33,7 +33,8 @@ preflight — lives in [`../infra/references/protocol.md`](../infra/references/p
 `infra-skills:infra-setup` phases 0–4 are green: the target leaf's execution, credential
 storage and first plan are proven. Otherwise run `setup` first. The exception is the
 Template itself: a repo that pre-dates it cannot have run setup, so `template-adopt` (below)
-comes first. Obtain plans through
+comes first, and then `infra-setup`, which resumes on the now-rendered repo and proves
+phases 0–4, before any import step runs. Obtain plans through
 [get-plan](../infra/references/operations.md#get-plan), and verify adoption through
 [import-resources](../infra/references/operations.md#import-resources).
 
@@ -84,6 +85,8 @@ this import applies.
 1. **Adopt the Template, then read config** (shared protocol, Step 0). On a repo with
    no answers file and no Config block, run `template-adopt` first. Then read config and
    export the org vars — [`../infra/references/config.md`](../infra/references/config.md).
+   After an adoption, hand off to `infra-skills:infra-setup` and continue here only once its
+   phases 0–4 are green; adopting the Template proves none of them.
 2. **Resume scan** over `template-adopt`, `template-contract`, `toolchain-pin`,
    `migrate-discovery-token` and `migrate-import` in
    [`../infra/references/steps.yaml`](../infra/references/steps.yaml) — **those five steps only**, not all of

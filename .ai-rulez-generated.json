@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:35ec7016c03b41dd7f637d9542bd3da6ea7fbe14cf7471cf1445c4b980939377",
+  "source_hash": "blake3:70f172bdb4f3e7e9c45497a76f20f698c2bd209d643c9d1f906e9cbd4cb1b52a",
   "outputs": {
     ".agents/plugins/marketplace.json": {
       "content_hash": "blake3:c9f5887398d8719835af830222d1d2197f73e2a8864b2e1e24d347e2d75b6b36",
@@ -27,7 +27,7 @@
       "mode": "0644"
     },
     "skills/infra-import/SKILL.md": {
-      "content_hash": "blake3:00db71c18db8373ee67e9f6bfd031897230aaaee4d7d20e25f21bc570c277171",
+      "content_hash": "blake3:c698a50778f22a2921110a47fc4bf57ce0ed3db74847d885049d69f18abda366",
       "mode": "0644"
     },
     "skills/infra-prune/SKILL.md": {
@@ -155,7 +155,7 @@
       "mode": "0644"
     },
     "skills/infra/references/docs/import.md": {
-      "content_hash": "blake3:090089bda151b2419a4a84602bad77142cf5b2e1a226dcca165dbce29042b424",
+      "content_hash": "blake3:54478eb09d5d2b84a7186144d41635d562db54fef494523523178a3e598a785d",
       "mode": "0644"
     },
     "skills/infra/references/docs/object-storage-ci.md": {

@@ -26,7 +26,8 @@ preflight — lives in [`../infra/references/protocol.md`](../infra/references/p
 `infra-skills:infra-setup` phases 0–4 are green: the target leaf's execution, credential
 storage and first plan are proven. Otherwise run `setup` first. The exception is the
 Template itself: a repo that pre-dates it cannot have run setup, so `template-adopt` (below)
-comes first. Obtain plans through
+comes first, and then `infra-setup`, which resumes on the now-rendered repo and proves
+phases 0–4, before any import step runs. Obtain plans through
 [get-plan](../infra/references/operations.md#get-plan), and verify adoption through
 [import-resources](../infra/references/operations.md#import-resources).
 
@@ -77,6 +78,8 @@ this import applies.
 1. **Adopt the Template, then read config** (shared protocol, Step 0). On a repo with
    no answers file and no Config block, run `template-adopt` first. Then read config and
    export the org vars — [`../infra/references/config.md`](../infra/references/config.md).
+   After an adoption, hand off to `infra-skills:infra-setup` and continue here only once its
+   phases 0–4 are green; adopting the Template proves none of them.
 2. **Resume scan** over `template-adopt`, `template-contract`, `toolchain-pin`,
    `migrate-discovery-token` and `migrate-import` in
    [`../infra/references/steps.yaml`](../infra/references/steps.yaml) — **those five steps only**, not all of
