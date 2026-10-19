@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:adb4a6788ed130c5be7ea5428ca96eeb2e14123e6c1bda664765efad7133892b
-Source-Hash: blake3:576c1bd119aa63ecaa609fe520d4bbea573a4c53b6216edd6fa0739eb0a25184
+Content-Hash: blake3:9778a6d5524e8f02f0c5f0e8f332952c13b732ab2814c43ed8b7b276d3386a92
+Source-Hash: blake3:6d073264065743afefff9ac92cb35183e7fcbea9f61f5f7cf7c84a8e91e86d57
 Schema-Version: v1
 -->
 
@@ -11,6 +11,85 @@ Schema-Version: v1
 Use Cloudflare's own [`cf-terraforming`](https://github.com/cloudflare/cf-terraforming) CLI to bring resources that already exist in the `<apex-domain>` zone (and the parent Cloudflare account) under Terraform management without recreating them.
 
 Why not a custom script: cf-terraforming is maintained by Cloudflare alongside the Terraform provider, so import ID formats and HCL schemas track provider changes automatically. A hand-rolled script would drift.
+
+## Adopt the Template first
+
+A repo with no committed `.copier-answers.yml` and no README Config block pre-dates the
+[`copier-infra`](https://github.com/hasansezertasan/copier-infra) Template. That includes
+every repo made from the former `infra-template` GitHub template. `infra-skills:infra-import`
+adopts the Template before any import (the `template-adopt` step), so the Config block exists
+and a later `copier update` has an answers file to merge from. A human reviews every
+conflicting file; nothing the repo already has is overwritten silently.
+
+1. **Legacy state first.** A repo made from `infra-template` may carry `.infra-copilot/` or
+   `.claude/infra-copilot.local.md`. Those are unsupported and the skill stops before this
+   step, without reading them ([config.md](../config.md#unsupported-legacy-state)). You move
+   the values you want to keep (orgs, apex domain, account and zone IDs, managed repos) out of
+   it yourself, delete it in its own reviewed commit and restart. Those values are the answers
+   to the Template's questions below.
+2. **Render into a scratch directory, never into the repo.** First collect every answer the
+   way `template-render` does: clone the Template at its newest release tag, read its
+   `copier.yml`, evaluate each question's `when` in file order, and ask the human each active
+   question, validated against its `validator`. Answer from the repo's actual state, not the
+   Template's defaults: `backend` is explicit and must match where the state really lives, as
+   must the state bucket and identifiers. Then render with the pinned Copier, passing every
+   answer with `--data` (`--defaults` only fills questions that were not active):
+
+   ```sh
+   scratch=$(mktemp -d)
+   uv run --no-project --with-requirements "$INFRA_REFERENCES/copier-requirements.txt" \
+     copier copy --vcs-ref <tag> --defaults --data key=value \
+     gh:hasansezertasan/copier-infra "$scratch"
+   ```
+
+   Keep `$scratch`: the steps below read it.
+
+   `copier copy` straight into the repo is the wrong move. With no terminal it stops at the
+   first conflicting file, after writing the files before it and before writing the answers
+   file; with `--overwrite` it replaces your files. Both leave the repo half-adopted.
+3. **Reconcile** the scratch render into the repo, file by file. Absent in the repo: copy it.
+   Identical: skip it. Different: show the human the diff and take their choice, as a
+   conflict. `README.md` is always a conflict: show the human the diff before writing it,
+   take the Template's Config block and Decisions table, and keep their prose around them.
+   `mise.toml` and `mise.lock` are conflicts too, even when the repo has none: executable
+   tool config is never copied in unreviewed, so show the human both files.
+   Then compare the whole scratch render with the repo (`diff -rq -x .git -x .copier-answers.yml "$scratch" .`; the
+   answers file is copied last, in step 4): every file the render has must now exist in the repo, or be a difference the
+   human chose to keep. The check cannot do this later, because the scratch render is gone.
+4. **Copy `.copier-answers.yml` last** and read its `_src_path`: it must be
+   `gh:hasansezertasan/copier-infra`. A local checkout used as the source records its own
+   path, which `template-contract` rejects. Run `mise trust --untrust` in the repo, which
+   revokes any earlier trust of that path so a changed `mise.toml` is never trusted by
+   accident, then commit the adoption **on a branch that does not apply**, never on the
+   branch a push applies from: the reconciled `terraform/` files can change what an apply does.
+5. **Check the contract, then the pins.** Run `template-contract`: the recorded `_commit` must
+   be a release tag at or above the minimum. An older tag proposes `copier update`. Then run
+   `toolchain-pin`, the human's review of the adopted `mise.toml` and `mise.lock`, before any
+   pin-dependent preflight.
+6. **Plan before merging, and before importing.** Adoption can change `terraform/` files the
+   human accepted from the Template. Obtain the plan on the adoption branch and have the human
+   review it before the branch merges or anything else can trigger an apply. The resource
+   import below runs exactly as before.
+
+Later, `copier update` three-way merges against the recorded `_commit`, so every file the
+human kept differently shows as their change rather than being overwritten.
+
+### Fixture run (2026-10-19)
+
+Exercised once on a fixture repo (a hand-written `README.md`, `mise.toml` and
+`terraform/cloudflare/versions.tf`, no answers file) with Copier 9.19.1 and Template `v0.1.0`:
+
+- A direct `copier copy` into the fixture, with no terminal, stopped at the conflicting
+  `versions.tf` with "Interactive session required". It had already written
+  `backend.tf` and `main.tf`, left the answers file unwritten and exited 0.
+- Rendering into a scratch directory from `gh:hasansezertasan/copier-infra` recorded
+  `_src_path: gh:hasansezertasan/copier-infra` and `_commit: v0.1.0`. The same render from a
+  local checkout recorded the local path instead, which `template-contract` rejects.
+- Reconciling gave three conflicts (plus `mise.lock` and the rest, which were absent and so
+  copied in; the run did not yet treat those as reviewable): `README.md`, `mise.toml` and `versions.tf`. Taking the
+  Template's `README.md` Config block and `versions.tf` and keeping the human's `mise.toml`,
+  then committing, turned `template-adopt` and `template-contract` green.
+- `copier update` then ran on the adopted repo and kept `v0.1.0`.
 
 ## Discovery token
 

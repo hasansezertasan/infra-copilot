@@ -130,6 +130,12 @@ literals stay aligned.
 With the same function defined, `copier recopy` re-renders over local edits; use it only for
 deliberate recovery, on a clean tree, after reading the diff.
 
+A repo that pre-dates the Template, including one made from the old `infra-template` GitHub
+template, is adopted by `infra-import` rather than rendered over: it renders into a scratch
+directory and reconciles file by file with you reviewing every conflict, then commits the
+answers file so `copier update` works later. See
+[the import runbook](skills/infra/references/docs/import.md#adopt-the-template-first).
+
 Treat any change to `backend`, `state_backend`, `state_bucket` or `state_prefix` after
 rendering as a state migration, not an answer change. Copier rewrites `backend.tf` but moves
 no state, and the state-transfer check only demands transfer evidence once it detects an HCP
@@ -152,9 +158,12 @@ existing mode without moving state. See the
 including HCP-specific fields.
 
 The old `.infra-copilot/` directory and `.claude/infra-copilot.local.md` file are
-**unsupported**: the Skills report them and stop, and there is no migration code. Move the
-values into the README Config block and Decisions table by hand, then delete the old paths.
-Provider and authentication decisions belong in the Decisions table; the shipped
+**unsupported**: the Skills report them and stop, and there is no migration code. Note the
+public values and locked decisions you want to keep, delete the old paths, and restart:
+`infra-import` adopts the Template, which creates the Config block and Decisions table and
+asks for those values, so never write them by hand first. Re-record any locked decision in
+the Decisions table afterwards. Provider and authentication decisions belong in the Decisions
+table; the shipped
 [`decisions.md.example`](skills/infra/references/decisions.md.example) shows its rows.
 
 ## Restricting what it can do
@@ -195,7 +204,7 @@ host packages copy the whole hub skill so relative links remain valid everywhere
 |---|---|---|
 | [`infra`](skills/infra/SKILL.md) | natural language | Routes a general request to the smallest matching workflow. |
 | [`infra-setup`](skills/infra-setup/SKILL.md) | `/infra-skills:infra-setup` | **Greenfield bootstrap** (phases 0–4): renders the [`copier-infra`](https://github.com/hasansezertasan/copier-infra) Template, explicit backend choice, state + CI, Cloudflare token, GitHub App, first plan. |
-| [`infra-import`](skills/infra-import/SKILL.md) | `/infra-skills:infra-import` | **Adopt existing** provider resources into Terraform without recreating them (cf-terraforming import blocks). |
+| [`infra-import`](skills/infra-import/SKILL.md) | `/infra-skills:infra-import` | **Adopt existing** provider resources into Terraform without recreating them (cf-terraforming import blocks), adopting the Template first when the repo pre-dates it. |
 | [`infra-prune`](skills/infra-prune/SKILL.md) | `/infra-skills:infra-prune` | **Retire the spent blocks** an adoption leaves behind — `import {}` / `moved {}` go inert once applied. Ends on `No changes.` |
 | [`infra-add`](skills/infra-add/SKILL.md) | `/infra-skills:infra-add` | **Grow** the repo: a managed repo, a new resource, or a brand-new provider (e.g. GCP). |
 | [`infra-status`](skills/infra-status/SKILL.md) | `/infra-skills:infra-status` | **Read-only** health check — scans every step and reports where infra stands. Changes nothing. |
