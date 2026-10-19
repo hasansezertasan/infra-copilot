@@ -1033,12 +1033,14 @@ steps:
           gcloud iam workload-identity-pools providers "$verb" apply \
             --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL" \
             --issuer-uri="https://token.actions.githubusercontent.com" \
+            --no-disabled \
             --attribute-mapping="$MAPPING_APPLY" \
             --attribute-condition="$REPO_PIN && assertion.ref == 'refs/heads/main' && assertion.workflow_ref == '$REPO/.github/workflows/terraform-apply.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'production'"
           if gcloud iam workload-identity-pools providers describe plan --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL" >/dev/null 2>&1; then verb=update-oidc; else verb=create-oidc; fi
           gcloud iam workload-identity-pools providers "$verb" plan \
             --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL" \
             --issuer-uri="https://token.actions.githubusercontent.com" \
+            --no-disabled \
             --attribute-mapping="$MAPPING_PLAN" \
             --attribute-condition="$REPO_PIN && assertion.event_name in ['pull_request', 'push', 'workflow_dispatch'] && assertion.workflow_ref.startsWith('$REPO/.github/workflows/terraform-plan.yml@') && !has(assertion.environment)"
           gcloud iam service-accounts describe "tf-apply-$REPO_ID@$PROJECT_ID.iam.gserviceaccount.com" --project="$PROJECT_ID" >/dev/null 2>&1 \
@@ -1691,7 +1693,7 @@ steps:
       continuing past it.
     check_summary: The credential this machine offers HCP (TF_TOKEN_app_terraform_io, else the Terraform credentials file) is a plan-only team token, not a user token or one that can apply.
     cli:
-      - effect: Creates the team infra-plan-only with every organization permission off, or resets an existing one to that state; this needs an HCP plan that includes teams. Never add "Manage version control settings" or any other organization permission to it; organization permissions are the self-elevation risk this step removes. It authenticates with your HCP login from the Terraform credentials file.
+      - effect: Creates the team infra-plan-only with every organization permission off, or resets an existing one to that state and fails unless every organization permission in the response is off; this needs an HCP plan that includes teams. Never add "Manage version control settings" or any other organization permission to it; organization permissions are the self-elevation risk this step removes. It authenticates with your HCP login from the Terraform credentials file.
         run: |
           (
             set -eu; set -o pipefail
@@ -1701,16 +1703,18 @@ steps:
             team=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/teams?filter%5Bnames%5D=infra-plan-only" \
               | jq -r '[.data[] | select(.attributes.name == "infra-plan-only")][0].id // empty')
             if [ -n "$team" ]; then
-              resp=$(team_id=$team jq -n '{data:{id:env.team_id,type:"teams",attributes:{name:"infra-plan-only","organization-access":{"manage-policies":false,"manage-policy-overrides":false,"manage-workspaces":false,"manage-vcs-settings":false,"manage-providers":false,"manage-modules":false,"manage-run-tasks":false,"manage-projects":false,"read-projects":false,"read-workspaces":false,"manage-membership":false,"manage-teams":false,"manage-organization-access":false}}}}' \
+              resp=$(team_id=$team jq -n '{data:{id:env.team_id,type:"teams",attributes:{name:"infra-plan-only","organization-access":{"manage-policies":false,"manage-policy-overrides":false,"manage-workspaces":false,"manage-vcs-settings":false,"manage-providers":false,"manage-modules":false,"manage-run-tasks":false,"manage-projects":false,"read-projects":false,"read-workspaces":false,"manage-membership":false,"manage-teams":false,"manage-organization-access":false,"manage-agent-pools":false}}}}' \
                 | curl -s -w '\n%{http_code}' -X PATCH --config <(auth) \
                     -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/teams/$team")
             else
-              resp=$(jq -n '{data:{type:"teams",attributes:{name:"infra-plan-only","organization-access":{"manage-policies":false,"manage-policy-overrides":false,"manage-workspaces":false,"manage-vcs-settings":false,"manage-providers":false,"manage-modules":false,"manage-run-tasks":false,"manage-projects":false,"read-projects":false,"read-workspaces":false,"manage-membership":false,"manage-teams":false,"manage-organization-access":false}}}}' \
+              resp=$(jq -n '{data:{type:"teams",attributes:{name:"infra-plan-only","organization-access":{"manage-policies":false,"manage-policy-overrides":false,"manage-workspaces":false,"manage-vcs-settings":false,"manage-providers":false,"manage-modules":false,"manage-run-tasks":false,"manage-projects":false,"read-projects":false,"read-workspaces":false,"manage-membership":false,"manage-teams":false,"manage-organization-access":false,"manage-agent-pools":false}}}}' \
                 | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
                     -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/teams")
             fi
             code=${resp##*$'\n'}
             case "$code" in 200|201) ;; *) echo "HTTP $code: $resp" >&2; exit 1 ;; esac
+            printf '%s' "${resp%$'\n'*}" | jq -e '.data.attributes["organization-access"] | type == "object" and all(.[]; . == false)' >/dev/null \
+              || { echo 'infra-plan-only still has an organization permission switched on; turn it off before minting its token.' >&2; exit 1; }
           )
       - effect: Removes any project-level access the team holds on every project in $ORG, because HCP combines project, workspace and organization access at the most permissive level and a leftover Write, Maintain, Admin or custom project role would keep the credential able to apply. Only the team's own project-access relationships are deleted. It authenticates with your HCP login from the Terraform credentials file.
         run: |
@@ -3262,6 +3266,7 @@ steps:
           mise exec -- gcloud iam workload-identity-pools providers "$verb" "$PROVIDER" \
             --location=global --workload-identity-pool="$POOL" \
             --issuer-uri="https://app.terraform.io" \
+            --no-disabled \
             --attribute-mapping="google.subject=assertion.sub,attribute.aud=assertion.aud,attribute.terraform_run_phase=assertion.terraform_run_phase,attribute.terraform_organization_name=assertion.terraform_organization_name,attribute.terraform_workspace_name=assertion.terraform_workspace_name,attribute.terraform_workspace_id=assertion.terraform_workspace_id" \
             --attribute-condition="assertion.terraform_organization_name == '$ORG' && assertion.terraform_workspace_name == '$NEW_PROVIDER_WORKSPACE'"
           mise exec -- gcloud iam service-accounts describe "$SA@$PROJECT_ID.iam.gserviceaccount.com" >/dev/null 2>&1 \
