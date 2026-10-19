@@ -481,11 +481,13 @@ steps:
             set -eu; set -o pipefail
             printf 'Organization admin email: '; read -r email
             [ -n "$email" ] || { echo 'No email entered.' >&2; exit 1; }
-            hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
             org_name=$ORG org_email=$email
             export org_name org_email
             code=$(jq -n '{data:{type:"organizations",attributes:{name:env.org_name,email:env.org_email}}}' \
-              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
                   -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations")
             [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
           )
@@ -493,9 +495,11 @@ steps:
         run: |
           (
             set -eu; set -o pipefail
-            hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
             code=$(jq -n '{data:{type:"projects",attributes:{name:"infra"}}}' \
-              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
                   -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/projects")
             [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
           )
@@ -572,10 +576,10 @@ steps:
     run: |
       The agent discovers the installation by $REPO's GitHub owner using the bootstrap user's
       token; keep that token through bootstrap, because team and organization tokens cannot
-      create App links. If the organization has several GitHub connections, the human selects
-      one by exporting OAUTH_TOKEN_ID (its ot- id) or GITHUB_APP_INSTALLATION_ID (HCP's ghain-
-      id, not GitHub's numeric installation id), never both; keep that selection exported for
-      workspace creation.
+      create App links. If the organization has several GitHub connections, ask the human to
+      choose one as a decision, then export OAUTH_TOKEN_ID (its ot- id) or
+      GITHUB_APP_INSTALLATION_ID (HCP's ghain- id, not GitHub's numeric installation id) in your
+      own environment, never both, and keep it exported for workspace creation.
     # Assert a GitHub-family VCS provider specifically, not just "any oauth client" —
     # otherwise a pre-existing GitLab/Bitbucket connection would false-green this step.
     # Tri-state, because this endpoint is organization-scoped and the plan-only
@@ -1308,7 +1312,7 @@ steps:
     when: '[ "$GITHUB_BACKEND" = "object-storage" ]'
     title: Configure GitHub App credentials in GitHub Actions secrets
     why: The Terraform workflow authenticates to GitHub with these App credentials.
-    check_summary: Both Apps' secrets exist by name: the plan App's three at repository scope and the apply App's three only in the production environment (not at repository or organization scope).
+    check_summary: 'Both Apps'' secrets exist by name: the plan App''s three at repository scope and the apply App''s three only in the production environment (not at repository or organization scope).'
     ui:
       - form: Create the read-only plan App, generate its key and install it (the .pem downloads once, so keep it private)
         url: https://github.com/organizations/$GITHUB_ORG/settings/apps/new
@@ -1608,7 +1612,7 @@ steps:
           Install App | Install on $GITHUB_ORG, Only select repositories, every repository in managed_repos
           Installation ID | The number at the end of the settings URL after installing (.../installations/<number>)
     cli:
-      - effect: Creates the four Terraform variables in the github-org HCP workspace. github_owner is not sensitive; the App ID and installation ID come from hidden prompts and the key from the .pem file, so run it in your own terminal. It authenticates with your HCP login from the Terraform credentials file. Run it once: a variable that already exists makes the call fail, so delete it in the workspace first.
+      - effect: 'Creates the four Terraform variables in the github-org HCP workspace. github_owner is not sensitive; the App ID and installation ID come from hidden prompts and the key from the .pem file, so run it in your own terminal. It authenticates with your HCP login from the Terraform credentials file. Run it once: a variable that already exists makes the call fail, so delete it in the workspace first.'
         run: |
           (
             set -eu; set -o pipefail
@@ -1617,12 +1621,14 @@ steps:
             printf 'Absolute path to the private key (.pem): '; read -r pem_file
             [ -n "$app_id" ] && [ -n "$installation_id" ] && [ -r "$pem_file" ] \
               || { echo 'Missing App ID, installation ID or readable key file.' >&2; exit 1; }
-            hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
-            ws=$(curl -sf --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
+            ws=$(curl -sf --config <(auth) \
               "$hcp_api/organizations/$ORG/workspaces/github-org" | jq -er '.data.id')
             set_var() {
               var_key=$1 var_sensitive=$2 jq -Rs '{data:{type:"vars",attributes:{key:env.var_key,value:.,category:"terraform",sensitive:(env.var_sensitive == "true")}}}' \
-                | curl -sf -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+                | curl -sf -X POST --config <(auth) \
                     -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/workspaces/$ws/vars" >/dev/null
             }
             printf %s "$GITHUB_ORG" | set_var github_owner false
@@ -1672,29 +1678,39 @@ steps:
         run: |
           (
             set -eu; set -o pipefail
-            hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
             code=$(jq -n '{data:{type:"teams",attributes:{name:"infra-plan-only","organization-access":{"manage-policies":false,"manage-policy-overrides":false,"manage-workspaces":false,"manage-vcs-settings":false,"manage-providers":false,"manage-modules":false,"manage-run-tasks":false,"manage-projects":false,"read-projects":false,"read-workspaces":false,"manage-membership":false}}}}' \
-              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+              | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
                   -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/teams")
             [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
           )
-      - effect: Grants the team the Plan permission, not Write (which includes apply), on every workspace in $ORG connected to $REPO. Skips a workspace that already has the grant, so run it again whenever add creates a new workspace. It reads the first 100 workspaces. It authenticates with your HCP login from the Terraform credentials file.
+      - effect: Grants the team the Plan permission, not Write (which includes apply), on every workspace in $ORG connected to $REPO. Skips a workspace that already has the grant, so run it again whenever add creates a new workspace. It reads every page of workspaces. It authenticates with your HCP login from the Terraform credentials file.
         run: |
           (
             set -eu; set -o pipefail
-            hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
-            team=$(curl -sf --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
+            team=$(curl -sf --config <(auth) \
               "$hcp_api/organizations/$ORG/teams?page%5Bsize%5D=100" \
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
-            curl -sf --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
-              "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100" \
-              | repo=$REPO jq -r '.data[] | select(.attributes["vcs-repo"].identifier == env.repo) | .id' \
-              | while read -r ws; do
-                  team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
-                    | { code=$(curl -s -o /dev/null -w '%{http_code}' -X POST --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
-                        -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
-                        case "$code" in 201|422) ;; *) echo "workspace $ws: HTTP $code" >&2; exit 1 ;; esac; }
-                done
+            page=1
+            while :; do
+              body=$(curl -sf --config <(auth) \
+                "$hcp_api/organizations/$ORG/workspaces?page%5Bsize%5D=100&page%5Bnumber%5D=$page")
+              printf '%s' "$body" \
+                | repo=$REPO jq -r '.data[] | select(.attributes["vcs-repo"].identifier == env.repo) | .id' \
+                | while read -r ws; do
+                    code=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
+                      | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
+                          -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
+                    case "$code" in 201|422) ;; *) echo "workspace $ws: HTTP $code" >&2; exit 1 ;; esac
+                  done
+              page=$(printf '%s' "$body" | jq -r '.meta.pagination["next-page"] // empty')
+              [ -n "$page" ] || break
+            done
           )
     ui:
       - form: Mint the team token (the value is shown once, so keep the page open until it is stored; run this last, after phases 0 and 1)
@@ -2341,7 +2357,7 @@ steps:
     actor: HUMAN
     title: Record the new-provider decision and its verification inventory
     why: A provider changes a locked design decision, and later runs need durable names for every check.
-    check_summary: The provider name, mise tool list, toolchain blobs and credentials timestamp in config.md are well formed, and the README Decisions table has the locked provider and authentication rows the entry's credential mechanism requires.
+    check_summary: The provider name, mise tool list, toolchain blobs and credentials timestamp in the README Config block are well formed, and the README Decisions table has the locked provider and authentication rows the entry's credential mechanism requires.
     run: |
       1. Add a row to the README Decisions table whose decision is exactly
          `Provider: <provider>`, choice is `adopt`, and status is `locked`, and a second
@@ -2937,14 +2953,16 @@ steps:
         run: |
           (
             set -eu; set -o pipefail
-            hcp_login='"header = \"Authorization: Bearer " + .credentials["app.terraform.io"].token + "\""'
-            curl -sf --config <(jq -r "$hcp_login" ~/.terraform.d/credentials.tfrc.json) \
+            cred=$(printenv TF_TOKEN_app_terraform_io || jq -r '.credentials["app.terraform.io"].token // empty' ~/.terraform.d/credentials.tfrc.json)
+            [ -n "$cred" ] || { echo 'No HCP credential found.' >&2; exit 1; }
+            auth() { printf 'header = "Authorization: Bearer %s"\n' "$cred"; }
+            curl -sf --config <(auth) \
               "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" | jq -er '.data.id'
           )
     run: |
       After the human confirms the toggle, they set this provider entry's
       `fork_speculative_plans_disabled` to `true` and record the ID printed above as
-      `fork_speculative_plans_workspace_id`, commit config.md and reload it; then re-run this
+      `fork_speculative_plans_workspace_id`, commit the README and reload its Config block; then re-run this
       durable attestation check.
     check: |
       test "$NEW_PROVIDER_FORK_PLANS_DISABLED" = "true" || exit 1
@@ -3005,7 +3023,7 @@ steps:
     when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
     title: Put the provider credential configuration in HCP
     why: The first plan must authenticate without exposing credential values to the agent or repository.
-    check_summary: The workspace has exactly the declared variables by key, category and sensitive flag, no variable sets, and a committed credentials_backend of hcp with a fresh credentials_verified_at in config.md.
+    check_summary: The workspace has exactly the declared variables by key, category and sensitive flag, no variable sets, and a committed credentials_backend of hcp with a fresh credentials_verified_at in the README Config block.
     ui:
       - form: Create a user API token for this step (the value is shown once; delete the token afterwards)
         url: https://app.terraform.io/app/settings/tokens
@@ -3052,7 +3070,7 @@ steps:
       Mint or configure the provider's least-privilege credential as its runbook requires
       first. After every declared variable is installed, the human records
       `credentials_backend: hcp` and the current UTC time as `credentials_verified_at` in
-      config.md using strict `YYYY-MM-DDTHH:MM:SSZ`, commits the config, and replies `done`.
+      the README Config block (format in config.md) using strict `YYYY-MM-DDTHH:MM:SSZ`, commits the README, and replies `done`.
     check: |
       [ "${NEW_PROVIDER_CREDENTIALS_BACKEND-hcp}" = hcp ] || exit 1
       test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
@@ -3135,13 +3153,13 @@ steps:
       - effect: Logs in to gcloud with an account that can read the pool and service-account IAM policies, which the check needs when it reports it could not verify.
         run: |
           mise exec -- gcloud auth login
-      - effect: For a WIF entry, creates the pool, an HCP provider whose condition binds organization $ORG and workspace $NEW_PROVIDER_WORKSPACE, the service account, and the impersonation binding for that pool only. It sets the gcloud default project, skips creates that already exist, and should be run on your own gcloud login, keeping one active provider per pool.
+      - effect: For a WIF entry, creates a pool and service account named for this provider, so another provider's trust is never reused, an HCP provider whose condition binds organization $ORG and workspace $NEW_PROVIDER_WORKSPACE, the service account, and the impersonation binding for that pool only. Point the workspace's TFC_GCP_* variables at the pool, provider and service account it creates. It sets the gcloud default project, skips creates that already exist, and should be run on your own gcloud login, keeping one active provider per pool.
         run: |
           printf 'GCP project ID: '; read -r PROJECT_ID
           PROJECT_NUMBER=$(mise exec -- gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
-          POOL=hcp-terraform
+          POOL="hcp-$NEW_PROVIDER"
           PROVIDER=hcp-terraform
-          SA=terraform
+          SA=$(printf 'hcp-%s' "$NEW_PROVIDER" | cut -c1-30)
           mise exec -- gcloud config set project "$PROJECT_ID"
           mise exec -- gcloud services enable \
             cloudresourcemanager.googleapis.com iam.googleapis.com \
@@ -3260,7 +3278,7 @@ steps:
     title: Verify the provider authentication handoff for GitHub Actions
     tri_state: true
     why: The workflow must authenticate to the provider without exposing credentials.
-    check_summary: Each required plan secret exists at repository scope and each required apply secret only in the production environment, with a committed credentials_backend and a fresh credentials_verified_at in config.md.
+    check_summary: Each required plan secret exists at repository scope and each required apply secret only in the production environment, with a committed credentials_backend and a fresh credentials_verified_at in the README Config block.
     cli:
       - effect: Stores one read-only plan secret at repository scope. Run it once for each credential_secrets entry whose scope is plan, entering that entry's name at the first prompt and the value at the hidden one, in your own terminal.
         run: |
@@ -3282,8 +3300,8 @@ steps:
       inventory there are no secrets to store: verify separate read-only plan and write apply
       keyless identities and trust instead (public identity identifiers do not belong in the
       secret inventory). After the handoff is complete, record `credentials_backend:
-      object-storage` and a fresh current UTC time as `credentials_verified_at` in config.md
-      using strict `YYYY-MM-DDTHH:MM:SSZ`, commit the config, and reply `done`.
+      object-storage` and a fresh current UTC time as `credentials_verified_at` in the README
+      Config block (format in config.md) using strict `YYYY-MM-DDTHH:MM:SSZ`, commit the README, and reply `done`.
     check: |
       [ "${NEW_PROVIDER_CREDENTIALS_BACKEND:-}" != hcp ] || exit 1
       printf '%s' "$NEW_PROVIDER_SECRETS" | jq -e '
