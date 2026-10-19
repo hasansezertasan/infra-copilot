@@ -6,7 +6,7 @@ description: "Route infrastructure work to the correct infra-skills workflow: se
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:d4ca4a3b1b8c035d0e9e8cf2ede54424c683c62bd288b88ca35db5a60a9f978b
-Source-Hash: blake3:336bc8004d70d38e156f7172785651cb73af07b543ebe9a48fcdfa72346208ff
+Source-Hash: blake3:78449379a9fa8d26a3d5fa52509d7f96e091c5bdef0e9d832ffa466b1d0349e7
 Schema-Version: v1
 -->
 

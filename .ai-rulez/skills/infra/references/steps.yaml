@@ -1228,11 +1228,11 @@ steps:
           gh api -X PUT "repos/$REPO/environments/production" --input - <<EOF
           {"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
           EOF
-          gh api --paginate "repos/$REPO/environments/production/deployment-branch-policies" \
-            --jq '.branch_policies[] | select(.name != "main" or .type != "branch") | .id' \
-            | while read -r policy_id; do
-                gh api -X DELETE "repos/$REPO/environments/production/deployment-branch-policies/$policy_id"
-              done
+          stale_ids=$(gh api --paginate "repos/$REPO/environments/production/deployment-branch-policies" \
+            --jq '.branch_policies[] | select(.name != "main" or .type != "branch") | .id')
+          for policy_id in $stale_ids; do
+            gh api -X DELETE "repos/$REPO/environments/production/deployment-branch-policies/$policy_id"
+          done
           gh api -X POST "repos/$REPO/environments/production/deployment-branch-policies" \
             -f name=main -f type=branch
       - effect: Only where GitHub offers required reviewers (public repos, or GitHub Enterprise for private ones; Free, Pro and Team reject it with a 422). Sets one user as the required reviewer and keeps the main-only branch policy.
@@ -1699,7 +1699,7 @@ steps:
                   -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/organizations/$ORG/teams")
             [ "$code" = 200 ] || [ "$code" = 201 ] || { echo "HTTP $code (422 usually means it already exists)" >&2; exit 1; }
           )
-      - effect: Grants the team the Plan permission, not Write (which includes apply), on every workspace in $ORG connected to $REPO. Skips a workspace that already has the grant, so run it again whenever add creates a new workspace. It reads every page of workspaces. It authenticates with your HCP login from the Terraform credentials file.
+      - effect: Grants the team the Plan permission, not Write (which includes apply), on every workspace in $ORG connected to $REPO. Sets a workspace's existing grant to Plan if it is at another level, so run it again whenever add creates a new workspace. It reads every page of workspaces. It authenticates with your HCP login from the Terraform credentials file.
         run: |
           (
             set -eu; set -o pipefail
@@ -1716,15 +1716,19 @@ steps:
               printf '%s' "$body" \
                 | repo=$REPO jq -r '.data[] | select(.attributes["vcs-repo"].identifier == env.repo) | .id' \
                 | while read -r ws; do
-                    resp=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
-                      | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
-                          -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
+                    tw=$(curl -sf --config <(auth) "$hcp_api/team-workspaces?filter%5Bworkspace%5D%5Bid%5D=$ws&page%5Bsize%5D=100" \
+                      | team_id=$team jq -r '[.data[] | select(.relationships.team.data.id == env.team_id)][0].id // empty')
+                    if [ -n "$tw" ]; then
+                      resp=$(printf '%s' '{"data":{"type":"team-workspaces","attributes":{"access":"plan"}}}' \
+                        | curl -s -w '\n%{http_code}' -X PATCH --config <(auth) \
+                            -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces/$tw")
+                    else
+                      resp=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
+                        | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
+                            -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
+                    fi
                     code=${resp##*$'\n'}
-                    case "$code" in
-                      200|201) ;;
-                      422) printf '%s' "$resp" | grep -qiE 'already|taken' || { echo "HTTP 422: $resp" >&2; exit 1; } ;;
-                      *) echo "HTTP $code: $resp" >&2; exit 1 ;;
-                    esac
+                    case "$code" in 200|201) ;; *) echo "HTTP $code: $resp" >&2; exit 1 ;; esac
                   done
               page=$(printf '%s' "$body" | jq -r '.meta.pagination["next-page"] // empty')
               [ -n "$page" ] || break
@@ -2815,7 +2819,7 @@ steps:
           create_ws "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
           set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
           unset HCP_TOKEN
-      - effect: Grants the team infra-plan-only the `Plan` permission, never `Write`, on $NEW_PROVIDER_WORKSPACE; a grant that already exists is left as it is. The token comes from a hidden prompt, so run it in your own terminal.
+      - effect: Grants the team infra-plan-only the `Plan` permission, never `Write`, on $NEW_PROVIDER_WORKSPACE; a grant at any other level is set to Plan. The token comes from a hidden prompt, so run it in your own terminal.
         run: |
           (
             set -eu; set -o pipefail
@@ -2826,15 +2830,19 @@ steps:
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
             ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
               | jq -er '.data.id')
-            resp=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
-              | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
-                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
+            tw=$(curl -sf --config <(auth) "$hcp_api/team-workspaces?filter%5Bworkspace%5D%5Bid%5D=$ws&page%5Bsize%5D=100" \
+              | team_id=$team jq -r '[.data[] | select(.relationships.team.data.id == env.team_id)][0].id // empty')
+            if [ -n "$tw" ]; then
+              resp=$(printf '%s' '{"data":{"type":"team-workspaces","attributes":{"access":"plan"}}}' \
+                | curl -s -w '\n%{http_code}' -X PATCH --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces/$tw")
+            else
+              resp=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
+                | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
+            fi
             code=${resp##*$'\n'}
-            case "$code" in
-              200|201) ;;
-              422) printf '%s' "$resp" | grep -qiE 'already|taken' || { echo "HTTP 422: $resp" >&2; exit 1; } ;;
-              *) echo "HTTP $code: $resp" >&2; exit 1 ;;
-            esac
+            case "$code" in 200|201) ;; *) echo "HTTP $code: $resp" >&2; exit 1 ;; esac
           )
     tri_state: true
     check: |
@@ -2932,7 +2940,7 @@ steps:
           Expiration | A short expiry, for example 1 day
           After creating | Copy it into the command's hidden prompt; never paste it into the conversation
     cli:
-      - effect: Grants the team infra-plan-only the `Plan` permission, never `Write`, on $NEW_PROVIDER_WORKSPACE; a grant that already exists is left as it is. The token comes from a hidden prompt, so run it in your own terminal.
+      - effect: Grants the team infra-plan-only the `Plan` permission, never `Write`, on $NEW_PROVIDER_WORKSPACE; a grant at any other level is set to Plan. The token comes from a hidden prompt, so run it in your own terminal.
         run: |
           (
             set -eu; set -o pipefail
@@ -2943,15 +2951,19 @@ steps:
               | jq -er '[.data[] | select(.attributes.name == "infra-plan-only")][0].id')
             ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
               | jq -er '.data.id')
-            resp=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
-              | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
-                  -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
+            tw=$(curl -sf --config <(auth) "$hcp_api/team-workspaces?filter%5Bworkspace%5D%5Bid%5D=$ws&page%5Bsize%5D=100" \
+              | team_id=$team jq -r '[.data[] | select(.relationships.team.data.id == env.team_id)][0].id // empty')
+            if [ -n "$tw" ]; then
+              resp=$(printf '%s' '{"data":{"type":"team-workspaces","attributes":{"access":"plan"}}}' \
+                | curl -s -w '\n%{http_code}' -X PATCH --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces/$tw")
+            else
+              resp=$(team_id=$team ws_id=$ws jq -n '{data:{type:"team-workspaces",attributes:{access:"plan"},relationships:{workspace:{data:{type:"workspaces",id:env.ws_id}},team:{data:{type:"teams",id:env.team_id}}}}}' \
+                | curl -s -w '\n%{http_code}' -X POST --config <(auth) \
+                    -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/team-workspaces")
+            fi
             code=${resp##*$'\n'}
-            case "$code" in
-              200|201) ;;
-              422) printf '%s' "$resp" | grep -qiE 'already|taken' || { echo "HTTP 422: $resp" >&2; exit 1; } ;;
-              *) echo "HTTP $code: $resp" >&2; exit 1 ;;
-            esac
+            case "$code" in 200|201) ;; *) echo "HTTP $code: $resp" >&2; exit 1 ;; esac
           )
     tri_state: true
     check: HCP_SCOPE_WORKSPACE="$NEW_PROVIDER_WORKSPACE" sh "$INFRA_REFERENCES/checks/hcp-apply-scope.sh"
@@ -3066,7 +3078,7 @@ steps:
           Variable sets | Remove every applied variable set; their inherited variables cannot be proven by the workspace-local inventory
           Workspace variables | Delete every key that is not in the declared credential inventory
     cli:
-      - effect: Creates one workspace variable for each entry of the declared credential inventory, asking for its value at the prompt, or for the path of a file holding it when the entry is sensitive, so a multi-line value such as a service-account JSON arrives whole. A key that already exists is skipped before its prompt, so edit or delete it in the page above. The token comes from a hidden prompt, so run it in your own terminal and never send a value to the agent.
+      - effect: Creates one workspace variable for each entry of the declared credential inventory (the agent prints the command with the inventory JSON already filled in where it shows $NEW_PROVIDER_CREDENTIALS, so run it as printed), asking for its value at the prompt, or for the path of a file holding it when the entry is sensitive, so a multi-line value such as a service-account JSON arrives whole. A key that already exists is skipped before its prompt, so edit or delete it in the page above. The token comes from a hidden prompt, so run it in your own terminal and never send a value to the agent.
         run: |
           (
             set -eu; set -o pipefail
