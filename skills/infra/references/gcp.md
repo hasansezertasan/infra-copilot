@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:23b4162fb05c920ac9cfb6c30abb336f2a0abbb26c637bba98c4ba069ad53896
-Source-Hash: blake3:bf329764285ba3cc91216b558c2b1aceac36c73dd89c39b56b57296cfc922cf1
+Content-Hash: blake3:73ca9ee00db0941774a9baa566b6df9f4820453c1d5ac262b7f02f6b18177999
+Source-Hash: blake3:d2753958eeb646edcf5cb921b67e86e029adeb466e5285a5246082c2c59f83b5
 Schema-Version: v1
 -->
 
@@ -113,9 +113,15 @@ config; `<project-number>` is numeric, not the project ID.
 ```sh
 PROJECT_ID=<project-id>
 PROJECT_NUMBER=<project-number>
-POOL=hcp-terraform
+# One pool and service account per provider, so a second GCP provider in this project never
+# reuses the first one's trust. Both are valid, bounded Google IDs: a slug of the provider
+# name (a-z, 0-9, dash, 16 characters) plus a checksum that keeps similar names apart.
+NEW_PROVIDER=<provider-name>
+slug=$(printf %s "$NEW_PROVIDER" | tr -cd 'a-z0-9-' | cut -c1-16 | sed 's/-*$//')
+tag=$(printf %s "$NEW_PROVIDER" | cksum | cut -d' ' -f1 | cut -c1-6)
+POOL="hcp-$slug-$tag"
 PROVIDER=hcp-terraform
-SA=terraform
+SA=$POOL
 
 mise exec -- gcloud config set project "$PROJECT_ID"
 mise exec -- gcloud services enable \
@@ -282,7 +288,7 @@ WIF:
 |---|---|
 | `TFC_GCP_PROVIDER_AUTH` | `true` |
 | `TFC_GCP_PRINCIPAL_TYPE` | `service_account` |
-| `TFC_GCP_RUN_SERVICE_ACCOUNT_EMAIL` | `terraform@<project-id>.iam.gserviceaccount.com` |
+| `TFC_GCP_RUN_SERVICE_ACCOUNT_EMAIL` | `<service-account>@<project-id>.iam.gserviceaccount.com` (the `$SA` the trust command created) |
 | `TFC_GCP_WORKLOAD_PROVIDER_NAME` | `projects/<project-number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>` |
 
 `TFC_GCP_WORKLOAD_PROVIDER_NAME` can instead be the triple `TFC_GCP_PROJECT_NUMBER`,
