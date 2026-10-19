@@ -77,9 +77,9 @@ this import applies.
 1. **Adopt the Template, then read config** (shared protocol, Step 0). On a repo with
    no answers file and no Config block, run `template-adopt` first. Then read config and
    export the org vars — [`../infra/references/config.md`](../infra/references/config.md).
-2. **Resume scan** over `template-adopt`, `template-contract`, `migrate-discovery-token` and
-   `migrate-import` in
-   [`../infra/references/steps.yaml`](../infra/references/steps.yaml) — **those four steps only**, not all of
+2. **Resume scan** over `template-adopt`, `template-contract`, `toolchain-pin`,
+   `migrate-discovery-token` and `migrate-import` in
+   [`../infra/references/steps.yaml`](../infra/references/steps.yaml) — **those five steps only**, not all of
    phase 5. `prune-spent-imports` is red for the whole of a correct import and belongs to
    another skill; scanning it here would make the shared protocol resume at it and run the
    prune procedure before this apply has landed. The

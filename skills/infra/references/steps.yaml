@@ -1496,17 +1496,24 @@ steps:
       and every step of it. The rules that matter here: render the Template into a scratch
       directory, never `copier copy` into the repo itself; reconcile file by file, showing
       the human the diff of every file that differs, README.md included, and never
-      overwriting on your own; commit the answers file last. A legacy `.infra-copilot/`
+      overwriting on your own; mise.toml and mise.lock are always shown to the human, even
+      when absent, and `mise trust --untrust` runs before the commit; compare the whole scratch
+      render with the repo and commit the answers file last. A legacy `.infra-copilot/`
       stops the skill before this step (config.md#unsupported-legacy-state). Then run
-      `template-contract`.
+      `template-contract` and `toolchain-pin`.
+    # The check reads what survives a restart: the answers file, the Config block and the
+    # files every render carries. The complete file set can only be compared against the
+    # scratch render, which is gone by then, so that comparison is a run step in the runbook.
     check: >-
-      git ls-files --error-unmatch .copier-answers.yml README.md >/dev/null 2>&1 &&
-      git diff --quiet HEAD -- .copier-answers.yml README.md &&
-      git diff --cached --quiet HEAD -- .copier-answers.yml README.md &&
+      git ls-files --error-unmatch .copier-answers.yml README.md mise.toml mise.lock
+      AGENTS.md >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- .copier-answers.yml README.md mise.toml mise.lock AGENTS.md &&
+      git diff --cached --quiet HEAD -- .copier-answers.yml README.md mise.toml mise.lock AGENTS.md &&
+      git ls-files 'terraform/*/backend.tf' | grep -q . &&
       sh "$INFRA_REFERENCES/checks/template-contract.sh" --source-only &&
       grep -q '<!-- infra:config start -->' README.md &&
       grep -q '<!-- infra:config end -->' README.md
-    produces: a committed .copier-answers.yml and the Template's Config block in the existing repo
+    produces: a committed .copier-answers.yml, the Template's Config block and its tool pins in the existing repo
     docs: docs/import.md#adopt-the-template-first
 
   - id: migrate-discovery-token

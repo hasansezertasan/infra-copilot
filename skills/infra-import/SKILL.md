@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Edit, Write, Glob, Grep, AskUserQuestion
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6255e8775f0b275ae074d7c0c1485ee533a9ca34fa668683f85b02e1bbbd5022
-Source-Hash: blake3:533ee191f27317c1f801c38b67c672ff157de8d0a2df9e23de6271b3bad98418
+Content-Hash: blake3:00db71c18db8373ee67e9f6bfd031897230aaaee4d7d20e25f21bc570c277171
+Source-Hash: blake3:cfc1a90a51a409f3afaf93b33bfcb5bb3f20b83a69f20aa7835107c28d5e3440
 Schema-Version: v1
 -->
 
@@ -84,9 +84,9 @@ this import applies.
 1. **Adopt the Template, then read config** (shared protocol, Step 0). On a repo with
    no answers file and no Config block, run `template-adopt` first. Then read config and
    export the org vars — [`../infra/references/config.md`](../infra/references/config.md).
-2. **Resume scan** over `template-adopt`, `template-contract`, `migrate-discovery-token` and
-   `migrate-import` in
-   [`../infra/references/steps.yaml`](../infra/references/steps.yaml) — **those four steps only**, not all of
+2. **Resume scan** over `template-adopt`, `template-contract`, `toolchain-pin`,
+   `migrate-discovery-token` and `migrate-import` in
+   [`../infra/references/steps.yaml`](../infra/references/steps.yaml) — **those five steps only**, not all of
    phase 5. `prune-spent-imports` is red for the whole of a correct import and belongs to
    another skill; scanning it here would make the shared protocol resume at it and run the
    prune procedure before this apply has landed. The

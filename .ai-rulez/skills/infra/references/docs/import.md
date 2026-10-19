@@ -36,11 +36,20 @@ conflicting file; nothing the repo already has is overwritten silently.
    Identical: skip it. Different: show the human the diff and take their choice, as a
    conflict. `README.md` is always a conflict: show the human the diff before writing it,
    take the Template's Config block and Decisions table, and keep their prose around them.
+   `mise.toml` and `mise.lock` are conflicts too, even when the repo has none: executable
+   tool config is never copied in unreviewed, so show the human both files.
+   Then compare the whole scratch render with the repo (`diff -rq <scratch> .`, ignoring
+   `.git`): every file the render has must now exist in the repo, or be a difference the
+   human chose to keep. The check cannot do this later, because the scratch render is gone.
 4. **Copy `.copier-answers.yml` last** and read its `_src_path`: it must be
    `gh:hasansezertasan/copier-infra`. A local checkout used as the source records its own
-   path, which `template-contract` rejects. Commit the adoption.
-5. **Check the contract.** Run `template-contract`: the recorded `_commit` must be a release
-   tag at or above the minimum. An older tag proposes `copier update`.
+   path, which `template-contract` rejects. Run `mise trust --untrust` in the repo, which
+   revokes any earlier trust of that path so a changed `mise.toml` is never trusted by
+   accident, then commit the adoption.
+5. **Check the contract, then the pins.** Run `template-contract`: the recorded `_commit` must
+   be a release tag at or above the minimum. An older tag proposes `copier update`. Then run
+   `toolchain-pin`, the human's review of the adopted `mise.toml` and `mise.lock`, before any
+   pin-dependent preflight.
 6. **Plan before importing.** Adoption can change `terraform/` files the human accepted from
    the Template. Obtain a plan; the resource import below runs exactly as before.
 
@@ -58,7 +67,8 @@ Exercised once on a fixture repo (a hand-written `README.md`, `mise.toml` and
 - Rendering into a scratch directory from `gh:hasansezertasan/copier-infra` recorded
   `_src_path: gh:hasansezertasan/copier-infra` and `_commit: v0.1.0`. The same render from a
   local checkout recorded the local path instead, which `template-contract` rejects.
-- Reconciling gave three conflicts: `README.md`, `mise.toml` and `versions.tf`. Taking the
+- Reconciling gave three conflicts (plus `mise.lock` and the rest, which were absent and so
+  copied in; the run did not yet treat those as reviewable): `README.md`, `mise.toml` and `versions.tf`. Taking the
   Template's `README.md` Config block and `versions.tf` and keeping the human's `mise.toml`,
   then committing, turned `template-adopt` and `template-contract` green.
 - `copier update` then ran on the adopted repo and kept `v0.1.0`.
