@@ -174,6 +174,13 @@ class HandoffFieldTests(unittest.TestCase):
         self.assertEqual(1, len(errors))
         self.assertIn('run', errors[0])
 
+    def test_a_cli_entry_with_only_an_effect_fails(self) -> None:
+        errors = self.errors_for(step(
+            'check_summary: The secret exists.\ncli:\n  - effect: Stores it.\n'
+        ))
+        self.assertEqual(1, len(errors))
+        self.assertIn('run', errors[0])
+
     def test_a_check_summary_block_scalar_with_no_body_fails(self) -> None:
         for indicator in ('|', '>-'):
             with self.subTest(indicator=indicator):
@@ -196,6 +203,23 @@ class HandoffFieldTests(unittest.TestCase):
             '    run: |\n'
             '      gh repo view\n'
         )))
+
+    def test_a_cli_variable_step_zero_never_exports_fails(self) -> None:
+        errors = self.errors_for(cli_step('gh repo create "$GITHUB_ORG/$NOT_EXPORTED"\n'))
+        self.assertEqual(1, len(errors))
+        self.assertIn('NOT_EXPORTED', errors[0])
+
+    def test_cli_variables_the_command_block_assigns_itself_pass(self) -> None:
+        for command in (
+            'for repo in a b; do gh repo view "$GITHUB_ORG/$repo"; done\n',
+            'read -r name\ngh repo view "$GITHUB_ORG/$name"\n',
+            'target=main\ngh repo view "$GITHUB_ORG" --branch "$target" --json "$HOME"\n',
+        ):
+            with self.subTest(command=command):
+                self.assertEqual([], self.errors_for(cli_step(command)))
+
+    def test_an_exported_cli_variable_passes(self) -> None:
+        self.assertEqual([], self.errors_for(cli_step('gh repo view "$GITHUB_ORG/${CF_ACCOUNT_ID}"\n')))
 
     def test_a_secret_variable_that_was_never_read_hidden_fails(self) -> None:
         errors = self.errors_for(cli_step('printf %s "$TOKEN" | gh secret set APP_KEY\n'))

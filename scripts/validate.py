@@ -1713,7 +1713,25 @@ def _has_text(step: ManifestStep, key: str) -> bool:
     return bool(first)
 
 
-def _cli_errors(step: ManifestStep) -> list[str]:
+#: Shell variables a command may use without Step 0 exporting them or assigning them.
+_SHELL_VARIABLES = frozenset({"HOME", "PWD", "OLDPWD", "USER", "PATH", "TMPDIR", "SHELL", "RANDOM"})
+_ASSIGNED_VARIABLE = re.compile(
+    r"(?:^|[\s;&|(])(?P<assign>[A-Za-z_]\w*)=|\bfor\s+(?P<loop>[A-Za-z_]\w*)\s+in\b"
+)
+_READ_TARGET = re.compile(
+    r"""\bread\s+(?:-[A-Za-z]+(?:\s+"[^"]*"|\s+'[^']*')?\s+)*(?P<name>[A-Za-z_]\w*)"""
+)
+_SECRET_NAME_ONLY = re.compile(_SECRET_NAME)
+
+
+def _assigned_variables(command: str) -> set[str]:
+    """Variables a command block sets itself: `NAME=`, `for NAME in`, `read [flags] NAME`."""
+    names = {m.group("assign") or m.group("loop") for m in _ASSIGNED_VARIABLE.finditer(command)}
+    names.update(match.group("name") for match in _READ_TARGET.finditer(command))
+    return names
+
+
+def _cli_errors(step: ManifestStep, exported: set[str]) -> list[str]:
     errors = []
     for entry in _list_entries(step.body("cli")):
         effect = _entry_value(entry, "effect") or ""
@@ -1729,6 +1747,12 @@ def _cli_errors(step: ManifestStep) -> list[str]:
                 "so its commands cannot be checked for secrets"
             )
         for command in commands:
+            own = _assigned_variables(command)
+            errors.extend(
+                f"step {step.id} cli command uses ${name}, which Step 0 never exports and the command never sets"
+                for name in _unexported(command, exported | own | _SHELL_VARIABLES)
+                if not _SECRET_NAME_ONLY.fullmatch(name)
+            )
             hidden = {
                 match.group("name")
                 for match in _HIDDEN_READ.finditer(command)
@@ -1796,7 +1820,7 @@ def validate_handoff_fields(root: Path = ROOT) -> list[str]:
             problems.append(f"step {step.id} is HUMAN but carries none of run, cli or ui")
         if ("cli" in step.fields or "ui" in step.fields) and not _has_text(step, "check_summary"):
             problems.append(f"step {step.id} carries cli or ui but no check_summary text")
-        problems.extend(_cli_errors(step))
+        problems.extend(_cli_errors(step, exported))
         problems.extend(_ui_errors(step, exported))
     return [f"{TOOLCHAIN_STEPS_DOCUMENT}: {problem}" for problem in problems]
 
