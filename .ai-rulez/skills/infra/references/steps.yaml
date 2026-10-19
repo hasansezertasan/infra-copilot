@@ -698,7 +698,8 @@ steps:
       - effect: For gcs, creates a private bucket with uniform access and object versioning; locking is native.
         run: |
           gcloud storage buckets create "gs://$STATE_BUCKET" \
-            --location=us --uniform-bucket-level-access --versioning
+            --location=us --uniform-bucket-level-access
+          gcloud storage buckets update "gs://$STATE_BUCKET" --versioning
       - effect: For s3 in us-east-1, creates the bucket, turns on versioning, blocks all public access, and creates the lock table.
         run: |
           aws s3api create-bucket --bucket "$STATE_BUCKET" --region us-east-1

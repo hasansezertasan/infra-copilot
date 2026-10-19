@@ -146,6 +146,57 @@ class HandoffFieldTests(unittest.TestCase):
         self.assertEqual(1, len(errors))
         self.assertIn('self-contained', errors[0])
 
+    def test_assigning_a_file_path_or_name_variable_is_no_leak(self) -> None:
+        for command in ('TOKEN_FILE=~/.cf-token\n', 'export SECRET_NAME=CLOUDFLARE\n', 'APP_KEY_PATH=./key.pem\n'):
+            with self.subTest(command=command):
+                self.assertEqual([], self.errors_for(cli_step(command)))
+
+    def test_every_block_scalar_spelling_is_still_checked_for_secrets(self) -> None:
+        for indicator in ('|', '|-', '|+', '>-'):
+            with self.subTest(indicator=indicator):
+                errors = self.errors_for(step(
+                    'check_summary: The secret exists.\n'
+                    'cli:\n'
+                    '  - effect: Stores it.\n'
+                    f'    run: {indicator}\n'
+                    '      gh secret set APP_KEY --body hunter2\n'
+                ))
+                self.assertEqual(1, len(errors))
+                self.assertIn('secret', errors[0])
+
+    def test_a_cli_entry_without_a_run_block_fails(self) -> None:
+        errors = self.errors_for(step(
+            'check_summary: The secret exists.\n'
+            'cli:\n'
+            '  - effect: Stores it.\n'
+            '    run: gh secret set APP_KEY --body hunter2\n'
+        ))
+        self.assertEqual(1, len(errors))
+        self.assertIn('run', errors[0])
+
+    def test_a_check_summary_block_scalar_with_no_body_fails(self) -> None:
+        for indicator in ('|', '>-'):
+            with self.subTest(indicator=indicator):
+                errors = self.errors_for(step(
+                    f'check_summary: {indicator}\n'
+                    'cli:\n'
+                    '  - effect: Does it.\n'
+                    '    run: |\n'
+                    '      gh repo view\n'
+                ))
+                self.assertEqual(1, len(errors))
+                self.assertIn('check_summary', errors[0])
+
+    def test_a_check_summary_block_scalar_with_a_body_passes(self) -> None:
+        self.assertEqual([], self.errors_for(step(
+            'check_summary: >-\n'
+            '  The secret exists.\n'
+            'cli:\n'
+            '  - effect: Does it.\n'
+            '    run: |\n'
+            '      gh repo view\n'
+        )))
+
     def test_a_secret_variable_that_was_never_read_hidden_fails(self) -> None:
         errors = self.errors_for(cli_step('printf %s "$TOKEN" | gh secret set APP_KEY\n'))
         self.assertEqual(1, len(errors))

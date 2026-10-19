@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:203ac2b6ebf7ddc956075acd9bc23d8b370d15240d256dc8b6d7597af5dd48fe
-Source-Hash: blake3:ab8daf23adaa9a530a7a4f03a6a33b45d610146e57481b1923aba70638ef8830
+Content-Hash: blake3:653ce8860fb32851af6a87b1ae8d170665f9248e0896cd3a88770e86185454c5
+Source-Hash: blake3:70a8c63400f71d95e9bb0a46faef1e9501a911bec1321a7c7092650fb14e428a
 Schema-Version: v1
 -->
 
@@ -31,7 +31,8 @@ Create a versioned, private bucket before running `terraform init`:
 
 ```sh
 gcloud storage buckets create gs://$STATE_BUCKET \
-  --location=us --uniform-bucket-level-access --versioning
+  --location=us --uniform-bucket-level-access
+gcloud storage buckets update gs://$STATE_BUCKET --versioning
 ```
 
 **S3 + DynamoDB:**

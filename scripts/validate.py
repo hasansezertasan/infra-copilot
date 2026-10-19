@@ -1621,7 +1621,7 @@ _SECRET_FLAG = re.compile(
     r"|(?:^|\s)-u\s+\S*:\S+"
 )
 _SECRET_LITERAL = re.compile(
-    rf"(?:^|\s){_SECRET_NAME}=(?!\$|[\"']\$)\S"
+    rf"(?:^|\s){_SECRET_NAME}(?<!FILE)(?<!PATH)(?<!NAME)=(?!\$|[\"']\$)\S"
     r"|<<<\s*[\"']?[^$\"'\s]"
     r"|configure set \w*(?:secret|token|password|key)\w*\s+[^$\s]",
     re.IGNORECASE,
@@ -1652,12 +1652,16 @@ _VARIABLE = re.compile(r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?P<bare>[A
 _EXPORTED_VARIABLE = re.compile(r"^\s*export ([A-Za-z_][A-Za-z0-9_]*)=", re.MULTILINE)
 
 
+#: Every YAML spelling of a block scalar header: literal or folded, any chomping.
+_BLOCK_INDICATOR = r"[|>][+-]?"
+
+
 def _literal_blocks(lines: list[str], key: str) -> list[str]:
-    """Every `key: |` literal block in a field body, as dedented text."""
+    """Every `key: |` block scalar (any indicator) in a field body, as dedented text."""
     blocks = []
     index = 0
     while index < len(lines):
-        match = re.match(rf"^(\s*)(- )?{re.escape(key)}: \|\s*$", lines[index])
+        match = re.match(rf"^(\s*)(- )?{re.escape(key)}: {_BLOCK_INDICATOR}\s*$", lines[index])
         index += 1
         if not match:
             continue
@@ -1701,6 +1705,14 @@ def _unexported(text: str, exported: set[str]) -> list[str]:
     return sorted({name for name in names if name not in exported})
 
 
+def _has_text(step: ManifestStep, key: str) -> bool:
+    """A field with words in it: its own line, or, for a block scalar, its body."""
+    first = step.text(key)
+    if re.fullmatch(_BLOCK_INDICATOR, first):
+        return any(line.strip() for line in step.body(key))
+    return bool(first)
+
+
 def _cli_errors(step: ManifestStep) -> list[str]:
     errors = []
     for entry in _list_entries(step.body("cli")):
@@ -1710,7 +1722,13 @@ def _cli_errors(step: ManifestStep) -> list[str]:
                 f"step {step.id} cli effect {effect[:50]!r} points at another entry; "
                 "each entry's command set must be self-contained"
             )
-        for command in _literal_blocks(entry, "run"):
+        commands = _literal_blocks(entry, "run")
+        if not commands:
+            errors.append(
+                f"step {step.id} has a cli entry whose run is not a block scalar, "
+                "so its commands cannot be checked for secrets"
+            )
+        for command in commands:
             hidden = {
                 match.group("name")
                 for match in _HIDDEN_READ.finditer(command)
@@ -1776,7 +1794,7 @@ def validate_handoff_fields(root: Path = ROOT) -> list[str]:
     for step in _manifest_steps(text):
         if step.text("actor") == "HUMAN" and not any(key in step.fields for key in ("run", "cli", "ui")):
             problems.append(f"step {step.id} is HUMAN but carries none of run, cli or ui")
-        if ("cli" in step.fields or "ui" in step.fields) and not step.text("check_summary"):
+        if ("cli" in step.fields or "ui" in step.fields) and not _has_text(step, "check_summary"):
             problems.append(f"step {step.id} carries cli or ui but no check_summary text")
         problems.extend(_cli_errors(step))
         problems.extend(_ui_errors(step, exported))
