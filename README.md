@@ -158,9 +158,11 @@ existing mode without moving state. See the
 including HCP-specific fields.
 
 The old `.infra-copilot/` directory and `.claude/infra-copilot.local.md` file are
-**unsupported**: the Skills report them and stop, and there is no migration code. Move the
-values into the README Config block and Decisions table by hand, then delete the old paths.
-Provider and authentication decisions belong in the Decisions table; the shipped
+**unsupported**: the Skills report them and stop, and there is no migration code. Note the
+public values and locked decisions you want to keep, delete the old paths, and restart:
+`infra-import` adopts the Template, which creates the Config block and Decisions table and
+asks for those values, so never write them by hand first. Re-record any locked decision
+in the Decisions table afterwards. Provider and authentication decisions belong in the Decisions table; the shipped
 [`decisions.md.example`](skills/infra/references/decisions.md.example) shows its rows.
 
 ## Restricting what it can do
