@@ -2662,7 +2662,7 @@ steps:
     when: '[ "$NEW_PROVIDER_BACKEND" = "hcp" ]'
     title: Create the workspace and make it visible to the plan-only team
     why: A missing or invisible workspace is expected setup work, not an unverifiable terminal state.
-    check_summary: The workspace exists and is visible to the plan-only credential, which this check distinguishes from network, authentication and API failures.
+    check_summary: The workspace exists with the asserted VCS, working-directory, Terraform-version, trigger and safety settings, and is visible to the plan-only credential; the check separates that from network, authentication and API failures.
     ui:
       - form: Create a user API token for this step (the value is shown once; delete the token afterwards)
         url: https://app.terraform.io/app/settings/tokens
@@ -2672,13 +2672,14 @@ steps:
           Expiration | A short expiry, for example 1 day
           After creating | Copy it into the command's hidden prompt; never paste it into the conversation
     cli:
-      - effect: Creates and configures the workspace with the helpers from hcp.md Phase 1 (the sh block that defines load_tf_version through set_workspace_config; load it first, in the same shell, with REPO, ORG and HCP_LEAVES exported per Step 0). It resolves the repository's VCS connection, so a GitHub App connection needs this user token. The token comes from a hidden prompt, so run it in your own terminal.
+      - effect: Creates and configures the workspace with the helpers from hcp.md Phase 1 (paste the function definitions from the sh block that defines load_tf_version through set_workspace_config into your shell first, with REPO, ORG and HCP_LEAVES exported per Step 0). It resolves the repository's VCS connection, so a GitHub App connection needs this user token. The token comes from a hidden prompt, so run it in your own terminal.
         run: |
           printf 'HCP user API token: '; read -rs HCP_TOKEN; echo; export HCP_TOKEN
           load_tf_version
           resolve_vcs_connection
           create_ws "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
           set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+          unset HCP_TOKEN
       - effect: Grants the team infra-plan-only the `Plan` permission, never `Write`, on $NEW_PROVIDER_WORKSPACE; a grant that already exists is left as it is. The token comes from a hidden prompt, so run it in your own terminal.
         run: |
           (
@@ -2728,17 +2729,19 @@ steps:
           Expiration | A short expiry, for example 1 day
           After creating | Copy it into the command's hidden prompt; never paste it into the conversation
     cli:
-      - effect: Reconciles every asserted workspace setting with hcp.md's set_workspace_config, keeping the existing VCS connection (load the helpers from hcp.md Phase 1 first, in the same shell, with REPO, ORG and HCP_LEAVES exported per Step 0). The token comes from a hidden prompt, so run it in your own terminal.
+      - effect: Reconciles every asserted workspace setting with hcp.md's set_workspace_config, keeping the existing VCS connection (paste the helper definitions from hcp.md Phase 1 into your shell first, with REPO, ORG and HCP_LEAVES exported per Step 0). The token comes from a hidden prompt, so run it in your own terminal.
         run: |
           printf 'HCP user API token: '; read -rs HCP_TOKEN; echo; export HCP_TOKEN
           load_tf_version
           set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+          unset HCP_TOKEN
       - effect: Only when the helper refuses because the workspace targets a different working directory. Inspect the workspace ID it names first, and enter it only when it is truly this provider's workspace; otherwise choose a different workspace name.
         run: |
           printf 'HCP user API token: '; read -rs HCP_TOKEN; echo; export HCP_TOKEN
           printf 'Workspace ID named by the helper (ws-...): '; read -r CONFIRM_WORKSPACE_ID; export CONFIRM_WORKSPACE_ID
           load_tf_version
           set_workspace_config "$NEW_PROVIDER_WORKSPACE" "terraform/$NEW_PROVIDER"
+          unset HCP_TOKEN
     check: |
       test "$hcp_api" = "https://app.terraform.io/api/v2" || exit 2
       body=$(curl -sf "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
@@ -2916,7 +2919,7 @@ steps:
           Variable sets | Remove every applied variable set; their inherited variables cannot be proven by the workspace-local inventory
           Workspace variables | Delete every key that is not in the declared credential inventory
     cli:
-      - effect: Creates one workspace variable for each entry of the declared credential inventory, asking for its value at the prompt (hidden when the entry is sensitive). A key that already exists is left unchanged, so edit or delete it in the page above. The token comes from a hidden prompt, so run it in your own terminal and never send a value to the agent.
+      - effect: Creates one workspace variable for each entry of the declared credential inventory, asking for its value at the prompt (hidden when the entry is sensitive). A key that already exists is skipped before its prompt, so edit or delete it in the page above. The token comes from a hidden prompt, so run it in your own terminal and never send a value to the agent.
         run: |
           (
             set -eu; set -o pipefail
@@ -2925,8 +2928,10 @@ steps:
             auth() { printf 'header = "Authorization: Bearer %s"\n' "$api_token"; }
             ws=$(curl -sf --config <(auth) "$hcp_api/organizations/$ORG/workspaces/$NEW_PROVIDER_WORKSPACE" \
               | jq -er '.data.id')
+            existing=$(curl -sf --config <(auth) "$hcp_api/workspaces/$ws/vars" | jq -r '.data[].attributes.key')
             printf '%s' '$NEW_PROVIDER_CREDENTIALS' | jq -c '.[]' | while read -r entry; do
               key=$(printf '%s' "$entry" | jq -r .key)
+              if printf '%s\n' "$existing" | grep -Fxq "$key"; then echo "$key already exists; left unchanged"; continue; fi
               category=$(printf '%s' "$entry" | jq -r .category)
               sensitive=$(printf '%s' "$entry" | jq -r .sensitive)
               if [ "$sensitive" = true ]; then
@@ -2938,11 +2943,8 @@ steps:
                 | var_key=$key var_category=$category var_sensitive=$sensitive jq -Rs '{data:{type:"vars",attributes:{key:env.var_key,value:.,category:env.var_category,sensitive:(env.var_sensitive == "true")}}}' \
                 | curl -s -o /dev/null -w '%{http_code}' -X POST --config <(auth) \
                     -H "Content-Type: application/vnd.api+json" -d @- "$hcp_api/workspaces/$ws/vars")
-              case "$code" in
-                201) echo "set $key" ;;
-                422) echo "$key already exists; left unchanged" ;;
-                *) echo "$key: HTTP $code" >&2; exit 1 ;;
-              esac
+              [ "$code" = 201 ] || { echo "$key: HTTP $code" >&2; exit 1; }
+              echo "set $key"
             done
           )
     run: |
