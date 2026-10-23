@@ -817,8 +817,8 @@ steps:
     run: |
       With a Cloudflare R2 state_endpoint, first explain that R2 does not implement
       PutBucketVersioning, so a bad apply cannot be rolled back from the bucket, and obtain
-      explicit approval. Only then record a locked "State history" row in the README
-      Decisions table. Do not mark the step green on versioning evidence the store cannot
+      explicit approval. Only then record a locked "State history" row with choice
+      "no-versioning" in the README Decisions table. Do not mark the step green on versioning evidence the store cannot
       give. Other S3-compatible stores (MinIO) support versioning:
       enable it with `aws s3api put-bucket-versioning --endpoint-url "$STATE_ENDPOINT"`
       and the check requires it.
@@ -870,7 +870,7 @@ steps:
                   /^<!-- infra:decisions start -->[[:space:]]*$/ { if (in_table || ++starts > 1) bad=1; in_table=1; next }
                   /^<!-- infra:decisions end -->[[:space:]]*$/ { if (!in_table || ++ends > 1) bad=1; in_table=0; next }
                   !in_table { next }
-                  clean($2) == "state history" && clean($4) == "locked" {found=1}
+                  clean($2) == "state history" && clean($3) == "no-versioning" && clean($4) == "locked" {found=1}
                   END {exit !(found && !bad && !in_table && starts == 1 && ends == 1)}
                 ' README.md 2>/dev/null || exit 1
                 exit 0 ;;
@@ -995,12 +995,19 @@ steps:
         # Ensure old HCP cloud block is removed (cannot have both backend and cloud)
         ! grep -q 'cloud[[:space:]]*{' "$leaf"/*.tf 2>/dev/null || exit 1
         if [ "$STATE_BACKEND" = "s3" ] && [ -n "$STATE_ENDPOINT" ]; then
-          grep -Fq "$STATE_ENDPOINT" "$leaf"/*.tf 2>/dev/null || exit 1
+          # Judge only the backend "s3" block, without comments or whitespace, so an
+          # endpoint mentioned elsewhere in the leaf cannot satisfy the check.
+          backend_block=$(cat "$leaf"/*.tf 2>/dev/null | awk '
+            /^[[:space:]]*(#|\/\/)/ {next}
+            !depth && /backend[[:space:]]+"s3"[[:space:]]*\{/ {inside=1}
+            inside {print; depth += gsub(/\{/, "{") - gsub(/\}/, "}"); if (depth <= 0) {inside=0; depth=0}}
+          ' | tr -d ' \t')
+          printf '%s\n' "$backend_block" | grep -Fxq "s3=\"$STATE_ENDPOINT\"" || exit 1
           # A leftover DynamoDB lock would still contact AWS next to use_lockfile.
-          ! grep -Eq '^[[:space:]]*dynamodb_table[[:space:]]*=' "$leaf"/*.tf 2>/dev/null || exit 1
+          ! printf '%s\n' "$backend_block" | grep -Eq '^dynamodb_table=' || exit 1
           for flag in use_lockfile use_path_style skip_credentials_validation skip_metadata_api_check \
             skip_region_validation skip_requesting_account_id skip_s3_checksum; do
-            grep -Eq "^[[:space:]]*$flag[[:space:]]*=[[:space:]]*true[[:space:]]*$" "$leaf"/*.tf 2>/dev/null || exit 1
+            printf '%s\n' "$backend_block" | grep -Fxq "$flag=true" || exit 1
           done
         elif [ "$STATE_BACKEND" = "s3" ]; then
           grep -Fq "$STATE_LOCK_TABLE" "$leaf"/*.tf 2>/dev/null || exit 1
@@ -2893,7 +2900,11 @@ steps:
       3. Pass only scope=plan secrets from NEW_PROVIDER_SECRETS to plan and scope=apply
          secrets to apply as environment variables. Use -lock=false on every plan;
          keep locking and refresh enabled on apply. Use separate keyless identities too.
-      4. Add the provider-specific authentication step before terraform init (e.g., google-github-actions/auth for GCP, aws-actions/configure-aws-credentials for AWS, azure/login for Azure)
+      4. Add the provider-specific authentication step before terraform init (e.g., google-github-actions/auth for GCP, aws-actions/configure-aws-credentials for AWS, azure/login for Azure).
+         With state_endpoint set, stop for an AWS provider: the S3-compatible backend keys live in
+         the job's AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, which that action overwrites and the
+         AWS provider would otherwise read. Hand off for a separate backend credential channel
+         (docs/object-storage-ci.md#s3-compatible-cloudflare-r2-minio) instead of mixing both.
       5. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
       6. Add plan-$NEW_PROVIDER to the aggregate `plan` job's `needs` list
       7. Wire up routed outputs and job conditions for $NEW_PROVIDER in both workflows.

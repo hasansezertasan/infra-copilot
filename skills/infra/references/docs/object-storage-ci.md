@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:86097cee3ba40dfdaee3613b7aee4bc4f8eac005368215e5d7711ab8213d054b
-Source-Hash: blake3:e6240b86258189963a69241f93837379ce4a62ec029a88e6b91409b83a09875e
+Content-Hash: blake3:3e17973a9a47c00d82a1d754e624f30675a8f3f2d3253623a0ed0b14c9d6c7e5
+Source-Hash: blake3:45e6e3b8049ec5cdbff859744952817c47971f344ed2c698724dd1a44ebfbbfb
 Schema-Version: v1
 -->
 
@@ -506,6 +506,12 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 ```
+
+Limitation: the backend keys are the job's process-wide `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY`. A leaf that also manages AWS resources would have them overwritten by
+`aws-actions/configure-aws-credentials` or consumed by the AWS provider, so combining an
+S3-compatible backend with an AWS provider needs a separate backend credential channel (for
+example a named profile). That combination is not covered yet.
 
 **Azure:**
 

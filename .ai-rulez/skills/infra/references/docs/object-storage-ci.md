@@ -500,6 +500,12 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 ```
 
+Limitation: the backend keys are the job's process-wide `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY`. A leaf that also manages AWS resources would have them overwritten by
+`aws-actions/configure-aws-credentials` or consumed by the AWS provider, so combining an
+S3-compatible backend with an AWS provider needs a separate backend credential channel (for
+example a named profile). That combination is not covered yet.
+
 **Azure:**
 
 Create separate applications/service principals: plan has Storage Blob Data Reader on
