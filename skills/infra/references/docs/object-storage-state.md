@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:45c876de4bdc4f2f51125a5fb0331090d6bc1130b11a6237c92525fe787d0580
-Source-Hash: blake3:e5837bf31ab96e07820dd962f6e5e1556bc7fc50ca29cc4b242e2bc7296f67a4
+Content-Hash: blake3:0a347a6c02ce903a5bd6483bb321c867355adfb1fd1adf76477aac9f3dd8c740
+Source-Hash: blake3:84fa5bd87807b8588233a25328be0360c96f139a385c64b96d84e3b870e413a0
 Schema-Version: v1
 -->
 
@@ -31,9 +31,11 @@ What changes in verification:
 
 - `state-bucket` proves that the bucket exists at the endpoint (`aws s3api head-bucket
   --endpoint-url`). MinIO and other stores that implement versioning must also have it
-  enabled. Cloudflare R2 (`*.r2.cloudflarestorage.com`) is the exception: it does not implement `PutBucketVersioning` or
+  enabled and must not carry a bucket policy with a wildcard principal (no policy at all is
+  fine). Cloudflare R2 (`*.r2.cloudflarestorage.com`) is the exception: it does not implement `PutBucketVersioning` or
   `PutPublicAccessBlock`, so versioning and the public-access-block check cannot be verified.
-  The step records a locked "State history" row in the README Decisions table instead, and
+  The step requires a locked "State history" row in the README Decisions table instead (the check
+  fails without it), and
   `backend-identity-trust` has the human confirm that no `r2.dev` URL or custom domain is
   attached (R2 buckets are private by default).
 - Locking uses conditional writes. R2 supports `If-None-Match` on `PutObject`, which native

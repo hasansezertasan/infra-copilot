@@ -44,16 +44,34 @@ class WorkflowSetupTests(unittest.TestCase):
         self.git('add', '.github')
         self.git('commit', '--allow-empty', '-qm', 'test: record workflows')
 
-    def check(self, *, references: bool = True) -> subprocess.CompletedProcess[str]:
+    def check(self, *, references: bool = True,
+              extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         env = {**os.environ, 'INFRA_REFERENCES': str(REFERENCES) if references else '',
                'BACKEND': 'object-storage', 'ADDITIONAL_PROVIDER_NAMES': '[]',
-               'ADDITIONAL_PROVIDER_SECRETS': '[{"name":"aws","credential_secrets":[{"name":"READ_TOKEN","scope":"plan","required":true},{"name":"WRITE_TOKEN","scope":"apply","required":true}]}]'}
+               'ADDITIONAL_PROVIDER_SECRETS': '[{"name":"aws","credential_secrets":[{"name":"READ_TOKEN","scope":"plan","required":true},{"name":"WRITE_TOKEN","scope":"apply","required":true}]}]',
+               **(extra_env or {})}
         return subprocess.run(['sh', str(SCRIPT)], cwd=self.root, env=env,
                               capture_output=True, text=True)
 
     def test_shipped_workflows_pass(self) -> None:
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_s3_compatible_state_requires_both_static_keys_in_every_job(self) -> None:
+        endpoint = {'STATE_BACKEND': 's3', 'STATE_ENDPOINT': 'https://x.r2.cloudflarestorage.com'}
+        # The shipped templates only comment the static-key env out, so setup must not pass.
+        self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
+        for path in (self.plan, self.apply):
+            path.write_text(path.read_text().replace('#   AWS_ACCESS_KEY_ID:', 'AWS_ACCESS_KEY_ID:')
+                            .replace('#   AWS_SECRET_ACCESS_KEY:', 'AWS_SECRET_ACCESS_KEY:'))
+        self.commit()
+        self.assertEqual(self.check(extra_env=endpoint).returncode, 0)
+        # AWS-style and OIDC setups are unaffected without an endpoint.
+        self.assertEqual(self.check(extra_env={'STATE_BACKEND': 's3'}).returncode, 0)
+        # Dropping one key from a single job fails again.
+        self.plan.write_text(self.plan.read_text().replace('AWS_SECRET_ACCESS_KEY:', '#   AWS_SECRET_ACCESS_KEY:', 1))
+        self.commit()
+        self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
 
     def test_legacy_workflows_do_not_skip_setup(self) -> None:
         self.plan.write_text(self.plan.read_text().replace('  workflow_dispatch:\n', '')

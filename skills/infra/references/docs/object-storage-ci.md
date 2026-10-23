@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:fbd3452e4f2ac1308d2cbb44e9b3530924be53fbf4a42ab88202758be46f4f5d
-Source-Hash: blake3:e5837bf31ab96e07820dd962f6e5e1556bc7fc50ca29cc4b242e2bc7296f67a4
+Content-Hash: blake3:7bcd9a856103da1b579cce8752c6b44e4e1f7873da38fa55009f5db94e1257fe
+Source-Hash: blake3:84fa5bd87807b8588233a25328be0360c96f139a385c64b96d84e3b870e413a0
 Schema-Version: v1
 -->
 
@@ -497,7 +497,9 @@ There is no OIDC. Mint two keys scoped to the state bucket only: plan with Objec
 apply with Object Read & Write. Store plan `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` at
 repository scope and the apply pair as production-environment overrides. Plan jobs run with
 `-lock=false`, so the read-only key never writes; apply takes the `use_lockfile` lock. The
-Terraform backend reads both variables from the environment, so no auth action is needed:
+Terraform backend reads both variables from the environment, so no auth action is needed. The
+`gha-workflows` check requires both secret references, uncommented, in every plan and apply job
+whenever `state_endpoint` is set:
 
 ```yaml
 env:

@@ -23,9 +23,17 @@ def check_script(step_id: str) -> str:
     return textwrap.dedent('\n'.join(lines))
 
 
-def run(script: str, env: dict[str, str], stubs: str) -> subprocess.CompletedProcess[str]:
+def run(script: str, env: dict[str, str], stubs: str,
+        cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(['bash', '-c', stubs + script], capture_output=True, text=True,
-                          env={**os.environ, **env})
+                          env={**os.environ, **env}, cwd=cwd)
+
+
+DECISIONS = (
+    '<!-- infra:decisions start -->\n\n| Decision | Choice | Status | Rationale |\n|---|---|---|---|\n'
+    '| State history | no-versioning | {status} | R2 has no versioning |\n\n'
+    '<!-- infra:decisions end -->\n'
+)
 
 
 @unittest.skipUnless(os.name == 'posix', 'checks require a POSIX shell')
@@ -33,14 +41,18 @@ class StateBucketTests(unittest.TestCase):
     ENV = {'STATE_BACKEND': 's3', 'STATE_BUCKET': 'b', 'STATE_REGION': 'auto',
            'STATE_LOCK_TABLE': '', 'STATE_ENDPOINT': 'https://x.r2.cloudflarestorage.com'}
     STUB = ('aws() { printf "%s\\n" "$*" >> "$AWS_LOG"; '
-            'case "$*" in *get-bucket-versioning*) printf "%s\\n" "$AWS_VERSIONING"; return 0 ;; esac; '
+            'case "$*" in *get-bucket-versioning*) printf "%s\\n" "$AWS_VERSIONING"; return 0 ;; '
+            '*get-bucket-policy*) printf "%s\\n" "$AWS_POLICY"; return "${AWS_POLICY_STATUS:-0}" ;; esac; '
             'return "${AWS_STATUS:-0}"; }\n')
 
     def run_check(self, extra: dict[str, str]) -> tuple[subprocess.CompletedProcess[str], str]:
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / 'aws.log'
+            status = extra.pop('DECISION', 'locked')
+            if status != 'absent':
+                (Path(tmp) / 'README.md').write_text(DECISIONS.format(status=status))
             result = run(check_script('state-bucket'),
-                         {**self.ENV, **extra, 'AWS_LOG': str(log)}, self.STUB)
+                         {**self.ENV, **extra, 'AWS_LOG': str(log)}, self.STUB, cwd=Path(tmp))
             return result, log.read_text() if log.exists() else ''
 
     def test_endpoint_needs_only_the_bucket_to_exist(self) -> None:
@@ -48,6 +60,12 @@ class StateBucketTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls.strip().splitlines(),
                          ['s3api head-bucket --endpoint-url https://x.r2.cloudflarestorage.com --bucket b'])
+
+    def test_r2_requires_the_locked_state_history_decision(self) -> None:
+        for decision in ('proposed', 'absent'):
+            with self.subTest(decision=decision):
+                result, _ = self.run_check({'DECISION': decision})
+                self.assertEqual(result.returncode, 1)
 
     def test_endpoint_fails_when_the_bucket_is_missing(self) -> None:
         result, _ = self.run_check({'AWS_STATUS': '1'})
@@ -60,6 +78,21 @@ class StateBucketTests(unittest.TestCase):
         self.assertIn('get-bucket-versioning --endpoint-url http://minio.example:9000', calls)
         result, _ = self.run_check({**minio, 'AWS_VERSIONING': 'None'})
         self.assertEqual(result.returncode, 1)
+
+    def test_other_stores_must_not_allow_anonymous_access(self) -> None:
+        minio = {'STATE_ENDPOINT': 'http://minio.example:9000', 'AWS_VERSIONING': 'Enabled'}
+        public = '{"Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":"s3:GetObject"}]}'
+        scoped = '{"Statement":[{"Effect":"Allow","Principal":{"AWS":["arn:aws:iam::1:root"]},"Action":"s3:*"}]}'
+        for policy, status, error, expected in (
+            (public, '0', '', 1),
+            ('{"Statement":[{"Principal":"*"}]}', '0', '', 1),
+            (scoped, '0', '', 0),
+            ('An error occurred (NoSuchBucketPolicy)', '254', '', 0),
+            ('An error occurred (AccessDenied)', '254', '', 1),
+        ):
+            with self.subTest(policy=policy):
+                result, _ = self.run_check({**minio, 'AWS_POLICY': policy, 'AWS_POLICY_STATUS': status})
+                self.assertEqual(result.returncode, expected, result.stderr)
 
     def test_aws_s3_still_requires_a_lock_table(self) -> None:
         result, calls = self.run_check({'STATE_ENDPOINT': ''})

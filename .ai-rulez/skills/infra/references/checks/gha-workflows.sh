@@ -251,6 +251,12 @@ for name in $names; do
       printf '%s' "$inventory" | jq -e --arg name "$secret" --arg tier "$tier" '
         any(.[]; (.name | ascii_upcase) == $name and .scope == $tier)' >/dev/null || exit 1
     done || exit 1
+    # An S3-compatible state store has no OIDC: every job must read both static keys.
+    if [ "${STATE_BACKEND:-}" = s3 ] && [ -n "${STATE_ENDPOINT:-}" ]; then
+      for secret in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+        printf '%s\n' "$references" | grep -Fxq "$secret" || exit 1
+      done
+    fi
     printf '%s' "$inventory" | jq -r --arg tier "$tier" '
       .[] | select(.scope == $tier and .required == true) | .name | ascii_upcase' |
       while IFS= read -r secret; do

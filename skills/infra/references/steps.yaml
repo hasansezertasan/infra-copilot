@@ -771,7 +771,7 @@ steps:
     when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
     title: Create the state storage bucket
     why: Terraform state needs a durable, versioned bucket before any init.
-    check_summary: The bucket exists, is private, has versioning enabled and, for GCS, sits at state_region (plus a lock table on AWS S3). With a Cloudflare R2 state_endpoint it only proves the bucket exists, because R2 has no versioning or public-access-block API (a recorded decision and a human review stand in); any other state_endpoint (MinIO) must also have versioning enabled.
+    check_summary: The bucket exists, is private, has versioning enabled and, for GCS, sits at state_region (plus a lock table on AWS S3). With a Cloudflare R2 state_endpoint it only proves the bucket exists, because R2 has no versioning or public-access-block API (a recorded decision and a human review stand in); the locked "State history" row must exist; any other state_endpoint (MinIO) must also have versioning enabled and no wildcard-principal bucket policy.
     cli:
       - effect: For gcs, creates a private bucket at the location in state_region (a bucket location cannot change later) with uniform access, enforced public access prevention and object versioning; locking is native.
         run: |
@@ -862,13 +862,32 @@ steps:
             case "$STATE_ENDPOINT" in
               https://*.r2.cloudflarestorage.com|https://*.r2.cloudflarestorage.com/*)
                 # Cloudflare R2 implements neither PutBucketVersioning nor PutPublicAccessBlock.
-                # Only existence is provable; the rest is the "State history" decision row
-                # and the backend-identity-trust review.
+                # Existence is provable; the rest is the locked "State history" decision
+                # row (required here) and the backend-identity-trust review.
+                awk -F '|' '
+                  function clean(v) { gsub(/^[[:space:]`]+|[[:space:]`]+$/, "", v); return tolower(v) }
+                  /^<!-- infra:decisions start -->[[:space:]]*$/ { if (in_table || ++starts > 1) bad=1; in_table=1; next }
+                  /^<!-- infra:decisions end -->[[:space:]]*$/ { if (!in_table || ++ends > 1) bad=1; in_table=0; next }
+                  !in_table { next }
+                  clean($2) == "state history" && clean($4) == "locked" {found=1}
+                  END {exit !(found && !bad && !in_table && starts == 1 && ends == 1)}
+                ' README.md 2>/dev/null || exit 1
                 exit 0 ;;
             esac
             # Any other store (MinIO, ...) supports versioning, so it is still required.
             aws s3api get-bucket-versioning --endpoint-url "$STATE_ENDPOINT" --bucket "$STATE_BUCKET" \
               --query "Status" --output text 2>/dev/null | grep -Fxq "Enabled" || exit 1
+            # ... and must not allow anonymous access. No bucket policy is fine; a policy
+            # with a wildcard principal, or one that cannot be read, is not.
+            if policy=$(aws s3api get-bucket-policy --endpoint-url "$STATE_ENDPOINT" --bucket "$STATE_BUCKET" \
+              --query Policy --output text 2>&1); then
+              if printf '%s' "$policy" | tr -d '[:space:]' |
+                grep -Eq '"Principal":("\*"|\{"AWS":("\*"|\[[^]]*"\*"[^]]*\])\})'; then
+                exit 1
+              fi
+            else
+              printf '%s' "$policy" | grep -Fq 'NoSuchBucketPolicy' || exit 1
+            fi
             exit 0
           fi
           [ -n "$STATE_LOCK_TABLE" ] || exit 1

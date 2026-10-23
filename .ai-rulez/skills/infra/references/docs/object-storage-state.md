@@ -24,9 +24,11 @@ What changes in verification:
 
 - `state-bucket` proves that the bucket exists at the endpoint (`aws s3api head-bucket
   --endpoint-url`). MinIO and other stores that implement versioning must also have it
-  enabled. Cloudflare R2 (`*.r2.cloudflarestorage.com`) is the exception: it does not implement `PutBucketVersioning` or
+  enabled and must not carry a bucket policy with a wildcard principal (no policy at all is
+  fine). Cloudflare R2 (`*.r2.cloudflarestorage.com`) is the exception: it does not implement `PutBucketVersioning` or
   `PutPublicAccessBlock`, so versioning and the public-access-block check cannot be verified.
-  The step records a locked "State history" row in the README Decisions table instead, and
+  The step requires a locked "State history" row in the README Decisions table instead (the check
+  fails without it), and
   `backend-identity-trust` has the human confirm that no `r2.dev` URL or custom domain is
   attached (R2 buckets are private by default).
 - Locking uses conditional writes. R2 supports `If-None-Match` on `PutObject`, which native
