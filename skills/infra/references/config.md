@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:60b5c96885ad0483296744b67fc1ff00f724454fcd0362a16b3c88418f7a5830
-Source-Hash: blake3:4282790ea31558f71dc2e984dd8d169339d4b7503b65400f3df9200b4f459ca6
+Content-Hash: blake3:a74eef0239ac5dd336a1ac939b7564014416be5cc391b32d583549f31b9e3d69
+Source-Hash: blake3:8c47e9c2540102d28d43d53476bed5e81fc7d9fde837741e8e45978e840197d4
 Schema-Version: v1
 -->
 
@@ -143,7 +143,8 @@ backend: object-storage
 state_backend: gcs             # Terraform backend type: gcs | s3 | azurerm
 state_bucket: <string>         # bucket name for state files (container name for azurerm)
 state_prefix: terraform/state  # path prefix within bucket (default: terraform/state)
-state_lock_table: ""           # DynamoDB table for S3 locking; GCS/azurerm have native locking
+state_endpoint: ""             # S3-compatible endpoint URL (Cloudflare R2, MinIO); empty means AWS S3
+state_lock_table: ""           # DynamoDB table for AWS S3 locking; empty with state_endpoint (use_lockfile); GCS/azurerm have native locking
 state_region: ""               # region for S3, Azure resource group location, and the GCS bucket location (required to create a GCS bucket)
 azure_storage_account: ""      # storage account name for azurerm backend
 azure_resource_group: ""       # resource group for azurerm backend
@@ -361,7 +362,8 @@ Before running ANY step's `check` or `run`, the agent MUST:
    export STATE_BACKEND=<state_backend>      # gcs | s3 | azurerm
    export STATE_BUCKET=<state_bucket>
    export STATE_PREFIX=<state_prefix>        # default: terraform/state
-   export STATE_LOCK_TABLE=<state_lock_table>  # for S3; empty for GCS/azurerm
+   export STATE_ENDPOINT=<state_endpoint>    # for S3-compatible stores; empty for AWS S3, GCS, azurerm
+   export STATE_LOCK_TABLE=<state_lock_table>  # for AWS S3; empty for S3-compatible, GCS, azurerm
    export STATE_REGION=<state_region>        # for S3 and azurerm; the bucket location for GCS
    export AZURE_STORAGE_ACCOUNT=<azure_storage_account>  # for azurerm
    export AZURE_RESOURCE_GROUP=<azure_resource_group>    # for azurerm

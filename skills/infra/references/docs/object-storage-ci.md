@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e91d2c5bb83606a72383c087952bb1211286a9322f611bf1753e5bba1ef6711b
-Source-Hash: blake3:4282790ea31558f71dc2e984dd8d169339d4b7503b65400f3df9200b4f459ca6
+Content-Hash: blake3:3e17973a9a47c00d82a1d754e624f30675a8f3f2d3253623a0ed0b14c9d6c7e5
+Source-Hash: blake3:8c47e9c2540102d28d43d53476bed5e81fc7d9fde837741e8e45978e840197d4
 Schema-Version: v1
 -->
 
@@ -490,6 +490,28 @@ an independently verified trust/gate mechanism; the default AWS subject does not
     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
     aws-region: us-east-1
 ```
+
+**S3-compatible (Cloudflare R2, MinIO):**
+
+There is no OIDC. Mint two keys scoped to the state bucket only: plan with Object Read only,
+apply with Object Read & Write. Store plan `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` at
+repository scope and the apply pair as production-environment overrides. Plan jobs run with
+`-lock=false`, so the read-only key never writes; apply takes the `use_lockfile` lock. The
+Terraform backend reads both variables from the environment, so no auth action is needed. The
+`gha-workflows` check requires both secret references, uncommented, in every plan and apply job
+whenever `state_endpoint` is set. Put the mapping at job scope, before `steps:`:
+
+```yaml
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+```
+
+Limitation: the backend keys are the job's process-wide `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY`. A leaf that also manages AWS resources would have them overwritten by
+`aws-actions/configure-aws-credentials` or consumed by the AWS provider, so combining an
+S3-compatible backend with an AWS provider needs a separate backend credential channel (for
+example a named profile). That combination is not covered yet.
 
 **Azure:**
 
