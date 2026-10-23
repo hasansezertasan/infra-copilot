@@ -66,6 +66,10 @@ jobs:
     environment: production
     # Increase for leaves with long provider operations (for example Cloud SQL/GKE).
     timeout-minutes: 120
+    # S3-compatible state (R2, MinIO) has no OIDC: uncomment to authenticate the backend.
+    # env:
+    #   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    #   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -87,10 +91,6 @@ jobs:
       #   with:
       #     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
       #     aws-region: us-east-1
-      #
-      # S3-compatible (R2, MinIO): no auth action. Add this job's env:
-      #   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      #   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       #
       # Azure:
       # - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
@@ -162,6 +162,10 @@ jobs:
     environment: production
     # Increase for leaves with long provider operations (for example Cloud SQL/GKE).
     timeout-minutes: 120
+    # S3-compatible state (R2, MinIO) has no OIDC: uncomment to authenticate the backend.
+    # env:
+    #   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    #   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -184,10 +188,6 @@ jobs:
       #   with:
       #     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
       #     aws-region: us-east-1
-      #
-      # S3-compatible (R2, MinIO): no auth action. Add this job's env:
-      #   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      #   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       #
       # Azure:
       # - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2

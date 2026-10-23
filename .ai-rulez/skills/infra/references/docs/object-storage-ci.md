@@ -492,7 +492,7 @@ repository scope and the apply pair as production-environment overrides. Plan jo
 `-lock=false`, so the read-only key never writes; apply takes the `use_lockfile` lock. The
 Terraform backend reads both variables from the environment, so no auth action is needed. The
 `gha-workflows` check requires both secret references, uncommented, in every plan and apply job
-whenever `state_endpoint` is set:
+whenever `state_endpoint` is set. Put the mapping at job scope, before `steps:`:
 
 ```yaml
 env:

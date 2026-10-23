@@ -62,14 +62,20 @@ class WorkflowSetupTests(unittest.TestCase):
         # The shipped templates only comment the static-key env out, so setup must not pass.
         self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
         for path in (self.plan, self.apply):
-            path.write_text(path.read_text().replace('#   AWS_ACCESS_KEY_ID:', 'AWS_ACCESS_KEY_ID:')
-                            .replace('#   AWS_SECRET_ACCESS_KEY:', 'AWS_SECRET_ACCESS_KEY:'))
+            path.write_text(path.read_text().replace('    # env:\n', '    env:\n')
+                            .replace('    #   AWS_ACCESS_KEY_ID:', '      AWS_ACCESS_KEY_ID:')
+                            .replace('    #   AWS_SECRET_ACCESS_KEY:', '      AWS_SECRET_ACCESS_KEY:'))
         self.commit()
         self.assertEqual(self.check(extra_env=endpoint).returncode, 0)
         # AWS-style and OIDC setups are unaffected without an endpoint.
         self.assertEqual(self.check(extra_env={'STATE_BACKEND': 's3'}).returncode, 0)
         # Dropping one key from a single job fails again.
-        self.plan.write_text(self.plan.read_text().replace('AWS_SECRET_ACCESS_KEY:', '#   AWS_SECRET_ACCESS_KEY:', 1))
+        good = self.plan.read_text()
+        self.plan.write_text(good.replace('      AWS_SECRET_ACCESS_KEY:', '    #   AWS_SECRET_ACCESS_KEY:', 1))
+        self.commit()
+        self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
+        # References outside a job-level env mapping (a step-level env) do not count.
+        self.plan.write_text(good.replace('    env:\n      AWS_ACCESS_KEY_ID', '    outputs-not-env:\n      AWS_ACCESS_KEY_ID', 1))
         self.commit()
         self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
 

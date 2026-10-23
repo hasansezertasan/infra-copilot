@@ -251,10 +251,17 @@ for name in $names; do
       printf '%s' "$inventory" | jq -e --arg name "$secret" --arg tier "$tier" '
         any(.[]; (.name | ascii_upcase) == $name and .scope == $tier)' >/dev/null || exit 1
     done || exit 1
-    # An S3-compatible state store has no OIDC: every job must read both static keys.
+    # An S3-compatible state store has no OIDC: every job must read both static keys
+    # through its job-level env mapping, which every step (init, plan, apply) inherits.
     if [ "${STATE_BACKEND:-}" = s3 ] && [ -n "${STATE_ENDPOINT:-}" ]; then
+      job_env=$(printf '%s\n' "$tier_job" | awk '
+        /^    env:[[:space:]]*$/ {in_env=1; next}
+        in_env && /^    [^[:space:]]/ {in_env=0}
+        in_env {print}
+      ')
       for secret in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
-        printf '%s\n' "$references" | grep -Fxq "$secret" || exit 1
+        printf '%s\n' "$job_env" |
+          grep -Eq "^      $secret:[[:space:]]*\\$\\{\\{[[:space:]]*secrets\\.$secret[[:space:]]*\\}\\}[[:space:]]*\$" || exit 1
       done
     fi
     printf '%s' "$inventory" | jq -r --arg tier "$tier" '
