@@ -2904,7 +2904,7 @@ steps:
          With state_endpoint set, stop for an AWS provider: the S3-compatible backend keys live in
          the job's AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, which that action overwrites and the
          AWS provider would otherwise read. Hand off for a separate backend credential channel
-         (docs/object-storage-ci.md#s3-compatible-cloudflare-r2-minio) instead of mixing both.
+         (docs/object-storage-ci.md#cloud-provider-gcss3azure) instead of mixing both.
       5. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
       6. Add plan-$NEW_PROVIDER to the aggregate `plan` job's `needs` list
       7. Wire up routed outputs and job conditions for $NEW_PROVIDER in both workflows.
