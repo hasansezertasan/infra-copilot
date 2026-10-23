@@ -258,6 +258,8 @@ for name in $names; do
     # An S3-compatible state store has no OIDC: every job must read both static keys
     # through its job-level env mapping, which every step (init, plan, apply) inherits.
     if [ "${STATE_BACKEND:-}" = s3 ] && [ -n "${STATE_ENDPOINT:-}" ]; then
+      # Exactly one job-level env mapping: a second one would shadow or duplicate the first.
+      [ "$(printf '%s\n' "$tier_job" | grep -c '^    env:[[:space:]]*$' || true)" = 1 ] || exit 1
       job_env=$(printf '%s\n' "$tier_job" | awk '
         /^    env:[[:space:]]*$/ {in_env=1; next}
         in_env && /^    [^[:space:]]/ {in_env=0}

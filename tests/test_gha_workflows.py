@@ -76,6 +76,11 @@ class WorkflowSetupTests(unittest.TestCase):
         self.plan.write_text(good.replace('      AWS_SECRET_ACCESS_KEY:', '    #   AWS_SECRET_ACCESS_KEY:', 1))
         self.commit()
         self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
+        # Two sibling env mappings (a partial merge) are rejected even when together they hold both keys.
+        split = good.replace('      AWS_SECRET_ACCESS_KEY:', '    env:\n      AWS_SECRET_ACCESS_KEY:', 1)
+        self.plan.write_text(split)
+        self.commit()
+        self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
         # References outside a job-level env mapping (a step-level env) do not count.
         self.plan.write_text(good.replace('    env:\n      AWS_ACCESS_KEY_ID', '    outputs-not-env:\n      AWS_ACCESS_KEY_ID', 1))
         self.commit()

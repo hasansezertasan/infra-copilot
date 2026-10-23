@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:ab765fc8595a95d8318e4d9b7e89eb25f81600843b9dde9523b0021685d6a3e1",
+  "source_hash": "blake3:02c4ab26dcd5d3b6d7fb37dfa07f532cf1223af74b2b2e81842335bf24843e68",
   "outputs": {
     ".agents/plugins/marketplace.json": {
       "content_hash": "blake3:c9f5887398d8719835af830222d1d2197f73e2a8864b2e1e24d347e2d75b6b36",
@@ -63,7 +63,7 @@
       "mode": "0755"
     },
     "skills/infra/references/checks/gha-workflows.sh": {
-      "content_hash": "blake3:5856e46ad6ddc4944c452ddfae7d0569f379bcded4103a744d30c378a8d789ae",
+      "content_hash": "blake3:8e87a2157441ca4f435e291441399c07e409e964f5114c290f628d10afb0fbf9",
       "mode": "0644"
     },
     "skills/infra/references/checks/hcp-apply-scope.sh": {
