@@ -815,10 +815,11 @@ steps:
           az storage account blob-service-properties update --account-name "$AZURE_STORAGE_ACCOUNT" --enable-versioning true
           az storage container create --account-name "$AZURE_STORAGE_ACCOUNT" --name "$STATE_BUCKET" --public-access off
     run: |
-      With a Cloudflare R2 state_endpoint, the agent records a locked "State history" row in
-      the README Decisions table: R2 does not implement PutBucketVersioning, so a bad apply
-      cannot be rolled back from the bucket. Do not mark the step green on versioning
-      evidence the store cannot give. Other S3-compatible stores (MinIO) support versioning:
+      With a Cloudflare R2 state_endpoint, first explain that R2 does not implement
+      PutBucketVersioning, so a bad apply cannot be rolled back from the bucket, and obtain
+      explicit approval. Only then record a locked "State history" row in the README
+      Decisions table. Do not mark the step green on versioning evidence the store cannot
+      give. Other S3-compatible stores (MinIO) support versioning:
       enable it with `aws s3api put-bucket-versioning --endpoint-url "$STATE_ENDPOINT"`
       and the check requires it.
     check: |
@@ -877,14 +878,19 @@ steps:
             # Any other store (MinIO, ...) supports versioning, so it is still required.
             aws s3api get-bucket-versioning --endpoint-url "$STATE_ENDPOINT" --bucket "$STATE_BUCKET" \
               --query "Status" --output text 2>/dev/null | grep -Fxq "Enabled" || exit 1
-            # ... and must not allow anonymous access. No bucket policy is fine; a policy
-            # with a wildcard principal, or one that cannot be read, is not.
+            # ... and must not allow anonymous access. No bucket policy is fine. Any policy is
+            # parsed: an Allow statement for a wildcard principal (as the principal itself or any
+            # value of its object) or with NotPrincipal fails, and so does a policy that is
+            # unreadable or not JSON.
             if policy=$(aws s3api get-bucket-policy --endpoint-url "$STATE_ENDPOINT" --bucket "$STATE_BUCKET" \
               --query Policy --output text 2>&1); then
-              if printf '%s' "$policy" | tr -d '[:space:]' |
-                grep -Eq '"Principal":("\*"|\{"AWS":("\*"|\[[^]]*"\*"[^]]*\])\})'; then
-                exit 1
-              fi
+              printf '%s' "$policy" | jq -e '
+                [(.Statement // []) | (if type == "array" then . else [.] end)[]
+                 | select((.Effect // "Allow") == "Allow")
+                 | select(has("NotPrincipal") or .Principal == "*"
+                          or ((.Principal | type) == "object"
+                              and ([.Principal[] | (if type == "array" then .[] else . end)] | any(. == "*"))))]
+                | length == 0' >/dev/null 2>&1 || exit 1
             else
               printf '%s' "$policy" | grep -Fq 'NoSuchBucketPolicy' || exit 1
             fi
@@ -990,6 +996,8 @@ steps:
         ! grep -q 'cloud[[:space:]]*{' "$leaf"/*.tf 2>/dev/null || exit 1
         if [ "$STATE_BACKEND" = "s3" ] && [ -n "$STATE_ENDPOINT" ]; then
           grep -Fq "$STATE_ENDPOINT" "$leaf"/*.tf 2>/dev/null || exit 1
+          # A leftover DynamoDB lock would still contact AWS next to use_lockfile.
+          ! grep -Eq '^[[:space:]]*dynamodb_table[[:space:]]*=' "$leaf"/*.tf 2>/dev/null || exit 1
           for flag in use_lockfile use_path_style skip_credentials_validation skip_metadata_api_check \
             skip_region_validation skip_requesting_account_id skip_s3_checksum; do
             grep -Eq "^[[:space:]]*$flag[[:space:]]*=[[:space:]]*true[[:space:]]*$" "$leaf"/*.tf 2>/dev/null || exit 1

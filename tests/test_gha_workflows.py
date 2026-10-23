@@ -67,8 +67,10 @@ class WorkflowSetupTests(unittest.TestCase):
                             .replace('    #   AWS_SECRET_ACCESS_KEY:', '      AWS_SECRET_ACCESS_KEY:'))
         self.commit()
         self.assertEqual(self.check(extra_env=endpoint).returncode, 0)
-        # AWS-style and OIDC setups are unaffected without an endpoint.
-        self.assertEqual(self.check(extra_env={'STATE_BACKEND': 's3'}).returncode, 0)
+        # Without an endpoint the static keys are not the backend credential, so referencing
+        # them needs a declared inventory secret of the right tier and is rejected here.
+        self.assertEqual(self.check(extra_env={'STATE_BACKEND': 's3'}).returncode, 1)
+        self.assertEqual(self.check(extra_env={'STATE_BACKEND': 'gcs'}).returncode, 1)
         # Dropping one key from a single job fails again.
         good = self.plan.read_text()
         self.plan.write_text(good.replace('      AWS_SECRET_ACCESS_KEY:', '    #   AWS_SECRET_ACCESS_KEY:', 1))

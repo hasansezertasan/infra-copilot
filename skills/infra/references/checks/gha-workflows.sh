@@ -246,7 +246,11 @@ for name in $names; do
     printf '%s\n' "$references" | while IFS= read -r secret; do
       [ -n "$secret" ] || continue
       case "$secret" in
-        GCP_WORKLOAD_IDENTITY_PROVIDER|GCP_SERVICE_ACCOUNT|AWS_ROLE_ARN|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AZURE_CLIENT_ID|AZURE_TENANT_ID|AZURE_SUBSCRIPTION_ID) continue ;;
+        GCP_WORKLOAD_IDENTITY_PROVIDER|GCP_SERVICE_ACCOUNT|AWS_ROLE_ARN|AZURE_CLIENT_ID|AZURE_TENANT_ID|AZURE_SUBSCRIPTION_ID) continue ;;
+        # Static keys are the backend credential only for an S3-compatible store; anywhere
+        # else they must match a declared inventory secret of the right tier.
+        AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY)
+          if [ "${STATE_BACKEND:-}" = s3 ] && [ -n "${STATE_ENDPOINT:-}" ]; then continue; fi ;;
       esac
       printf '%s' "$inventory" | jq -e --arg name "$secret" --arg tier "$tier" '
         any(.[]; (.name | ascii_upcase) == $name and .scope == $tier)' >/dev/null || exit 1
