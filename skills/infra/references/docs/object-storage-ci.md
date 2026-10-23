@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:e91d2c5bb83606a72383c087952bb1211286a9322f611bf1753e5bba1ef6711b
-Source-Hash: blake3:4282790ea31558f71dc2e984dd8d169339d4b7503b65400f3df9200b4f459ca6
+Content-Hash: blake3:fbd3452e4f2ac1308d2cbb44e9b3530924be53fbf4a42ab88202758be46f4f5d
+Source-Hash: blake3:10d84a7df02c390bdb3ce00f8515b57b2a3b29025d287d71a76b1d1f1a799a27
 Schema-Version: v1
 -->
 
@@ -489,6 +489,20 @@ an independently verified trust/gate mechanism; the default AWS subject does not
   with:
     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
     aws-region: us-east-1
+```
+
+**S3-compatible (Cloudflare R2, MinIO):**
+
+There is no OIDC. Mint two keys scoped to the state bucket only: plan with Object Read only,
+apply with Object Read & Write. Store plan `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` at
+repository scope and the apply pair as production-environment overrides. Plan jobs run with
+`-lock=false`, so the read-only key never writes; apply takes the `use_lockfile` lock. The
+Terraform backend reads both variables from the environment, so no auth action is needed:
+
+```yaml
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 ```
 
 **Azure:**

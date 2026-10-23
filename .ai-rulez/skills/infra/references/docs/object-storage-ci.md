@@ -484,6 +484,20 @@ an independently verified trust/gate mechanism; the default AWS subject does not
     aws-region: us-east-1
 ```
 
+**S3-compatible (Cloudflare R2, MinIO):**
+
+There is no OIDC. Mint two keys scoped to the state bucket only: plan with Object Read only,
+apply with Object Read & Write. Store plan `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` at
+repository scope and the apply pair as production-environment overrides. Plan jobs run with
+`-lock=false`, so the read-only key never writes; apply takes the `use_lockfile` lock. The
+Terraform backend reads both variables from the environment, so no auth action is needed:
+
+```yaml
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+```
+
 **Azure:**
 
 Create separate applications/service principals: plan has Storage Blob Data Reader on

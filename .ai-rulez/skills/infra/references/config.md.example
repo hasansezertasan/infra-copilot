@@ -13,7 +13,8 @@ managed_repos:
 state_backend: gcs             # gcs | s3 | azurerm; choose your storage provider
 state_bucket: your-org-tf-state
 state_prefix: terraform/state
-# state_lock_table: ""         # DynamoDB table for S3; GCS/azurerm have native locking
+# state_endpoint: ""           # S3-compatible endpoint (Cloudflare R2, MinIO); empty means AWS S3
+# state_lock_table: ""         # DynamoDB table for AWS S3; empty with state_endpoint (use_lockfile); GCS/azurerm have native locking
 # state_region: ""             # for S3 backend and Azure resource group creation; GCS uses bucket location
 # azure_storage_account: ""    # storage account name for azurerm backend
 # azure_resource_group: ""     # resource group for azurerm backend

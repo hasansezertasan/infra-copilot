@@ -88,6 +88,10 @@ jobs:
       #     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
       #     aws-region: us-east-1
       #
+      # S3-compatible (R2, MinIO): no auth action. Add this job's env:
+      #   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      #   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      #
       # Azure:
       # - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
       #   with:
@@ -180,6 +184,10 @@ jobs:
       #   with:
       #     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
       #     aws-region: us-east-1
+      #
+      # S3-compatible (R2, MinIO): no auth action. Add this job's env:
+      #   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      #   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       #
       # Azure:
       # - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2

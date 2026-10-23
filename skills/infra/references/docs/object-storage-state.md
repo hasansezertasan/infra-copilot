@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:1e10e725accdbf56f8b8afc1bb5004b5f5edc78bc670c19c3a4035fec88f994c
-Source-Hash: blake3:4282790ea31558f71dc2e984dd8d169339d4b7503b65400f3df9200b4f459ca6
+Content-Hash: blake3:cf6e91cc53e33d603236f4d55bbfcfe8e061940c54143c1d104f1da198f35359
+Source-Hash: blake3:10d84a7df02c390bdb3ce00f8515b57b2a3b29025d287d71a76b1d1f1a799a27
 Schema-Version: v1
 -->
 
@@ -18,10 +18,30 @@ Supported backends with automated verification:
 | Backend | Locking | Region field | Notes |
 |---------|---------|--------------|-------|
 | `gcs` | Native | N/A (set `state_region` to the bucket location) | Best for GCP-heavy repos |
-| `s3` | DynamoDB table | Required | Set `state_lock_table` |
+| `s3` | DynamoDB table (AWS), or `use_lockfile` with `state_endpoint` | Required (`auto` for R2) | Set `state_lock_table`, or `state_endpoint` for an S3-compatible store |
 | `azurerm` | Native (blob lease) | Required (location) | Azure Storage container (set `azure_storage_account`, `azure_resource_group`) |
 
-S3-compatible object stores (Cloudflare R2, MinIO, etc.) are **not currently supported** by automated verification. The `state-bucket` check uses AWS S3 APIs without custom endpoint support, and requires a DynamoDB lock table for S3. This is a repository verification requirement. Terraform also supports [native S3 lockfiles](https://developer.hashicorp.com/terraform/language/backend/s3#state-locking) with `use_lockfile`; that configuration is not covered by this check. Manual backend configuration may work but will not pass Phase 0 verification.
+### S3-compatible stores (Cloudflare R2, MinIO)
+
+These are `state_backend: s3` with a non-empty `state_endpoint`, not a separate backend. The
+rendered `backend.tf` carries `endpoints.s3`, `use_path_style`, the `skip_*` flags and
+`use_lockfile = true` instead of `dynamodb_table`, and `state_lock_table` stays empty.
+
+What changes in verification:
+
+- `state-bucket` proves only that the bucket exists at the endpoint (`aws s3api head-bucket
+  --endpoint-url`). Cloudflare R2 does not implement `PutBucketVersioning` or
+  `PutPublicAccessBlock`, so versioning and the public-access-block check cannot be verified.
+  The step records a locked "State history" row in the README Decisions table instead, and
+  `backend-identity-trust` has the human confirm that no `r2.dev` URL or custom domain is
+  attached (R2 buckets are private by default).
+- Locking uses conditional writes. R2 supports `If-None-Match` on `PutObject`, which native
+  lockfiles rely on; HashiCorp tests only against AWS S3 and calls other stores best effort,
+  so confirm with a real `terraform init` and plan.
+- There is no OIDC. Plan holds a read-only bucket-scoped key at repository scope
+  (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) and apply a read-write key in the `production`
+  environment. Plan jobs use `-lock=false`, so the plan key never writes.
+- The `aws` CLI (pinned as `awscli` in `mise.toml`) is still used, with `--endpoint-url`.
 
 ## Bucket setup
 
@@ -55,6 +75,16 @@ aws dynamodb create-table --table-name "$STATE_LOCK_TABLE" \
   --key-schema AttributeName=LockID,KeyType=HASH \
   --billing-mode PAY_PER_REQUEST
 ```
+
+**S3-compatible (Cloudflare R2, MinIO):**
+
+```sh
+# Run with the store's admin key in AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (your shell only).
+aws s3api create-bucket --endpoint-url "$STATE_ENDPOINT" --region "$STATE_REGION" --bucket "$STATE_BUCKET"
+```
+
+No versioning or public-access-block call exists on R2; see
+[S3-compatible stores](#s3-compatible-stores-cloudflare-r2-minio).
 
 **Azure (Blob Storage):**
 
