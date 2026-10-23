@@ -246,7 +246,7 @@ for name in $names; do
     printf '%s\n' "$references" | while IFS= read -r secret; do
       [ -n "$secret" ] || continue
       case "$secret" in
-        GCP_WORKLOAD_IDENTITY_PROVIDER|GCP_SERVICE_ACCOUNT|AWS_ROLE_ARN|AZURE_CLIENT_ID|AZURE_TENANT_ID|AZURE_SUBSCRIPTION_ID) continue ;;
+        GCP_WORKLOAD_IDENTITY_PROVIDER|GCP_SERVICE_ACCOUNT|AWS_ROLE_ARN|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AZURE_CLIENT_ID|AZURE_TENANT_ID|AZURE_SUBSCRIPTION_ID) continue ;;
       esac
       printf '%s' "$inventory" | jq -e --arg name "$secret" --arg tier "$tier" '
         any(.[]; (.name | ascii_upcase) == $name and .scope == $tier)' >/dev/null || exit 1

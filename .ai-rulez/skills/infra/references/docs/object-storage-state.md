@@ -22,8 +22,9 @@ rendered `backend.tf` carries `endpoints.s3`, `use_path_style`, the `skip_*` fla
 
 What changes in verification:
 
-- `state-bucket` proves only that the bucket exists at the endpoint (`aws s3api head-bucket
-  --endpoint-url`). Cloudflare R2 does not implement `PutBucketVersioning` or
+- `state-bucket` proves that the bucket exists at the endpoint (`aws s3api head-bucket
+  --endpoint-url`). MinIO and other stores that implement versioning must also have it
+  enabled. Cloudflare R2 (`*.r2.cloudflarestorage.com`) is the exception: it does not implement `PutBucketVersioning` or
   `PutPublicAccessBlock`, so versioning and the public-access-block check cannot be verified.
   The step records a locked "State history" row in the README Decisions table instead, and
   `backend-identity-trust` has the human confirm that no `r2.dev` URL or custom domain is

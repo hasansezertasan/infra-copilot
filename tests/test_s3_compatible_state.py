@@ -32,7 +32,9 @@ def run(script: str, env: dict[str, str], stubs: str) -> subprocess.CompletedPro
 class StateBucketTests(unittest.TestCase):
     ENV = {'STATE_BACKEND': 's3', 'STATE_BUCKET': 'b', 'STATE_REGION': 'auto',
            'STATE_LOCK_TABLE': '', 'STATE_ENDPOINT': 'https://x.r2.cloudflarestorage.com'}
-    STUB = 'aws() { printf "%s\\n" "$*" >> "$AWS_LOG"; return "${AWS_STATUS:-0}"; }\n'
+    STUB = ('aws() { printf "%s\\n" "$*" >> "$AWS_LOG"; '
+            'case "$*" in *get-bucket-versioning*) printf "%s\\n" "$AWS_VERSIONING"; return 0 ;; esac; '
+            'return "${AWS_STATUS:-0}"; }\n')
 
     def run_check(self, extra: dict[str, str]) -> tuple[subprocess.CompletedProcess[str], str]:
         with tempfile.TemporaryDirectory() as tmp:
@@ -49,6 +51,14 @@ class StateBucketTests(unittest.TestCase):
 
     def test_endpoint_fails_when_the_bucket_is_missing(self) -> None:
         result, _ = self.run_check({'AWS_STATUS': '1'})
+        self.assertEqual(result.returncode, 1)
+
+    def test_other_stores_still_require_versioning(self) -> None:
+        minio = {'STATE_ENDPOINT': 'http://minio.example:9000'}
+        result, calls = self.run_check({**minio, 'AWS_VERSIONING': 'Enabled'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('get-bucket-versioning --endpoint-url http://minio.example:9000', calls)
+        result, _ = self.run_check({**minio, 'AWS_VERSIONING': 'None'})
         self.assertEqual(result.returncode, 1)
 
     def test_aws_s3_still_requires_a_lock_table(self) -> None:
@@ -86,6 +96,15 @@ class BackendIdentityTests(unittest.TestCase):
     def test_aws_s3_still_requires_the_role_arn(self) -> None:
         self.assertEqual(self.status('AWS_ROLE_ARN', 'AWS_ROLE_ARN', endpoint=''), 0)
         self.assertEqual(self.status(self.KEYS, self.KEYS, endpoint=''), 1)
+
+
+
+class WorkflowAllowlistTests(unittest.TestCase):
+    def test_static_keys_are_accepted_backend_credentials(self) -> None:
+        script = (MANIFEST.parent / 'checks/gha-workflows.sh').read_text()
+        allow = next(line for line in script.splitlines() if 'AWS_ROLE_ARN|' in line)
+        for name in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'):
+            self.assertIn(name, allow)
 
 
 if __name__ == '__main__':

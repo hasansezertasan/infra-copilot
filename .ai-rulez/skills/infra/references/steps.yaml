@@ -771,7 +771,7 @@ steps:
     when: '[ "$HAS_OBJECT_STORAGE" = "true" ]'
     title: Create the state storage bucket
     why: Terraform state needs a durable, versioned bucket before any init.
-    check_summary: The bucket exists, is private, has versioning enabled and, for GCS, sits at state_region (plus a lock table on AWS S3). With state_endpoint set (Cloudflare R2, MinIO) it only proves the bucket exists at that endpoint; the store's missing versioning and public-access-block APIs are a recorded decision and a human review.
+    check_summary: The bucket exists, is private, has versioning enabled and, for GCS, sits at state_region (plus a lock table on AWS S3). With a Cloudflare R2 state_endpoint it only proves the bucket exists, because R2 has no versioning or public-access-block API (a recorded decision and a human review stand in); any other state_endpoint (MinIO) must also have versioning enabled.
     cli:
       - effect: For gcs, creates a private bucket at the location in state_region (a bucket location cannot change later) with uniform access, enforced public access prevention and object versioning; locking is native.
         run: |
@@ -815,10 +815,12 @@ steps:
           az storage account blob-service-properties update --account-name "$AZURE_STORAGE_ACCOUNT" --enable-versioning true
           az storage container create --account-name "$AZURE_STORAGE_ACCOUNT" --name "$STATE_BUCKET" --public-access off
     run: |
-      With state_endpoint set, the agent records a locked "State history" row in the README
-      Decisions table: versioning is unavailable on the store (Cloudflare R2 does not
-      implement PutBucketVersioning), so a bad apply cannot be rolled back from the bucket.
-      Do not mark the step green on versioning evidence the store cannot give.
+      With a Cloudflare R2 state_endpoint, the agent records a locked "State history" row in
+      the README Decisions table: R2 does not implement PutBucketVersioning, so a bad apply
+      cannot be rolled back from the bucket. Do not mark the step green on versioning
+      evidence the store cannot give. Other S3-compatible stores (MinIO) support versioning:
+      enable it with `aws s3api put-bucket-versioning --endpoint-url "$STATE_ENDPOINT"`
+      and the check requires it.
     check: |
       case "$STATE_BACKEND" in
         gcs)
@@ -855,10 +857,18 @@ steps:
           ;;
         s3)
           if [ -n "$STATE_ENDPOINT" ]; then
-            # S3-compatible store: no DynamoDB, and versioning and public-access-block
-            # are not implemented (R2). Only existence is provable here; the rest is the
-            # "State history" decision row and the backend-identity-trust review.
+            # S3-compatible store: no DynamoDB lock table (use_lockfile).
             aws s3api head-bucket --endpoint-url "$STATE_ENDPOINT" --bucket "$STATE_BUCKET" 2>/dev/null || exit 1
+            case "$STATE_ENDPOINT" in
+              https://*.r2.cloudflarestorage.com|https://*.r2.cloudflarestorage.com/*)
+                # Cloudflare R2 implements neither PutBucketVersioning nor PutPublicAccessBlock.
+                # Only existence is provable; the rest is the "State history" decision row
+                # and the backend-identity-trust review.
+                exit 0 ;;
+            esac
+            # Any other store (MinIO, ...) supports versioning, so it is still required.
+            aws s3api get-bucket-versioning --endpoint-url "$STATE_ENDPOINT" --bucket "$STATE_BUCKET" \
+              --query "Status" --output text 2>/dev/null | grep -Fxq "Enabled" || exit 1
             exit 0
           fi
           [ -n "$STATE_LOCK_TABLE" ] || exit 1
@@ -961,7 +971,10 @@ steps:
         ! grep -q 'cloud[[:space:]]*{' "$leaf"/*.tf 2>/dev/null || exit 1
         if [ "$STATE_BACKEND" = "s3" ] && [ -n "$STATE_ENDPOINT" ]; then
           grep -Fq "$STATE_ENDPOINT" "$leaf"/*.tf 2>/dev/null || exit 1
-          grep -Eq 'use_lockfile[[:space:]]*=[[:space:]]*true' "$leaf"/*.tf 2>/dev/null || exit 1
+          for flag in use_lockfile use_path_style skip_credentials_validation skip_metadata_api_check \
+            skip_region_validation skip_requesting_account_id skip_s3_checksum; do
+            grep -Eq "^[[:space:]]*$flag[[:space:]]*=[[:space:]]*true[[:space:]]*$" "$leaf"/*.tf 2>/dev/null || exit 1
+          done
         elif [ "$STATE_BACKEND" = "s3" ]; then
           grep -Fq "$STATE_LOCK_TABLE" "$leaf"/*.tf 2>/dev/null || exit 1
         elif [ "$STATE_BACKEND" = "azurerm" ]; then

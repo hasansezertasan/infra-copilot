@@ -19,7 +19,7 @@ optional `state_endpoint` for Cloudflare R2 and MinIO, so the Skills could not o
 S3-compatible form: `--endpoint-url` on `aws`, no lock table (`use_lockfile`), static
 bucket-scoped keys instead of OIDC roles, and `-lock=false` plan jobs.
 
-Cloudflare R2 implements neither `PutBucketVersioning` nor `PutPublicAccessBlock`. The
+Cloudflare R2 (and only R2: MinIO and other stores still need versioning enabled) implements neither `PutBucketVersioning` nor `PutPublicAccessBlock`. The
 `state-bucket` check therefore proves only existence, the missing versioning is recorded as
 a locked "State history" decision, and `backend-identity-trust` has the human confirm that
 no `r2.dev` URL or custom domain is attached. A compensating state backup is possible later.
