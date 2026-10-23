@@ -81,6 +81,14 @@ class WorkflowSetupTests(unittest.TestCase):
         self.plan.write_text(split)
         self.commit()
         self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
+        # A duplicated key inside the single env mapping is rejected too.
+        dup = good.replace('      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}\n',
+                           '      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}\n'
+                           '      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}\n', 1)
+        self.assertNotEqual(dup, good)
+        self.plan.write_text(dup)
+        self.commit()
+        self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
         # References outside a job-level env mapping (a step-level env) do not count.
         self.plan.write_text(good.replace('    env:\n      AWS_ACCESS_KEY_ID', '    outputs-not-env:\n      AWS_ACCESS_KEY_ID', 1))
         self.commit()

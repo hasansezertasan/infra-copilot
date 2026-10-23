@@ -266,6 +266,8 @@ for name in $names; do
         in_env {print}
       ')
       for secret in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+        # Each key exactly once: a duplicate may be invalid YAML or override the intended secret.
+        [ "$(printf '%s\n' "$job_env" | grep -Ec "^      $secret:" || true)" = 1 ] || exit 1
         printf '%s\n' "$job_env" |
           grep -Eq "^      $secret:[[:space:]]*\\$\\{\\{[[:space:]]*secrets\\.$secret[[:space:]]*\\}\\}[[:space:]]*\$" || exit 1
       done
