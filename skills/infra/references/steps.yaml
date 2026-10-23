@@ -1003,7 +1003,9 @@ steps:
             !depth && /backend[[:space:]]+"s3"[[:space:]]*\{/ {inside=1}
             inside {print; depth += gsub(/\{/, "{") - gsub(/\}/, "}"); if (depth <= 0) {inside=0; depth=0}}
           ' | tr -d ' \t')
-          printf '%s\n' "$backend_block" | grep -Fxq "s3=\"$STATE_ENDPOINT\"" || exit 1
+          # Either the multi-line map the Template renders or the inline form this step prescribes.
+          printf '%s\n' "$backend_block" | grep -Fxq -e "s3=\"$STATE_ENDPOINT\"" \
+            -e "endpoints={s3=\"$STATE_ENDPOINT\"}" || exit 1
           # A leftover DynamoDB lock would still contact AWS next to use_lockfile.
           ! printf '%s\n' "$backend_block" | grep -Eq '^dynamodb_table=' || exit 1
           for flag in use_lockfile use_path_style skip_credentials_validation skip_metadata_api_check \

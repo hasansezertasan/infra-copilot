@@ -177,6 +177,12 @@ class BackendConfigTests(unittest.TestCase):
     def test_complete_endpoint_stanza_passes(self) -> None:
         self.assertEqual(self.status(self.BLOCK), 0)
 
+    def test_inline_endpoint_map_is_accepted(self) -> None:
+        inline = self.BLOCK.replace(f'    endpoints = {{\n      s3 = "{self.ENDPOINT}"\n    }}\n',
+                                    f'    endpoints = {{ s3 = "{self.ENDPOINT}" }}\n')
+        self.assertNotEqual(inline, self.BLOCK)
+        self.assertEqual(self.status(inline), 0)
+
     def test_endpoint_outside_the_backend_block_does_not_count(self) -> None:
         broken = self.BLOCK.replace(f's3 = "{self.ENDPOINT}"', 's3 = "https://s3.amazonaws.com"')
         self.assertEqual(self.status(broken + f'# {self.ENDPOINT}\nlocals {{ e = "{self.ENDPOINT}" }}\n'), 1)

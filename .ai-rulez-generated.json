@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:02c4ab26dcd5d3b6d7fb37dfa07f532cf1223af74b2b2e81842335bf24843e68",
+  "source_hash": "blake3:49ca09e4a81c27805e50000a6d36f2a749f4132ca599c64db1a01e14c3630020",
   "outputs": {
     ".agents/plugins/marketplace.json": {
       "content_hash": "blake3:c9f5887398d8719835af830222d1d2197f73e2a8864b2e1e24d347e2d75b6b36",
@@ -223,7 +223,7 @@
       "mode": "0644"
     },
     "skills/infra/references/steps.yaml": {
-      "content_hash": "blake3:d8d49a86dee42dbd75b1f75c8560e051f41bb7aa71218376428de90127352428",
+      "content_hash": "blake3:ad741b540cac52f1b6602ccf964af3428923e29ba78667cfe62b0ec3bfae8ec3",
       "mode": "0644"
     },
     "skills/infra/references/templates/apps/terraform-apply.json": {
