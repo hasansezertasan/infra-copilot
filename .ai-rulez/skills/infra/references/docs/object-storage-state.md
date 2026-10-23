@@ -37,7 +37,8 @@ What changes in verification:
 - There is no OIDC. Plan holds a read-only bucket-scoped key at repository scope
   (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) and apply a read-write key in the `production`
   environment. Plan jobs use `-lock=false`, so the plan key never writes.
-- The `aws` CLI (pinned as `awscli` in `mise.toml`) is still used, with `--endpoint-url`.
+- The `aws` CLI (pinned as `awscli` in `mise.toml`) is still used, with `--endpoint-url` and
+  `--region "$STATE_REGION"` on every call, so it does not depend on local AWS configuration.
 
 ## Bucket setup
 

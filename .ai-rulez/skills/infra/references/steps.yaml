@@ -820,7 +820,8 @@ steps:
       explicit approval. Only then record a locked "State history" row with choice
       "no-versioning" in the README Decisions table. Do not mark the step green on versioning evidence the store cannot
       give. Other S3-compatible stores (MinIO) support versioning:
-      enable it with `aws s3api put-bucket-versioning --endpoint-url "$STATE_ENDPOINT"`
+      enable it with `aws s3api put-bucket-versioning --endpoint-url "$STATE_ENDPOINT"
+      --region "$STATE_REGION" --bucket "$STATE_BUCKET" --versioning-configuration Status=Enabled`
       and the check requires it.
     check: |
       case "$STATE_BACKEND" in
@@ -859,7 +860,7 @@ steps:
         s3)
           if [ -n "$STATE_ENDPOINT" ]; then
             # S3-compatible store: no DynamoDB lock table (use_lockfile).
-            aws s3api head-bucket --endpoint-url "$STATE_ENDPOINT" --bucket "$STATE_BUCKET" 2>/dev/null || exit 1
+            aws s3api head-bucket --endpoint-url "$STATE_ENDPOINT" --region "$STATE_REGION" --bucket "$STATE_BUCKET" 2>/dev/null || exit 1
             case "$STATE_ENDPOINT" in
               https://*.r2.cloudflarestorage.com|https://*.r2.cloudflarestorage.com/*)
                 # Cloudflare R2 implements neither PutBucketVersioning nor PutPublicAccessBlock.
@@ -876,13 +877,13 @@ steps:
                 exit 0 ;;
             esac
             # Any other store (MinIO, ...) supports versioning, so it is still required.
-            aws s3api get-bucket-versioning --endpoint-url "$STATE_ENDPOINT" --bucket "$STATE_BUCKET" \
+            aws s3api get-bucket-versioning --endpoint-url "$STATE_ENDPOINT" --region "$STATE_REGION" --bucket "$STATE_BUCKET" \
               --query "Status" --output text 2>/dev/null | grep -Fxq "Enabled" || exit 1
             # ... and must not allow anonymous access. No bucket policy is fine. Any policy is
             # parsed: an Allow statement for a wildcard principal (as the principal itself or any
             # value of its object) or with NotPrincipal fails, and so does a policy that is
             # unreadable or not JSON.
-            if policy=$(aws s3api get-bucket-policy --endpoint-url "$STATE_ENDPOINT" --bucket "$STATE_BUCKET" \
+            if policy=$(aws s3api get-bucket-policy --endpoint-url "$STATE_ENDPOINT" --region "$STATE_REGION" --bucket "$STATE_BUCKET" \
               --query Policy --output text 2>&1); then
               printf '%s' "$policy" | jq -e '
                 [(.Statement // []) | (if type == "array" then . else [.] end)[]
@@ -1269,7 +1270,7 @@ steps:
           aws s3api list-objects-v2 --bucket "$STATE_BUCKET" --prefix "$STATE_PREFIX/"
       - effect: For s3 with state_endpoint, checks that the state object exists under the state prefix, using a read key in your shell.
         run: |
-          aws s3api list-objects-v2 --endpoint-url "$STATE_ENDPOINT" --bucket "$STATE_BUCKET" --prefix "$STATE_PREFIX/"
+          aws s3api list-objects-v2 --endpoint-url "$STATE_ENDPOINT" --region "$STATE_REGION" --bucket "$STATE_BUCKET" --prefix "$STATE_PREFIX/"
       - effect: For Cloudflare R2, confirm in the dashboard (R2 > bucket > Settings) that Public Development URL (r2.dev) is not enabled and no custom domain is connected, and that the plan key is Object Read only and both keys are scoped to this bucket. There is no API check for this, so this review stands in for the public-access-block check the store lacks.
         run: |
           printf 'Open https://dash.cloudflare.com/?to=/:account/r2/default/buckets/%s and review Settings.\n' "$STATE_BUCKET"

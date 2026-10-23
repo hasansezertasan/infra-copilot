@@ -60,7 +60,7 @@ class StateBucketTests(unittest.TestCase):
         result, calls = self.run_check({})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls.strip().splitlines(),
-                         ['s3api head-bucket --endpoint-url https://x.r2.cloudflarestorage.com --bucket b'])
+                         ['s3api head-bucket --endpoint-url https://x.r2.cloudflarestorage.com --region auto --bucket b'])
 
     def test_r2_requires_the_locked_state_history_decision(self) -> None:
         for decision in ('proposed', 'absent'):
@@ -79,7 +79,7 @@ class StateBucketTests(unittest.TestCase):
                  'AWS_POLICY': 'An error occurred (NoSuchBucketPolicy)', 'AWS_POLICY_STATUS': '254'}
         result, calls = self.run_check({**minio, 'AWS_VERSIONING': 'Enabled'})
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('get-bucket-versioning --endpoint-url http://minio.example:9000', calls)
+        self.assertIn('get-bucket-versioning --endpoint-url http://minio.example:9000 --region auto', calls)
         result, _ = self.run_check({**minio, 'AWS_VERSIONING': 'None'})
         self.assertEqual(result.returncode, 1)
 
