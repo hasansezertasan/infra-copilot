@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:49e045ef152822b83f5e9e20edf2d854b1b69d90282517895d27bd508be6f0df
-Source-Hash: blake3:5447ff6d4a6280d53ff72a8ba5fcedefc2809b313158d82673ac782080c2c5cc
+Content-Hash: blake3:977cd21a20603c66a9ffc4f3ffafe6dcef7fc47b061c1c16c5a8494c5830f846
+Source-Hash: blake3:874046b243ee5dd9a90ec42357b620005107e8c3d60005bf4340484bc99628ff
 Schema-Version: v1
 -->
 
@@ -60,6 +60,7 @@ is separate from operation completion and cannot move the first-red verdict.
 | `store-provider-credential` | `new-provider-credentials` | `new-provider-secrets-gha` |
 | `provider-identity-trust` | `new-provider-gcp-wif-trust` | `new-provider-identity-trust-gha` |
 | `plan-provider` | `new-provider-plan` | `new-provider-plan-gha` |
+| `backend-cli-pin` | `backend-cli-pin` (shared) | `backend-cli-pin` (shared) |
 | `provider-inventory` | `new-provider-inventory` (shared) | `new-provider-inventory` (shared) |
 | `provider-decision` | `new-provider-decision` (shared) | `new-provider-decision` (shared) |
 | `provider-leaf` | `new-provider-leaf` (shared) | `new-provider-leaf` (shared) |

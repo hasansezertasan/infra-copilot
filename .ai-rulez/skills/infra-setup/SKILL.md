@@ -89,8 +89,8 @@ Adopting resources that already exist (a live domain, existing repos)? That's
    See [`../infra/references/config.md`](../infra/references/config.md).
 2. **Bootstrap preflight**, then **resume scan** over phases 0–4 of
    [`../infra/references/steps.yaml`](../infra/references/steps.yaml). On a cold repo, check that `mise` itself
-   is available, then scan `toolchain-pin` before running the pin-dependent preflight
-   checks. Once it is green, finish preflight, print `✓`, and continue through every selected service's bootstrap members. Full contract:
+   is available, then scan `toolchain-pin` and `backend-cli-pin` before running the pin-dependent
+   preflight checks. Once both are green, finish preflight, print `✓`, and continue through every selected service's bootstrap members. Full contract:
    [`../infra/references/protocol.md`](../infra/references/protocol.md).
 3. **Respect the actor split.** Run `AGENT` steps yourself. On a `HUMAN` step, stop, emit
    the handoff block, wait for `done`, re-run the `check` — never fake a signup, a

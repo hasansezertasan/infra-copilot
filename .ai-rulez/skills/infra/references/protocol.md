@@ -246,10 +246,11 @@ execution settings work.
 `infra-setup` renders the Template (`template-render`, then `template-contract`) before
 anything else, with `INFRA_REFERENCES` exported and no config read. After that it has one
 cold-start ordering rule: first confirm that the `mise` command itself is
-available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
-pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool
-checks) before that step has established committed pins. Once `toolchain-pin` is green,
-run the full preflight and continue the
+available, then begin its resume scan with phase 0's `toolchain-pin` step, then `backend-cli-pin`
+(green at once unless an object-storage state backend needs its CLI pinned). Do not run the
+pin-dependent preflight entries (`mise`'s full contract, the `terraform`/`gh`/`jq` tool
+checks or the backend CLI check) before those steps have established committed pins. Once
+both are green, run the full preflight and continue the
 resume scan at the selected `bootstrap-state` operation. This keeps the fail-fast gate
 while giving a missing toolchain an owned, resumable step.
 `infra-status` remains read-only: it reports the same failed step but never executes its `run`.
