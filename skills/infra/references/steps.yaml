@@ -329,6 +329,12 @@ steps:
       - effect: Prints the whole mise.toml so you can review it before trusting it, because repository config can enable templates, plugins and other executable behavior. If the file is absent, author it first with exact versions per docs/setup.md#6-local-development.
         run: |
           cat -- mise.toml
+      - effect: Only when the state backend is s3, gcs or azurerm, lists the newest versions of that backend's CLI (awscli for s3 and any S3-compatible store, gcloud for gcs, azure-cli for azurerm). The rendered Template pins only terraform, gh and jq, and preflight fails without an exact pin for the backend's CLI. Add it by editing mise.toml, as a plain string under [tools] (for example awscli = "2.38.5"), then review the diff. Do not use mise use, which installs while it writes and, for awscli, writes an inline table that the exact-pin check rejects.
+        run: |
+          # s3: awscli   gcs: gcloud   azurerm: azure-cli   (skip for hcp)
+          mise ls-remote awscli | tail -3
+          # edit mise.toml, then:
+          git diff -- mise.toml
       - effect: Trusts the reviewed config, initializes and populates mise.lock, installs exactly the pinned tools from the lock, and activates them in this shell. Changing a rendered pin is a deliberate decision, and a later copier update merges it.
         run: |
           mise trust mise.toml
@@ -347,6 +353,11 @@ steps:
         run: |
           git add mise.toml mise.lock
           git diff --cached --quiet -- mise.toml mise.lock || git commit -m "build: pin the toolchain" -- mise.toml mise.lock
+    run: |
+      For an object-storage repository the human also pins the state backend's CLI in this
+      step (see the second command), because the Template does not render it. Propose the
+      exact version and show the mise.toml diff; the human reviews and commits it, since the
+      agent that proposes executable repository config must not approve its own trust boundary.
     # Keep this byte-for-byte identical to the mise preflight check. The repository
     # validator enforces that invariant so the step and fail-fast gate cannot drift.
     check: >-

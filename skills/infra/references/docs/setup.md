@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:27b903b1a01e909704e9872751b1fcde14bcb09579142af69a29d385319f9ea7
-Source-Hash: blake3:2a7494345ffa6200d8ae1776fded0b516e2d157e1d71aa47da0bb37032e5a229
+Content-Hash: blake3:9613a8108417814d85bf4b792115b42ab265dd8f752be9aad29153729a51520b
+Source-Hash: blake3:3a8e6852f474b735ea81f694301a4b742481da918bb74d60eac7e996c809356c
 Schema-Version: v1
 -->
 
@@ -196,13 +196,15 @@ Set this up only if a future CI workflow needs to call the HCP API directly:
    every resume scan. A workspace left on latest diverges on HashiCorp's next release.
    Bump `mise.toml`, `mise.lock`, and both remote workspaces as one change.
 
-   Not every tool has an equally good pin. Worth knowing before you write `mise.toml`:
+   Not every tool has an equally good pin. Worth knowing before you write `mise.toml`. The Template renders only `terraform`, `gh` and `jq`: for an object-storage repository you also add the state backend's CLI (`awscli`, `gcloud` or `azure-cli`) here, because preflight requires its exact pin:
 
    | Tool | `mise.toml` key | mise backend | Caveat |
    |---|---|---|---|
    | `terraform` | `terraform` | `aqua:hashicorp/terraform` | First-class, checksummed |
    | `gcloud` | `gcloud` | `vfox:mise-plugins/vfox-gcloud` | Locks URLs, no checksums. Version parity, not artifact identity |
    | `cf-terraforming` | `"github:cloudflare/cf-terraforming"` | `github:cloudflare/cf-terraforming` | Absent from the registry, so the backend *is* the key |
+   | `awscli` | `awscli` | `aqua:aws/aws-cli` | State backend CLI for `s3` and S3-compatible stores. Write the plain version string; `mise use` writes an inline table (`symlink_bins`) that the exact-pin check rejects |
+   | `azure-cli` | `azure-cli` | `pypi:azure-cli` | State backend CLI for `azurerm`. Installs through pip, so it needs a Python toolchain |
 
    The backend column is informational. Write the key from the middle column: registry
    aliases such as `gcloud` resolve to their backend on their own, and the manifest's
