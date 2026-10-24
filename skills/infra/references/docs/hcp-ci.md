@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:73e579fe115953b7bf95ae3285d75b212a534dc410035bcd6af15b9dae17e6ef
-Source-Hash: blake3:8202ecf5106b2a6f7841226cedf65867f81d7077af3ade3baa3d6565eccf021a
+Content-Hash: blake3:8ac97a7a38e2d49cccf15ee5a1272e1adeca1621241ee0c1936d5cabe12c92c5
+Source-Hash: blake3:ac415ed514ecf57f6d736bb5dd2a2a3737914002abc613e4e0ad23b9b6f21e71
 Schema-Version: v1
 -->
 
@@ -37,7 +37,7 @@ toolchain decision claims is only true locally. `mise.toml` and `mise.lock` are 
 precisely so CI can reproduce the pin, so install from them before any `terraform` step:
 
 ```yaml
-- uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+- uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
 ```
 
 The action installs mise, runs `mise install`, and — per its own `install_args`
