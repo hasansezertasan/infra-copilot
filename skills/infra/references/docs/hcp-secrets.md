@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 Content-Hash: blake3:7ec4ae96e3fabf666ff23ed870c5540d12e44705942f39fc4a2c54551d0111c1
-Source-Hash: blake3:a0b5f493d9569c10dac045d370cb7cea5ca08ea3d98b1a6efb01e455f6db3716
+Source-Hash: blake3:60a8aa057cbb314780b145796ec3c0977ac9a4239bb7c22d840afb874417f4d7
 Schema-Version: v1
 -->
 
