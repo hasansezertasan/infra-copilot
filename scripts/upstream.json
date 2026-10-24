@@ -52,22 +52,22 @@
         "type": "github_release",
         "repo": "cloudflare/cf-terraforming"
       },
-      "audited": "0.29.0",
+      "audited": "0.30.0",
       "cited_in": [
         "docs/import.md"
       ],
-      "why_it_matters": "The per-resource coverage matrix in import.md was audited against this release; newer ones may cover more or differ in generated HCL. Cited in four places, plus an abbreviated v0.29 claim and the matrix's 'September 2026' provenance date, all of which must move together.",
+      "why_it_matters": "The per-resource coverage matrix in import.md was audited against this release; newer ones may cover more or differ in generated HCL. Cited in four places, plus an abbreviated v0.30 claim and the matrix's 'October 2026' provenance date, all of which must move together.",
       "cited_as": [
         {
-          "text": "0.29.0",
+          "text": "0.30.0",
           "count": 4
         },
         {
-          "text": "v0.29",
+          "text": "v0.30",
           "count": 1
         },
         {
-          "text": "v0.29 (September 2026)",
+          "text": "v0.30 (October 2026)",
           "count": 1
         }
       ]
@@ -78,16 +78,16 @@
         "type": "github_release",
         "repo": "jdx/mise-action"
       },
-      "audited": "4.3.0",
+      "audited": "5.2.3",
       "cited_in": [
         "docs/hcp-ci.md"
       ],
       "why_it_matters": "Pinned by commit SHA in the CI example. The SHA is the value that runs; the version is only a comment. The nightly resolves the audited tag and requires the cited SHA to match it, so the two cannot be updated independently.",
       "cited_as": [
-        "mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c",
-        "4.3.0"
+        "mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e",
+        "5.2.3"
       ],
-      "audited_sha": "c2a87611a18de5b3828c5652fe268e992400cb5c"
+      "audited_sha": "82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e"
     },
     {
       "name": "cloudflare-provider-major",

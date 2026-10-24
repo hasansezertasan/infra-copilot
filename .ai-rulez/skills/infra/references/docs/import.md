@@ -119,7 +119,7 @@ Before you run cf-terraforming, generate a separate, short-lived Cloudflare toke
 # would resolve the binary before the lock covering it exists. Add this line to the
 # committed [tools] table by editing the file:
 #
-#     "github:cloudflare/cf-terraforming" = "0.29.0"
+#     "github:cloudflare/cf-terraforming" = "0.30.0"
 #
 # Then lock it, and only then install from that lock:
 touch mise.lock
@@ -131,13 +131,13 @@ git add mise.toml mise.lock  # commit the tool pin and refreshed lock together
 # new binary is not on PATH yet — and an older system cf-terraforming would shadow
 # it if it were. Refresh the environment, or run the commands below via `mise exec`:
 eval "$(mise activate bash)"
-mise exec -- cf-terraforming --version   # must report 0.29.0, not a system build
+mise exec -- cf-terraforming --version   # must report 0.30.0, not a system build
 
 # or via the Go toolchain — an explicit tag, never @latest:
-go install github.com/cloudflare/cf-terraforming/cmd/cf-terraforming@v0.29.0
+go install github.com/cloudflare/cf-terraforming/cmd/cf-terraforming@v0.30.0
 ```
 
-> `0.29.0` is the version the matrix below was audited against. Newer releases exist;
+> `0.30.0` is the version the matrix below was audited against. Newer releases exist;
 > bump the pin and re-check the matrix in the same change, so the documented coverage and
 > the installed binary never disagree. When you re-check a row, the authority is
 > `internal/app/cf-terraforming/cmd/resource_to_endpoint_mapping.go` in the upstream tree,
@@ -147,7 +147,7 @@ go install github.com/cloudflare/cf-terraforming/cmd/cf-terraforming@v0.29.0
 
 ## What it supports
 
-Coverage is **broad but not total** for the v5 provider. As of cf-terraforming v0.29 (September 2026):
+Coverage is **broad but not total** for the v5 provider. As of cf-terraforming v0.30 (October 2026):
 
 The two questions are separate, and an earlier version of this table ran them together:
 whether the tool *can* emit a resource is a fact about cf-terraforming, whereas whether it
