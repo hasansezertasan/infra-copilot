@@ -7,7 +7,7 @@
   "default_permissions": {
     "administration": "write",
     "actions": "read",
-    "contents": "read",
+    "contents": "write",
     "metadata": "read",
     "pull_requests": "write",
     "members": "write",
