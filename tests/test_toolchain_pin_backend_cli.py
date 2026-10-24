@@ -43,15 +43,17 @@ class ToolchainPinBackendCliTests(unittest.TestCase):
     def test_completion_check_requires_the_rendered_backend_cli_pin(self) -> None:
         # A committed mise.toml without the CLI must not satisfy the step, or a resumed
         # scan skips the HUMAN handoff and preflight fails later.
-        clauses = re.findall(r"^      (\{ ! grep -Eqs 'backend\[\[:space:\]\]\+\"(\w+)\"'.*\} &&)$", self.step, re.M)
+        clauses = re.findall(r"^      (\{ ! grep -Eqs '\^state_backend:\[\[:space:\]\]\*\"\?(\w+)\"\?.*\} &&)$", self.step, re.M)
         self.assertEqual({backend for _, backend in clauses}, set(BACKEND_CLIS))
         script = 'pinned=$PINNED\n' + '\n'.join(clause.removesuffix(' &&') for clause, _ in clauses)
         for backend, tool in BACKEND_CLIS.items():
             for pinned, expected in (('terraform\ngh', 1), (f'terraform\n{tool}', 0)):
                 with tempfile.TemporaryDirectory() as repo:
+                    Path(repo, '.copier-answers.yml').write_text(f'backend: object-storage\nstate_backend: {backend}\n')
+                    # A stale or commented block for another backend must not matter.
                     leaf = Path(repo, 'terraform/a')
                     leaf.mkdir(parents=True)
-                    (leaf / 'backend.tf').write_text(f'terraform {{\n  backend "{backend}" {{}}\n}}\n')
+                    (leaf / 'backend.tf').write_text('# previous backend "s3" {}\nbackend "gcs" {}\n')
                     result = subprocess.run(
                         ['sh', '-c', script.replace('\n{', ' &&\n{')], cwd=repo,
                         env={'PINNED': pinned, 'PATH': '/usr/bin:/bin'}, check=False,

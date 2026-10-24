@@ -165,9 +165,9 @@ preflight:
       pinned=$(printf '%s\n' "$tools" |
       sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
       [ -n "$pinned" ] &&
-      { ! grep -Eqs 'backend[[:space:]]+"s3"' terraform/*/*.tf || printf '%s\n' "$pinned" | grep -Fxq awscli; } &&
-      { ! grep -Eqs 'backend[[:space:]]+"gcs"' terraform/*/*.tf || printf '%s\n' "$pinned" | grep -Fxq gcloud; } &&
-      { ! grep -Eqs 'backend[[:space:]]+"azurerm"' terraform/*/*.tf || printf '%s\n' "$pinned" | grep -Fxq azure-cli; } &&
+      { ! grep -Eqs '^state_backend:[[:space:]]*"?s3"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq awscli; } &&
+      { ! grep -Eqs '^state_backend:[[:space:]]*"?gcs"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq gcloud; } &&
+      { ! grep -Eqs '^state_backend:[[:space:]]*"?azurerm"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq azure-cli; } &&
       ! printf '%s\n' "$tools" |
       sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
       grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
@@ -370,7 +370,9 @@ steps:
       step (see the second command), because the Template does not render it. Propose the
       exact version and show the mise.toml diff; the human reviews and commits it, since the
       agent that proposes executable repository config must not approve its own trust boundary.
-    # Keep this byte-for-byte identical to the mise preflight check. The repository
+    # The backend CLI pin is derived from the committed answers file, the same validated
+    # Config the handoff reads, not from Terraform text that may carry stale or commented
+    # backend blocks. Keep this byte-for-byte identical to the mise preflight check. The repository
     # validator enforces that invariant so the step and fail-fast gate cannot drift.
     check: >-
       mise --version >/dev/null &&
@@ -390,9 +392,9 @@ steps:
       pinned=$(printf '%s\n' "$tools" |
       sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
       [ -n "$pinned" ] &&
-      { ! grep -Eqs 'backend[[:space:]]+"s3"' terraform/*/*.tf || printf '%s\n' "$pinned" | grep -Fxq awscli; } &&
-      { ! grep -Eqs 'backend[[:space:]]+"gcs"' terraform/*/*.tf || printf '%s\n' "$pinned" | grep -Fxq gcloud; } &&
-      { ! grep -Eqs 'backend[[:space:]]+"azurerm"' terraform/*/*.tf || printf '%s\n' "$pinned" | grep -Fxq azure-cli; } &&
+      { ! grep -Eqs '^state_backend:[[:space:]]*"?s3"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq awscli; } &&
+      { ! grep -Eqs '^state_backend:[[:space:]]*"?gcs"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq gcloud; } &&
+      { ! grep -Eqs '^state_backend:[[:space:]]*"?azurerm"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq azure-cli; } &&
       ! printf '%s\n' "$tools" |
       sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
       grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
@@ -2852,9 +2854,9 @@ steps:
       pinned=$(printf '%s\n' "$tools" |
       sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
       [ -n "$pinned" ] &&
-      { ! grep -Eqs 'backend[[:space:]]+"s3"' terraform/*/*.tf || printf '%s\n' "$pinned" | grep -Fxq awscli; } &&
-      { ! grep -Eqs 'backend[[:space:]]+"gcs"' terraform/*/*.tf || printf '%s\n' "$pinned" | grep -Fxq gcloud; } &&
-      { ! grep -Eqs 'backend[[:space:]]+"azurerm"' terraform/*/*.tf || printf '%s\n' "$pinned" | grep -Fxq azure-cli; } &&
+      { ! grep -Eqs '^state_backend:[[:space:]]*"?s3"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq awscli; } &&
+      { ! grep -Eqs '^state_backend:[[:space:]]*"?gcs"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq gcloud; } &&
+      { ! grep -Eqs '^state_backend:[[:space:]]*"?azurerm"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq azure-cli; } &&
       ! printf '%s\n' "$tools" |
       sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
       grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
