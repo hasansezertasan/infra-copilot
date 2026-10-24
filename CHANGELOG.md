@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.0](https://github.com/hasansezertasan/infra-skills/compare/v0.4.0...v0.5.0) (2026-10-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **object-storage:** pass S3-compatible state keys to terraform init ([#169](https://github.com/hasansezertasan/infra-skills/issues/169))
+
+### Features
+
+* **object-storage:** pass S3-compatible state keys to terraform init ([#169](https://github.com/hasansezertasan/infra-skills/issues/169)) ([f9b8ead](https://github.com/hasansezertasan/infra-skills/commit/f9b8eadafda664ca0fdca9e1b6d8635ce39ae729))
+* **setup:** pin the state backend's CLI in the toolchain-pin step ([#167](https://github.com/hasansezertasan/infra-skills/issues/167)) ([14a4334](https://github.com/hasansezertasan/infra-skills/commit/14a43344d510b28a80733256a0889db0ae8573a1))
+
+
+### Bug Fixes
+
+* **github:** give the apply App manifest Contents write ([#165](https://github.com/hasansezertasan/infra-skills/issues/165)) ([d06872c](https://github.com/hasansezertasan/infra-skills/commit/d06872cd63e2434bd046e3a60fce15c9e52dca46))
+
 ## [0.4.0](https://github.com/hasansezertasan/infra-skills/compare/v0.3.0...v0.4.0) (2026-10-24)
 
 

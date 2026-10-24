@@ -109,5 +109,5 @@
     "test": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests",
     "validate": "python3 scripts/validate.py && python3 scripts/check_upstream.py --offline"
   },
-  "version": "0.4.0"
+  "version": "0.5.0"
 }
