@@ -21,6 +21,9 @@ class ToolchainPinBackendCliTests(unittest.TestCase):
         for backend, tool in BACKEND_CLIS.items():
             self.assertIn(tool, self.step, f'{backend} backend CLI {tool} is not mentioned')
         self.assertIn('plain string under [tools]', self.step)
+        for tool in BACKEND_CLIS.values():
+            # Phase 6's inventory rejects an unclassified non-bootstrap pin.
+            self.assertIn(f'`# infra-skills:general-tool {tool}`', self.step)
         self.assertIn('Do not use mise use', self.step)
 
     def test_each_backend_lists_its_own_cli_versions(self) -> None:
@@ -47,6 +50,7 @@ class ToolchainPinBackendCliTests(unittest.TestCase):
         check = re.search(r'    check: >-\n((?:      .*\n)+)', self.step + '\n').group(1)
         script = '\n'.join(line.strip() for line in check.splitlines())
         fake_mise = ('#!/bin/sh\n'
+                     '[ "$1" = install ] && exit ${FAKE_INSTALL:-0}\n'
                      'key=${5#tools.}\n'
                      "sed -n \"s/^$key = \\\"\\(.*\\)\\\"$/\\1/p\" mise.toml\n")
         cases = [
@@ -57,6 +61,8 @@ class ToolchainPinBackendCliTests(unittest.TestCase):
               for b, tool in BACKEND_CLIS.items()],
             # A pin for another backend's CLI does not satisfy this one.
             ({'HAS_OBJECT_STORAGE': 'true', 'STATE_BACKEND': 's3'}, {'gcloud': '1.2.3'}, 1),
+            # A pin that the lock cannot install (missing or stale lock entry) is not done.
+            ({'HAS_OBJECT_STORAGE': 'true', 'STATE_BACKEND': 's3', 'FAKE_INSTALL': '1'}, {'awscli': '1.2.3'}, 1),
             # An inline table is not an exact pin.
             ({'HAS_OBJECT_STORAGE': 'true', 'STATE_BACKEND': 's3'}, {'awscli': '{ version = "1.2.3" }'}, 1),
         ]

@@ -388,31 +388,29 @@ steps:
     why: The rendered Template pins only terraform, gh and jq, and preflight fails without an exact pin for the CLI of an object-storage state backend; an HCP-only repository needs none.
     check_summary: For an object-storage state backend, mise.toml and mise.lock are committed with an exact plain-string pin for the backend's CLI (awscli, gcloud or azure-cli); otherwise nothing is required.
     cli:
-      - effect: For an s3 or S3-compatible state backend, lists the newest versions of its CLI, awscli. Add it by editing mise.toml, as a plain string under [tools] (for example awscli = "2.38.5"), then review the diff. Do not use mise use, which installs while it writes and, for awscli, writes an inline table that the exact-pin check rejects.
+      - effect: For an s3 or S3-compatible state backend, lists the newest versions of its CLI, awscli. Add it by editing mise.toml, as a plain string under [tools] (for example awscli = "2.38.5") with the comment `# infra-skills:general-tool awscli` on the line immediately before it, which the new-provider inventory requires for every non-bootstrap pin, then review the diff. Do not use mise use, which installs while it writes and, for awscli, writes an inline table that the exact-pin check rejects.
         run: |
           mise ls-remote awscli | tail -3
           # edit mise.toml, then:
           git diff -- mise.toml
-      - effect: For a gcs state backend, lists the newest versions of its CLI, gcloud. Add it to mise.toml as a plain exact version string under [tools] and review the diff, as for awscli.
+      - effect: For a gcs state backend, lists the newest versions of its CLI, gcloud. Add it to mise.toml as a plain exact version string under [tools], with `# infra-skills:general-tool gcloud` on the line immediately before it, and review the diff, as for awscli.
         run: |
           mise ls-remote gcloud | tail -3
           # edit mise.toml, then:
           git diff -- mise.toml
-      - effect: For an azurerm state backend, lists the newest versions of its CLI, azure-cli, which installs through pip. Add it to mise.toml as a plain exact version string under [tools] and review the diff, as for awscli. Run only the command for the selected backend.
+      - effect: For an azurerm state backend, lists the newest versions of its CLI, azure-cli, which installs through pip. Add it to mise.toml as a plain exact version string under [tools], with `# infra-skills:general-tool azure-cli` on the line immediately before it, and review the diff, as for awscli. Run only the command for the selected backend.
         run: |
           mise ls-remote azure-cli | tail -3
           # edit mise.toml, then:
           git diff -- mise.toml
       - effect: Updates mise.lock, installs exactly the pinned tools from the lock, and commits mise.toml and mise.lock together, and only those two files.
         run: |
-          mise lock
+          mise lock || exit 1
           pinned=$(mise config get --file ./mise.toml tools |
-            sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p')
-          printf '%s\n' "$pinned" |
-            while IFS= read -r tool; do
-              [ -z "$tool" ] && continue
-              MISE_LOCKED=1 mise install "$tool" || exit 1
-            done
+            sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') || exit 1
+          for tool in $pinned; do
+            MISE_LOCKED=1 mise install "$tool" || exit 1
+          done
           git add mise.toml mise.lock
           git diff --cached --quiet -- mise.toml mise.lock || git commit -m "build: pin the backend CLI" -- mise.toml mise.lock
     run: |
@@ -428,7 +426,8 @@ steps:
       git diff --quiet HEAD -- mise.toml mise.lock &&
       git diff --cached --quiet HEAD -- mise.toml mise.lock &&
       mise config get --file ./mise.toml "tools.$tool" 2>/dev/null | tr -d '[:space:]' |
-      grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$'
+      grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
+      MISE_LOCKED=1 mise install --dry-run "$tool" >/dev/null 2>&1
     produces: committed mise.toml + mise.lock pinning the backend CLI
     docs: docs/setup.md#6-local-development
 
