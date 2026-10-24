@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2f72dbe52e83dd1b730b228a73fae88297282b830575fc675a7cb2e4fa2be1c8
-Source-Hash: blake3:ac415ed514ecf57f6d736bb5dd2a2a3737914002abc613e4e0ad23b9b6f21e71
+Content-Hash: blake3:231207114c9af8d584c11b591b5c1add34ca44b8c0666e0773888c5d93592be2
+Source-Hash: blake3:5447ff6d4a6280d53ff72a8ba5fcedefc2809b313158d82673ac782080c2c5cc
 Schema-Version: v1
 -->
 
@@ -515,7 +515,9 @@ for its own identity. Replace each leaf's `Terraform Init` step in the plan and 
 ```
 
 The `gha-workflows` check requires exactly this form in every plan and apply job whenever
-`state_endpoint` is set. No workflow may upload `.terraform/`, because it holds the keys.
+`state_endpoint` is set. No workflow may upload `.terraform/` or a saved plan (`tfplan`): Terraform writes `-backend-config`
+values into both, so either artifact would expose the state key. The `gha-workflows` check rejects
+any `upload-artifact` step in a plan or apply job when `state_endpoint` is set.
 
 **Azure:**
 

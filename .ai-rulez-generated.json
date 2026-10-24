@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:ac415ed514ecf57f6d736bb5dd2a2a3737914002abc613e4e0ad23b9b6f21e71",
+  "source_hash": "blake3:5447ff6d4a6280d53ff72a8ba5fcedefc2809b313158d82673ac782080c2c5cc",
   "outputs": {
     ".agents/plugins/marketplace.json": {
       "content_hash": "blake3:c9f5887398d8719835af830222d1d2197f73e2a8864b2e1e24d347e2d75b6b36",
@@ -63,7 +63,7 @@
       "mode": "0755"
     },
     "skills/infra/references/checks/gha-workflows.sh": {
-      "content_hash": "blake3:02eff1e838991c676c461588238a58d595a1435eeb6955ed49e4575c95c0b992",
+      "content_hash": "blake3:35def0b83a01531a843de386943b637fc02d628af1ce07f3b14eca6b16b3c250",
       "mode": "0644"
     },
     "skills/infra/references/checks/hcp-apply-scope.sh": {
@@ -159,7 +159,7 @@
       "mode": "0644"
     },
     "skills/infra/references/docs/object-storage-ci.md": {
-      "content_hash": "blake3:2f72dbe52e83dd1b730b228a73fae88297282b830575fc675a7cb2e4fa2be1c8",
+      "content_hash": "blake3:231207114c9af8d584c11b591b5c1add34ca44b8c0666e0773888c5d93592be2",
       "mode": "0644"
     },
     "skills/infra/references/docs/object-storage-state.md": {

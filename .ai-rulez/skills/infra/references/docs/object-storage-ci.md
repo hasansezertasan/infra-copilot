@@ -508,7 +508,9 @@ for its own identity. Replace each leaf's `Terraform Init` step in the plan and 
 ```
 
 The `gha-workflows` check requires exactly this form in every plan and apply job whenever
-`state_endpoint` is set. No workflow may upload `.terraform/`, because it holds the keys.
+`state_endpoint` is set. No workflow may upload `.terraform/` or a saved plan (`tfplan`): Terraform writes `-backend-config`
+values into both, so either artifact would expose the state key. The `gha-workflows` check rejects
+any `upload-artifact` step in a plan or apply job when `state_endpoint` is set.
 
 **Azure:**
 

@@ -269,6 +269,9 @@ for name in $names; do
         printf '%s\n' "$init" | grep -Fxq "          $key: \${{ secrets.$key }}" || exit 1
       done
       printf '%s\n' "$init" | grep -Fxq '        run: terraform init -backend-config="access_key=$STATE_ACCESS_KEY_ID" -backend-config="secret_key=$STATE_SECRET_ACCESS_KEY"' || exit 1
+      # `-backend-config` values are written into `.terraform/` and into every saved plan
+      # (`tfplan`), so a job that holds the state keys must not upload any artifact.
+      printf '%s\n' "$tier_job" | grep -Fq 'upload-artifact' && exit 1
     fi
     printf '%s' "$inventory" | jq -r --arg tier "$tier" '
       .[] | select(.scope == $tier and .required == true) | .name | ascii_upcase' |

@@ -119,6 +119,17 @@ class WorkflowSetupTests(unittest.TestCase):
                 self.assertEqual(self.check(extra_env=self.ENDPOINT).returncode, 1, label)
         self.assertIn('-backend-config="access_key=', run)
 
+    def test_s3_compatible_state_jobs_cannot_upload_artifacts(self) -> None:
+        # -backend-config values land in .terraform/ and in every saved plan.
+        self.enable_state_keys()
+        good = self.plan.read_text()
+        upload = ('      - uses: actions/upload-artifact@v4\n'
+                  '        with:\n          name: plan\n          path: tfplan\n')
+        self.plan.write_text(good.replace('      - name: Terraform Init\n',
+                                          upload + '      - name: Terraform Init\n', 1))
+        self.commit()
+        self.assertEqual(self.check(extra_env=self.ENDPOINT).returncode, 1)
+
     def test_job_level_aws_keys_are_no_longer_the_s3_compatible_credential(self) -> None:
         # The earlier job-level AWS_* form would be overwritten by an AWS provider's own identity.
         self.enable_state_keys()
