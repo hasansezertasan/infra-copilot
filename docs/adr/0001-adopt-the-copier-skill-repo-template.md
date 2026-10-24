@@ -16,7 +16,7 @@ placeholder skill was deleted after rendering. `package.json` is private, so Pi 
 
 - **Root components.** The template's check fails on `hooks/`, `agents/` and `commands/` at the root.
   This repo ships all three on purpose (the SessionStart hook, the `infra-auditor` subagent, the five
-  slash commands). The template gained an opt-in for this (copier-skill-repo#52, v0.4.0): they are
+  slash commands). The template gained an opt-in for this (copier-skill-repo#52): they are
   listed with reasons in `.config/root-components.json`. Every other root component still fails.
 - **Lint opt-outs** in `.ai-rulez/config.toml`, each with its reason there: `AR9T0` (the template's,
   for the Antigravity adapter), `AR401` and `AR402` (the skills cite files of the infrastructure
