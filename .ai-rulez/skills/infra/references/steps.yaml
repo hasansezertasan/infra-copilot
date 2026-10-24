@@ -1175,13 +1175,13 @@ steps:
       - effect: For s3 with state_endpoint (Cloudflare R2, MinIO), which have no OIDC, stores a read-only plan key at repository scope and a separate read-write apply key in the production environment (run it after that environment allows exactly main). Mint both keys scoped to the state bucket only. The secret is read from a hidden prompt and never shown to the agent.
         run: |
           printf 'Plan access key ID: '; read -r plan_key_id
-          printf %s "$plan_key_id" | gh secret set AWS_ACCESS_KEY_ID --repo "$REPO"
+          printf %s "$plan_key_id" | gh secret set STATE_ACCESS_KEY_ID --repo "$REPO"
           printf 'Plan secret access key: '; read -rs plan_secret; printf '\n'
-          printf %s "$plan_secret" | gh secret set AWS_SECRET_ACCESS_KEY --repo "$REPO"
+          printf %s "$plan_secret" | gh secret set STATE_SECRET_ACCESS_KEY --repo "$REPO"
           printf 'Apply access key ID: '; read -r apply_key_id
-          printf %s "$apply_key_id" | gh secret set AWS_ACCESS_KEY_ID --repo "$REPO" --env production
+          printf %s "$apply_key_id" | gh secret set STATE_ACCESS_KEY_ID --repo "$REPO" --env production
           printf 'Apply secret access key: '; read -rs apply_secret; printf '\n'
-          printf %s "$apply_secret" | gh secret set AWS_SECRET_ACCESS_KEY --repo "$REPO" --env production
+          printf %s "$apply_secret" | gh secret set STATE_SECRET_ACCESS_KEY --repo "$REPO" --env production
           unset plan_secret apply_secret
       - effect: For azurerm, stores the plan identity's three IDs as repository secrets and the separate apply identity's in the production environment (run it after that environment allows exactly main).
         run: |
@@ -1194,8 +1194,10 @@ steps:
     run: |
       With state_endpoint set, the human mints two bucket-scoped keys in the store's dashboard
       (Cloudflare R2: Object Read only for plan, Object Read & Write for apply); plan jobs run
-      with -lock=false, so the plan key never needs to write. The Terraform backend reads
-      AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from the environment.
+      with -lock=false, so the plan key never needs to write. The keys are stored as
+      STATE_ACCESS_KEY_ID and STATE_SECRET_ACCESS_KEY, not AWS_*, and the workflows pass them to
+      `terraform init -backend-config`, which beats any AWS_* environment, so an AWS provider in the
+      same job keeps its own credentials.
       For s3 and azurerm the identity itself is created by the human, and these references hold
       no commands for it. When rendering, give the rules from docs/object-storage-ci.md and
       object-storage.md: S3 needs an IAM OIDC provider and separate plan and apply roles with
@@ -1219,7 +1221,7 @@ steps:
           ;;
         s3)
           if [ -n "$STATE_ENDPOINT" ]; then
-            for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+            for name in STATE_ACCESS_KEY_ID STATE_SECRET_ACCESS_KEY; do
               printf '%s\n' "$repo_secrets" | grep -Fxq "$name" || exit 1
               printf '%s\n' "$env_secrets" | grep -Fxq "$name" || exit 1
             done
@@ -2904,10 +2906,9 @@ steps:
          secrets to apply as environment variables. Use -lock=false on every plan;
          keep locking and refresh enabled on apply. Use separate keyless identities too.
       4. Add the provider-specific authentication step before terraform init (e.g., google-github-actions/auth for GCP, aws-actions/configure-aws-credentials for AWS, azure/login for Azure).
-         With state_endpoint set, stop for an AWS provider: the S3-compatible backend keys live in
-         the job's AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, which that action overwrites and the
-         AWS provider would otherwise read. Hand off for a separate backend credential channel
-         (docs/object-storage-ci.md#cloud-provider-gcss3azure) instead of mixing both.
+         With state_endpoint set the backend keys are STATE_ACCESS_KEY_ID / STATE_SECRET_ACCESS_KEY,
+         passed to `terraform init -backend-config`, so an AWS provider's own credentials (including those
+         exported by aws-actions/configure-aws-credentials) do not collide with them.
       5. Add $NEW_PROVIDER to the validate matrix in terraform-plan.yml
       6. Add plan-$NEW_PROVIDER to the aggregate `plan` job's `needs` list
       7. Wire up routed outputs and job conditions for $NEW_PROVIDER in both workflows.

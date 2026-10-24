@@ -57,42 +57,89 @@ class WorkflowSetupTests(unittest.TestCase):
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_s3_compatible_state_requires_both_static_keys_in_every_job(self) -> None:
-        endpoint = {'STATE_BACKEND': 's3', 'STATE_ENDPOINT': 'https://x.r2.cloudflarestorage.com'}
-        # The shipped templates only comment the static-key env out, so setup must not pass.
-        self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
+    ENDPOINT = {'STATE_BACKEND': 's3', 'STATE_ENDPOINT': 'https://x.r2.cloudflarestorage.com'}
+    INIT_COMMENT = (
+        '        #   env:\n'
+        '        #     STATE_ACCESS_KEY_ID: ${{ secrets.STATE_ACCESS_KEY_ID }}\n'
+        '        #     STATE_SECRET_ACCESS_KEY: ${{ secrets.STATE_SECRET_ACCESS_KEY }}\n'
+        '        #   run: terraform init -backend-config="access_key=$STATE_ACCESS_KEY_ID" '
+        '-backend-config="secret_key=$STATE_SECRET_ACCESS_KEY"\n'
+        '        run: terraform init\n'
+    )
+    INIT_ENABLED = (
+        '        env:\n'
+        '          STATE_ACCESS_KEY_ID: ${{ secrets.STATE_ACCESS_KEY_ID }}\n'
+        '          STATE_SECRET_ACCESS_KEY: ${{ secrets.STATE_SECRET_ACCESS_KEY }}\n'
+        '        run: terraform init -backend-config="access_key=$STATE_ACCESS_KEY_ID" '
+        '-backend-config="secret_key=$STATE_SECRET_ACCESS_KEY"\n'
+    )
+
+    def enable_state_keys(self) -> None:
+        """Do what the template says: swap each leaf's init step for the explicit-keys form."""
         for path in (self.plan, self.apply):
-            path.write_text(path.read_text().replace('    # env:\n', '    env:\n')
-                            .replace('    #   AWS_ACCESS_KEY_ID:', '      AWS_ACCESS_KEY_ID:')
-                            .replace('    #   AWS_SECRET_ACCESS_KEY:', '      AWS_SECRET_ACCESS_KEY:'))
+            text = path.read_text()
+            self.assertEqual(text.count(self.INIT_COMMENT), 2, path.name)
+            path.write_text(text.replace(self.INIT_COMMENT, self.INIT_ENABLED))
         self.commit()
-        self.assertEqual(self.check(extra_env=endpoint).returncode, 0)
-        # Without an endpoint the static keys are not the backend credential, so referencing
+
+    def test_s3_compatible_state_passes_the_keys_to_init_in_every_job(self) -> None:
+        # The shipped templates only carry the commented alternative, so setup must not pass yet.
+        self.assertEqual(self.check(extra_env=self.ENDPOINT).returncode, 1)
+        self.enable_state_keys()
+        self.assertEqual(self.check(extra_env=self.ENDPOINT).returncode, 0)
+        # Without an endpoint the state keys are not the backend credential, so referencing
         # them needs a declared inventory secret of the right tier and is rejected here.
         self.assertEqual(self.check(extra_env={'STATE_BACKEND': 's3'}).returncode, 1)
         self.assertEqual(self.check(extra_env={'STATE_BACKEND': 'gcs'}).returncode, 1)
-        # Dropping one key from a single job fails again.
+
+    def test_s3_compatible_state_rejects_every_deviation_from_the_prescribed_init(self) -> None:
+        self.enable_state_keys()
         good = self.plan.read_text()
-        self.plan.write_text(good.replace('      AWS_SECRET_ACCESS_KEY:', '    #   AWS_SECRET_ACCESS_KEY:', 1))
+        key = '          STATE_SECRET_ACCESS_KEY: ${{ secrets.STATE_SECRET_ACCESS_KEY }}\n'
+        run = self.INIT_ENABLED.split('        run:')[1]
+        deviations = {
+            'a key dropped from one job': good.replace(key, '', 1),
+            'a duplicated key': good.replace(key, key + key, 1),
+            'two sibling env mappings': good.replace(key, '        env:\n' + key, 1),
+            'the secret_key flag missing': good.replace(
+                ' -backend-config="secret_key=$STATE_SECRET_ACCESS_KEY"', '', 1),
+            'a plain run line left beside the explicit one': good.replace(
+                self.INIT_ENABLED, '        run: terraform init\n' + self.INIT_ENABLED, 1),
+            'a different secret behind the variable': good.replace(
+                'secrets.STATE_SECRET_ACCESS_KEY', 'secrets.OTHER', 1),
+            'a duplicated init step': good.replace(
+                '      - name: Terraform Init\n', '      - name: Terraform Init\n        run: true\n'
+                '      - name: Terraform Init\n', 1),
+        }
+        for label, text in deviations.items():
+            with self.subTest(label):
+                self.assertNotEqual(text, good, label)
+                self.plan.write_text(text)
+                self.commit()
+                self.assertEqual(self.check(extra_env=self.ENDPOINT).returncode, 1, label)
+        self.assertIn('-backend-config="access_key=', run)
+
+    def test_s3_compatible_state_jobs_cannot_upload_artifacts(self) -> None:
+        # -backend-config values land in .terraform/ and in every saved plan.
+        self.enable_state_keys()
+        good = self.plan.read_text()
+        upload = ('      - uses: actions/upload-artifact@v4\n'
+                  '        with:\n          name: plan\n          path: tfplan\n')
+        self.plan.write_text(good.replace('      - name: Terraform Init\n',
+                                          upload + '      - name: Terraform Init\n', 1))
         self.commit()
-        self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
-        # Two sibling env mappings (a partial merge) are rejected even when together they hold both keys.
-        split = good.replace('      AWS_SECRET_ACCESS_KEY:', '    env:\n      AWS_SECRET_ACCESS_KEY:', 1)
-        self.plan.write_text(split)
+        self.assertEqual(self.check(extra_env=self.ENDPOINT).returncode, 1)
+
+    def test_job_level_aws_keys_are_no_longer_the_s3_compatible_credential(self) -> None:
+        # The earlier job-level AWS_* form would be overwritten by an AWS provider's own identity.
+        self.enable_state_keys()
+        head, job = self.plan.read_text().split('\n  plan-cloudflare:\n', 1)
+        job = job.replace(
+            '    steps:\n', '    env:\n      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}\n'
+            '      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}\n    steps:\n', 1)
+        self.plan.write_text(head + '\n  plan-cloudflare:\n' + job)
         self.commit()
-        self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
-        # A duplicated key inside the single env mapping is rejected too.
-        dup = good.replace('      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}\n',
-                           '      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}\n'
-                           '      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}\n', 1)
-        self.assertNotEqual(dup, good)
-        self.plan.write_text(dup)
-        self.commit()
-        self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
-        # References outside a job-level env mapping (a step-level env) do not count.
-        self.plan.write_text(good.replace('    env:\n      AWS_ACCESS_KEY_ID', '    outputs-not-env:\n      AWS_ACCESS_KEY_ID', 1))
-        self.commit()
-        self.assertEqual(self.check(extra_env=endpoint).returncode, 1)
+        self.assertEqual(self.check(extra_env=self.ENDPOINT).returncode, 1)
 
     def test_legacy_workflows_do_not_skip_setup(self) -> None:
         self.plan.write_text(self.plan.read_text().replace('  workflow_dispatch:\n', '')

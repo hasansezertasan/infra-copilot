@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:3e17973a9a47c00d82a1d754e624f30675a8f3f2d3253623a0ed0b14c9d6c7e5
-Source-Hash: blake3:60a8aa057cbb314780b145796ec3c0977ac9a4239bb7c22d840afb874417f4d7
+Content-Hash: blake3:231207114c9af8d584c11b591b5c1add34ca44b8c0666e0773888c5d93592be2
+Source-Hash: blake3:5447ff6d4a6280d53ff72a8ba5fcedefc2809b313158d82673ac782080c2c5cc
 Schema-Version: v1
 -->
 
@@ -494,24 +494,30 @@ an independently verified trust/gate mechanism; the default AWS subject does not
 **S3-compatible (Cloudflare R2, MinIO):**
 
 There is no OIDC. Mint two keys scoped to the state bucket only: plan with Object Read only,
-apply with Object Read & Write. Store plan `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` at
-repository scope and the apply pair as production-environment overrides. Plan jobs run with
-`-lock=false`, so the read-only key never writes; apply takes the `use_lockfile` lock. The
-Terraform backend reads both variables from the environment, so no auth action is needed. The
-`gha-workflows` check requires both secret references, uncommented, in every plan and apply job
-whenever `state_endpoint` is set. Put the mapping at job scope, before `steps:`:
+apply with Object Read & Write. Store the plan pair as `STATE_ACCESS_KEY_ID` and
+`STATE_SECRET_ACCESS_KEY` at repository scope and the apply pair as production-environment
+overrides. Plan jobs run with `-lock=false`, so the read-only key never writes; apply takes the
+`use_lockfile` lock.
+
+The keys are not `AWS_*`: they are passed to `terraform init` explicitly, which Terraform's S3
+backend resolves ahead of any `AWS_ACCESS_KEY_ID` in the environment, and `init` saves them in the
+runner's `.terraform/` directory so the later `plan` and `apply` steps need nothing more. An AWS
+provider in the same job, or `aws-actions/configure-aws-credentials`, can therefore use `AWS_*`
+for its own identity. Replace each leaf's `Terraform Init` step in the plan and apply workflows:
 
 ```yaml
-env:
-  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+- name: Terraform Init
+  working-directory: terraform/cloudflare
+  env:
+    STATE_ACCESS_KEY_ID: ${{ secrets.STATE_ACCESS_KEY_ID }}
+    STATE_SECRET_ACCESS_KEY: ${{ secrets.STATE_SECRET_ACCESS_KEY }}
+  run: terraform init -backend-config="access_key=$STATE_ACCESS_KEY_ID" -backend-config="secret_key=$STATE_SECRET_ACCESS_KEY"
 ```
 
-Limitation: the backend keys are the job's process-wide `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCESS_KEY`. A leaf that also manages AWS resources would have them overwritten by
-`aws-actions/configure-aws-credentials` or consumed by the AWS provider, so combining an
-S3-compatible backend with an AWS provider needs a separate backend credential channel (for
-example a named profile). That combination is not covered yet.
+The `gha-workflows` check requires exactly this form in every plan and apply job whenever
+`state_endpoint` is set. No workflow may upload `.terraform/` or a saved plan (`tfplan`): Terraform writes `-backend-config`
+values into both, so either artifact would expose the state key. The `gha-workflows` check rejects
+any `upload-artifact` step in a plan or apply job when `state_endpoint` is set.
 
 **Azure:**
 
