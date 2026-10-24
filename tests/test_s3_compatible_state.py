@@ -120,7 +120,7 @@ class BackendIdentityTests(unittest.TestCase):
         }
     ''')
     ENV = {'STATE_BACKEND': 's3', 'REPO': 'o/r', 'STATE_ENDPOINT': 'https://x.example'}
-    KEYS = 'AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY'
+    KEYS = 'STATE_ACCESS_KEY_ID STATE_SECRET_ACCESS_KEY'
 
     def status(self, repo: str, env: str, endpoint: str = 'https://x.example') -> int:
         return run(check_script('backend-identity'),
@@ -129,8 +129,8 @@ class BackendIdentityTests(unittest.TestCase):
 
     def test_endpoint_requires_both_keys_at_both_scopes(self) -> None:
         self.assertEqual(self.status(self.KEYS, self.KEYS), 0)
-        self.assertEqual(self.status(self.KEYS, 'AWS_ACCESS_KEY_ID'), 1)
-        self.assertEqual(self.status('AWS_SECRET_ACCESS_KEY', self.KEYS), 1)
+        self.assertEqual(self.status(self.KEYS, 'STATE_ACCESS_KEY_ID'), 1)
+        self.assertEqual(self.status('STATE_SECRET_ACCESS_KEY', self.KEYS), 1)
 
     def test_endpoint_does_not_accept_a_role_arn(self) -> None:
         self.assertEqual(self.status('AWS_ROLE_ARN', 'AWS_ROLE_ARN'), 1)

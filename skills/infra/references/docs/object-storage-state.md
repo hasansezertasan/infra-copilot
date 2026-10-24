@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:29252139b97107f1dac392fdc1f79be51647f795985ce24a328da5152760088b
-Source-Hash: blake3:2a7494345ffa6200d8ae1776fded0b516e2d157e1d71aa47da0bb37032e5a229
+Content-Hash: blake3:4887cafe7ab746dc9d1c2e5ae1f7d67d13a77ed6e7a6e72ffc00f3a23dd6a839
+Source-Hash: blake3:a6b63351b0ee3f95821a0ae07765fa199b3abe74217eaafb9cdc9384671043a3
 Schema-Version: v1
 -->
 
@@ -42,7 +42,7 @@ What changes in verification:
   lockfiles rely on; HashiCorp tests only against AWS S3 and calls other stores best effort,
   so confirm with a real `terraform init` and plan.
 - There is no OIDC. Plan holds a read-only bucket-scoped key at repository scope
-  (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) and apply a read-write key in the `production`
+  (`STATE_ACCESS_KEY_ID`, `STATE_SECRET_ACCESS_KEY`) and apply a read-write key in the `production`
   environment. Plan jobs use `-lock=false`, so the plan key never writes.
 - The `aws` CLI (pinned as `awscli` in `mise.toml`) is still used, with `--endpoint-url` and
   `--region "$STATE_REGION"` on every call, so it does not depend on local AWS configuration.

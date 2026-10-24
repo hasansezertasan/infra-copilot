@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:2a7494345ffa6200d8ae1776fded0b516e2d157e1d71aa47da0bb37032e5a229",
+  "source_hash": "blake3:a6b63351b0ee3f95821a0ae07765fa199b3abe74217eaafb9cdc9384671043a3",
   "outputs": {
     ".agents/plugins/marketplace.json": {
       "content_hash": "blake3:c9f5887398d8719835af830222d1d2197f73e2a8864b2e1e24d347e2d75b6b36",
@@ -63,7 +63,7 @@
       "mode": "0755"
     },
     "skills/infra/references/checks/gha-workflows.sh": {
-      "content_hash": "blake3:2de574f61551a84e5c18b832eedd5e3dcdff6188886e130937e9f45dbe0f4357",
+      "content_hash": "blake3:02eff1e838991c676c461588238a58d595a1435eeb6955ed49e4575c95c0b992",
       "mode": "0644"
     },
     "skills/infra/references/checks/hcp-apply-scope.sh": {
@@ -159,11 +159,11 @@
       "mode": "0644"
     },
     "skills/infra/references/docs/object-storage-ci.md": {
-      "content_hash": "blake3:3e17973a9a47c00d82a1d754e624f30675a8f3f2d3253623a0ed0b14c9d6c7e5",
+      "content_hash": "blake3:2f72dbe52e83dd1b730b228a73fae88297282b830575fc675a7cb2e4fa2be1c8",
       "mode": "0644"
     },
     "skills/infra/references/docs/object-storage-state.md": {
-      "content_hash": "blake3:29252139b97107f1dac392fdc1f79be51647f795985ce24a328da5152760088b",
+      "content_hash": "blake3:4887cafe7ab746dc9d1c2e5ae1f7d67d13a77ed6e7a6e72ffc00f3a23dd6a839",
       "mode": "0644"
     },
     "skills/infra/references/docs/prune.md": {
@@ -223,7 +223,7 @@
       "mode": "0644"
     },
     "skills/infra/references/steps.yaml": {
-      "content_hash": "blake3:ad741b540cac52f1b6602ccf964af3428923e29ba78667cfe62b0ec3bfae8ec3",
+      "content_hash": "blake3:18bc65d9c795d212960aae3b9f6e11d58153bc0102930919e5b2e367d549512b",
       "mode": "0644"
     },
     "skills/infra/references/templates/apps/terraform-apply.json": {
@@ -235,7 +235,7 @@
       "mode": "0644"
     },
     "skills/infra/references/templates/terraform-apply.yml": {
-      "content_hash": "blake3:9189c9d05cc55bc3c2157a861090c593abc016dffe792ccd1acebad93b70cee1",
+      "content_hash": "blake3:2d8bb2a698bc6e012432aaabf1ebd0c276efe2cb041c780e69d062b16ffe471b",
       "mode": "0644"
     },
     "skills/infra/references/templates/terraform-destroy.cjs": {
@@ -243,7 +243,7 @@
       "mode": "0644"
     },
     "skills/infra/references/templates/terraform-plan.yml": {
-      "content_hash": "blake3:626f2e46bc47c1a7de749d89916577be8b231c0095c59549d7551a5be8e5ed2b",
+      "content_hash": "blake3:12eb47d663015d17ca5c5103c3a13968ded589e26bd902347825aae0a86fe0ed",
       "mode": "0644"
     }
   },
