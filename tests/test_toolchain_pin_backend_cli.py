@@ -85,6 +85,17 @@ class ToolchainPinBackendCliTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, expected, result.stderr.decode())
 
+    def test_cold_start_scans_the_backend_cli_pin_before_preflight(self) -> None:
+        # Preflight checks the backend binary and its pin, so the step must run first.
+        for path in (REFERENCES / 'protocol.md', REFERENCES.parents[1] / 'infra-setup/SKILL.md'):
+            text = re.sub(r'\s+', ' ', path.read_text(encoding='utf-8'))
+            self.assertRegex(text, r'`toolchain-pin` (step, then|and) `backend-cli-pin`', path.name)
+
+    def test_the_install_loop_is_shell_neutral(self) -> None:
+        # An unquoted $pinned loop does not word-split in zsh.
+        self.assertNotIn('for tool in $pinned', self.step)
+        self.assertIn('while IFS= read -r tool', self.step)
+
 
 if __name__ == '__main__':
     unittest.main()

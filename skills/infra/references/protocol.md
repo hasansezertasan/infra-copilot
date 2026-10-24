@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:cb4ad56c71b59abc720da344de32d140d0536ebcec0f77319d285eab89538640
-Source-Hash: blake3:42c7574fde1dc55e8f96bd54590bf4f29122805f262a3a990b60d7f7f4763ae5
+Content-Hash: blake3:4e79ea3967a28dfdc4179bd3f323000b58f775c2ab9e11f032c74030ef910dc5
+Source-Hash: blake3:874046b243ee5dd9a90ec42357b620005107e8c3d60005bf4340484bc99628ff
 Schema-Version: v1
 -->
 
@@ -253,10 +253,11 @@ execution settings work.
 `infra-setup` renders the Template (`template-render`, then `template-contract`) before
 anything else, with `INFRA_REFERENCES` exported and no config read. After that it has one
 cold-start ordering rule: first confirm that the `mise` command itself is
-available, then begin its resume scan with phase 0's `toolchain-pin` step. Do not run the
-pin-dependent preflight entries (`mise`'s full contract or the `terraform`/`gh`/`jq` tool
-checks) before that step has established committed pins. Once `toolchain-pin` is green,
-run the full preflight and continue the
+available, then begin its resume scan with phase 0's `toolchain-pin` step, then `backend-cli-pin`
+(green at once unless an object-storage state backend needs its CLI pinned). Do not run the
+pin-dependent preflight entries (`mise`'s full contract, the `terraform`/`gh`/`jq` tool
+checks or the backend CLI check) before those steps have established committed pins. Once
+both are green, run the full preflight and continue the
 resume scan at the selected `bootstrap-state` operation. This keeps the fail-fast gate
 while giving a missing toolchain an owned, resumable step.
 `infra-status` remains read-only: it reports the same failed step but never executes its `run`.

@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:2dfc2abbd17db2824d12a12b1a74ee0c6d2864f39b0d55bf73fa0be28f2b1fa2
-Source-Hash: blake3:42c7574fde1dc55e8f96bd54590bf4f29122805f262a3a990b60d7f7f4763ae5
+Content-Hash: blake3:adc7dd2d953d2eec2bf8624b624e4f3d8a0d2c0d6ed6cbe9202cc3fe417bb6aa
+Source-Hash: blake3:874046b243ee5dd9a90ec42357b620005107e8c3d60005bf4340484bc99628ff
 Schema-Version: v1
 -->
 
@@ -65,7 +65,8 @@ conflicting file; nothing the repo already has is overwritten silently.
 5. **Check the contract, then the pins.** Run `template-contract`: the recorded `_commit` must
    be a release tag at or above the minimum. An older tag proposes `copier update`. Then run
    `toolchain-pin`, the human's review of the adopted `mise.toml` and `mise.lock`, before any
-   pin-dependent preflight.
+   pin-dependent preflight. An object-storage repository also needs `backend-cli-pin` (its state
+   backend's CLI), which `infra-setup` runs before its preflight.
 6. **Plan before merging, and before importing.** Adoption can change `terraform/` files the
    human accepted from the Template. Obtain the plan on the adoption branch and have the human
    review it before the branch merges or anything else can trigger an apply. The resource

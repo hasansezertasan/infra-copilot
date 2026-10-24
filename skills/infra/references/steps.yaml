@@ -408,9 +408,11 @@ steps:
           mise lock || exit 1
           pinned=$(mise config get --file ./mise.toml tools |
             sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') || exit 1
-          for tool in $pinned; do
-            MISE_LOCKED=1 mise install "$tool" || exit 1
-          done
+          printf '%s\n' "$pinned" |
+            while IFS= read -r tool; do
+              [ -z "$tool" ] && continue
+              MISE_LOCKED=1 mise install "$tool" || exit 1
+            done || exit 1
           git add mise.toml mise.lock
           git diff --cached --quiet -- mise.toml mise.lock || git commit -m "build: pin the backend CLI" -- mise.toml mise.lock
     run: |

@@ -58,7 +58,8 @@ conflicting file; nothing the repo already has is overwritten silently.
 5. **Check the contract, then the pins.** Run `template-contract`: the recorded `_commit` must
    be a release tag at or above the minimum. An older tag proposes `copier update`. Then run
    `toolchain-pin`, the human's review of the adopted `mise.toml` and `mise.lock`, before any
-   pin-dependent preflight.
+   pin-dependent preflight. An object-storage repository also needs `backend-cli-pin` (its state
+   backend's CLI), which `infra-setup` runs before its preflight.
 6. **Plan before merging, and before importing.** Adoption can change `terraform/` files the
    human accepted from the Template. Obtain the plan on the adoption branch and have the human
    review it before the branch merges or anything else can trigger an apply. The resource
