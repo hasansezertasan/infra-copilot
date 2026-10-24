@@ -21,6 +21,13 @@ class ToolchainPinBackendCliTests(unittest.TestCase):
         self.assertIn('plain string under [tools]', self.step)
         self.assertIn('Do not use mise use', self.step)
 
+    def test_each_backend_lists_its_own_cli_versions(self) -> None:
+        # One fixed command would show AWS versions to a gcs or azurerm repository, and a
+        # $STATE_BACKEND dispatch would make this generic step backend-dependent.
+        self.assertNotIn('STATE_BACKEND', self.step)
+        for tool in BACKEND_CLIS.values():
+            self.assertEqual(self.step.count(f'mise ls-remote {tool} | tail -3'), 1, tool)
+
     def test_every_cli_the_preflight_requires_has_a_setup_row(self) -> None:
         setup = (REFERENCES / 'docs/setup.md').read_text(encoding='utf-8')
         for tool in BACKEND_CLIS.values():

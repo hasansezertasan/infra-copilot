@@ -329,10 +329,19 @@ steps:
       - effect: Prints the whole mise.toml so you can review it before trusting it, because repository config can enable templates, plugins and other executable behavior. If the file is absent, author it first with exact versions per docs/setup.md#6-local-development.
         run: |
           cat -- mise.toml
-      - effect: Only when the state backend is s3, gcs or azurerm, lists the newest versions of that backend's CLI (awscli for s3 and any S3-compatible store, gcloud for gcs, azure-cli for azurerm). The rendered Template pins only terraform, gh and jq, and preflight fails without an exact pin for the backend's CLI. Add it by editing mise.toml, as a plain string under [tools] (for example awscli = "2.38.5"), then review the diff. Do not use mise use, which installs while it writes and, for awscli, writes an inline table that the exact-pin check rejects.
+      - effect: For an s3 or S3-compatible state backend, lists the newest versions of its CLI, awscli. The rendered Template pins only terraform, gh and jq, and preflight fails without an exact pin for the backend's CLI. Add it by editing mise.toml, as a plain string under [tools] (for example awscli = "2.38.5"), then review the diff. Do not use mise use, which installs while it writes and, for awscli, writes an inline table that the exact-pin check rejects.
         run: |
-          # s3: awscli   gcs: gcloud   azurerm: azure-cli   (skip for hcp)
           mise ls-remote awscli | tail -3
+          # edit mise.toml, then:
+          git diff -- mise.toml
+      - effect: For a gcs state backend, lists the newest versions of its CLI, gcloud. Add it to mise.toml as a plain exact version string under [tools] and review the diff, as for awscli.
+        run: |
+          mise ls-remote gcloud | tail -3
+          # edit mise.toml, then:
+          git diff -- mise.toml
+      - effect: For an azurerm state backend, lists the newest versions of its CLI, azure-cli, which installs through pip. Add it to mise.toml as a plain exact version string under [tools] and review the diff, as for awscli. An hcp repository needs no backend CLI, so it skips these three commands.
+        run: |
+          mise ls-remote azure-cli | tail -3
           # edit mise.toml, then:
           git diff -- mise.toml
       - effect: Trusts the reviewed config, initializes and populates mise.lock, installs exactly the pinned tools from the lock, and activates them in this shell. Changing a rendered pin is a deliberate decision, and a later copier update merges it.
