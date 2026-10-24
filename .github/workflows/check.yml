@@ -28,7 +28,7 @@ jobs:
           cache: npm
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: "3.12"
+          python-version: "3.15"
       - run: npm ci
       - run: npm run check
       # What the template does not ship: markdownlint, the repository validator
@@ -55,7 +55,7 @@ jobs:
           cache: npm
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: "3.12"
+          python-version: "3.15"
       - run: npm ci
       - run: npm run smoke-opencode
       # Same job: it reuses the installer this job already downloaded.
@@ -73,7 +73,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: "3.12"
+          python-version: "3.15"
       - name: Validate links and host adapters
         run: python scripts/validate.py
       - name: Test repository validators
