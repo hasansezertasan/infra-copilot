@@ -165,9 +165,6 @@ preflight:
       pinned=$(printf '%s\n' "$tools" |
       sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
       [ -n "$pinned" ] &&
-      { ! grep -Eqs '^state_backend:[[:space:]]*"?s3"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq awscli; } &&
-      { ! grep -Eqs '^state_backend:[[:space:]]*"?gcs"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq gcloud; } &&
-      { ! grep -Eqs '^state_backend:[[:space:]]*"?azurerm"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq azure-cli; } &&
       ! printf '%s\n' "$tools" |
       sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
       grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
@@ -332,21 +329,6 @@ steps:
       - effect: Prints the whole mise.toml so you can review it before trusting it, because repository config can enable templates, plugins and other executable behavior. If the file is absent, author it first with exact versions per docs/setup.md#6-local-development.
         run: |
           cat -- mise.toml
-      - effect: For an s3 or S3-compatible state backend, lists the newest versions of its CLI, awscli. The rendered Template pins only terraform, gh and jq, and preflight fails without an exact pin for the backend's CLI. Add it by editing mise.toml, as a plain string under [tools] (for example awscli = "2.38.5"), then review the diff. Do not use mise use, which installs while it writes and, for awscli, writes an inline table that the exact-pin check rejects.
-        run: |
-          mise ls-remote awscli | tail -3
-          # edit mise.toml, then:
-          git diff -- mise.toml
-      - effect: For a gcs state backend, lists the newest versions of its CLI, gcloud. Add it to mise.toml as a plain exact version string under [tools] and review the diff, as for awscli.
-        run: |
-          mise ls-remote gcloud | tail -3
-          # edit mise.toml, then:
-          git diff -- mise.toml
-      - effect: For an azurerm state backend, lists the newest versions of its CLI, azure-cli, which installs through pip. Add it to mise.toml as a plain exact version string under [tools] and review the diff, as for awscli. An hcp repository needs no backend CLI, so it skips these three commands.
-        run: |
-          mise ls-remote azure-cli | tail -3
-          # edit mise.toml, then:
-          git diff -- mise.toml
       - effect: Trusts the reviewed config, initializes and populates mise.lock, installs exactly the pinned tools from the lock, and activates them in this shell. Changing a rendered pin is a deliberate decision, and a later copier update merges it.
         run: |
           mise trust mise.toml
@@ -365,14 +347,7 @@ steps:
         run: |
           git add mise.toml mise.lock
           git diff --cached --quiet -- mise.toml mise.lock || git commit -m "build: pin the toolchain" -- mise.toml mise.lock
-    run: |
-      For an object-storage repository the human also pins the state backend's CLI in this
-      step (see the second command), because the Template does not render it. Propose the
-      exact version and show the mise.toml diff; the human reviews and commits it, since the
-      agent that proposes executable repository config must not approve its own trust boundary.
-    # The backend CLI pin is derived from the committed answers file, the same validated
-    # Config the handoff reads, not from Terraform text that may carry stale or commented
-    # backend blocks. Keep this byte-for-byte identical to the mise preflight check. The repository
+    # Keep this byte-for-byte identical to the mise preflight check. The repository
     # validator enforces that invariant so the step and fail-fast gate cannot drift.
     check: >-
       mise --version >/dev/null &&
@@ -392,9 +367,6 @@ steps:
       pinned=$(printf '%s\n' "$tools" |
       sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
       [ -n "$pinned" ] &&
-      { ! grep -Eqs '^state_backend:[[:space:]]*"?s3"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq awscli; } &&
-      { ! grep -Eqs '^state_backend:[[:space:]]*"?gcs"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq gcloud; } &&
-      { ! grep -Eqs '^state_backend:[[:space:]]*"?azurerm"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq azure-cli; } &&
       ! printf '%s\n' "$tools" |
       sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
       grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
@@ -404,6 +376,60 @@ steps:
       MISE_LOCKED=1 mise install --dry-run "$tool" >/dev/null 2>&1 || exit 1;
       done
     produces: committed mise.toml + mise.lock
+    docs: docs/setup.md#6-local-development
+
+  - id: backend-cli-pin
+    operation: backend-cli-pin
+    implementation: both
+    phase: 0
+    provider: repo
+    actor: HUMAN
+    title: Pin the state backend's CLI in mise.toml
+    why: The rendered Template pins only terraform, gh and jq, and preflight fails without an exact pin for the CLI of an object-storage state backend; an HCP-only repository needs none.
+    check_summary: For an object-storage state backend, mise.toml and mise.lock are committed with an exact plain-string pin for the backend's CLI (awscli, gcloud or azure-cli); otherwise nothing is required.
+    cli:
+      - effect: For an s3 or S3-compatible state backend, lists the newest versions of its CLI, awscli. Add it by editing mise.toml, as a plain string under [tools] (for example awscli = "2.38.5"), then review the diff. Do not use mise use, which installs while it writes and, for awscli, writes an inline table that the exact-pin check rejects.
+        run: |
+          mise ls-remote awscli | tail -3
+          # edit mise.toml, then:
+          git diff -- mise.toml
+      - effect: For a gcs state backend, lists the newest versions of its CLI, gcloud. Add it to mise.toml as a plain exact version string under [tools] and review the diff, as for awscli.
+        run: |
+          mise ls-remote gcloud | tail -3
+          # edit mise.toml, then:
+          git diff -- mise.toml
+      - effect: For an azurerm state backend, lists the newest versions of its CLI, azure-cli, which installs through pip. Add it to mise.toml as a plain exact version string under [tools] and review the diff, as for awscli. Run only the command for the selected backend.
+        run: |
+          mise ls-remote azure-cli | tail -3
+          # edit mise.toml, then:
+          git diff -- mise.toml
+      - effect: Updates mise.lock, installs exactly the pinned tools from the lock, and commits mise.toml and mise.lock together, and only those two files.
+        run: |
+          mise lock
+          pinned=$(mise config get --file ./mise.toml tools |
+            sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p')
+          printf '%s\n' "$pinned" |
+            while IFS= read -r tool; do
+              [ -z "$tool" ] && continue
+              MISE_LOCKED=1 mise install "$tool" || exit 1
+            done
+          git add mise.toml mise.lock
+          git diff --cached --quiet -- mise.toml mise.lock || git commit -m "build: pin the backend CLI" -- mise.toml mise.lock
+    run: |
+      Propose the exact version for the selected backend's CLI and show the mise.toml diff;
+      the human reviews and commits it, since the agent that proposes executable repository
+      config must not approve its own trust boundary. An HCP-only repository is already green.
+    # Routing comes from the validated Config (the service inventory), not from Terraform
+    # text or the answers file, so a mixed HCP repository with an object-storage leaf is covered.
+    check: >-
+      [ "$HAS_OBJECT_STORAGE" != "true" ] && exit 0;
+      case "$STATE_BACKEND" in s3) tool=awscli ;; gcs) tool=gcloud ;; azurerm) tool=azure-cli ;; *) exit 0 ;; esac;
+      git ls-files --error-unmatch mise.toml mise.lock >/dev/null 2>&1 &&
+      git diff --quiet HEAD -- mise.toml mise.lock &&
+      git diff --cached --quiet HEAD -- mise.toml mise.lock &&
+      mise config get --file ./mise.toml "tools.$tool" 2>/dev/null | tr -d '[:space:]' |
+      grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$'
+    produces: committed mise.toml + mise.lock pinning the backend CLI
     docs: docs/setup.md#6-local-development
 
   # ── Phase 0 — HCP bootstrap (backend: hcp only) ──────────────────────────
@@ -2856,9 +2882,6 @@ steps:
       pinned=$(printf '%s\n' "$tools" |
       sed -n 's/^[[:space:]]*"\{0,1\}\([^"=[:space:]]*\)"\{0,1\}[[:space:]]*=.*/\1/p') &&
       [ -n "$pinned" ] &&
-      { ! grep -Eqs '^state_backend:[[:space:]]*"?s3"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq awscli; } &&
-      { ! grep -Eqs '^state_backend:[[:space:]]*"?gcs"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq gcloud; } &&
-      { ! grep -Eqs '^state_backend:[[:space:]]*"?azurerm"?[[:space:]]*$' .copier-answers.yml || printf '%s\n' "$pinned" | grep -Fxq azure-cli; } &&
       ! printf '%s\n' "$tools" |
       sed -n 's/^[^=]*=[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' |
       grep -Evq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$' &&
