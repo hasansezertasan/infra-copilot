@@ -80,10 +80,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.cloudflare == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
-    # S3-compatible state (R2, MinIO) has no OIDC: uncomment to authenticate the backend.
-    # env:
-    #   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    #   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -115,6 +111,12 @@ jobs:
 
       - name: Terraform Init
         working-directory: terraform/cloudflare
+        # S3-compatible state (R2, MinIO): pass the state keys explicitly, so they stay separate from any
+        # AWS provider credentials in this job. Replace the run line below with these four lines:
+        #   env:
+        #     STATE_ACCESS_KEY_ID: ${{ secrets.STATE_ACCESS_KEY_ID }}
+        #     STATE_SECRET_ACCESS_KEY: ${{ secrets.STATE_SECRET_ACCESS_KEY }}
+        #   run: terraform init -backend-config="access_key=$STATE_ACCESS_KEY_ID" -backend-config="secret_key=$STATE_SECRET_ACCESS_KEY"
         run: terraform init
 
       - name: Terraform Plan
@@ -200,10 +202,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.github == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
-    # S3-compatible state (R2, MinIO) has no OIDC: uncomment to authenticate the backend.
-    # env:
-    #   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    #   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -236,6 +234,12 @@ jobs:
 
       - name: Terraform Init
         working-directory: terraform/github
+        # S3-compatible state (R2, MinIO): pass the state keys explicitly, so they stay separate from any
+        # AWS provider credentials in this job. Replace the run line below with these four lines:
+        #   env:
+        #     STATE_ACCESS_KEY_ID: ${{ secrets.STATE_ACCESS_KEY_ID }}
+        #     STATE_SECRET_ACCESS_KEY: ${{ secrets.STATE_SECRET_ACCESS_KEY }}
+        #   run: terraform init -backend-config="access_key=$STATE_ACCESS_KEY_ID" -backend-config="secret_key=$STATE_SECRET_ACCESS_KEY"
         run: terraform init
 
       - name: Terraform Plan

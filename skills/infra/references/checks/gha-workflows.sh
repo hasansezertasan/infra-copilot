@@ -247,30 +247,31 @@ for name in $names; do
       [ -n "$secret" ] || continue
       case "$secret" in
         GCP_WORKLOAD_IDENTITY_PROVIDER|GCP_SERVICE_ACCOUNT|AWS_ROLE_ARN|AZURE_CLIENT_ID|AZURE_TENANT_ID|AZURE_SUBSCRIPTION_ID) continue ;;
-        # Static keys are the backend credential only for an S3-compatible store; anywhere
+        # The state keys are the backend credential only for an S3-compatible store; anywhere
         # else they must match a declared inventory secret of the right tier.
-        AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY)
+        STATE_ACCESS_KEY_ID|STATE_SECRET_ACCESS_KEY)
           if [ "${STATE_BACKEND:-}" = s3 ] && [ -n "${STATE_ENDPOINT:-}" ]; then continue; fi ;;
       esac
       printf '%s' "$inventory" | jq -e --arg name "$secret" --arg tier "$tier" '
         any(.[]; (.name | ascii_upcase) == $name and .scope == $tier)' >/dev/null || exit 1
     done || exit 1
-    # An S3-compatible state store has no OIDC: every job must read both static keys
-    # through its job-level env mapping, which every step (init, plan, apply) inherits.
+    # An S3-compatible state store has no OIDC. The state keys go to `terraform init` explicitly,
+    # which beats any AWS_* environment, so an AWS provider in the same job keeps its own
+    # credentials. Accept exactly the prescribed form: one init step, one env mapping, each key
+    # once, and the one run line that passes both.
     if [ "${STATE_BACKEND:-}" = s3 ] && [ -n "${STATE_ENDPOINT:-}" ]; then
-      # Exactly one job-level env mapping: a second one would shadow or duplicate the first.
-      [ "$(printf '%s\n' "$tier_job" | grep -c '^    env:[[:space:]]*$' || true)" = 1 ] || exit 1
-      job_env=$(printf '%s\n' "$tier_job" | awk '
-        /^    env:[[:space:]]*$/ {in_env=1; next}
-        in_env && /^    [^[:space:]]/ {in_env=0}
-        in_env {print}
-      ')
-      for secret in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
-        # Each key exactly once: a duplicate may be invalid YAML or override the intended secret.
-        [ "$(printf '%s\n' "$job_env" | grep -Ec "^      $secret:" || true)" = 1 ] || exit 1
-        printf '%s\n' "$job_env" |
-          grep -Eq "^      $secret:[[:space:]]*\\$\\{\\{[[:space:]]*secrets\\.$secret[[:space:]]*\\}\\}[[:space:]]*\$" || exit 1
+      [ "$(printf '%s\n' "$tier_job" | grep -c '^      - name: Terraform Init$' || true)" = 1 ] || exit 1
+      init=$(printf '%s\n' "$tier_job" | step 'Terraform Init')
+      [ "$(printf '%s\n' "$init" | grep -c '^        env:$' || true)" = 1 ] || exit 1
+      [ "$(printf '%s\n' "$init" | grep -c '^        run:' || true)" = 1 ] || exit 1
+      for key in STATE_ACCESS_KEY_ID STATE_SECRET_ACCESS_KEY; do
+        [ "$(printf '%s\n' "$init" | grep -c "^          $key:" || true)" = 1 ] || exit 1
+        printf '%s\n' "$init" | grep -Fxq "          $key: \${{ secrets.$key }}" || exit 1
       done
+      printf '%s\n' "$init" | grep -Fxq '        run: terraform init -backend-config="access_key=$STATE_ACCESS_KEY_ID" -backend-config="secret_key=$STATE_SECRET_ACCESS_KEY"' || exit 1
+      # `-backend-config` values are written into `.terraform/` and into every saved plan
+      # (`tfplan`), so a job that holds the state keys must not upload any artifact.
+      printf '%s\n' "$tier_job" | grep -Fq 'upload-artifact' && exit 1
     fi
     printf '%s' "$inventory" | jq -r --arg tier "$tier" '
       .[] | select(.scope == $tier and .required == true) | .name | ascii_upcase' |
