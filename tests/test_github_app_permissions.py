@@ -74,8 +74,9 @@ class GitHubAppPermissionTests(unittest.TestCase):
         plan_manifest = json.loads((REFERENCES / 'templates/apps/terraform-plan.json').read_text(encoding='utf-8'))
         apply_manifest = json.loads((REFERENCES / 'templates/apps/terraform-apply.json').read_text(encoding='utf-8'))
         self.assertTrue(all(permission == 'read' for permission in plan_manifest['default_permissions'].values()))
-        for permission_name in ('administration', 'members', 'organization_administration'):
+        for permission_name in ('administration', 'contents', 'members', 'organization_administration'):
             self.assertEqual(apply_manifest['default_permissions'][permission_name], 'write')
+        # GitHub needs Contents write to return merge settings on the apply refresh (github.md#rotation).
         self.assertFalse(plan_manifest['hook_attributes']['active'])
         self.assertNotEqual(plan_manifest['name'], apply_manifest['name'])
 
