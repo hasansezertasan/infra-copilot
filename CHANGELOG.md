@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.4.0](https://github.com/hasansezertasan/infra-skills/compare/v0.3.0...v0.4.0) (2026-10-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** read the Config block from the README and retire the old state directory ([#139](https://github.com/hasansezertasan/infra-skills/issues/139))
+* rename the plugin to infra-skills with prefixed skills ([#137](https://github.com/hasansezertasan/infra-skills/issues/137))
+
+### Features
+
+* **config:** read the Config block from the README and retire the old state directory ([#139](https://github.com/hasansezertasan/infra-skills/issues/139)) ([0f023ab](https://github.com/hasansezertasan/infra-skills/commit/0f023abe209c12a9744497d7f59bfe7db15586e8))
+* **import:** adopt the copier-infra Template before importing ([#143](https://github.com/hasansezertasan/infra-skills/issues/143)) ([51feff0](https://github.com/hasansezertasan/infra-skills/commit/51feff045f0c0e1875d0a86de1e2c400ba30755a))
+* **object-storage:** support S3-compatible state stores (Cloudflare R2, MinIO) ([#161](https://github.com/hasansezertasan/infra-skills/issues/161)) ([08e9788](https://github.com/hasansezertasan/infra-skills/commit/08e9788186f58f25205e8b2414716fc77d745658))
+* **protocol:** CLI-first Handoff contract, proven on state-bucket and cf-token ([#152](https://github.com/hasansezertasan/infra-skills/issues/152)) ([e4f0718](https://github.com/hasansezertasan/infra-skills/commit/e4f07189bf7d56ce1cc50097468f850660fdb650))
+* rename the plugin to infra-skills with prefixed skills ([#137](https://github.com/hasansezertasan/infra-skills/issues/137)) ([2621782](https://github.com/hasansezertasan/infra-skills/commit/2621782628e2a2864bb21b8ada39054352ace493))
+* **setup:** render the copier-infra Template and check the Template contract ([#140](https://github.com/hasansezertasan/infra-skills/issues/140)) ([69734a2](https://github.com/hasansezertasan/infra-skills/commit/69734a29d8038336fcd48d596f2297960bfa4ec4))
+* **steps:** guided Handoffs for the remaining HUMAN steps ([#153](https://github.com/hasansezertasan/infra-skills/issues/153)) ([cf89127](https://github.com/hasansezertasan/infra-skills/commit/cf891279353d81839c29dde23d4641d73d31765c))
+
+
+### Bug Fixes
+
+* **docs:** drop the template version from ADR 0001 so it cannot collide with the plugin version ([#163](https://github.com/hasansezertasan/infra-skills/issues/163)) ([2312a0d](https://github.com/hasansezertasan/infra-skills/commit/2312a0d5ac503643ccfc301528f78b6e5a40bee2))
+
 ## [0.3.0](https://github.com/hasansezertasan/infra-copilot/compare/v0.2.0...v0.3.0) (2026-10-09)
 
 
