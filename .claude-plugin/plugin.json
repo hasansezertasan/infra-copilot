@@ -1,7 +1,7 @@
 {
   "name": "infra-skills",
   "description": "Agent-first, human-in-the-loop workflows for infrastructure maintenance.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": {
     "name": "hasansezertasan"
   },
